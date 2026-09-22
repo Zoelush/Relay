@@ -1,0 +1,17 @@
+import {env} from 'cloudflare:workers';
+import {legacyWritesEnabled} from '@/server/agent-bridge';
+import {z} from 'zod';
+import {admin,ApiError,body,failure,publicSettings,response,sameOrigin} from '@/lib/relay-server';
+export const dynamic='force-dynamic';
+const columns='id,name,email,title,status,assigned,priority,unread,sample,tag,created_at,updated_at';
+const actions=z.discriminatedUnion('action',[
+z.object({action:z.literal('send'),conversationId:z.string().min(1).max(100),messageId:z.string().uuid(),kind:z.enum(['agent','note']),text:z.string().trim().min(1).max(5000)}),
+z.object({action:z.literal('update'),conversationId:z.string().min(1).max(100),status:z.enum(['open','closed']).optional(),assigned:z.enum(['','owner']).optional(),priority:z.boolean().optional(),read:z.boolean().optional()}),
+z.object({action:z.literal('settings'),brand:z.string().trim().min(1).max(40),greeting:z.string().trim().min(1).max(160),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),availability:z.string().trim().min(1).max(100)})]);
+export async function GET(request:Request){try{const {db,w,user}=await admin();const id=new URL(request.url).searchParams.get('conversation');if(id){const conversation=await db.prepare(`SELECT ${columns} FROM conversations WHERE id=?`).bind(id).first();if(!conversation)throw new ApiError('Conversation not found.',404);const {results}=await db.prepare('SELECT id,kind,body,sender,created_at FROM messages WHERE conversation_id=? ORDER BY created_at,id').bind(id).all();return response({conversation,messages:results});}const {results}=await db.prepare(`SELECT ${columns},(SELECT body FROM messages WHERE conversation_id=conversations.id ORDER BY created_at DESC,id DESC LIMIT 1) AS preview FROM conversations ORDER BY updated_at DESC`).all();return response({conversations:results,settings:publicSettings(w),user:{name:user.fullName||'You'}});}catch(e){return failure(e);}}
+export async function POST(request:Request){try{sameOrigin(request);if(!legacyWritesEnabled(env))throw new ApiError("The legacy inbox is read-only while PostgreSQL owns writes.",409);const {db}=await admin();const parsed=actions.safeParse(await body(request));if(!parsed.success)throw new ApiError('Check the fields. Messages must be 1–5,000 characters.');const p=parsed.data;
+if(p.action==='settings'){await db.prepare('UPDATE workspace SET brand=?,greeting=?,color=?,availability=? WHERE id=?').bind(p.brand,p.greeting,p.color,p.availability,'main').run();return response({ok:true});}
+const c=await db.prepare('SELECT id FROM conversations WHERE id=?').bind(p.conversationId).first();if(!c)throw new ApiError('Conversation not found.',404);
+if(p.action==='send'){const now=Date.now();await db.batch([db.prepare('INSERT OR IGNORE INTO messages (id,conversation_id,kind,body,sender,created_at) VALUES (?,?,?,?,?,?)').bind(p.messageId,p.conversationId,p.kind,p.text,'You',now),db.prepare('UPDATE conversations SET updated_at=?, unread=0 WHERE id=?').bind(now,p.conversationId)]);return response({ok:true});}
+const changes:string[]=[];const values:(string|number)[]=[];if(p.status!==undefined){changes.push('status=?');values.push(p.status);}if(p.assigned!==undefined){changes.push('assigned=?');values.push(p.assigned);}if(p.priority!==undefined){changes.push('priority=?');values.push(Number(p.priority));}if(p.read){changes.push('unread=0');}if(changes.length)await db.prepare(`UPDATE conversations SET ${changes.join(',')} WHERE id=?`).bind(...values,p.conversationId).run();return response({ok:true});
+}catch(e){return failure(e);}}

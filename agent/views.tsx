@@ -1,0 +1,632 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api } from "./api";
+import type { ViewFilter } from "../server/inbox-views";
+export type ViewCount = {
+  id: string;
+  count: string;
+  count_label: string;
+  count_version: string;
+  ready: boolean;
+};
+type View = ViewCount & {
+  name: string;
+  filter: ViewFilter;
+  sort: string;
+  revision: string;
+  shared: boolean;
+  folder_id: string | null;
+  position: number;
+  builtin?: string;
+};
+type Folder = { id: string; name: string; shared: boolean; position: number };
+type Row = {
+  id: string;
+  title: string;
+  status: string;
+  channel: string;
+  assigned: string;
+  name?: string;
+  unread?: boolean;
+};
+const initial: ViewFilter = { field: "state", op: "eq", value: "open" };
+function FilterEditor({
+  value,
+  onChange,
+  depth = 0,
+}: {
+  value: ViewFilter;
+  onChange: (v: ViewFilter) => void;
+  depth?: number;
+}) {
+  if ("and" in value || "or" in value) {
+    const all = "and" in value,
+      items = all ? value.and : value.or;
+    const update = (children: ViewFilter[]) =>
+      onChange(all ? { and: children } : { or: children });
+    return (
+      <fieldset className="pg-filter-group">
+        <legend>
+          <select
+            aria-label="Group operator"
+            value={all ? "and" : "or"}
+            onChange={(e) =>
+              onChange(
+                e.target.value === "and" ? { and: items } : { or: items },
+              )
+            }
+          >
+            <option value="and">Match all</option>
+            <option value="or">Match any</option>
+          </select>
+        </legend>
+        {items.map((v, i) => (
+          <div key={i}>
+            <FilterEditor
+              value={v}
+              depth={depth + 1}
+              onChange={(child) =>
+                update(items.map((old, j) => (i === j ? child : old)))
+              }
+            />
+            {items.length > 1 && (
+              <button
+                type="button"
+                onClick={() => update(items.filter((_, j) => j !== i))}
+              >
+                Remove condition
+              </button>
+            )}
+          </div>
+        ))}
+        <button type="button" onClick={() => update([...items, initial])}>
+          Add condition
+        </button>
+        {depth < 3 && (
+          <button
+            type="button"
+            onClick={() => update([...items, { or: [initial] }])}
+          >
+            Add group
+          </button>
+        )}
+      </fieldset>
+    );
+  }
+  return (
+    <div className="pg-filter-row">
+      <select
+        aria-label="Filter field"
+        value={value.field}
+        onChange={(e) =>
+          onChange({
+            field: e.target.value as typeof value.field,
+            op: "eq",
+            value: e.target.value === "priority" ? true : "",
+          })
+        }
+      >
+        {[
+          "state",
+          "channel",
+          "assignee",
+          "team",
+          "tag",
+          "topic",
+          "priority",
+          "brand",
+          "created_at",
+        ].map((f) => (
+          <option key={f} value={f}>
+            {f.replaceAll("_", " ")}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Comparison"
+        value={value.op}
+        onChange={(e) =>
+          onChange({ ...value, op: e.target.value as typeof value.op })
+        }
+      >
+        <option value="eq">is</option>
+        <option value="ne">is not</option>
+        {value.field === "created_at" && (
+          <>
+            <option value="gte">on or after</option>
+            <option value="lte">on or before</option>
+          </>
+        )}
+      </select>
+      {value.field === "priority" ? (
+        <select
+          aria-label="Priority value"
+          value={String(value.value)}
+          onChange={(e) =>
+            onChange({ ...value, value: e.target.value === "true" })
+          }
+        >
+          <option value="true">Priority</option>
+          <option value="false">Normal</option>
+        </select>
+      ) : value.field === "state" ? (
+        <select
+          aria-label="State value"
+          value={String(value.value)}
+          onChange={(e) => onChange({ ...value, value: e.target.value })}
+        >
+          {["open", "snoozed", "closed"].map((s) => (
+            <option key={s}>{s}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          aria-label="Filter value"
+          placeholder={
+            value.field === "created_at"
+              ? "2026-09-22T00:00:00Z"
+              : "Value or identifier"
+          }
+          value={String(value.value)}
+          onChange={(e) => onChange({ ...value, value: e.target.value })}
+        />
+      )}
+    </div>
+  );
+}
+export function InboxViews({
+  selected,
+  revision,
+  counts,
+  onSelect,
+  onError,
+  onJob,
+}: {
+  selected: string;
+  revision: number;
+  counts: ViewCount[];
+  onSelect: (row: Row) => void;
+  onError: (error: unknown) => void;
+  onJob: (id: string) => void;
+}) {
+  const [views, setViews] = useState<View[]>([]),
+    [folders, setFolders] = useState<Folder[]>([]),
+    [viewId, setViewId] = useState("");
+  const [rows, setRows] = useState<Row[]>([]),
+    [cursor, setCursor] = useState<string | null>(null),
+    [query, setQuery] = useState(""),
+    [sort, setSort] = useState("newest");
+  const [scroll, setScroll] = useState(0),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [editing, setEditing] = useState<Partial<View> | null>(null);
+  const viewport = useRef<HTMLDivElement>(null),
+    generation = useRef(0),
+    loading = useRef(false),
+    queryRef = useRef("");
+  const [height, setHeight] = useState(500);
+  const refresh = useCallback(async () => {
+    const data = await api<{ views: View[]; folders: Folder[] }>("views");
+    setViews(data.views);
+    setFolders(data.folders);
+    setViewId((old) =>
+      data.views.some((v) => v.id === old)
+        ? old
+        : (data.views.find((v) => v.builtin === "open")?.id ??
+          data.views[0]?.id ??
+          ""),
+    );
+  }, []);
+  useEffect(() => {
+    let live = true;
+    api<{ views: View[]; folders: Folder[] }>("views")
+      .then((data) => {
+        if (!live) return;
+        setViews(data.views);
+        setFolders(data.folders);
+        setViewId((old) =>
+          data.views.some((v) => v.id === old)
+            ? old
+            : (data.views.find((v) => v.builtin === "open")?.id ??
+              data.views[0]?.id ??
+              ""),
+        );
+      })
+      .catch((e) => {
+        if (live) setError(e.message);
+      });
+    return () => {
+      live = false;
+    };
+  }, [revision]);
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const observer = new ResizeObserver((entries) =>
+      setHeight(entries[0].contentRect.height),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const loadPage = useCallback(
+    async (next: string | null, version: number) => {
+      if (!viewId) return;
+      loading.current = true;
+      const q = new URLSearchParams({
+        view: viewId,
+        sort,
+        q: queryRef.current,
+      });
+      if (next) q.set("cursor", next);
+      try {
+        const data = await api<{
+          conversations: Row[];
+          nextCursor: string | null;
+        }>("view-page?" + q);
+        if (version !== generation.current) return;
+        setRows((old) =>
+          next
+            ? [
+                ...old,
+                ...data.conversations.filter(
+                  (c) => !old.some((x) => x.id === c.id),
+                ),
+              ]
+            : data.conversations,
+        );
+        setCursor(data.nextCursor);
+      } catch (e) {
+        if (version === generation.current) {
+          setError(e instanceof Error ? e.message : "Unable to load view.");
+          onError(e);
+        }
+      } finally {
+        if (version === generation.current) loading.current = false;
+      }
+    },
+    [viewId, sort, onError],
+  );
+  useEffect(() => {
+    const version = ++generation.current;
+    queryRef.current = query;
+    const timer = setTimeout(
+      () => void loadPage(null, version),
+      query ? 180 : 0,
+    );
+    return () => {
+      clearTimeout(timer);
+      ++generation.current;
+    };
+  }, [viewId, sort, query, revision, loadPage]);
+  useEffect(() => {
+    setScroll(0);
+    if (viewport.current) viewport.current.scrollTop = 0;
+  }, [viewId, sort, query]);
+  const current = views.find((v) => v.id === viewId),
+    countMap = new Map(counts.map((c) => [c.id, c]));
+  async function mutate(p: Record<string, unknown>, optimistic?: View) {
+    const before = views.find((v) => v.id === p.id);
+    setBusy(true);
+    setError("");
+    if (optimistic)
+      setViews((old) =>
+        old.some((v) => v.id === optimistic.id)
+          ? old.map((v) => (v.id === optimistic.id ? optimistic : v))
+          : [...old, optimistic],
+      );
+    if (p.action === "archive")
+      setViews((old) => old.filter((v) => v.id !== p.id));
+    try {
+      const result = await api<{ id?: string; jobId?: string }>("views", p);
+      if (result.jobId) onJob(result.jobId);
+      await refresh();
+      if (result.id && p.action !== "folder" && p.action !== "archive")
+        setViewId(result.id);
+      setEditing(null);
+    } catch (e) {
+      if (optimistic)
+        setViews((old) => old.filter((v) => v.id !== optimistic.id));
+      if (before)
+        setViews((old) =>
+          [...old.filter((v) => v.id !== before.id), before].sort(
+            (a, b) => a.position - b.position,
+          ),
+        );
+      setError(e instanceof Error ? e.message : "Action failed.");
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const rowHeight = 86,
+    start = Math.max(0, Math.floor(scroll / rowHeight) - 5),
+    end = Math.min(rows.length, start + Math.ceil(height / rowHeight) + 10);
+  return (
+    <div className="pg-views">
+      <header>
+        <h2>Conversations</h2>
+        <button
+          aria-label="Create view"
+          onClick={() =>
+            setEditing({
+              name: "",
+              filter: { and: [initial] },
+              sort: "newest",
+              shared: false,
+            })
+          }
+        >
+          ＋ View
+        </button>
+      </header>
+      {error && <p role="alert">{error}</p>}
+      {!views.length && (
+        <button
+          disabled={busy}
+          onClick={() => void mutate({ action: "initialize" })}
+        >
+          Set up my default views
+        </button>
+      )}
+      <nav aria-label="Inbox views">
+        {[null, ...folders].map((folder) => (
+          <div key={folder?.id ?? "ungrouped"}>
+            {folder && <strong>{folder.name}</strong>}
+            {views
+              .filter((v) => v.folder_id === (folder?.id ?? null))
+              .map((v) => {
+                const live = countMap.get(v.id) ?? v;
+                return (
+                  <button
+                    key={v.id}
+                    aria-pressed={viewId === v.id}
+                    onClick={() => {
+                      setViewId(v.id);
+                      setSort(v.sort);
+                    }}
+                  >
+                    {v.name}
+                    <span>{live.ready ? live.count_label : "Updating…"}</span>
+                  </button>
+                );
+              })}
+          </div>
+        ))}
+      </nav>
+      {current && (
+        <div className="pg-view-tools">
+          <button disabled={busy} onClick={() => setEditing({ ...current })}>
+            Edit
+          </button>
+          <button
+            disabled={busy}
+            onClick={() =>
+              void mutate(
+                { action: "duplicate", id: current.id },
+                {
+                  ...current,
+                  id: crypto.randomUUID(),
+                  name: current.name + " copy",
+                  ready: false,
+                },
+              )
+            }
+          >
+            Duplicate
+          </button>
+          <button
+            disabled={busy || !!current.builtin}
+            onClick={() =>
+              void mutate({
+                action: "archive",
+                id: current.id,
+                revision: current.revision,
+              })
+            }
+          >
+            Archive
+          </button>
+          <button
+            disabled={busy}
+            onClick={() =>
+              void mutate(
+                {
+                  action: "save",
+                  ...current,
+                  folderId: current.folder_id,
+                  position: current.position - 1,
+                },
+                { ...current, position: current.position - 1 },
+              )
+            }
+          >
+            Move up
+          </button>
+          <button
+            disabled={busy}
+            onClick={() =>
+              void mutate(
+                {
+                  action: "save",
+                  ...current,
+                  folderId: current.folder_id,
+                  position: current.position + 1,
+                },
+                { ...current, position: current.position + 1 },
+              )
+            }
+          >
+            Move down
+          </button>
+        </div>
+      )}
+      <div className="pg-view-query">
+        <input
+          aria-label="Search within view"
+          placeholder="Search this view…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select
+          aria-label="Sort conversations"
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+        >
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="waiting">Longest waiting</option>
+        </select>
+      </div>
+      <div
+        ref={viewport}
+        className="pg-virtual-list"
+        data-testid="virtual-conversations"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          setScroll(el.scrollTop);
+          if (
+            el.scrollHeight - el.scrollTop - el.clientHeight < 500 &&
+            cursor &&
+            !loading.current
+          )
+            void loadPage(cursor, generation.current);
+        }}
+      >
+        <div style={{ height: rows.length * rowHeight, position: "relative" }}>
+          {rows.slice(start, end).map((c, index) => (
+            <button
+              key={c.id}
+              className={c.id === selected ? "pg-row selected" : "pg-row"}
+              style={{
+                position: "absolute",
+                top: (start + index) * rowHeight,
+                height: rowHeight,
+                width: "100%",
+              }}
+              onClick={() => onSelect(c)}
+            >
+              <span className="pg-avatar">
+                {c.unread ? "●" : (c.name || "C").slice(0, 1)}
+              </span>
+              <span>
+                <strong>{c.name || "Customer"}</strong>
+                <span className="pg-row-title">{c.title}</span>
+                <small>
+                  {c.status} · {c.channel}
+                </small>
+              </span>
+            </button>
+          ))}
+        </div>
+        {cursor && (
+          <button
+            disabled={loading.current}
+            onClick={() => void loadPage(cursor, generation.current)}
+          >
+            Load more conversations
+          </button>
+        )}
+        {!rows.length && current?.ready && (
+          <p className="pg-empty">No conversations in this view.</p>
+        )}
+      </div>
+      {editing && (
+        <div className="pg-modal-backdrop">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit inbox view"
+            className="pg-view-dialog"
+          >
+            <h2>{editing.id ? "Edit view" : "New view"}</h2>
+            <label>
+              Name
+              <input
+                value={editing.name ?? ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, name: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={editing.shared ?? false}
+                onChange={(e) =>
+                  setEditing({ ...editing, shared: e.target.checked })
+                }
+              />{" "}
+              Shared with workspace
+            </label>
+            <label>
+              Folder
+              <select
+                value={editing.folder_id ?? ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, folder_id: e.target.value || null })
+                }
+              >
+                <option value="">No folder</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => setEditing({ ...editing, folder_id: "__new" })}
+            >
+              New folder
+            </button>
+            {editing.folder_id === "__new" && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = new FormData(e.currentTarget);
+                  void mutate({
+                    action: "folder",
+                    name: form.get("name"),
+                    shared: editing.shared,
+                  });
+                }}
+              >
+                <input name="name" aria-label="New folder name" required />
+                <button disabled={busy}>Create folder</button>
+              </form>
+            )}
+            <FilterEditor
+              value={editing.filter ?? initial}
+              onChange={(filter) => setEditing({ ...editing, filter })}
+            />
+            <p>
+              Dates use explicit timezones. Unavailable people/SLA filters are
+              omitted.
+            </p>
+            <footer>
+              <button onClick={() => setEditing(null)}>Cancel</button>
+              <button
+                disabled={
+                  busy || !editing.name?.trim() || editing.folder_id === "__new"
+                }
+                onClick={() => {
+                  const optimistic = {
+                    ...editing,
+                    id: editing.id ?? crypto.randomUUID(),
+                    ready: false,
+                  } as View;
+                  void mutate(
+                    { action: "save", ...editing, folderId: editing.folder_id },
+                    optimistic,
+                  );
+                }}
+              >
+                Save view
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}

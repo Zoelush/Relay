@@ -1,0 +1,12 @@
+ALTER TABLE jobs ADD COLUMN owner_identity_id text;
+ALTER TABLE jobs ADD COLUMN owner_teammate_id text;
+ALTER TABLE jobs ADD COLUMN lease_token text;
+ALTER TABLE jobs ADD COLUMN lease_until timestamptz;
+ALTER TABLE jobs ADD COLUMN last_error text;
+ALTER TABLE jobs ADD COLUMN completed_at timestamptz;
+ALTER TABLE jobs ADD CONSTRAINT job_identity FOREIGN KEY(workspace_id,owner_identity_id) REFERENCES identities(workspace_id,id);
+ALTER TABLE jobs ADD CONSTRAINT job_teammate FOREIGN KEY(workspace_id,owner_teammate_id) REFERENCES teammates(workspace_id,id);
+CREATE INDEX jobs_recovery ON jobs(workspace_id,state,lease_until,created_at);
+ALTER TABLE attachments ADD COLUMN job_id text;
+ALTER TABLE attachments ADD CONSTRAINT attachment_job FOREIGN KEY(workspace_id,job_id) REFERENCES jobs(workspace_id,id);
+CREATE TRIGGER immutable_delivery_events BEFORE UPDATE OR DELETE ON conversation_part_delivery_events FOR EACH ROW EXECUTE FUNCTION reject_part_mutation();

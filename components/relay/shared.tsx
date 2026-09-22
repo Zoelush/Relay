@@ -1,0 +1,14 @@
+"use client";
+import {useEffect,useRef,useState} from 'react';
+export type Conversation={id:string;name:string;email:string;title:string;status:'open'|'closed';assigned:string;priority:number;unread:number;sample:number;tag:string;created_at:number;updated_at:number;preview?:string};
+export type Message={id:string;kind:'agent'|'visitor'|'note';body:string;sender:string;created_at:number};
+export type Settings={brand:string;greeting:string;color:string;availability:string};
+export const defaults:Settings={brand:'Relay',greeting:'Hi there. How can we help?',color:'#087a57',availability:'We usually reply in a few minutes'};
+export async function api<T=Record<string,unknown>>(url:string,data?:unknown,headers?:Record<string,string>):Promise<T>{const r=await fetch(url,{method:data?'POST':'GET',headers:{...(data?{'Content-Type':'application/json'}:{}),...headers},body:data?JSON.stringify(data):undefined,cache:'no-store'});const result=await r.json() as T & {error?:string};if(!r.ok)throw new Error(result.error||'Something went wrong. Please try again.');return result;}
+export function usePoll<T>(url:string,version=0,headers?:Record<string,string>){const[data,setData]=useState<T|null>(null);const[error,setError]=useState('');const ref=useRef(headers);ref.current=headers;useEffect(()=>{let active=true;let timer:ReturnType<typeof setTimeout>;setData(null);setError('');async function poll(){try{const next=await api<T>(url,undefined,ref.current);if(active){setData(next);setError('');}}catch(e){if(active)setError((e as Error).message);}finally{if(active)timer=setTimeout(poll,2000);}}if(url)void poll();return()=>{active=false;clearTimeout(timer)};},[url,version]);return{data,error};}
+export function initials(name:string){return name.split(/\s+/).slice(0,2).map(s=>s[0]).join('').toUpperCase();}
+export function shade(name:string){return ['peach','green','violet',''][name.charCodeAt(0)%4];}
+export function Avatar({name,large=false}:{name:string;large?:boolean}){return <span className={`avatar ${shade(name)} ${large?'large':''}`}>{initials(name)}</span>}
+export function since(time:number){const m=Math.max(0,Math.floor((Date.now()-time)/60000));if(m<1)return'now';if(m<60)return m+'m';if(m<1440)return Math.floor(m/60)+'h';return Math.floor(m/1440)+'d';}
+export function timeOf(time:number){return new Date(time).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
+export function useMessageScroll(messages:Message[]|undefined,identity:string){const scroll=useRef<HTMLDivElement>(null);const previous=useRef('');useEffect(()=>{const el=scroll.current;if(!el)return;const last=messages?.at(-1)?.id||'';const changed=previous.current!==identity;const nearBottom=el.scrollHeight-el.scrollTop-el.clientHeight<200;if(changed||nearBottom)el.scrollTop=el.scrollHeight;previous.current=identity;void last;},[messages,identity]);return scroll;}

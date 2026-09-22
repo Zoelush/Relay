@@ -1,0 +1,129 @@
+:host {
+  all: initial !important;
+  display: contents !important;
+  color-scheme: light dark !important;
+  font:
+    14px system-ui,
+    sans-serif !important;
+}
+* {
+  box-sizing: border-box;
+}
+button {
+  all: unset;
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 2147483646;
+  inset-inline-end: 24px;
+  bottom: 24px;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 20px;
+  background: #087a57;
+  color: white;
+  box-shadow: 0 5px 24px #0003;
+  cursor: pointer;
+  font:
+    24px system-ui,
+    sans-serif;
+}
+button:focus-visible {
+  outline: 3px solid #2476ff;
+  outline-offset: 4px;
+}
+button[data-position="left"] {
+  inset-inline-start: 24px;
+  inset-inline-end: auto;
+}
+button[data-shape="circle"] {
+  border-radius: 50%;
+}
+button[hidden],
+iframe[hidden] {
+  display: none !important;
+}
+.badge {
+  position: absolute;
+  top: -5px;
+  inset-inline-end: -5px;
+  background: #b72835;
+  color: white;
+  border: 2px solid white;
+  border-radius: 16px;
+  min-width: 22px;
+  padding: 1px 5px;
+  font:
+    bold 12px system-ui,
+    sans-serif;
+}
+.badge:empty {
+  display: none;
+}
+iframe {
+  position: fixed;
+  z-index: 2147483647;
+  inset-inline-end: 24px;
+  bottom: 94px;
+  width: 390px;
+  height: 650px;
+  max-height: calc(100dvh - 120px);
+  max-width: calc(100vw - 32px);
+  border: 0;
+  border-radius: 22px;
+  background: #fafaf7;
+  box-shadow: 0 14px 64px #001b2533;
+  color-scheme: normal;
+}
+iframe[data-position="left"] {
+  inset-inline-start: 24px;
+  inset-inline-end: auto;
+}
+.notification-prompt {
+  position: fixed;
+  z-index: 2147483647;
+  inset-inline-end: 35px;
+  bottom: 130px;
+  background: white;
+  color: #183c34;
+  width: 300px;
+  padding: 20px;
+  border: 1px solid #dfe8e2;
+  border-radius: 16px;
+  box-shadow: 0 8px 40px #0003;
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+}
+.notification-prompt button {
+  all: unset;
+  display: block;
+  font:
+    14px system-ui,
+    sans-serif;
+  background: #087a57;
+  color: white;
+  border-radius: 8px;
+  padding: 10px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+.notification-prompt button:focus-visible {
+  outline: 2px solid #2476ff;
+  outline-offset: 2px;
+}
+@media (max-width: 480px) {
+  iframe {
+    inset: 8px !important;
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+    max-height: none;
+    max-width: none;
+    border-radius: 16px;
+  }
+  button {
+    bottom: 16px;
+    inset-inline-end: 16px;
+  }
+}
