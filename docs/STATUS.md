@@ -1,6 +1,6 @@
 # Status
 
-Verified 29 September 2026 against commit `0bfdeb2` by reading the code and
+Verified 29 September 2026 against commit `0bfdeb2`; phase 04 row and checks updated for step B1 on branch `phase-04/step-b1` by reading the code and
 running the checks below. Claims copied from earlier docs but not
 re-verified are marked as such.
 
@@ -19,7 +19,7 @@ have not been provisioned, and no data has moved from D1.
 | 01 Tenancy, identity, people | Partial | Workspaces, teammates, roles, contacts, identities and merge audit exist (`db/postgres/0002_people.sql`, `server/people.ts`, `server/identity.ts`). Companies, custom objects, typed contact/company values, events, subscriptions and segments are missing, and the 50,000-contact acceptance workload has not been run (`docs/LOCAL_READINESS.md` §2). |
 | 02 Conversation core and realtime | Done locally, not hosted | Typed parts, cycles, merges, search, jobs, outbox and WebSocket replay (`server/conversations.ts`, `server/realtime.ts`, `workers/relay.ts`); covered by the Node tests. Hosted acceptance not run. |
 | 03 Messenger | Done locally, not hosted | Iframe messenger and loader (`messenger/`, `docs/MESSENGER.md`). The production messenger is still the D1 one in `components/relay/messenger.tsx`. Its Playwright tests are not verified. |
-| 04 Agent inbox | Step A done locally; step B partial | Step A: `components/relay/postgres-inbox.tsx`, `server/agent-bridge.ts`, migration 0013, `tests/agent-inbox.test.ts`. Step B (views): migration `0014_inbox_views.sql`, `server/inbox-views.ts`, `agent/views.tsx`, wired into `server/api.ts` and `workers/relay.ts`. It has no test and no CHANGELOG entry. Steps C and D not started. |
+| 04 Agent inbox | Step A done locally; step B1 done locally; B2, C, D not started | Step A: `components/relay/postgres-inbox.tsx`, `server/agent-bridge.ts`, migration 0013, `tests/agent-inbox.test.ts`. Step B1 (saved views, shared lists, live counts, paging): migrations 0014–0015, `server/inbox-views.ts`, `agent/views.tsx`, `tests/inbox-views.test.ts`, `tests/browser/inbox-views.spec.ts`; see `docs/AGENT_INBOX_STEP2.md`. B2 (first screen, 150ms) not started. |
 
 ## Inbox: storage and transport
 
@@ -44,22 +44,24 @@ Migration tooling (intended to stay until cutover): `db/d1-cutover/*`, `server/m
 
 ## Checks run
 
-`npm ci` then:
+On `phase-04/step-b1`:
 
 ```text
 npm test
-ℹ tests 21
-ℹ pass 21
+ℹ tests 23
+ℹ pass 23
 ℹ fail 0
-ℹ duration_ms 26412
 ```
 
-`npm run typecheck`: passes with no errors.
-
-`npm run test:e2e` (Playwright) was not run. It needs a Playwright browser install, and the CHANGELOG records that it has never passed.
+- `npm run typecheck`: passes.
+- `npm run test:e2e` (Playwright, Chromium): 7 of 8 pass.
+  - Agent inbox: 2/2 pass.
+  - Views: 2/2 pass.
+  - Messenger: 3 of 4 pass. "Hostile CSS and strict CSP" times out focusing the launcher, on this branch and on `main` alike.
+- Views load harness, `scripts/load-views.ts 200 10000`: figures in `docs/AGENT_INBOX_STEP2.md` §3.
 
 ## Gaps to decide on
 
-- Step B is written but undocumented and untested. Either finish it with tests and a CHANGELOG entry, or confirm it should be treated as step B's starting point.
+- The messenger hostile-CSS browser test fails on `main` (phase 03).
 - The live app depends on ChatGPT Sites hosting. Moving it to your own Cloudflare account needs its own plan.
 - Git history has only two commits, so earlier work cannot be reconstructed from `git log`.

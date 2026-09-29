@@ -2,6 +2,7 @@ import {
   rebuildViews,
   projectionJob,
   scheduleInboxProjection,
+  mutateView,
 } from "../server/inbox-views";
 /** Loopback-only development fixture. Never imported by the deployed Worker. */
 import {
@@ -124,6 +125,26 @@ export async function startLocalRelay(
         [w, options.inboxViews === true],
       ),
     );
+  // Two-workspace views seed: the owner's default views plus one shared view each. Fixed
+  // idempotency keys make this a no-op on restart; queued rebuilds run in the loop below.
+  if (options.inboxViews)
+    for (const w of ["demo", "other"])
+      await tenant(db.connect, w, async (sql) => {
+        await mutateView(sql, w, "local-owner", "local-seed-views-init", {
+          action: "initialize",
+        });
+        await mutateView(sql, w, "local-owner", "local-seed-views-shared", {
+          action: "save",
+          name: "Open priority (shared)",
+          shared: true,
+          filter: {
+            and: [
+              { field: "state", op: "eq", value: "open" },
+              { field: "priority", op: "eq", value: true },
+            ],
+          },
+        });
+      });
   // Loopback substitutes for Queues/Cron/alarms. Status is persisted and pushed, never polled by the browser.
   const handlers: Record<string, JobHandler> = {
     "inbox.views.rebuild": (job) => rebuildViews(db.connect, job),

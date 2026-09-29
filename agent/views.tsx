@@ -199,6 +199,12 @@ export function InboxViews({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [editing, setEditing] = useState<Partial<View> | null>(null);
+  // Optimistic views survive server refreshes until their own mutation settles.
+  const pending = useRef(new Map<string, View>());
+  const withPending = (fetched: View[]) => [
+    ...fetched.filter((v) => !pending.current.has(v.id)),
+    ...pending.current.values(),
+  ];
   const viewport = useRef<HTMLDivElement>(null),
     generation = useRef(0),
     loading = useRef(false),
@@ -206,7 +212,7 @@ export function InboxViews({
   const [height, setHeight] = useState(500);
   const refresh = useCallback(async () => {
     const data = await api<{ views: View[]; folders: Folder[] }>("views");
-    setViews(data.views);
+    setViews(withPending(data.views));
     setFolders(data.folders);
     setViewId((old) =>
       data.views.some((v) => v.id === old)
@@ -221,7 +227,7 @@ export function InboxViews({
     api<{ views: View[]; folders: Folder[] }>("views")
       .then((data) => {
         if (!live) return;
-        setViews(data.views);
+        setViews(withPending(data.views));
         setFolders(data.folders);
         setViewId((old) =>
           data.views.some((v) => v.id === old)
@@ -303,10 +309,17 @@ export function InboxViews({
   }, [viewId, sort, query]);
   const current = views.find((v) => v.id === viewId),
     countMap = new Map(counts.map((c) => [c.id, c]));
-  async function mutate(p: Record<string, unknown>, optimistic?: View) {
-    const before = views.find((v) => v.id === p.id);
+  async function mutate(
+    p: Record<string, unknown>,
+    optimistic?: View,
+    optimisticList?: View[],
+  ) {
+    const before = views.find((v) => v.id === p.id),
+      previous = views;
     setBusy(true);
     setError("");
+    if (optimisticList) setViews(optimisticList);
+    if (optimistic) pending.current.set(optimistic.id, optimistic);
     if (optimistic)
       setViews((old) =>
         old.some((v) => v.id === optimistic.id)
@@ -317,12 +330,15 @@ export function InboxViews({
       setViews((old) => old.filter((v) => v.id !== p.id));
     try {
       const result = await api<{ id?: string; jobId?: string }>("views", p);
+      if (optimistic) pending.current.delete(optimistic.id);
       if (result.jobId) onJob(result.jobId);
       await refresh();
       if (result.id && p.action !== "folder" && p.action !== "archive")
         setViewId(result.id);
       setEditing(null);
     } catch (e) {
+      if (optimistic) pending.current.delete(optimistic.id);
+      if (optimisticList) setViews(previous);
       if (optimistic)
         setViews((old) => old.filter((v) => v.id !== optimistic.id));
       if (before)
@@ -336,6 +352,24 @@ export function InboxViews({
     } finally {
       setBusy(false);
     }
+  }
+  /** Swaps with the neighbouring view in the same folder; the server renumbers the folder. */
+  function move(view: View, direction: "up" | "down") {
+    const group = views
+        .filter((v) => v.folder_id === view.folder_id)
+        .sort((a, b) => a.position - b.position),
+      from = group.findIndex((v) => v.id === view.id),
+      neighbour = group[from + (direction === "up" ? -1 : 1)];
+    const swapped = neighbour
+      ? views.map((v) =>
+          v.id === view.id
+            ? { ...v, position: neighbour.position }
+            : v.id === neighbour.id
+              ? { ...v, position: view.position }
+              : v,
+        )
+      : views;
+    void mutate({ action: "move", id: view.id, direction }, undefined, swapped);
   }
   const rowHeight = 86,
     start = Math.max(0, Math.floor(scroll / rowHeight) - 5),
@@ -373,6 +407,7 @@ export function InboxViews({
             {folder && <strong>{folder.name}</strong>}
             {views
               .filter((v) => v.folder_id === (folder?.id ?? null))
+              .sort((a, b) => a.position - b.position)
               .map((v) => {
                 const live = countMap.get(v.id) ?? v;
                 return (
@@ -425,36 +460,10 @@ export function InboxViews({
           >
             Archive
           </button>
-          <button
-            disabled={busy}
-            onClick={() =>
-              void mutate(
-                {
-                  action: "save",
-                  ...current,
-                  folderId: current.folder_id,
-                  position: current.position - 1,
-                },
-                { ...current, position: current.position - 1 },
-              )
-            }
-          >
+          <button disabled={busy} onClick={() => move(current, "up")}>
             Move up
           </button>
-          <button
-            disabled={busy}
-            onClick={() =>
-              void mutate(
-                {
-                  action: "save",
-                  ...current,
-                  folderId: current.folder_id,
-                  position: current.position + 1,
-                },
-                { ...current, position: current.position + 1 },
-              )
-            }
-          >
+          <button disabled={busy} onClick={() => move(current, "down")}>
             Move down
           </button>
         </div>
@@ -610,9 +619,12 @@ export function InboxViews({
                   busy || !editing.name?.trim() || editing.folder_id === "__new"
                 }
                 onClick={() => {
+                  // New views have no folder or position yet: show them last, ungrouped.
                   const optimistic = {
                     ...editing,
                     id: editing.id ?? crypto.randomUUID(),
+                    folder_id: editing.folder_id ?? null,
+                    position: editing.position ?? Number.MAX_SAFE_INTEGER,
                     ready: false,
                   } as View;
                   void mutate(
