@@ -10,10 +10,11 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 04 (agent inbox). Step A is implemented locally, and so
-is step B1 (saved views on shared filter lists; `docs/AGENT_INBOX_STEP2.md`).
-Next is step B2: first-screen loading and the 150ms measurement. Phases 01–03
-are implemented locally but not complete or hosted; see `docs/STATUS.md`.
+Current position: phase 04 (agent inbox). Steps A, B1 (saved views;
+`docs/AGENT_INBOX_STEP2.md`) and B2 (first screen; `docs/AGENT_INBOX_STEP3.md`)
+are implemented locally. Next is step C: timeline, composer and collaboration.
+Phases 01–03 are implemented locally but not complete or hosted; see
+`docs/STATUS.md`.
 
 ## Known state
 

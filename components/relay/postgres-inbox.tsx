@@ -1,5 +1,11 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Inbox,
   LockKeyhole,
@@ -23,6 +29,9 @@ type Conversation = {
 };
 type Part = {
   id: string;
+  conversation_id: string;
+  seq: string;
+  created_at: string;
   kind: string;
   audience: string;
   body: string;
@@ -38,10 +47,28 @@ type Part = {
 };
 type Snapshot = {
   conversations: Conversation[];
-  teammate: { name: string };
+  teammate: { id: string; name: string; role_id?: string };
   storage: { engine: string; transport: string; workspaceId: string };
   capabilities: { reply: boolean; note: boolean; views?: boolean };
 };
+/** A cached timeline: parts, the live replay cursor, and the cursor for older history. */
+type Entry = {
+  parts: Map<string, Part>;
+  cursor?: string;
+  older?: string | null;
+};
+type FirstScreen = { parts: Part[]; cursor: string; older: string | null };
+/** Conversations kept in memory. Never persisted: notes and customer details stay off disk. */
+const CACHE_LIMIT = 50;
+/** Timeline order shared with the server: created_at, then conversation, then seq. */
+function ordered(entry?: Entry) {
+  return [...(entry?.parts.values() ?? [])].sort(
+    (a, b) =>
+      a.created_at.localeCompare(b.created_at) ||
+      a.conversation_id.localeCompare(b.conversation_id) ||
+      Number(a.seq) - Number(b.seq),
+  );
+}
 type Pending = {
   id: string;
   conversationId: string;
@@ -49,7 +76,10 @@ type Pending = {
   body: string;
 };
 
-/** Step 1: authenticated core inbox. Saved views and rich composing are separate steps. */
+/**
+ * Authenticated core inbox. A conversation opens on its newest parts (from cache when warm),
+ * older history loads on scroll, and live replay resumes from the cached cursor.
+ */
 export default function PostgresInbox() {
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [selected, setSelected] = useState("");
@@ -66,8 +96,22 @@ export default function PostgresInbox() {
   const selectedRef = useRef("");
   const socket = useRef<WebSocket | null>(null);
   const ready = useRef(false);
-  const cache = useRef(
-    new Map<string, { parts: Map<string, Part>; cursor?: string }>(),
+  const cache = useRef(new Map<string, Entry>());
+  // Cache owner: workspace, teammate and capabilities. A change clears the cache.
+  const cacheOwner = useRef("");
+  const [hasOlder, setHasOlder] = useState(false);
+  const [olderState, setOlderState] = useState<"idle" | "loading" | "error">(
+    "idle",
+  );
+  const olderLoading = useRef(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  // Set before prepending older parts, so the reader's position is kept.
+  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const prefetchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const prefetching = useRef(false);
+  // Selection timing: from pick to the frame after its first screen renders.
+  const measuring = useRef<{ id: string; start: number; cached: boolean }>(
+    null,
   );
   const failed = useRef(new Map<string, Pending>());
   const bottom = useRef<HTMLDivElement>(null);
@@ -75,6 +119,33 @@ export default function PostgresInbox() {
   const loadVersion = useRef(0);
   const invalidateLoads = useCallback(() => {
     ++loadVersion.current;
+  }, []);
+  const adopt = useCallback((data: Snapshot) => {
+    const owner = JSON.stringify([
+      data.storage.workspaceId,
+      data.teammate,
+      data.capabilities,
+    ]);
+    if (cacheOwner.current && cacheOwner.current !== owner)
+      cache.current.clear();
+    cacheOwner.current = owner;
+    setSnapshot(data);
+  }, []);
+  /** Stores an entry as most recently used; evicts the oldest beyond the limit. */
+  const remember = useCallback((id: string, entry: Entry) => {
+    cache.current.delete(id);
+    cache.current.set(id, entry);
+    for (const key of cache.current.keys()) {
+      if (cache.current.size <= CACHE_LIMIT) break;
+      if (key !== selectedRef.current) cache.current.delete(key);
+    }
+  }, []);
+  /** Renders the selected conversation from its cache entry. */
+  const show = useCallback((id: string) => {
+    const entry = cache.current.get(id);
+    setParts(ordered(entry));
+    setHasOlder(!!entry?.older);
+    setOlderState("idle");
   }, []);
 
   const report = useCallback((reason: unknown) => {
@@ -103,11 +174,11 @@ export default function PostgresInbox() {
     const version = ++loadVersion.current;
     try {
       const data = await api<Snapshot>("inbox");
-      if (!fatal.current && version === loadVersion.current) setSnapshot(data);
+      if (!fatal.current && version === loadVersion.current) adopt(data);
     } catch (e) {
       if (version === loadVersion.current) report(e);
     }
-  }, [report]);
+  }, [report, adopt]);
 
   useEffect(() => {
     let stopped = false;
@@ -123,7 +194,7 @@ export default function PostgresInbox() {
         );
         const data = await api<Snapshot>("inbox");
         if (stopped) return;
-        setSnapshot(data);
+        adopt(data);
         const url = new URL(ticket.url);
         url.searchParams.set("workspace", data.storage.workspaceId);
         const ws = new WebSocket(url);
@@ -161,19 +232,13 @@ export default function PostgresInbox() {
           }
           if (frame.type === "timeline") {
             const id = String(frame.conversationId);
-            const entry = frame.reset
-              ? {
-                  parts: new Map<string, Part>(),
-                  cursor: undefined as string | undefined,
-                }
-              : (cache.current.get(id) ?? {
-                  parts: new Map<string, Part>(),
-                  cursor: undefined,
-                });
+            const entry: Entry = frame.reset
+              ? { parts: new Map(), older: frame.older ?? null }
+              : (cache.current.get(id) ?? { parts: new Map() });
             for (const p of frame.parts as Part[]) entry.parts.set(p.id, p);
             entry.cursor = frame.cursor;
-            cache.current.set(id, entry);
-            if (selectedRef.current === id) setParts([...entry.parts.values()]);
+            remember(id, entry);
+            if (selectedRef.current === id) show(id);
             const committed = new Set(
               (frame.parts as Part[]).map((p) => p.data.clientMutationId),
             );
@@ -235,11 +300,93 @@ export default function PostgresInbox() {
       socket.current?.close();
       invalidateLoads();
     };
-  }, [load, report, retry, invalidateLoads]);
+  }, [load, report, retry, invalidateLoads, adopt, remember, show]);
 
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "nearest" });
+  useLayoutEffect(() => {
+    const el = timelineRef.current;
+    if (anchor.current && el) {
+      el.scrollTop =
+        anchor.current.top + el.scrollHeight - anchor.current.height;
+      anchor.current = null;
+    } else bottom.current?.scrollIntoView({ block: "nearest" });
+    const m = measuring.current;
+    if (m && m.id === selectedRef.current && parts.length) {
+      measuring.current = null;
+      requestAnimationFrame(() =>
+        performance.measure("relay:first-screen", {
+          start: m.start,
+          end: performance.now(),
+          detail: { cached: m.cached },
+        }),
+      );
+    }
   }, [parts, pending]);
+  async function loadOlder() {
+    const id = selectedRef.current,
+      entry = cache.current.get(id);
+    if (!entry?.older || olderLoading.current) return;
+    olderLoading.current = true;
+    setOlderState("loading");
+    try {
+      const page = await api<{ parts: Part[]; older: string | null }>(
+        "history?" +
+          new URLSearchParams({ conversation: id, before: entry.older }),
+      );
+      // A reset or eviction replaced this entry meanwhile: drop the stale page.
+      if (cache.current.get(id) !== entry) return;
+      for (const p of page.parts) entry.parts.set(p.id, p);
+      entry.older = page.older;
+      if (selectedRef.current === id) {
+        const el = timelineRef.current;
+        if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
+        show(id);
+      }
+    } catch (e) {
+      if (e instanceof InboxError && e.code === "CURSOR_INVALID") {
+        // The conversation was merged or rewritten: reopen from its newest parts.
+        cache.current.delete(id);
+        if (selectedRef.current === id) pick(id);
+      } else setOlderState("error");
+    } finally {
+      olderLoading.current = false;
+    }
+  }
+  // A first screen shorter than the pane cannot scroll; fetch older history directly.
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (
+      hasOlder &&
+      olderState === "idle" &&
+      el &&
+      el.scrollHeight <= el.clientHeight
+    )
+      void loadOlder();
+  });
+  /** Fetches a conversation's first screen after a short hover or focus, one at a time. */
+  function prefetch(id: string) {
+    clearTimeout(prefetchTimer.current);
+    if (cache.current.has(id) || fatal.current) return;
+    prefetchTimer.current = setTimeout(async () => {
+      if (prefetching.current || cache.current.has(id)) return;
+      prefetching.current = true;
+      const owner = cacheOwner.current;
+      try {
+        const data = await api<FirstScreen>(
+          "history?" + new URLSearchParams({ conversation: id }),
+        );
+        if (!cache.current.has(id) && owner === cacheOwner.current)
+          remember(id, {
+            parts: new Map(data.parts.map((p) => [p.id, p])),
+            cursor: data.cursor,
+            older: data.older,
+          });
+      } catch {
+        // Prefetch is best effort; opening the conversation reports real errors.
+      } finally {
+        prefetching.current = false;
+      }
+    }, 100);
+  }
   function pick(id: string) {
     if (ready.current && selectedRef.current)
       socket.current?.send(
@@ -248,9 +395,14 @@ export default function PostgresInbox() {
           conversationId: selectedRef.current,
         }),
       );
+    measuring.current = {
+      id,
+      start: performance.now(),
+      cached: cache.current.has(id),
+    };
     selectedRef.current = id;
     setSelected(id);
-    setParts([...(cache.current.get(id)?.parts.values() ?? [])]);
+    show(id);
     setError("");
     if (ready.current)
       socket.current?.send(
@@ -364,6 +516,7 @@ export default function PostgresInbox() {
                   setPickedConversation(c);
                   pick(c.id);
                 }}
+                onPrefetch={prefetch}
                 onJob={(id) => {
                   if (ready.current)
                     socket.current?.send(
@@ -379,6 +532,8 @@ export default function PostgresInbox() {
                     key={c.id}
                     className={c.id === selected ? "pg-row selected" : "pg-row"}
                     onClick={() => pick(c.id)}
+                    onMouseEnter={() => prefetch(c.id)}
+                    onFocus={() => prefetch(c.id)}
                   >
                     <span className="pg-avatar">
                       {(c.name || "C").slice(0, 1)}
@@ -412,7 +567,39 @@ export default function PostgresInbox() {
                     {conversation?.email ? ` · ${conversation.email}` : ""}
                   </p>
                 </header>
-                <div className="pg-timeline" role="log" aria-label="Messages">
+                <div
+                  className="pg-timeline"
+                  role="log"
+                  aria-label="Messages"
+                  ref={timelineRef}
+                  onScroll={(e) => {
+                    if (
+                      e.currentTarget.scrollTop < 200 &&
+                      olderState === "idle"
+                    )
+                      void loadOlder();
+                  }}
+                >
+                  {hasOlder && (
+                    <div className="pg-older">
+                      {olderState === "error" ? (
+                        <>
+                          <span role="alert">
+                            Older messages could not be loaded.
+                          </span>
+                          <button onClick={() => void loadOlder()}>
+                            Retry
+                          </button>
+                        </>
+                      ) : olderState === "loading" ? (
+                        <span>Loading older messages…</span>
+                      ) : (
+                        <button onClick={() => void loadOlder()}>
+                          Load older messages
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {visible.map((p) => {
                     const internal =
                       p.audience === "internal" || p.kind === "internal_note";

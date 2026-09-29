@@ -17,12 +17,15 @@ import { getIdentity, mergeVisitorIdentity } from "./people";
 import {
   command,
   timeline,
+  recentTimeline,
+  olderTimeline,
   conversation,
   access,
   agentConversation,
   type Actor,
   type Command,
   type Conversation,
+  type OlderBounds,
 } from "./conversations";
 import { authorize, can } from "./policy";
 import {
@@ -337,6 +340,73 @@ export async function realtimeUnread(env: ApiEnvironment, s: RealtimeSession) {
     ).rows,
   }));
 }
+/** Parts in the inbox's first screen, and in each older page loaded by scrolling back. */
+const FIRST_SCREEN_PARTS = 50,
+  OLDER_PAGE_PARTS = 100;
+/** One page of older history for the inbox, below a signed cursor from the first screen. */
+export async function agentOlderPage(
+  env: ApiEnvironment,
+  workspace: string,
+  principal: string,
+  id: string,
+  token: string,
+) {
+  const c = await claims(token, env, "agent-older");
+  assert(
+    c.workspace === workspace &&
+      c.principal === principal &&
+      c.requestedId === id,
+    "CURSOR_INVALID",
+    "Cursor belongs to another agent.",
+    403,
+  );
+  const { result, personalData } = await tenant(
+    env.connect,
+    workspace,
+    async (db) => {
+      await inboxEnabled(db, workspace);
+      const result = await olderTimeline(
+        db,
+        workspace,
+        id,
+        { type: "teammate", principal },
+        c.before as OlderBounds,
+        OLDER_PAGE_PARTS,
+      );
+      assert(
+        result.revision === c.revision,
+        "CURSOR_INVALID",
+        "This conversation changed. Reopen it.",
+        409,
+      );
+      const personalData = await can(
+        db,
+        workspace,
+        principal,
+        "contacts.personal_data",
+      );
+      return { result, personalData };
+    },
+  );
+  return {
+    conversation: agentConversation(result.conversation, personalData),
+    parts: result.parts,
+    older: result.older
+      ? await sign(
+          {
+            workspace,
+            principal,
+            requestedId: id,
+            revision: result.revision,
+            before: result.older,
+          },
+          env,
+          Math.floor(Date.now() / 1000) + 86400,
+          "agent-older",
+        )
+      : null,
+  };
+}
 export async function agentHistoryPage(
   env: ApiEnvironment,
   s: AgentSession,
@@ -379,13 +449,13 @@ export async function agentHistoryPage(
         404,
       );
       if (s.inbox) await inboxEnabled(db, s.workspace);
-      const result = await timeline(
-        db,
-        s.workspace,
-        id,
-        { type: "teammate", principal: s.principal },
-        after,
-      );
+      const actor: Actor = { type: "teammate", principal: s.principal };
+      // The inbox opens on the newest parts; older history loads on demand from
+      // /v1/agent/history. Other agent clients keep the full forward replay.
+      const result =
+        s.inbox && !after
+          ? await recentTimeline(db, s.workspace, id, actor, FIRST_SCREEN_PARTS)
+          : await timeline(db, s.workspace, id, actor, after);
       const personalData = await can(
         db,
         s.workspace,
@@ -395,8 +465,28 @@ export async function agentHistoryPage(
       return { result, personalData };
     },
   );
+  const older =
+    "older" in result && result.older
+      ? await sign(
+          {
+            workspace: s.workspace,
+            principal: s.principal,
+            requestedId: id,
+            revision: result.revision,
+            before: result.older,
+          },
+          env,
+          Math.floor(Date.now() / 1000) + 86400,
+          "agent-older",
+        )
+      : null;
+  const recent = "older" in result;
   return {
     ...result,
+    hasMore: recent ? false : result.hasMore,
+    reset: recent ? true : result.reset,
+    older,
+    revision: undefined,
     conversation: agentConversation(result.conversation, personalData),
     positions: undefined,
     cursor: await sign(
@@ -717,6 +807,7 @@ export async function handleApi(
             "/v1/agent/search",
             "/v1/agent/job",
             "/v1/agent/attachment/content",
+            "/v1/agent/history",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -768,6 +859,7 @@ export async function handleApi(
         if (
           inbox ||
           url.pathname.startsWith("/v1/agent/attachment/") ||
+          url.pathname === "/v1/agent/history" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -973,6 +1065,28 @@ export async function handleApi(
           "content-security-policy": "default-src 'none'; sandbox",
         });
         return new Response(file.body, { status: file.status, headers });
+      }
+      if (url.pathname === "/v1/agent/history") {
+        const id = url.searchParams.get("conversation") ?? "",
+          before = url.searchParams.get("before");
+        // Without `before`: the first screen, as the socket would send it, for prefetching.
+        // Its cursor resumes live replay on subscribe; `older` pages back from it.
+        return json(
+          before === null
+            ? await agentHistoryPage(
+                env,
+                {
+                  kind: "agent",
+                  inbox: true,
+                  workspace,
+                  principal,
+                  teammateId: "",
+                  expiresAt: Date.now() / 1000 + 60,
+                },
+                id,
+              )
+            : await agentOlderPage(env, workspace, principal, id, before),
+        );
       }
       return json(
         await tenant(env.connect, workspace, async (db) => {

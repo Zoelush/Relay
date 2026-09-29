@@ -1026,6 +1026,107 @@ export async function timeline(
   };
 }
 
+/** Upper bounds (exclusive) on seq per family member, for reading history backwards. */
+export type OlderBounds = Record<string, string>;
+/**
+ * Reads up to `limit` parts below `bounds`, newest first per member, then orders them by the
+ * shared timeline key. Returns them oldest first with the new bounds and whether more exist.
+ * Bounds are per-member seq values, so parts are never skipped or repeated even when
+ * created_at and seq disagree across concurrent writers.
+ */
+async function partsBefore(
+  db: Sql,
+  w: string,
+  c: Conversation,
+  actor: Actor,
+  bounds: OlderBounds,
+  limit: number,
+) {
+  const rows = (
+    await db.query<Part>(
+      `WITH RECURSIVE family AS (SELECT id FROM conversations WHERE workspace_id=$1 AND id=$2 UNION ALL SELECT c.id FROM conversations c JOIN family f ON c.merged_into_id=f.id WHERE c.workspace_id=$1)
+      SELECT p.*,a.audience AS attachment_audience FROM family f CROSS JOIN LATERAL (
+        SELECT * FROM conversation_parts p WHERE p.workspace_id=$1 AND p.conversation_id=f.id
+        AND p.seq<COALESCE(($3::jsonb->>f.id)::bigint,9223372036854775807) ORDER BY p.seq DESC LIMIT $4) p
+      LEFT JOIN attachments a ON p.kind='attachment' AND a.workspace_id=p.workspace_id AND a.id=p.data->>'attachmentId'
+      ORDER BY p.created_at DESC,p.conversation_id DESC,p.seq DESC`,
+      [w, c.id, JSON.stringify(bounds), limit + 1],
+    )
+  ).rows;
+  const taken = rows.slice(0, limit),
+    next = { ...bounds };
+  for (const p of taken)
+    if (
+      !next[p.conversation_id] ||
+      BigInt(p.seq) < BigInt(next[p.conversation_id])
+    )
+      next[p.conversation_id] = String(p.seq);
+  return {
+    parts: taken
+      .reverse()
+      .filter((p) => actor.type === "teammate" || customerVisiblePart(p)),
+    bounds: next,
+    hasOlder: rows.length > limit,
+  };
+}
+/**
+ * First screen of a conversation: its newest `limit` parts, plus forward positions that start
+ * exactly after them (for live replay) and bounds for reading older history. Positions are read
+ * first and the window is capped at them, so a part committed in between is replayed, not lost.
+ */
+export async function recentTimeline(
+  db: Sql,
+  w: string,
+  id: string,
+  actor: Actor,
+  limit = 50,
+) {
+  const c = await conversation(db, w, id);
+  await access(db, w, c, actor);
+  const positions: Record<string, string> = {};
+  for (const r of (
+    await db.query<{ conversation_id: string; seq: string }>(
+      `WITH RECURSIVE family AS (SELECT id FROM conversations WHERE workspace_id=$1 AND id=$2 UNION ALL SELECT c.id FROM conversations c JOIN family f ON c.merged_into_id=f.id WHERE c.workspace_id=$1)
+      SELECT f.id AS conversation_id,(SELECT max(seq) FROM conversation_parts p WHERE p.workspace_id=$1 AND p.conversation_id=f.id)::text AS seq FROM family f`,
+      [w, c.id],
+    )
+  ).rows)
+    if (r.seq) positions[r.conversation_id] = r.seq;
+  const upper = Object.fromEntries(
+    Object.entries(positions).map(([k, v]) => [
+      k,
+      String(BigInt(v) + BigInt(1)),
+    ]),
+  );
+  const page = await partsBefore(db, w, c, actor, upper, limit);
+  return {
+    conversation: c,
+    parts: page.parts,
+    positions,
+    revision: c.id + ":" + String(c.timeline_revision),
+    older: page.hasOlder ? page.bounds : null,
+  };
+}
+/** One page of history older than `bounds`, for a teammate scrolling back. */
+export async function olderTimeline(
+  db: Sql,
+  w: string,
+  id: string,
+  actor: Actor,
+  bounds: OlderBounds,
+  limit = 100,
+) {
+  const c = await conversation(db, w, id);
+  await access(db, w, c, actor);
+  const page = await partsBefore(db, w, c, actor, bounds, limit);
+  return {
+    conversation: c,
+    parts: page.parts,
+    revision: c.id + ":" + String(c.timeline_revision),
+    older: page.hasOlder ? page.bounds : null,
+  };
+}
+
 export async function publishAttachment(
   db: Sql,
   w: string,

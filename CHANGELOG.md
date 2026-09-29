@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — agent inbox step B2 (first screen)
+
+- An inbox conversation now opens on its newest 50 parts instead of replaying its whole history from the oldest part. Older history loads on scroll (100 parts per page) through `GET /v1/agent/history`, with signed per-teammate cursors that a merge invalidates. The live cursor resumes exactly after the first screen, with no gap or repeat. The customer messenger and other agent clients are unchanged.
+- The inbox keeps an in-memory cache of 50 conversations, cleared on workspace, teammate or capability change. It prefetches a conversation's first screen after 100ms of hover or focus, one at a time, and keeps the reader's position when older parts load. A failed older page offers Retry.
+- Measured locally on an Apple M1 over 10,000 rows, 20 conversations of 500 parts and 10 merged conversations:
+  - Warm first screen: p50 9.1ms, **p95 15.6ms** (target: under 150ms).
+  - Cold: p50 30.4ms, p95 40.8ms.
+  - Scrolling all 9,990 rows: at most 15 rows mounted, no long tasks, frames at 16.7ms.
+  - Reproduce with `scripts/measure-first-screen.ts`.
+- Fixed in the views list (from step B1): every workspace notification reloaded it from page one, so paging could not get past 200 rows while activity arrived. A stale loading flag and a render-time ref read could also block "Load more". Activity now refreshes only the first page.
+- Added `tests/agent-timeline.test.ts` and `tests/browser/agent-timeline.spec.ts`. The views browser test now pages through three pages. A development seed adds a 200-part conversation per workspace. 24/24 Node tests, typecheck and all 6 inbox browser tests pass. No migration. Flags remain off.
+
 ## Unreleased — agent inbox step B1 (saved views)
 
 - Views with the same filter now share one conversation list and one count (migration 0015, `inbox_filter_sets`/`inbox_filter_members`). With 200 agents and 10,000 conversations, stored list rows fall from about 2.3 million to 15,000, and projecting 100 changed conversations across 1,005 views takes 101–134ms, down from 6.9s. A view whose filter is already in use is ready at once, with no rebuild.

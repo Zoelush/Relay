@@ -28,9 +28,9 @@ test.beforeAll(async () => {
     hostPort: 8901,
     inboxViews: true,
   });
-  // Enough open conversations for the list to span more than one 100-row page.
+  // Enough open conversations for three 100-row pages, loaded while workspace activity arrives.
   await sql(
-    "INSERT INTO conversations(workspace_id,id,brand_id,token_hash,name,email,title,status,assigned,created_at,updated_at) SELECT 'demo','views-e2e-'||lpad(i::text,3,'0'),'default','','Customer','','Views fixture '||i,'open','',now()-(i||' minutes')::interval,now() FROM generate_series(1,150) i",
+    "INSERT INTO conversations(workspace_id,id,brand_id,token_hash,name,email,title,status,assigned,created_at,updated_at) SELECT 'demo','views-e2e-'||lpad(i::text,3,'0'),'default','','Customer','','Views fixture '||i,'open','',now()-(i||' minutes')::interval,now() FROM generate_series(1,250) i",
   );
 });
 test.afterAll(async () => {
@@ -69,11 +69,15 @@ test("default views load with live counts, a new view saves and pages through ev
   await expect(list.getByRole("button").first()).toBeVisible();
   // Rows are virtualised; the list's full height is rows loaded × 86px row height.
   const more = list.getByRole("button", { name: "Load more conversations" });
-  for (let i = 0; i < 20 && (await more.count()); i++) {
-    await list.evaluate((el) => el.scrollTo(0, el.scrollHeight));
-    await page.waitForTimeout(200);
-  }
-  await expect(more).toHaveCount(0);
+  await expect
+    .poll(
+      async () => {
+        await list.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+        return more.count();
+      },
+      { timeout: 20000 },
+    )
+    .toBe(0);
   const loaded = await list.evaluate(
     (el) => (el.firstElementChild as HTMLElement).offsetHeight / 86,
   );
