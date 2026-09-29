@@ -10,10 +10,10 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 04 (agent inbox). Step A is implemented locally.
-Step B (views) is partly written — migration 0014, `server/inbox-views.ts`,
-`agent/views.tsx` — with no test and no CHANGELOG entry. Phases 01–03 are
-implemented locally but not complete or hosted; see `docs/STATUS.md`.
+Current position: phase 04 (agent inbox). Step A is implemented locally, and so
+is step B1 (saved views on shared filter lists; `docs/AGENT_INBOX_STEP2.md`).
+Next is step B2: first-screen loading and the 150ms measurement. Phases 01–03
+are implemented locally but not complete or hosted; see `docs/STATUS.md`.
 
 ## Known state
 
@@ -42,8 +42,8 @@ implemented locally but not complete or hosted; see `docs/STATUS.md`.
   schedules, Durable Object alarms for per-entity timers (snooze
   wake-ups, SLA clocks). Implemented in `workers/relay.ts`, not deployed.
 - Frontend is React 19 + TypeScript on Vinext/Vite. Tests:
-  `npm test` (Node, 21 tests), `npm run test:e2e` (Playwright; has never
-  passed in a recorded run), `npm run typecheck`.
+  `npm test` (Node), `npm run test:e2e` (Playwright; builds the bundles
+  first, so do not call `npx playwright test` directly), `npm run typecheck`.
 
 ## Rules
 

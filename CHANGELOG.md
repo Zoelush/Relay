@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — agent inbox step B1 (saved views)
+
+- Views with the same filter now share one conversation list and one count (migration 0015, `inbox_filter_sets`/`inbox_filter_members`). With 200 agents and 10,000 conversations, stored list rows fall from about 2.3 million to 15,000, and projecting 100 changed conversations across 1,005 views takes 101–134ms, down from 6.9s. A view whose filter is already in use is ready at once, with no rebuild.
+- List members carry their sort keys, so a view page reads one index range: 5–12ms at 5,000 members, previously 58ms with table statistics and 5.7s without them.
+- Counts are maintained by statement-level triggers, one update per list per statement.
+- Added a server-side `move` action that renumbers a folder so view positions never collide, and made the UI render views in position order.
+- Fixed: saving a view without `shared` or `folderId` un-shared it or removed it from its folder; new views were created at position 0; default views could be made shared; optimistic new views never appeared in the list, and a server refresh during a pending save dropped them.
+- Added `tests/inbox-views.test.ts` (filter injection and unavailable filters; tenant, teammate and permission isolation; shared lists; live counts through state changes, merges and snoozes; keyset paging under concurrent inserts; cursor invalidation; search; move; crash-resumed rebuild; exposure rollback) and `tests/browser/inbox-views.spec.ts` (happy path with live counts and full paging; rejected save). Added a two-workspace views seed and `scripts/load-views.ts`.
+- All 23 Node tests, typecheck and all 4 agent-inbox/views browser tests pass. The messenger hostile-CSS browser test fails on this branch and on `main`; it is outside this step.
+- The "mentions" default view is deferred to step C, which introduces structured mentions. First-screen latency and the 150ms measurement are step B2. Flags remain off.
+
 ## Unreleased — agent inbox step 1
 
 - Connected the platform-authenticated inbox to the signed PostgreSQL/Hyperdrive service bridge and WebSocket cursor replay, behind default-off application/workspace flags. Added reply/note optimistic reconciliation and visible storage-source evidence.
