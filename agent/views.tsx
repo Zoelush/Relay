@@ -178,6 +178,7 @@ export function InboxViews({
   revision,
   counts,
   onSelect,
+  onPrefetch,
   onError,
   onJob,
 }: {
@@ -185,6 +186,7 @@ export function InboxViews({
   revision: number;
   counts: ViewCount[];
   onSelect: (row: Row) => void;
+  onPrefetch?: (id: string) => void;
   onError: (error: unknown) => void;
   onJob: (id: string) => void;
 }) {
@@ -195,6 +197,7 @@ export function InboxViews({
     [cursor, setCursor] = useState<string | null>(null),
     [query, setQuery] = useState(""),
     [sort, setSort] = useState("newest");
+  const [pageLoading, setPageLoading] = useState(false);
   const [scroll, setScroll] = useState(0),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -208,6 +211,7 @@ export function InboxViews({
   const viewport = useRef<HTMLDivElement>(null),
     generation = useRef(0),
     loading = useRef(false),
+    loadToken = useRef(0),
     queryRef = useRef("");
   const [height, setHeight] = useState(500);
   const refresh = useCallback(async () => {
@@ -255,8 +259,11 @@ export function InboxViews({
   }, []);
   const loadPage = useCallback(
     async (next: string | null, version: number) => {
-      if (!viewId) return;
+      if (!viewId || (next && loading.current)) return;
+      // The latest request owns the loading flag, even across list generations.
+      const token = ++loadToken.current;
       loading.current = true;
+      setPageLoading(true);
       const q = new URLSearchParams({
         view: viewId,
         sort,
@@ -269,16 +276,11 @@ export function InboxViews({
           nextCursor: string | null;
         }>("view-page?" + q);
         if (version !== generation.current) return;
-        setRows((old) =>
-          next
-            ? [
-                ...old,
-                ...data.conversations.filter(
-                  (c) => !old.some((x) => x.id === c.id),
-                ),
-              ]
-            : data.conversations,
-        );
+        setRows((old) => {
+          if (!next) return data.conversations;
+          const seen = new Set(old.map((x) => x.id));
+          return [...old, ...data.conversations.filter((c) => !seen.has(c.id))];
+        });
         setCursor(data.nextCursor);
       } catch (e) {
         if (version === generation.current) {
@@ -286,7 +288,10 @@ export function InboxViews({
           onError(e);
         }
       } finally {
-        if (version === generation.current) loading.current = false;
+        if (token === loadToken.current) {
+          loading.current = false;
+          setPageLoading(false);
+        }
       }
     },
     [viewId, sort, onError],
@@ -302,7 +307,46 @@ export function InboxViews({
       clearTimeout(timer);
       ++generation.current;
     };
-  }, [viewId, sort, query, revision, loadPage]);
+  }, [viewId, sort, query, loadPage]);
+  // Workspace activity (`revision`) refreshes only the first page, merged in front of the
+  // deeper rows already loaded, so a teammate scrolled deep keeps their place and cursor.
+  // Resetting here instead reloaded from page one on every notification in the workspace.
+  const rowsLoaded = useRef(0);
+  useEffect(() => {
+    rowsLoaded.current = rows.length;
+  }, [rows]);
+  useEffect(() => {
+    if (!revision || !viewId) return;
+    const version = generation.current;
+    const timer = setTimeout(async () => {
+      const q = new URLSearchParams({
+        view: viewId,
+        sort,
+        q: queryRef.current,
+      });
+      try {
+        const data = await api<{
+          conversations: Row[];
+          nextCursor: string | null;
+        }>("view-page?" + q);
+        if (version !== generation.current) return;
+        const deep = rowsLoaded.current > data.conversations.length;
+        setRows((old) => {
+          const top = new Set(data.conversations.map((c) => c.id));
+          return [
+            ...data.conversations,
+            ...old
+              .slice(data.conversations.length)
+              .filter((c) => !top.has(c.id)),
+          ];
+        });
+        if (!deep) setCursor(data.nextCursor);
+      } catch {
+        // A failed background refresh keeps the rows already shown.
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [revision, viewId, sort]);
   useEffect(() => {
     setScroll(0);
     if (viewport.current) viewport.current.scrollTop = 0;
@@ -371,6 +415,17 @@ export function InboxViews({
       : views;
     void mutate({ action: "move", id: view.id, direction }, undefined, swapped);
   }
+  // A scroll that arrived while a page was loading was ignored: continue if still at the bottom.
+  useEffect(() => {
+    const el = viewport.current;
+    if (
+      el &&
+      cursor &&
+      !pageLoading &&
+      el.scrollHeight - el.scrollTop - el.clientHeight < 500
+    )
+      void loadPage(cursor, generation.current);
+  }, [rows, cursor, pageLoading, loadPage]);
   const rowHeight = 86,
     start = Math.max(0, Math.floor(scroll / rowHeight) - 5),
     end = Math.min(rows.length, start + Math.ceil(height / rowHeight) + 10);
@@ -512,6 +567,8 @@ export function InboxViews({
                 width: "100%",
               }}
               onClick={() => onSelect(c)}
+              onMouseEnter={() => onPrefetch?.(c.id)}
+              onFocus={() => onPrefetch?.(c.id)}
             >
               <span className="pg-avatar">
                 {c.unread ? "●" : (c.name || "C").slice(0, 1)}
@@ -528,7 +585,7 @@ export function InboxViews({
         </div>
         {cursor && (
           <button
-            disabled={loading.current}
+            disabled={pageLoading}
             onClick={() => void loadPage(cursor, generation.current)}
           >
             Load more conversations

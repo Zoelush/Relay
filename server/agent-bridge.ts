@@ -15,7 +15,14 @@ export const legacyWritesEnabled = (config: AgentBridgeConfig) =>
   (config.RELAY_STORAGE_AUTHORITY ?? "d1") === "d1";
 
 const routes = {
-  GET: new Set(["inbox", "job", "attachment/content", "views", "view-page"]),
+  GET: new Set([
+    "inbox",
+    "job",
+    "attachment/content",
+    "views",
+    "view-page",
+    "history",
+  ]),
   POST: new Set([
     "command",
     "views",

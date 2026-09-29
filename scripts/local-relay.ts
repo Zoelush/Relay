@@ -18,7 +18,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { bridgeAgentRequest } from "../server/agent-bridge";
 import { attachmentScan, type AttachmentStorage } from "../server/attachments";
 import { localDatabase } from "./local-db";
-import { seedFoundation } from "../server/people";
+import { getIdentity, seedFoundation } from "../server/people";
 import { tenant, digest } from "../server/db";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { RealtimeClient } from "../server/realtime";
@@ -33,7 +33,7 @@ import {
   drainConversationOutbox,
   drainJobStatusOutbox,
 } from "../server/outbox";
-import { wakeConversation } from "../server/conversations";
+import { command, wakeConversation } from "../server/conversations";
 
 export async function startLocalRelay(
   options: {
@@ -43,6 +43,7 @@ export async function startLocalRelay(
     attachments?: AttachmentStorage;
     agentInbox?: boolean;
     inboxViews?: boolean;
+    longTimeline?: boolean;
   } = {},
 ) {
   const db = await localDatabase(
@@ -125,6 +126,36 @@ export async function startLocalRelay(
         [w, options.inboxViews === true],
       ),
     );
+  // Development seed: one 200-part conversation per workspace, to try scrolling back.
+  // Fixed idempotency keys make this a no-op on restart.
+  if (options.longTimeline)
+    for (const w of ["demo", "other"])
+      await tenant(db.connect, w, async (sql) => {
+        const identity = await getIdentity(sql, w, "anonymous", "long-history");
+        const { conversationId } = (await command(
+          sql,
+          w,
+          {
+            type: "contact",
+            identityId: identity.identityId,
+            brandId: "default",
+          },
+          "local-seed-long-start",
+          { action: "start", text: "Long history demo" },
+        )) as { conversationId: string };
+        for (let i = 1; i <= 200; i++)
+          await command(
+            sql,
+            w,
+            { type: "teammate", principal: "local-owner" },
+            "local-seed-long-" + i,
+            {
+              action: i % 10 === 0 ? "note" : "reply",
+              conversationId,
+              text: (i % 10 === 0 ? "Team note " : "Reply ") + i,
+            },
+          );
+      });
   // Two-workspace views seed: the owner's default views plus one shared view each. Fixed
   // idempotency keys make this a no-op on restart; queued rebuilds run in the loop below.
   if (options.inboxViews)
@@ -476,6 +507,7 @@ if (
   const app = await startLocalRelay({
     directory: resolve(process.env.RELAY_LOCAL_DIRECTORY ?? "work/local-relay"),
     inboxViews: process.env.RELAY_LOCAL_INBOX_VIEWS === "true",
+    longTimeline: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),
   });
