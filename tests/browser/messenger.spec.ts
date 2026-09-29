@@ -139,7 +139,7 @@ test("hostile CSS and strict CSP: lazy frame, message, reply, keyboard, no host 
     page.getByRole("button", { name: "Open support", exact: true }),
   ).toBeFocused();
   await page
-    .getByRole("link", { name: "Open the local agent fixture" })
+    .getByRole("link", { name: "Open the local agent inbox" })
     .focus();
   await page.keyboard.press("Tab");
   expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
