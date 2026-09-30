@@ -130,6 +130,7 @@ export function r2Attachments(env: StorageEnv): AttachmentStorage {
         }
       : {}),
     deleteQuarantine: (key) => env.ATTACHMENT_QUARANTINE.delete(key),
+    deleteClean: (key) => env.ATTACHMENT_CLEAN.delete(key),
     async readClean(key) {
       const object = await env.ATTACHMENT_CLEAN.get(key);
       if (!object) return new Response("Not found", { status: 404 });

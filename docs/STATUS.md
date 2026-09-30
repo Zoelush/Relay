@@ -1,6 +1,6 @@
 # Status
 
-Verified 29 September 2026 against commit `0bfdeb2`; phase 04 row and checks updated through step C2a by reading the code and
+Verified 29 September 2026 against commit `0bfdeb2`; phase 04 row and checks updated through step C2b by reading the code and
 running the checks below. Claims copied from earlier docs but not
 re-verified are marked as such.
 
@@ -19,7 +19,7 @@ have not been provisioned, and no data has moved from D1.
 | 01 Tenancy, identity, people | Partial | Workspaces, teammates, roles, contacts, identities and merge audit exist (`db/postgres/0002_people.sql`, `server/people.ts`, `server/identity.ts`). Companies, custom objects, typed contact/company values, events, subscriptions and segments are missing, and the 50,000-contact acceptance workload has not been run (`docs/LOCAL_READINESS.md` §2). |
 | 02 Conversation core and realtime | Done locally, not hosted | Typed parts, cycles, merges, search, jobs, outbox and WebSocket replay (`server/conversations.ts`, `server/realtime.ts`, `workers/relay.ts`); covered by the Node tests. Hosted acceptance not run. |
 | 03 Messenger | Done locally, not hosted | Iframe messenger and loader (`messenger/`, `docs/MESSENGER.md`). The production messenger is still the D1 one in `components/relay/messenger.tsx`. Its Playwright tests are not verified. |
-| 04 Agent inbox | Steps A, B1, B2, C1 and C2a done locally; C2b, C3 and D not started | Step A: `docs/AGENT_INBOX_STEP1.md`. B1 (saved views): `docs/AGENT_INBOX_STEP2.md`. B2 (first screen; warm p95 15.6ms against 150ms): `docs/AGENT_INBOX_STEP3.md`. C1 (timeline text, snooze presets, shortcuts, palette): `docs/AGENT_INBOX_STEP4.md`. C2a (rich text and author-only drafts): `docs/AGENT_INBOX_STEP5.md`. |
+| 04 Agent inbox | Steps A, B1, B2, C1, C2a and C2b done locally; C3 and D not started | Step A: `docs/AGENT_INBOX_STEP1.md`. B1 (saved views): `docs/AGENT_INBOX_STEP2.md`. B2 (first screen; warm p95 15.6ms against 150ms): `docs/AGENT_INBOX_STEP3.md`. C1 (timeline text, snooze presets, shortcuts, palette): `docs/AGENT_INBOX_STEP4.md`. C2a (rich text, author-only drafts): `docs/AGENT_INBOX_STEP5.md`. C2b (scanned inline images): `docs/AGENT_INBOX_STEP6.md`. |
 
 ## Inbox: storage and transport
 
@@ -44,22 +44,23 @@ Migration tooling (intended to stay until cutover): `db/d1-cutover/*`, `server/m
 
 ## Checks run
 
-On `phase-04/step-c2a`:
+On `phase-04/step-c2b`:
 
 ```text
 npm test
-ℹ tests 32
-ℹ pass 32
+ℹ tests 34
+ℹ pass 34
 ℹ fail 0
 ```
 
 - `npm run typecheck`: passes.
-- `npm run test:e2e` (Playwright, Chromium): 14/14 pass.
+- `npm run test:e2e` (Playwright, Chromium): 16/16 pass.
   - Agent inbox: 2/2 pass.
   - Views: 2/2 pass.
   - Timeline: 2/2 pass.
   - Triage (keyboard and snooze): 2/2 pass.
   - Composer (rich text and drafts): 2/2 pass.
+  - Inline images: 2/2 pass.
   - Messenger: 4/4 pass. The "hostile CSS" test locator was fixed in #3.
 - Views load harness, `scripts/load-views.ts 200 10000`: figures in `docs/AGENT_INBOX_STEP2.md` §3.
 - First-screen and virtualization measurement, `scripts/measure-first-screen.ts`: figures in `docs/AGENT_INBOX_STEP3.md` §3.

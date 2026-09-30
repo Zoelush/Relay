@@ -109,6 +109,19 @@ export function describePart(p: TimelinePart, dir: Directory): string {
   }
 }
 
+/** Inline images load through the authenticated agent route, as previews. */
+const agentImage = (image: { attachmentId: string; alt?: string }) => (
+  // Authenticated attachment proxy: next/image would fetch without the session.
+  // eslint-disable-next-line @next/next/no-img-element
+  <img
+    src={
+      "/api/agent/attachment/content?preview=true&id=" +
+      encodeURIComponent(image.attachmentId)
+    }
+    alt={image.alt ?? ""}
+    loading="lazy"
+  />
+);
 function Message({ p, edited }: { p: TimelinePart; edited: boolean }) {
   const internal = p.audience === "internal" || p.kind === "internal_note";
   return (
@@ -133,7 +146,7 @@ function Message({ p, edited }: { p: TimelinePart; edited: boolean }) {
       {p.data.deleted ? (
         <p>This part was deleted.</p>
       ) : p.data.doc ? (
-        <RichText doc={p.data.doc} fallback={p.body} />
+        <RichText doc={p.data.doc} fallback={p.body} image={agentImage} />
       ) : (
         <p>{p.body}</p>
       )}

@@ -15,11 +15,25 @@ export type RichBlock =
   | { type: "codeBlock"; content?: { type: "text"; text: string }[] }
   | { type: "blockquote"; content: RichBlock[] }
   | { type: "bulletList"; content: RichListItem[] }
-  | { type: "orderedList"; attrs?: { start: number }; content: RichListItem[] };
+  | { type: "orderedList"; attrs?: { start: number }; content: RichListItem[] }
+  | RichImage;
+/** An image placed in the message. It refers to a scanned upload, never to a URL. */
+export type RichImage = {
+  type: "image";
+  attrs: { attachmentId: string; alt?: string };
+};
 export type RichListItem = { type: "listItem"; content: RichBlock[] };
 export type RichDoc = { type: "doc"; content: RichBlock[] };
 
-export const RICH_LIMITS = { text: 5000, depth: 4, nodes: 2000, marks: 4 };
+export const RICH_LIMITS = {
+  text: 5000,
+  depth: 4,
+  nodes: 2000,
+  marks: 4,
+  images: 10,
+  alt: 200,
+};
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROTOCOLS = ["https:", "http:", "mailto:"];
 
 export class RichDocError extends Error {
@@ -64,7 +78,7 @@ export function safeHref(href: unknown): string {
 
 /** Validates any input and returns a rebuilt document containing only allowed content. */
 export function normalizeDoc(input: unknown): RichDoc {
-  const budget = { nodes: 0, text: 0 };
+  const budget = { nodes: 0, text: 0, images: 0 };
   const count = () => {
     if (++budget.nodes > RICH_LIMITS.nodes)
       throw new RichDocError("DOCUMENT_TOO_LARGE", "This message is too long.");
@@ -144,6 +158,30 @@ export function normalizeDoc(input: unknown): RichDoc {
       }
       case "blockquote":
         return { type: "blockquote", content: blocks(node.content, depth + 1) };
+      case "image": {
+        const attrs = isObject(node.attrs) ? node.attrs : {};
+        if (
+          typeof attrs.attachmentId !== "string" ||
+          !UUID.test(attrs.attachmentId)
+        )
+          fail("Images must refer to an uploaded file.");
+        if (++budget.images > RICH_LIMITS.images)
+          throw new RichDocError(
+            "DOCUMENT_TOO_LARGE",
+            "Add up to 10 images to a message.",
+          );
+        const alt =
+          typeof attrs.alt === "string"
+            ? attrs.alt.trim().slice(0, RICH_LIMITS.alt)
+            : "";
+        return {
+          type: "image",
+          attrs: {
+            attachmentId: (attrs.attachmentId as string).toLowerCase(),
+            ...(alt ? { alt } : {}),
+          },
+        };
+      }
       case "bulletList":
       case "orderedList": {
         const items = list(node.content).map((item): RichListItem => {
@@ -221,6 +259,8 @@ export function plainText(doc: RichDoc): string {
         return inline(n.content);
       case "codeBlock":
         return (n.content ?? []).map((t) => t.text).join("");
+      case "image":
+        return n.attrs.alt ? `[Image: ${n.attrs.alt}]` : "[Image]";
       case "blockquote":
         return blocks(n.content)
           .split("\n")
@@ -242,6 +282,20 @@ export function plainText(doc: RichDoc): string {
   return blocks(doc.content).trim();
 }
 
+/** Attachment ids of the images a document places, in order and without repeats. */
+export function imageIds(doc: RichDoc): string[] {
+  const ids: string[] = [];
+  const walk = (blocks: RichBlock[]) => {
+    for (const b of blocks) {
+      if (b.type === "image") ids.push(b.attrs.attachmentId);
+      else if (b.type === "blockquote") walk(b.content);
+      else if (b.type === "bulletList" || b.type === "orderedList")
+        for (const item of b.content) walk(item.content);
+    }
+  };
+  walk(doc.content);
+  return [...new Set(ids)];
+}
 /** A document is plain when it is one or more unformatted paragraphs. */
 export function isPlain(doc: RichDoc) {
   return doc.content.every(

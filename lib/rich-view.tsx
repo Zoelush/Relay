@@ -3,8 +3,17 @@ import {
   normalizeDoc,
   type RichBlock,
   type RichDoc,
+  type RichImage,
   type RichInline,
 } from "./rich-doc";
+
+/** How a surface shows an inline image: always from an attachment id, never a URL in the doc. */
+export type ImageRenderer = (image: RichImage["attrs"]) => ReactNode;
+const altOnly: ImageRenderer = (image) => (
+  <p className="rich-image-missing">
+    [Image{image.alt ? ": " + image.alt : ""}]
+  </p>
+);
 
 /**
  * Renders a rich document as React elements: text is escaped by React and never parsed as
@@ -14,9 +23,11 @@ import {
 export function RichText({
   doc,
   fallback,
+  image = altOnly,
 }: {
   doc: unknown;
   fallback: string;
+  image?: ImageRenderer;
 }) {
   let safe: RichDoc;
   try {
@@ -24,6 +35,7 @@ export function RichText({
   } catch {
     return <p>{fallback}</p>;
   }
+  const block = (n: RichBlock, i: number) => renderBlock(n, i, image);
   return <div className="rich">{safe.content.map(block)}</div>;
 }
 
@@ -50,8 +62,15 @@ function inline(nodes: RichInline[] = []): ReactNode[] {
   });
 }
 
-function block(n: RichBlock, i: number): ReactNode {
+function renderBlock(n: RichBlock, i: number, image: ImageRenderer): ReactNode {
+  const block = (b: RichBlock, j: number) => renderBlock(b, j, image);
   switch (n.type) {
+    case "image":
+      return (
+        <figure key={i} className="rich-image">
+          {image(n.attrs)}
+        </figure>
+      );
     case "paragraph":
       return <p key={i}>{inline(n.content)}</p>;
     case "codeBlock":

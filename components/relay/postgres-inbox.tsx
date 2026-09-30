@@ -27,7 +27,12 @@ import { InboxViews, type ViewCount } from "../../agent/views";
 import { Timeline, type Directory } from "../../agent/timeline";
 import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
-import { plainText, type RichDoc } from "../../lib/rich-doc";
+import { plainText, imageIds, type RichDoc } from "../../lib/rich-doc";
+import {
+  imageProblem,
+  startImageUpload,
+  type ImageStatus,
+} from "../../agent/images";
 import {
   CommandPalette,
   ShortcutSheet,
@@ -127,6 +132,40 @@ export default function PostgresInbox() {
     [],
   );
   const drafts = useDrafts(reseed);
+  // Inline image uploads in this tab: status by attachment id, and scan job -> attachment id.
+  const [imageStates, setImageStates] = useState<Record<string, ImageStatus>>(
+    {},
+  );
+  const [imageError, setImageError] = useState("");
+  const scanJobs = useRef(new Map<string, string>());
+  const setImage = useCallback(
+    (id: string, status: ImageStatus) =>
+      setImageStates((s) => ({ ...s, [id]: status })),
+    [],
+  );
+  /** Applies a scan job's state to its image; true once the job has finished. */
+  const applyScan = useCallback(
+    (job: {
+      id: string;
+      state: string;
+      result?: { status?: string } | null;
+    }) => {
+      const id = scanJobs.current.get(job.id);
+      if (!id) return true;
+      if (job.state === "succeeded") {
+        setImage(id, job.result?.status === "clean" ? "clean" : "rejected");
+        scanJobs.current.delete(job.id);
+        return true;
+      }
+      if (job.state === "dead_letter" || job.state === "failed") {
+        setImage(id, "failed");
+        scanJobs.current.delete(job.id);
+        return true;
+      }
+      return false;
+    },
+    [setImage],
+  );
   // Stable callbacks from the hook; the object itself changes every render.
   const { reset: resetDrafts, retry: retryDrafts, load: loadDrafts } = drafts;
   const [pending, setPending] = useState<Pending[]>([]);
@@ -282,7 +321,10 @@ export default function PostgresInbox() {
           if (frame.type === "reauthenticate") ws.close();
           if (frame.type === "unread" && frame.viewCounts)
             setViewCounts(frame.viewCounts);
-          if (frame.type === "job") setViewRevision((n) => n + 1);
+          if (frame.type === "job") {
+            setViewRevision((n) => n + 1);
+            applyScan(frame);
+          }
           if (frame.type === "inbox_changed") {
             setViewRevision((n) => n + 1);
             clearTimeout(listTimer);
@@ -367,6 +409,7 @@ export default function PostgresInbox() {
     remember,
     show,
     retryDrafts,
+    applyScan,
   ]);
 
   useLayoutEffect(() => {
@@ -723,9 +766,71 @@ export default function PostgresInbox() {
   }, []);
   const draftKey = drafts.keyOf(selected, mode);
   const draft = drafts.drafts[draftKey];
+  // Images must finish checking before sending; blocked ones must be removed.
+  const imageHold = (draft?.doc ? imageIds(draft.doc) : [])
+    .map((id) => imageStates[id])
+    .find((st) => st && st !== "clean");
+  /** Uploads chosen, pasted or dropped images and places each in the message at once. */
+  async function addImages(files: File[]) {
+    setImageError("");
+    const conversationId = selected,
+      audience = mode === "note" ? "internal" : "customer_visible";
+    for (const file of files) {
+      const problem = imageProblem(file);
+      if (problem) {
+        setImageError(problem);
+        continue;
+      }
+      let id = "";
+      try {
+        const upload = await startImageUpload(file, conversationId, audience);
+        id = upload.attachmentId;
+        setImage(id, "uploading");
+        composer.current?.insertImage(
+          id,
+          file.name.replace(/\.[a-z0-9]+$/i, ""),
+        );
+        const jobId = await upload.done;
+        setImage(id, "scanning");
+        scanJobs.current.set(jobId, id);
+        if (ready.current)
+          socket.current?.send(
+            JSON.stringify({ type: "subscribe_job", jobId }),
+          );
+        void watchScan(jobId);
+      } catch (e) {
+        if (id) setImage(id, "failed");
+        setImageError(
+          e instanceof Error ? e.message : "The image could not be added.",
+        );
+      }
+    }
+  }
+  /** Fallback when a pushed job update is missed: poll the job until it finishes. */
+  async function watchScan(jobId: string) {
+    for (let i = 0; i < 40 && scanJobs.current.has(jobId); i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (!scanJobs.current.has(jobId)) return;
+      try {
+        const job = await api<{
+          id: string;
+          state: string;
+          result?: { status?: string };
+        }>("job?" + new URLSearchParams({ id: jobId }));
+        if (applyScan(job)) return;
+      } catch {
+        // Keep waiting; the socket may still deliver the result.
+      }
+    }
+  }
   async function send() {
     const doc = draft?.doc;
-    if (!selected || !doc || pending.some((p) => p.conversationId === selected))
+    if (
+      !selected ||
+      !doc ||
+      imageHold ||
+      pending.some((p) => p.conversationId === selected)
+    )
       return;
     const body = plainText(doc);
     const previous = failed.current.get(draftKey);
@@ -1068,6 +1173,8 @@ export default function PostgresInbox() {
                       disabled={!canSend}
                       onChange={(doc) => drafts.edit(selected, mode, doc)}
                       onSubmit={() => void send()}
+                      onFiles={(files) => void addImages(files)}
+                      imageStatus={(id) => imageStates[id]}
                     />
                   </Suspense>
                   {draft?.status === "conflict" && (
@@ -1095,6 +1202,18 @@ export default function PostgresInbox() {
                           ? "Private to your team"
                           : "Messenger"}
                     </span>
+                    {imageError && (
+                      <span className="pg-image-error" role="alert">
+                        {imageError}
+                      </span>
+                    )}
+                    {imageHold && (
+                      <small className="pg-image-hold" aria-live="polite">
+                        {imageHold === "rejected" || imageHold === "failed"
+                          ? "Remove blocked images to send"
+                          : "Waiting for images to finish checking…"}
+                      </small>
+                    )}
                     <small className="pg-draft-status" aria-live="polite">
                       {draft?.status === "saving"
                         ? "Saving draft…"
@@ -1109,6 +1228,7 @@ export default function PostgresInbox() {
                       disabled={
                         !canSend ||
                         !draft?.doc ||
+                        !!imageHold ||
                         pending.some((p) => p.conversationId === selected)
                       }
                     >

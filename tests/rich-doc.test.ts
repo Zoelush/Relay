@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeDoc, plainText, isPlain, RICH_LIMITS } from "../lib/rich-doc";
+import {
+  normalizeDoc,
+  plainText,
+  isPlain,
+  imageIds,
+  RICH_LIMITS,
+} from "../lib/rich-doc";
 
 const text = (t: string, marks?: unknown[]) => ({
   type: "text",
@@ -119,6 +125,60 @@ test("unsafe or unsupported content is rejected", () => {
     ).content[0].marks[0].attrs.href,
     "mailto:help@relay.test",
   );
+});
+
+test("images refer to an attachment id, never a URL, and are limited per message", () => {
+  const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  assert.deepEqual(
+    normalizeDoc(
+      doc(
+        {
+          type: "image",
+          attrs: {
+            attachmentId: id.toUpperCase(),
+            alt: "  Setup screen  ",
+            src: "https://evil.test/x.png",
+            title: "t",
+          },
+        },
+        p(text("after")),
+      ),
+    ),
+    doc(
+      { type: "image", attrs: { attachmentId: id, alt: "Setup screen" } },
+      p(text("after")),
+    ),
+  );
+  for (const attrs of [
+    { src: "https://evil.test/x.png" },
+    { attachmentId: "../../etc" },
+    { attachmentId: 42 },
+    {},
+  ])
+    assert.throws(() => normalizeDoc(doc({ type: "image", attrs })), {
+      code: "INVALID_DOCUMENT",
+    });
+  assert.throws(
+    () =>
+      normalizeDoc(
+        doc(
+          ...Array.from({ length: RICH_LIMITS.images + 1 }, () => ({
+            type: "image",
+            attrs: { attachmentId: id },
+          })),
+        ),
+      ),
+    { code: "DOCUMENT_TOO_LARGE" },
+  );
+  const withImages = normalizeDoc(
+    doc(
+      { type: "image", attrs: { attachmentId: id, alt: "Screen" } },
+      { type: "image", attrs: { attachmentId: id } },
+    ),
+  );
+  assert.equal(plainText(withImages), "[Image: Screen]\n\n[Image]");
+  assert.deepEqual(imageIds(withImages), [id]);
+  assert.equal(isPlain(withImages), false);
 });
 
 test("the plain-text fallback keeps structure and link destinations", () => {

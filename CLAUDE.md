@@ -10,11 +10,11 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 04 (agent inbox). Steps A, B1, B2, C1 and C2a (rich text and
-drafts; `docs/AGENT_INBOX_STEP5.md`) are implemented locally; the step docs are
-`docs/AGENT_INBOX_STEP1.md` to `STEP5.md`. Next is step C2b: inline images in the
-composer. Phases 01–03 are implemented locally but not complete or hosted; see
-`docs/STATUS.md`.
+Current position: phase 04 (agent inbox). Steps A, B1, B2, C1, C2a and C2b (inline
+images; `docs/AGENT_INBOX_STEP6.md`) are implemented locally; the step docs are
+`docs/AGENT_INBOX_STEP1.md` to `STEP6.md`. Next is step C3: mentions and in-app
+notifications, the Mentions view, and viewing/composing indicators. Phases 01–03
+are implemented locally but not complete or hosted; see `docs/STATUS.md`.
 
 ## Known state
 
@@ -42,6 +42,8 @@ composer. Phases 01–03 are implemented locally but not complete or hosted; see
 - Background work: Cloudflare Queues for jobs, Cron Triggers for
   schedules, Durable Object alarms for per-entity timers (snooze
   wake-ups, SLA clocks). Implemented in `workers/relay.ts`, not deployed.
+- The local relay uses in-memory loopback attachment storage
+  (`scripts/local-storage.ts`); its scanner flags the EICAR test file.
 - Frontend is React 19 + TypeScript on Vinext/Vite. Tests:
   `npm test` (Node), `npm run test:e2e` (Playwright; builds the bundles
   first, so do not call `npx playwright test` directly), `npm run typecheck`.
