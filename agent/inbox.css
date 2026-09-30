@@ -590,3 +590,20 @@ kbd { font:11px ui-monospace, monospace; border:1px solid #cfdad4; border-bottom
 .pg-sla-badge.pg-sla-overdue, .pg-sla-badge.pg-sla-soon { background:none; font-weight:600; }
 .pg-sla-badge.pg-sla-overdue { color:#b3261e; }
 .pg-sla-badge.pg-sla-soon { color:#a35f00; }
+/* Phase 06 step B: status, workload and next conversation. */
+.pg-workload { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; }
+.pg-workload select, .pg-workload button { font-size:12px; }
+.pg-workload-notice { color:#8c1d18; background:#fdecea; border-radius:6px; padding:3px 8px; }
+.pg-visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.pg-workload-panel { width:min(680px,95vw); }
+.pg-workload-panel header { display:flex; justify-content:space-between; align-items:center; }
+.pg-team { border:1px solid #d3dfd9; border-radius:10px; padding:12px 14px; margin:12px 0; }
+.pg-team h3 { margin:0 0 6px; }
+.pg-method { font-size:13px; color:#3f5249; }
+.pg-team table { width:100%; border-collapse:collapse; font-size:13px; margin:8px 0; }
+.pg-team th, .pg-team td { text-align:left; padding:4px 6px; border-bottom:1px solid #e3ece7; }
+.pg-team-settings { border-top:1px solid #d3dfd9; margin-top:12px; padding-top:12px; display:flex; flex-direction:column; gap:10px; }
+.pg-team-settings fieldset { border:1px solid #d3dfd9; border-radius:8px; display:flex; flex-direction:column; gap:8px; }
+.pg-team-settings fieldset label { display:flex; gap:8px; align-items:flex-start; font-size:13px; }
+.pg-team-settings > label { display:flex; flex-direction:column; gap:4px; font-size:13px; }
+.pg-team-settings footer { display:flex; justify-content:flex-end; gap:8px; }

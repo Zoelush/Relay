@@ -11,12 +11,12 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
 Current position: phase 06 (routing, teams and workload), planned in
-`docs/ROUTING_PLAN.md` (steps A, B, C). Step A, the assignment engine and simulation, is
-implemented locally (`docs/ROUTING_STEP1.md`); next is step B: away mode and workload in
-the inbox. Phase 05 (tickets and SLAs; `docs/TICKETS_PLAN.md`, `TICKETS_STEP1.md` to
+`docs/ROUTING_PLAN.md` (steps A, B, C). Steps A (assignment engine and simulation,
+`docs/ROUTING_STEP1.md`) and B (away mode and workload in the inbox, `docs/ROUTING_STEP2.md`)
+are implemented locally; next is step C: messenger queue position and one office-hours source. Phase 05 (tickets and SLAs; `docs/TICKETS_PLAN.md`, `TICKETS_STEP1.md` to
 `STEP5.md`) and phase 04 (agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete
 locally. Flags `tickets_v1`, `sla_v1`, `portal_v1` and `routing_v1` default off; the local
-relay turns on all but `routing_v1`.
+relay turns them all on.
 Phases 01–03 are implemented locally but not complete
 or hosted; see `docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second
 teammate.

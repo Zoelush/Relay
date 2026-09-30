@@ -31,6 +31,7 @@ import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
 import { NotificationsPanel } from "../../agent/notifications";
 import { CreateInternal } from "../../agent/tickets";
+import { WorkloadBar } from "../../agent/workload";
 import { ContextSidebar } from "../../agent/sidebar";
 import {
   MacroManager,
@@ -945,6 +946,13 @@ export default function PostgresInbox() {
       label: "Open notifications",
       run: () => setOverlay("notifications"),
     },
+    {
+      id: "next",
+      group: "Navigate",
+      label: "Next conversation",
+      keys: "Shift N",
+      run: () => window.dispatchEvent(new CustomEvent("relay:next")),
+    },
     ...(ticketsOn
       ? [
           {
@@ -981,6 +989,8 @@ export default function PostgresInbox() {
       else if (key === "k") run(() => move(-1));
       else if (key === "/") run(focusSearch);
       else if (key === "?") run(() => setOverlay("shortcuts"));
+      else if (key === "N")
+        run(() => window.dispatchEvent(new CustomEvent("relay:next")));
       else if (!selectedRef.current) return;
       else if (key === "x")
         run(() =>
@@ -1174,6 +1184,7 @@ export default function PostgresInbox() {
               ? `PostgreSQL · ${snapshot.storage.transport === "local-pglite" ? "local" : "Hyperdrive"}`
               : "Connecting to PostgreSQL"}
           </span>
+          <WorkloadBar revision={viewRevision} onOpen={(id) => pick(id)} />
         </header>
         {error && (
           <div className="pg-error" role="alert">

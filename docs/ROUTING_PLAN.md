@@ -7,7 +7,7 @@ The phase prompt is "Phase 06 — Routing, teams and workload" in `docs/BUILD_PH
 | Step | Scope | Handoff |
 |---|---|---|
 | **A: Assignment engine and simulation** | Team settings (method, limits, include-away toggle), teammate limits, manual / round robin / balanced assignment, a queue with automatic pick-up, the rule-based routing interface for phase 11, and the 20-teammate / 2,000-conversation simulation | `docs/ROUTING_STEP1.md` |
-| **B: Away mode and workload in the inbox** | Away and away-with-reassignment, auto-unassign when going away, a paced return, "Next conversation", capacity shown as used against limit, team inboxes as views, and UI copy explaining round robin vs balanced | — |
+| **B: Away mode and workload in the inbox** | Away and away-with-reassignment, auto-unassign when going away, a paced return, "Next conversation", capacity shown as used against limit, team inboxes as views, and UI copy explaining round robin vs balanced | `docs/ROUTING_STEP2.md` |
 | **C: Queue position and one office-hours source** | Messenger queue position, and the messenger's availability, expected reply time and out-of-hours text all read from the B1 calendars | — |
 
 ## Designs that run through every step

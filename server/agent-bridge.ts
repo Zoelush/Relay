@@ -38,6 +38,7 @@ const routes = {
     "sla-policies",
     "portal-settings",
     "teams",
+    "workload",
   ]),
   POST: new Set([
     "command",
@@ -53,6 +54,8 @@ const routes = {
     "portal-settings",
     "teams",
     "teammate-limits",
+    "presence",
+    "next",
     "realtime-ticket",
     "attachment/prepare",
     "attachment/complete",
