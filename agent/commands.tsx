@@ -22,6 +22,7 @@ export const SHORTCUTS: [string, string][] = [
   ["A", "Assign to me"],
   ["P", "Toggle priority"],
   ["X / Shift-click", "Select for bulk actions"],
+  ["Shift N", "Next conversation from your team inboxes"],
   ["/", "Search this view"],
   ["⌘ K", "Command palette"],
   ["?", "This shortcut sheet"],

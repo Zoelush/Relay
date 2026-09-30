@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — routing step B (away mode and workload in the inbox)
+
+- Away mode: set your status (Active, Away, Away and reassign replies) from the inbox header, or anyone's with `teammates.manage`. A team can return a member's open conversations to its inbox when they go away. A customer's reply to an away-and-reassign teammate hands the conversation back to its team inbox.
+- Returning from away is paced: at most 3 automatic assignments per rolling 5 minutes for 30 minutes, so a backlog isn't dumped on one person.
+- "Next conversation" (button, `Shift+N`, palette) claims the first waiting item across your balanced team inboxes (priority, then SLA due, then longest waiting), refused at your limit with the reason.
+- Workload: "Workload 3 / 5" in the header, and a Workload panel showing each of your teams' method (explained plainly: round robin ignores limits; balanced respects them and queues the rest), inbox load against limit, waiting count and members' loads. Managers can edit team settings there. Each saved team gets a shared "Team inbox" view.
+- Migration 0028 adds presence times and team away and view options. New routes: `/v1/agent/presence`, `/v1/agent/next` and `/v1/agent/workload`. The local relay turns routing on, with Billing balanced.
+- Tests: `tests/away-workload.test.ts` and `tests/browser/workload.spec.ts` (away, queue, paced return, Next conversation; refused at the limit). 61/61 Node tests, typecheck and 38/38 browser tests pass.
+
 ## Unreleased — routing step A (assignment engine and simulation)
 
 - Team inboxes have an assignment method (manual, round robin, balanced), an inbox limit, an optional ticket limit, whether tickets count toward capacity, and whether round robin includes away teammates. Teammates have their own limits. Behind `routing_v1`, off by default.

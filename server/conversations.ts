@@ -10,7 +10,7 @@ import {
 import { linkToTracker, unlinkFromTracker } from "./ticket-links";
 import { resolveCalendar } from "./calendars";
 import { syncSla } from "./sla";
-import { afterChange, overLimit } from "./routing";
+import { afterChange, handOffIfAway, overLimit } from "./routing";
 import { verifyInlineImages } from "./attachments";
 import { resolveMentions, recordMentions } from "./mentions";
 import {
@@ -773,6 +773,8 @@ export async function command(
       // Replies start and stop response clocks; notes change nothing. A customer's reply can
       // reopen a closed conversation, which may send it back through its team's routing.
       if (p.action === "reply") {
+        // A customer replying to an "away and reassign replies" teammate's conversation hands it on.
+        if (actor.type === "contact") await handOffIfAway(db, w, c.id);
         await syncSla(db, w, c.id);
         await afterChange(db, w, c.id, before);
       }

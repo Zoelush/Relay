@@ -32,7 +32,19 @@ export type Member = {
   tickets: number;
   conversationLimit: number | null;
   ticketLimit: number | null;
+  /**
+   * Automatic assignments this member may still take right now while pacing after a return
+   * from away (step B); undefined when not pacing.
+   */
+  rampLeft?: number;
 };
+/** Pacing after a return from away: at most 3 automatic assignments per rolling 5 minutes, for 30 minutes. */
+export const RAMP = {
+  perWindow: 3,
+  windowMs: 5 * 60_000,
+  durationMs: 30 * 60_000,
+};
+const ramping = (m: Member) => m.rampLeft === undefined || m.rampLeft > 0;
 export type TeamState = {
   id: string;
   method: Method;
@@ -66,7 +78,7 @@ export function decide(team: TeamState, item: { ticket: boolean }): Decision {
   if (team.method === "manual") return { assignee: null, reason: "manual" };
   if (team.method === "round_robin") {
     const next = rotation(team.members, team.cursor).find(
-      (m) => m.presence === "active" || team.includeAway,
+      (m) => (m.presence === "active" || team.includeAway) && ramping(m),
     );
     return next
       ? { assignee: next.id, reason: "round_robin" }
@@ -89,6 +101,7 @@ export function decide(team: TeamState, item: { ticket: boolean }): Decision {
   const eligible = rotation(team.members, team.cursor).filter(
     (m) =>
       m.presence === "active" &&
+      ramping(m) &&
       !(item.ticket && m.ticketLimit !== null && m.tickets >= m.ticketLimit) &&
       !(
         countsAsConversation &&
@@ -108,6 +121,7 @@ export function decide(team: TeamState, item: { ticket: boolean }): Decision {
 /** Applies an assignment to the in-memory state, as `claim` does in the database. */
 function record(team: TeamState, assignee: string, item: { ticket: boolean }) {
   const m = team.members.find((x) => x.id === assignee);
+  if (m && m.rampLeft !== undefined) m.rampLeft--;
   if (m) {
     if (item.ticket) m.tickets++;
     else m.conversations++;
@@ -137,6 +151,8 @@ export async function loadTeam(
   db: Sql,
   w: string,
   teamId: string,
+  /** Injected for tests: pacing after a return from away is judged at this instant. */
+  now = Date.now(),
 ): Promise<TeamState | null> {
   const team = (
     await db.query<{
@@ -159,8 +175,9 @@ export async function loadTeam(
       presence: Member["presence"];
       conversation_limit: number | null;
       ticket_limit: number | null;
+      returned_at: string | null;
     }>(
-      `SELECT t.id,t.presence,t.conversation_limit,t.ticket_limit FROM teammates t
+      `SELECT t.id,t.presence,t.conversation_limit,t.ticket_limit,t.returned_at FROM teammates t
       JOIN teammate_teams m ON m.workspace_id=t.workspace_id AND m.teammate_id=t.id
       WHERE t.workspace_id=$1 AND m.team_id=$2 ORDER BY t.id FOR UPDATE OF t`,
       [w, teamId],
@@ -197,18 +214,51 @@ export async function loadTeam(
     cursor: team.rotation_cursor,
     conversations: Number(inbox.conversations),
     tickets: Number(inbox.tickets),
-    members: members.map((m) => {
-      const c = counts.find((x) => x.assigned === m.id);
-      return {
-        id: m.id,
-        presence: m.presence,
-        conversations: Number(c?.conversations ?? 0),
-        tickets: Number(c?.tickets ?? 0),
-        conversationLimit: m.conversation_limit,
-        ticketLimit: m.ticket_limit,
-      };
-    }),
+    members: await Promise.all(
+      members.map(async (m) => {
+        const c = counts.find((x) => x.assigned === m.id);
+        return {
+          id: m.id,
+          presence: m.presence,
+          conversations: Number(c?.conversations ?? 0),
+          tickets: Number(c?.tickets ?? 0),
+          conversationLimit: m.conversation_limit,
+          ticketLimit: m.ticket_limit,
+          ...(await pacing(db, w, m.id, m.returned_at, now)),
+        };
+      }),
+    ),
   };
+}
+
+/**
+ * While a returning teammate is being paced, how many automatic assignments they may take now:
+ * 3 less those they received in the last 5 minutes since returning.
+ */
+async function pacing(
+  db: Sql,
+  w: string,
+  teammateId: string,
+  returnedAt: unknown,
+  now: number,
+) {
+  if (!returnedAt) return {};
+  const returned =
+    returnedAt instanceof Date
+      ? returnedAt.getTime()
+      : Date.parse(String(returnedAt));
+  if (now - returned >= RAMP.durationMs) return {};
+  const since = new Date(Math.max(returned, now - RAMP.windowMs)).toISOString();
+  const recent = Number(
+    (
+      await db.query<{ n: string }>(
+        `SELECT count(*) AS n FROM conversation_parts WHERE workspace_id=$1 AND kind='assignment_change'
+        AND data->>'reason' IN ('balanced','round_robin') AND data->'after'->>'teammate'=$2 AND created_at>=$3`,
+        [w, teammateId, since],
+      )
+    ).rows[0].n,
+  );
+  return { rampLeft: Math.max(0, RAMP.perWindow - recent) };
 }
 
 const isTicket = async (db: Sql, w: string, id: string) =>
@@ -270,9 +320,16 @@ export async function claim(
  * priority first, then the soonest SLA due time, then longest waiting. A conversation that cannot
  * be placed stays queued. Returns what was assigned.
  */
-export async function drainTeam(db: Sql, w: string, teamId: string, max = 50) {
+export async function drainTeam(
+  db: Sql,
+  w: string,
+  teamId: string,
+  max = 50,
+  /** Injected for tests (pacing after a return from away). */
+  now = Date.now(),
+) {
   if (!(await routingEnabled(db, w))) return [];
-  const team = await loadTeam(db, w, teamId);
+  const team = await loadTeam(db, w, teamId, now);
   if (!team || team.method === "manual") return [];
   const queued = (
     await db.query<{ id: string; ticket: boolean }>(
@@ -521,8 +578,68 @@ export async function saveTeam(
       [w, id, members],
     );
   }
+  if (p.unassignOnAway !== undefined)
+    await db.query(
+      "UPDATE teams SET unassign_on_away=$3 WHERE workspace_id=$1 AND id=$2",
+      [w, id, p.unassignOnAway === true],
+    );
+  await teamInboxView(db, w, principal, id, name);
   const assigned = await drainTeam(db, w, id);
   return { id, assigned: assigned.length };
+}
+
+/**
+ * Each team's inbox is a shared saved view (open conversations in the team), kept named after
+ * the team. Only while saved views are enabled.
+ */
+async function teamInboxView(
+  db: Sql,
+  w: string,
+  principal: string,
+  teamId: string,
+  name: string,
+) {
+  const views = (
+    await db.query(
+      "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='agent_inbox_views_v1' AND enabled",
+      [w],
+    )
+  ).rows.length;
+  if (!views) return;
+  const { mutateView } = await import("./inbox-views");
+  const label = `Team inbox: ${name}`.slice(0, 80);
+  const existing = (
+    await db.query<{ id: string; revision: string; name: string }>(
+      `SELECT v.id,v.revision::text AS revision,v.name FROM teams t JOIN inbox_views v ON v.workspace_id=t.workspace_id AND v.id=t.view_id AND NOT v.archived
+      WHERE t.workspace_id=$1 AND t.id=$2`,
+      [w, teamId],
+    )
+  ).rows[0];
+  if (existing) {
+    if (existing.name !== label)
+      await mutateView(db, w, principal, crypto.randomUUID(), {
+        action: "save",
+        id: existing.id,
+        revision: existing.revision,
+        name: label,
+      });
+    return;
+  }
+  const view = (await mutateView(db, w, principal, crypto.randomUUID(), {
+    action: "save",
+    name: label,
+    shared: true,
+    filter: {
+      and: [
+        { field: "team", op: "eq", value: teamId },
+        { field: "state", op: "eq", value: "open" },
+      ],
+    },
+  })) as { id: string };
+  await db.query(
+    "UPDATE teams SET view_id=$3 WHERE workspace_id=$1 AND id=$2",
+    [w, teamId, view.id],
+  );
 }
 
 /** Sets a teammate's own limits (needs `workspace.manage`); raising one may drain their queues. */
@@ -571,12 +688,26 @@ export async function listTeams(db: Sql, w: string, principal: string) {
       [w],
     )
   ).rows;
+  const names = new Map(
+    (
+      await db.query<{ id: string; name: string }>(
+        "SELECT id,name FROM teammates WHERE workspace_id=$1",
+        [w],
+      )
+    ).rows.map((r) => [r.id, r.name]),
+  );
   const teams = [];
   for (const { id } of ids) {
     const t = (await loadTeam(db, w, id))!;
     const meta = (
-      await db.query<{ name: string; version: string; queued: string }>(
-        `SELECT name,version::text AS version,(SELECT count(*) FROM conversations c WHERE c.workspace_id=t.workspace_id AND c.team_id=t.id AND c.assigned='' AND c.status='open' AND c.merged_into_id IS NULL) AS queued
+      await db.query<{
+        name: string;
+        version: string;
+        queued: string;
+        unassign_on_away: boolean;
+        view_id: string | null;
+      }>(
+        `SELECT name,version::text AS version,unassign_on_away,view_id,(SELECT count(*) FROM conversations c WHERE c.workspace_id=t.workspace_id AND c.team_id=t.id AND c.assigned='' AND c.status='open' AND c.merged_into_id IS NULL) AS queued
         FROM teams t WHERE workspace_id=$1 AND id=$2`,
         [w, id],
       )
@@ -590,10 +721,13 @@ export async function listTeams(db: Sql, w: string, principal: string) {
       ticketLimit: t.ticketLimit,
       ticketsCount: t.ticketsCount,
       includeAway: t.includeAway,
+      unassignOnAway: meta.unassign_on_away,
+      viewId: meta.view_id,
       queued: Number(meta.queued),
       used: { conversations: t.conversations, tickets: t.tickets },
       members: t.members.map((m) => ({
         id: m.id,
+        name: names.get(m.id) ?? m.id,
         presence: m.presence,
         used: { conversations: m.conversations, tickets: m.tickets },
         conversationLimit: m.conversationLimit,
@@ -602,4 +736,212 @@ export async function listTeams(db: Sql, w: string, principal: string) {
     });
   }
   return { teams, canManage: await can(db, w, principal, "workspace.manage") };
+}
+
+const PRESENCE = ["active", "away", "away_reassigning"] as const;
+
+/**
+ * Sets a teammate's presence: their own, or anyone's with `teammates.manage`. Going away returns
+ * their open conversations to the inbox of each automatic team that asks for it; coming back
+ * starts pacing (see RAMP) and gives their teams' queues a chance.
+ */
+export async function setPresence(
+  db: Sql,
+  w: string,
+  principal: string,
+  p: Record<string, unknown>,
+) {
+  const self = await authorize(db, w, principal, "conversations.read");
+  assert(
+    await routingEnabled(db, w),
+    "ROUTING_DISABLED",
+    "Routing is not enabled for this workspace.",
+    404,
+  );
+  const target = p.teammateId === undefined ? self.id : String(p.teammateId);
+  if (target !== self.id) await authorize(db, w, principal, "teammates.manage");
+  const presence = p.presence as (typeof PRESENCE)[number];
+  assert(
+    PRESENCE.includes(presence),
+    "INVALID_PRESENCE",
+    "Choose active, away, or away and reassign replies.",
+  );
+  const before = (
+    await db.query<{ presence: string }>(
+      "SELECT presence FROM teammates WHERE workspace_id=$1 AND id=$2 FOR UPDATE",
+      [w, target],
+    )
+  ).rows[0];
+  assert(before, "INVALID_ASSIGNEE", "Teammate unavailable.", 404);
+  const returning = before.presence !== "active" && presence === "active";
+  await db.query(
+    `UPDATE teammates SET presence=$3,presence_changed_at=now(),returned_at=CASE WHEN $4 THEN now() ELSE returned_at END
+    WHERE workspace_id=$1 AND id=$2`,
+    [w, target, presence, returning],
+  );
+  let returned = 0,
+    assigned = 0;
+  if (presence !== "active" && before.presence === "active") {
+    // Teams that return a member's open conversations to their inbox when the member goes away.
+    const teams = (
+      await db.query<{ id: string }>(
+        `SELECT t.id FROM teams t JOIN teammate_teams m ON m.workspace_id=t.workspace_id AND m.team_id=t.id
+        WHERE t.workspace_id=$1 AND m.teammate_id=$2 AND t.unassign_on_away AND t.method<>'manual' ORDER BY t.id`,
+        [w, target],
+      )
+    ).rows;
+    for (const t of teams) {
+      const open = (
+        await db.query<{ id: string }>(
+          "SELECT id FROM conversations WHERE workspace_id=$1 AND team_id=$2 AND assigned=$3 AND status='open' AND merged_into_id IS NULL ORDER BY id",
+          [w, t.id, target],
+        )
+      ).rows;
+      for (const c of open)
+        if (await release(db, w, c.id, target, "away")) returned++;
+      assigned += (await drainTeam(db, w, t.id)).length;
+    }
+  }
+  if (returning) assigned += (await drainForTeammate(db, w, target)).length;
+  return { teammateId: target, presence, returned, assigned };
+}
+
+/** Takes a conversation off a teammate, back to its inbox, with the reason on the timeline. */
+async function release(
+  db: Sql,
+  w: string,
+  id: string,
+  teammateId: string,
+  reason: string,
+) {
+  const c = (
+    await db.query<Conversation>(
+      "UPDATE conversations SET assigned='' WHERE workspace_id=$1 AND id=$2 AND assigned=$3 RETURNING *",
+      [w, id, teammateId],
+    )
+  ).rows[0];
+  if (!c) return false;
+  await append(
+    db,
+    w,
+    c,
+    { type: "system", id: "routing" },
+    "assignment_change",
+    "",
+    {
+      before: { teammate: teammateId, team: c.team_id },
+      after: { teammate: "", team: c.team_id },
+      reason,
+    },
+    "internal",
+  );
+  await syncUnread(db, w, c);
+  return true;
+}
+
+/**
+ * "Away and reassign replies": a customer's reply on a conversation assigned to such a teammate
+ * hands it back to its team inbox (routed on from there) or, without a team, leaves it unassigned.
+ */
+export async function handOffIfAway(db: Sql, w: string, id: string) {
+  if (!(await routingEnabled(db, w))) return false;
+  const row = (
+    await db.query<{ assigned: string; team_id: string | null }>(
+      `SELECT c.assigned,c.team_id FROM conversations c JOIN teammates t ON t.workspace_id=c.workspace_id AND t.id=c.assigned
+      WHERE c.workspace_id=$1 AND c.id=$2 AND t.presence='away_reassigning'`,
+      [w, id],
+    )
+  ).rows[0];
+  if (!row) return false;
+  await release(db, w, id, row.assigned, "away_reassign");
+  if (row.team_id) await drainTeam(db, w, row.team_id);
+  return true;
+}
+
+/**
+ * "Next conversation": claims the first waiting item across the teammate's balanced team inboxes
+ * (priority, then soonest SLA due, then longest waiting), within their limit.
+ */
+export async function nextConversation(db: Sql, w: string, principal: string) {
+  const t = await authorize(db, w, principal, "conversations.read");
+  assert(
+    await routingEnabled(db, w),
+    "ROUTING_DISABLED",
+    "Routing is not enabled for this workspace.",
+    404,
+  );
+  const me = (
+    await db.query<{ conversation_limit: number | null; open: string }>(
+      `SELECT t.conversation_limit,(SELECT count(*) FROM conversations c WHERE c.workspace_id=t.workspace_id AND c.assigned=t.id AND c.status='open' AND c.merged_into_id IS NULL) AS open
+      FROM teammates t WHERE t.workspace_id=$1 AND t.id=$2 FOR UPDATE`,
+      [w, t.id],
+    )
+  ).rows[0];
+  const open = Number(me.open);
+  assert(
+    me.conversation_limit === null || open < me.conversation_limit,
+    "NEXT_AT_LIMIT",
+    `You're at your limit (${open} of ${me.conversation_limit}). Close or snooze something first.`,
+    409,
+  );
+  const candidates = (
+    await db.query<{ id: string; team_id: string }>(
+      `SELECT c.id,c.team_id FROM conversations c JOIN teams tm ON tm.workspace_id=c.workspace_id AND tm.id=c.team_id AND tm.method='balanced'
+      JOIN teammate_teams m ON m.workspace_id=c.workspace_id AND m.team_id=c.team_id AND m.teammate_id=$2
+      WHERE c.workspace_id=$1 AND c.assigned='' AND c.status='open' AND c.merged_into_id IS NULL
+      ORDER BY c.priority DESC,COALESCE(c.sla_sort_at,'9999-12-31'::timestamptz),COALESCE(c.last_contact_reply_at,c.created_at),c.id
+      LIMIT 20 FOR UPDATE OF c SKIP LOCKED`,
+      [w, t.id],
+    )
+  ).rows;
+  // Claiming is atomic: if someone else took one first, try the next.
+  for (const c of candidates)
+    if (await claim(db, w, c.id, c.team_id, t.id, "next"))
+      return { conversationId: c.id };
+  throw new DomainError(
+    "NEXT_NONE",
+    "Nothing is waiting in your team inboxes.",
+    404,
+  );
+}
+
+/** The teammate's own workload and presence, and the teams they belong to (for the Workload panel). */
+export async function myWorkload(db: Sql, w: string, principal: string) {
+  const t = await authorize(db, w, principal, "conversations.read");
+  assert(
+    await routingEnabled(db, w),
+    "ROUTING_DISABLED",
+    "Routing is not enabled for this workspace.",
+    404,
+  );
+  const me = (
+    await db.query<{
+      presence: string;
+      conversation_limit: number | null;
+      ticket_limit: number | null;
+      conversations: string;
+      tickets: string;
+    }>(
+      `SELECT t.presence,t.conversation_limit,t.ticket_limit,
+        (SELECT count(*) FROM conversations c WHERE c.workspace_id=t.workspace_id AND c.assigned=t.id AND c.status='open' AND c.merged_into_id IS NULL
+          AND NOT EXISTS(SELECT 1 FROM tickets k WHERE k.workspace_id=c.workspace_id AND k.conversation_id=c.id)) AS conversations,
+        (SELECT count(*) FROM conversations c JOIN tickets k ON k.workspace_id=c.workspace_id AND k.conversation_id=c.id
+          WHERE c.workspace_id=t.workspace_id AND c.assigned=t.id AND c.status='open' AND c.merged_into_id IS NULL) AS tickets
+      FROM teammates t WHERE t.workspace_id=$1 AND t.id=$2`,
+      [w, t.id],
+    )
+  ).rows[0];
+  const all = await listTeams(db, w, principal);
+  return {
+    teammateId: t.id,
+    presence: me.presence,
+    used: {
+      conversations: Number(me.conversations),
+      tickets: Number(me.tickets),
+    },
+    conversationLimit: me.conversation_limit,
+    ticketLimit: me.ticket_limit,
+    teams: all.teams.filter((team) => team.members.some((m) => m.id === t.id)),
+    canManage: all.canManage,
+  };
 }

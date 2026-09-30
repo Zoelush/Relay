@@ -61,7 +61,14 @@ import {
   SESSION_MS,
   startSession,
 } from "./portal";
-import { listTeams, saveTeam, saveTeammateLimits } from "./routing";
+import {
+  listTeams,
+  myWorkload,
+  nextConversation,
+  saveTeam,
+  saveTeammateLimits,
+  setPresence,
+} from "./routing";
 import { BULK_BODY_LIMIT } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -950,6 +957,7 @@ export async function handleApi(
             "/v1/agent/sla-policies",
             "/v1/agent/portal-settings",
             "/v1/agent/teams",
+            "/v1/agent/workload",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -966,6 +974,8 @@ export async function handleApi(
               "/v1/agent/portal-settings",
               "/v1/agent/teams",
               "/v1/agent/teammate-limits",
+              "/v1/agent/presence",
+              "/v1/agent/next",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -1024,6 +1034,9 @@ export async function handleApi(
           url.pathname === "/v1/agent/portal-settings" ||
           url.pathname === "/v1/agent/teams" ||
           url.pathname === "/v1/agent/teammate-limits" ||
+          url.pathname === "/v1/agent/workload" ||
+          url.pathname === "/v1/agent/presence" ||
+          url.pathname === "/v1/agent/next" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -1066,6 +1079,21 @@ export async function handleApi(
               "realtime",
             ),
           });
+        }
+        if (
+          url.pathname === "/v1/agent/presence" ||
+          url.pathname === "/v1/agent/next"
+        ) {
+          const result = await tenant(
+            env.connect,
+            workspace,
+            (db): Promise<unknown> =>
+              url.pathname === "/v1/agent/presence"
+                ? setPresence(db, workspace, principal, p)
+                : nextConversation(db, workspace, principal),
+          );
+          await env.notify?.(workspace, "");
+          return json(result);
         }
         if (
           url.pathname === "/v1/agent/teams" ||
@@ -1398,6 +1426,12 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listTeams(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/workload")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            myWorkload(db, workspace, principal),
           ),
         );
       if (url.pathname === "/v1/agent/sla-policies")

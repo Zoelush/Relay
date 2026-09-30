@@ -66,6 +66,8 @@ export async function startLocalRelay(
     sla?: boolean;
     /** The customer portal, likewise. */
     portal?: boolean;
+    /** Routing and workload, likewise. */
+    routing?: boolean;
     longTimeline?: boolean;
   } = {},
 ) {
@@ -355,6 +357,23 @@ export async function startLocalRelay(
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='portal_v1'",
         [w, options.portal !== false],
+      );
+      // Routing: Billing is a balanced team inbox (limit 20) with the owner (5) and Grace (3).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='routing_v1'",
+        [w, options.routing !== false],
+      );
+      await sql.query(
+        "UPDATE teams SET method='balanced',conversation_limit=20 WHERE workspace_id=$1 AND id='billing' AND method='manual' AND conversation_limit IS NULL",
+        [w],
+      );
+      await sql.query(
+        "INSERT INTO teammate_teams(workspace_id,teammate_id,team_id) VALUES($1,'owner','billing') ON CONFLICT DO NOTHING",
+        [w],
+      );
+      await sql.query(
+        "UPDATE teammates SET conversation_limit=CASE id WHEN 'owner' THEN 5 ELSE 3 END WHERE workspace_id=$1 AND id IN ('owner','grace') AND conversation_limit IS NULL",
+        [w],
       );
       // A sample SLA policy on the seeded office hours (Mon–Fri 09:00–17:00 UTC).
       await sql.query(
