@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { AppCard } from "../lib/app-slots";
 import { TicketPanel, type TicketContext } from "./tickets";
+import { SlaSection, type SlaContext } from "./sla";
 
 export type Attribute = {
   id: string;
@@ -30,6 +31,7 @@ export type Context = {
   attributes: Attribute[];
   canEditAttributes: boolean;
   tickets: TicketContext;
+  sla?: SlaContext;
   apps: AppCard[];
 };
 
@@ -219,16 +221,19 @@ export function ContextSidebar({
   onOpen: (id: string) => void;
   onError: (e: unknown) => void;
 }) {
-  const [data, setData] = useState<{ id: string; context: Context } | null>(
-    null,
-  );
+  const [data, setData] = useState<{
+    id: string;
+    context: Context;
+    receivedAt: number;
+  } | null>(null);
   useEffect(() => {
     let live = true;
     api<Context>(
       "context?" + new URLSearchParams({ conversation: conversationId }),
     )
       .then((context) => {
-        if (live) setData({ id: conversationId, context });
+        if (live)
+          setData({ id: conversationId, context, receivedAt: Date.now() });
       })
       .catch((e) => live && onError(e));
     return () => {
@@ -306,6 +311,7 @@ export function ContextSidebar({
           </dl>
         )}
       </section>
+      {c.sla && data && <SlaSection sla={c.sla} receivedAt={data.receivedAt} />}
       <TicketPanel
         conversationId={conversationId}
         tickets={c.tickets ?? { enabled: false, ticket: null }}

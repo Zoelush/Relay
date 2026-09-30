@@ -672,7 +672,7 @@ type Preview = {
   conversationId: string;
   from: { id: string; name: string };
   to: { id: string; name: string };
-  state: { id: string; name: string };
+  state: { id: string; name: string; kind: string };
   kept: { id: string; name: string }[];
   moved: {
     from: { id: string; name: string };
@@ -768,7 +768,7 @@ async function preview(
     conversationId: c.id,
     from: { id: from.id, name: from.name },
     to: { id: to.id, name: to.name },
-    state: { id: state.id, name: state.name },
+    state: { id: state.id, name: state.name, kind: state.kind },
     kept,
     moved,
     lost,

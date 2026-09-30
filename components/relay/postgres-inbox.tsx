@@ -1573,12 +1573,9 @@ export default function PostgresInbox() {
           {selected && sidebarOpen && (
             <ContextSidebar
               conversationId={selected}
-              refresh={
-                parts.filter(
-                  (p) =>
-                    p.kind === "attribute_change" || p.kind === "system_event",
-                ).length
-              }
+              // Any new part can change the details: attributes, tickets, SLA clocks (a reply
+              // stops a response clock).
+              refresh={parts.length}
               onOpen={(id) => pick(id)}
               onError={report}
             />

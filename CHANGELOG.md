@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — tickets and SLAs step B2 (SLAs)
+
+- SLA policies (API only; behind `sla_v1`): ordered, with conditions in the saved-view filter language, targets for first response, next response, time to close and time to resolve, business or all hours, and pause rules (snoozed, waiting on the customer; "in an automation" stored for phase 11).
+- Clocks run on real conversations and are recomputed from each conversation's timeline after every change: first response, next-response cycles, time to close (reopening continues) and, for tickets, time to resolve. A policy change keeps the time used and applies the new targets. Clocks pin their calendar version.
+- Breaches are recorded once and never cleared: an internal "First response SLA breached (Policy)" timeline event, an `sla.breached` outbox event for phase 11, and a mark on the conversation. They're found by the Worker's per-conversation alarm (now shared with snooze), the sweep and the local relay's check.
+- Inbox: the sidebar SLA section with live countdowns ("Due Tue 13:00 · in 1h 42m", "Overdue by 5m", "Paused · 35m left", "Met", "Breached"); "SLA 42m" or "SLA overdue" on list rows; a "SLA due soonest" sort; SLA (overdue or breached) and ticket-type view filters; timeline wording.
+- Migration 0025 adds `sla_policies`, `sla_clocks`, SLA columns on conversations and an SLA sort key on view members. New route: `/v1/agent/sla-policies`.
+- The local seed adds a "Standard support" policy on the seeded office hours.
+- Tests: `tests/sla.test.ts` and `tests/browser/sla.spec.ts` (a countdown met by a reply; a live breach turning the sidebar, timeline and row red and sorting first). 55/55 Node tests, typecheck and 34/34 browser tests pass.
+
 ## Unreleased — tickets and SLAs step B1 (business-time engine)
 
 - A new business-time engine that works with whole time periods, exact to the millisecond. Opening hours are local wall-clock times: a skipped hour is never open, a repeated one counts twice. It supports overnight hours, holidays and special days. `dueAt`, `businessBetween` and a pure `clock()` over start, pause, resume and stop events report elapsed, remaining, due time and breach; a clock stopped exactly at its due time has met it.

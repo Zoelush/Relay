@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { BulkBar, type Directory } from "./bulk";
+import { SlaBadge } from "./sla";
 import type { ViewFilter } from "../server/inbox-views";
 export type ViewCount = {
   id: string;
@@ -28,6 +29,8 @@ type Row = {
   assigned: string;
   name?: string;
   unread?: boolean;
+  sla_next_due_at?: string | null;
+  sla_overdue?: boolean;
 };
 const initial: ViewFilter = { field: "state", op: "eq", value: "open" };
 /** Default views every teammate has; keep in step with BUILTIN_VIEWS on the server. */
@@ -111,7 +114,12 @@ function FilterEditor({
           onChange({
             field: e.target.value as typeof value.field,
             op: "eq",
-            value: e.target.value === "priority" ? true : "",
+            value:
+              e.target.value === "priority"
+                ? true
+                : e.target.value === "sla"
+                  ? "overdue"
+                  : "",
           })
         }
       >
@@ -125,9 +133,11 @@ function FilterEditor({
           "priority",
           "brand",
           "created_at",
+          "sla",
+          "ticket_type",
         ].map((f) => (
           <option key={f} value={f}>
-            {f.replaceAll("_", " ")}
+            {f === "sla" ? "SLA" : f.replaceAll("_", " ")}
           </option>
         ))}
       </select>
@@ -157,6 +167,15 @@ function FilterEditor({
         >
           <option value="true">Priority</option>
           <option value="false">Normal</option>
+        </select>
+      ) : value.field === "sla" ? (
+        <select
+          aria-label="SLA value"
+          value={String(value.value)}
+          onChange={(e) => onChange({ ...value, value: e.target.value })}
+        >
+          <option value="overdue">Overdue</option>
+          <option value="breached">Breached (ever)</option>
         </select>
       ) : value.field === "state" ? (
         <select
@@ -642,6 +661,7 @@ export function InboxViews({
           <option value="newest">Newest</option>
           <option value="oldest">Oldest</option>
           <option value="waiting">Longest waiting</option>
+          <option value="sla">SLA due soonest</option>
         </select>
       </div>
       {(selection.ids.length > 0 || selection.all) && current && !query && (
@@ -726,6 +746,10 @@ export function InboxViews({
                   <span className="pg-row-title">{c.title}</span>
                   <small>
                     {c.status} · {c.channel}
+                    <SlaBadge
+                      dueAt={c.sla_next_due_at ?? null}
+                      overdue={!!c.sla_overdue}
+                    />
                   </small>
                 </span>
               </button>

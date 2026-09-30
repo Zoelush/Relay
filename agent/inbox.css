@@ -578,3 +578,15 @@ kbd { font:11px ui-monospace, monospace; border:1px solid #cfdad4; border-bottom
 .pg-inline-check { display:flex !important; flex-direction:row !important; align-items:center; gap:8px; }
 .pg-ticket-dialog textarea { width:100%; font:inherit; padding:8px; border:1px solid #cedcd4; border-radius:6px; }
 .pg-ticket-dialog label { display:flex; flex-direction:column; gap:4px; margin:10px 0; }
+/* Phase 05 step B2: SLA clocks and badges. */
+.pg-sla ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+.pg-sla-policy { font-size:12px; color:#4b6257; margin:2px 0 8px; }
+.pg-sla-clock { display:flex; flex-direction:column; gap:2px; padding:6px 8px; border-radius:6px; background:#f4f8f6; border-left:3px solid #087a57; font-size:12px; }
+.pg-sla-soon { border-left-color:#c77700; background:#fff6e6; }
+.pg-sla-overdue { border-left-color:#b3261e; background:#fdecea; color:#8c1d18; }
+.pg-sla-paused { border-left-color:#9aa5a0; background:#f1f3f2; color:#56615c; }
+.pg-sla-met { border-left-color:#087a57; }
+.pg-sla-badge { text-transform:none; }
+.pg-sla-badge.pg-sla-overdue, .pg-sla-badge.pg-sla-soon { background:none; font-weight:600; }
+.pg-sla-badge.pg-sla-overdue { color:#b3261e; }
+.pg-sla-badge.pg-sla-soon { color:#a35f00; }

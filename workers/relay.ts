@@ -30,6 +30,7 @@ import { computeResponseMetrics } from "../server/business-time";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
 import { runBroadcast } from "../server/ticket-links";
+import { reevaluateJob, syncSla } from "../server/sla";
 import { CoalescedPublisher } from "../server/publication";
 
 interface Env extends Partial<StorageEnv> {
@@ -59,19 +60,26 @@ async function scheduleClock(env: Env, w: string, id: string) {
           snooze_until: string | null;
           snooze_version: string;
           status: string;
+          sla_next_due_at: string | null;
         }>(
-          "SELECT id,snooze_until,snooze_version,status FROM conversations WHERE workspace_id=$1 AND id=$2",
+          "SELECT id,snooze_until,snooze_version,status,sla_next_due_at FROM conversations WHERE workspace_id=$1 AND id=$2",
           [w, id],
         )
       ).rows[0],
   );
-  if (row)
-    await env.CONVERSATION_CLOCK.getByName(w + ":" + id).schedule(
-      w,
-      id,
-      String(row.snooze_version),
-      row.status === "snoozed" ? row.snooze_until : null,
-    );
+  if (!row) return;
+  const clock = env.CONVERSATION_CLOCK.getByName(w + ":" + id);
+  await clock.schedule(
+    w,
+    id,
+    String(row.snooze_version),
+    row.status === "snoozed" ? row.snooze_until : null,
+  );
+  await clock.scheduleSla(
+    w,
+    id,
+    row.sla_next_due_at ? new Date(row.sla_next_due_at).toISOString() : null,
+  );
 }
 function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
   const connect = hyperdriveConnection(env.HYPERDRIVE),
@@ -139,9 +147,24 @@ export class ConversationClock extends DurableObject<Env> {
     const before = await this.ctx.storage.get<{ version: string }>("timer");
     if (before && BigInt(before.version) > BigInt(version)) return;
     await this.ctx.storage.put("timer", { workspace, id, version, wakeAt });
-    if (wakeAt)
+    await this.arm();
+  }
+  /** The SLA due time shares this object's one alarm with the snooze timer. */
+  async scheduleSla(workspace: string, id: string, dueAt: string | null) {
+    await this.ctx.storage.put("sla", { workspace, id, dueAt });
+    await this.arm();
+  }
+  private async arm() {
+    const snooze = await this.ctx.storage.get<{ wakeAt: string | null }>(
+      "timer",
+    );
+    const sla = await this.ctx.storage.get<{ dueAt: string | null }>("sla");
+    const times = [snooze?.wakeAt, sla?.dueAt]
+      .filter((t): t is string => !!t)
+      .map((t) => new Date(t).getTime());
+    if (times.length)
       await this.ctx.storage.setAlarm(
-        Math.max(Date.now() + 1, new Date(wakeAt).getTime()),
+        Math.max(Date.now() + 1, Math.min(...times)),
       );
     else await this.ctx.storage.deleteAlarm();
   }
@@ -152,14 +175,30 @@ export class ConversationClock extends DurableObject<Env> {
       version: string;
       wakeAt: string | null;
     }>("timer");
-    if (!timer?.wakeAt) return;
-    const result = await tenant(
-      hyperdriveConnection(this.env.HYPERDRIVE),
-      timer.workspace,
-      (db) => wakeConversation(db, timer.workspace, timer.id, timer.version),
-    );
-    if (result.woke)
-      await this.env.RELAY_HUB.getByName(timer.workspace).notify(timer.id);
+    const sla = await this.ctx.storage.get<{
+      workspace: string;
+      id: string;
+      dueAt: string | null;
+    }>("sla");
+    const connect = hyperdriveConnection(this.env.HYPERDRIVE);
+    if (timer?.wakeAt && new Date(timer.wakeAt).getTime() <= Date.now()) {
+      const result = await tenant(connect, timer.workspace, (db) =>
+        wakeConversation(db, timer.workspace, timer.id, timer.version),
+      );
+      if (result.woke)
+        await this.env.RELAY_HUB.getByName(timer.workspace).notify(timer.id);
+    }
+    if (sla?.dueAt && new Date(sla.dueAt).getTime() <= Date.now()) {
+      // Recomputing records the breach (once) and moves the due time on.
+      const result = await tenant(connect, sla.workspace, (db) =>
+        syncSla(db, sla.workspace, sla.id),
+      );
+      if (result.breached)
+        await this.env.RELAY_HUB.getByName(sla.workspace).notify(sla.id);
+      await scheduleClock(this.env, sla.workspace, sla.id);
+      return;
+    }
+    await this.arm();
   }
 }
 export class RelayHub extends DurableObject<Env> {
@@ -313,6 +352,7 @@ const relayWorker = {
       "bulk.apply": (job) => runBulkApply(runtime.connect, job),
       "bulk.undo": (job) => runBulkUndo(runtime.connect, job),
       "ticket.broadcast": (job) => runBroadcast(runtime.connect, job),
+      "sla.reevaluate": (job) => reevaluateJob(runtime.connect, job),
     };
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>
@@ -351,7 +391,7 @@ const relayWorker = {
             async (db) =>
               (
                 await db.query<{ id: string }>(
-                  "SELECT id FROM conversations WHERE workspace_id=$1 AND status='snoozed' AND snooze_until<now()+interval '1 minute' ORDER BY snooze_until,id LIMIT 100",
+                  "SELECT id FROM conversations WHERE workspace_id=$1 AND ((status='snoozed' AND snooze_until<now()+interval '1 minute') OR sla_next_due_at<now()+interval '1 minute') ORDER BY id LIMIT 100",
                   [work.workspace],
                 )
               ).rows,

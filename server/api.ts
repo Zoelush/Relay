@@ -45,6 +45,7 @@ import {
   listCalendars,
   publishCalendar,
 } from "./calendars";
+import { listPolicies, savePolicy } from "./sla";
 import { BULK_BODY_LIMIT } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -852,6 +853,7 @@ export async function handleApi(
             "/v1/agent/ticket-broadcast",
             "/v1/agent/calendars",
             "/v1/agent/calendar-resolve",
+            "/v1/agent/sla-policies",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -864,6 +866,7 @@ export async function handleApi(
               "/v1/agent/ticket-types",
               "/v1/agent/tickets",
               "/v1/agent/calendars",
+              "/v1/agent/sla-policies",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -918,6 +921,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/bulk" ||
           url.pathname.startsWith("/v1/agent/ticket") ||
           url.pathname.startsWith("/v1/agent/calendar") ||
+          url.pathname === "/v1/agent/sla-policies" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -960,6 +964,13 @@ export async function handleApi(
               "realtime",
             ),
           });
+        }
+        if (url.pathname === "/v1/agent/sla-policies") {
+          const result = await tenant(env.connect, workspace, (db) =>
+            savePolicy(db, workspace, principal, p),
+          );
+          await env.dispatchJobs?.(workspace);
+          return json(result);
         }
         if (url.pathname === "/v1/agent/calendars")
           return json(
@@ -1255,6 +1266,12 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listCalendars(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/sla-policies")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listPolicies(db, workspace, principal),
           ),
         );
       if (url.pathname === "/v1/agent/calendar-resolve")

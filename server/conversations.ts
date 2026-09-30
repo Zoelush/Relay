@@ -9,6 +9,7 @@ import {
 } from "./tickets";
 import { linkToTracker, unlinkFromTracker } from "./ticket-links";
 import { resolveCalendar } from "./calendars";
+import { syncSla } from "./sla";
 import { verifyInlineImages } from "./attachments";
 import { resolveMentions, recordMentions } from "./mentions";
 import {
@@ -51,6 +52,11 @@ export interface Conversation {
   snooze_version: string;
   snooze_unassign?: boolean;
   snooze_timezone?: string | null;
+  sla_policy_id?: string | null;
+  sla_next_due_at?: string | null;
+  sla_sort_at?: string | null;
+  sla_overdue?: boolean;
+  sla_breached?: boolean;
   [key: string]: unknown;
 }
 export interface Part {
@@ -116,8 +122,14 @@ export function agentConversation(c: Conversation, personalData: boolean) {
     topics,
     attributes,
     timeline_revision,
+    sla_next_due_at,
+    sla_overdue,
+    sla_breached,
   } = c;
   return {
+    sla_next_due_at: sla_next_due_at ?? null,
+    sla_overdue: sla_overdue === true,
+    sla_breached: sla_breached === true,
     id,
     brand_id,
     title,
@@ -550,6 +562,7 @@ export async function command(
         [w, id],
       );
       await syncUnread(db, w, c, true);
+      await syncSla(db, w, id);
       return { conversationId: id };
     }
     assert(p.conversationId, "CONVERSATION_REQUIRED", "Choose a conversation.");
@@ -628,6 +641,7 @@ export async function command(
           new Set(unread.map((row) => row.teammate_id)),
         );
       await refreshCustomerUnread(db, w, [target.id]);
+      await syncSla(db, w, target.id);
       return {
         conversationId: target.id,
         aliases: [source.id, target.id],
@@ -743,6 +757,8 @@ export async function command(
         kind === "customer_message",
         actor.type === "teammate" ? who.id : undefined,
       );
+      // Replies start and stop response clocks; notes change nothing.
+      if (p.action === "reply") await syncSla(db, w, c.id);
       return {
         conversationId: c.id,
         partId: part.id,
@@ -1186,6 +1202,10 @@ export async function command(
       await unlinkFromTracker(db, w, c, who, p);
     } else assert(false, "UNKNOWN_COMMAND", "Unsupported conversation action.");
     await syncUnread(db, w, c);
+    // SLA clocks follow replies, state, priority, tags, team and ticket changes; recomputing
+    // from the timeline is safe after any command.
+    if (!["read", "note", "rating"].includes(p.action))
+      await syncSla(db, w, c.id);
     return { conversationId: c.id };
   });
 }
@@ -1420,5 +1440,6 @@ export async function wakeConversation(
     c.assigned = "";
   }
   await syncUnread(db, w, c);
+  await syncSla(db, w, c.id);
   return { woke: true };
 }

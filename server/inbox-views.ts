@@ -17,7 +17,9 @@ export type ViewFilter =
         | "priority"
         | "brand"
         | "created_at"
-        | "mentioned";
+        | "mentioned"
+        | "sla"
+        | "ticket_type";
       op: "eq" | "ne" | "in" | "gte" | "lte";
       value: string | boolean | string[];
     };
@@ -74,16 +76,24 @@ export function validateFilter(
   }
   assert(
     typeof p.field === "string" &&
-      (p.field in columns || ["tag", "topic", "mentioned"].includes(p.field)),
+      (p.field in columns ||
+        ["tag", "topic", "mentioned", "sla", "ticket_type"].includes(p.field)),
     "FILTER_UNAVAILABLE",
-    "This filter is unavailable. Contact/company attributes require the people service; SLA requires phase 5.",
+    "This filter is unavailable. Contact and company attributes require the people service.",
   );
   assert(
     ["eq", "ne", "in", "gte", "lte"].includes(String(p.op)),
     "INVALID_FILTER",
     "Choose a supported comparison.",
   );
-  if (p.field === "mentioned")
+  if (p.field === "sla")
+    assert(
+      ["eq", "ne"].includes(String(p.op)) &&
+        (p.value === "overdue" || p.value === "breached"),
+      "INVALID_FILTER",
+      "Choose overdue (running and past due) or breached (ever).",
+    );
+  else if (p.field === "mentioned")
     assert(
       p.op === "eq" && typeof p.value === "string" && p.value.length <= 200,
       "INVALID_FILTER",
@@ -140,6 +150,15 @@ export function compileFilter(filter: ViewFilter, values: unknown[]): string {
     values.push(v);
     return "$" + values.length;
   };
+  if (filter.field === "sla") {
+    const col = filter.value === "overdue" ? "c.sla_overdue" : "c.sla_breached";
+    return filter.op === "ne" ? `NOT ${col}` : col;
+  }
+  if (filter.field === "ticket_type") {
+    const p = bind(filter.op === "in" ? filter.value : [filter.value]);
+    const expression = `EXISTS(SELECT 1 FROM tickets tk WHERE tk.workspace_id=c.workspace_id AND tk.conversation_id=c.id AND tk.type_id=ANY(${p}::text[]))`;
+    return filter.op === "ne" ? `NOT (${expression})` : expression;
+  }
   if (filter.field === "mentioned")
     return `EXISTS(SELECT 1 FROM conversation_mentions x WHERE x.workspace_id=c.workspace_id AND x.conversation_id=c.id AND x.teammate_id=${bind(filter.value)})`;
   if (filter.field === "tag" || filter.field === "topic") {
@@ -409,9 +428,9 @@ export async function mutateView(
     );
     const sort = String(p.sort ?? current?.sort ?? "newest");
     assert(
-      ["newest", "oldest", "waiting"].includes(sort),
+      ["newest", "oldest", "waiting", "sla"].includes(sort),
       "INVALID_SORT",
-      "Choose newest, oldest or longest waiting.",
+      "Choose newest, oldest, longest waiting or SLA due soonest.",
     );
     // Fields left out of a save keep their current values; a duplicate starts personal.
     const keep = p.action === "save" && current;
@@ -587,6 +606,8 @@ export async function rebuildViews(connect: Connect, job: Job) {
 }
 /** Sets evaluated per statement. Each set is one distinct filter shared by all its views. */
 const SETS_PER_STATEMENT = 50;
+/** Sort key for conversations without an SLA clock: after every running and paused one. */
+const NO_SLA = "9999-12-31T00:00:00Z";
 /**
  * Reconciles membership of `ids` in `sets`: removes non-matching rows, inserts new matches
  * and refreshes sort keys of existing ones. One statement per chunk of sets.
@@ -608,7 +629,7 @@ async function projectSets(
     const matches = chunk
       .map(
         (s) =>
-          `SELECT ${bind(s.id)}::text AS set_id,c.id AS conversation_id,c.created_at,COALESCE(c.last_contact_reply_at,c.created_at) AS waiting_at FROM conversations c WHERE c.workspace_id=$1 AND c.id=ANY($2::text[]) AND c.merged_into_id IS NULL AND ${compileFilter(s.filter, values)}`,
+          `SELECT ${bind(s.id)}::text AS set_id,c.id AS conversation_id,c.created_at,COALESCE(c.last_contact_reply_at,c.created_at) AS waiting_at,COALESCE(c.sla_sort_at,'${NO_SLA}'::timestamptz) AS sla_sort_at FROM conversations c WHERE c.workspace_id=$1 AND c.id=ANY($2::text[]) AND c.merged_into_id IS NULL AND ${compileFilter(s.filter, values)}`,
       )
       .join(" UNION ALL ");
     // DELETE and INSERT touch disjoint rows, so both see the same snapshot safely.
@@ -616,10 +637,10 @@ async function projectSets(
       `WITH matches AS (${matches}),
       removed AS (DELETE FROM inbox_filter_members m WHERE m.workspace_id=$1 AND m.set_id=ANY($3::text[]) AND m.conversation_id=ANY($2::text[])
         AND NOT EXISTS(SELECT 1 FROM matches x WHERE x.set_id=m.set_id AND x.conversation_id=m.conversation_id))
-      INSERT INTO inbox_filter_members(workspace_id,set_id,conversation_id,created_at,waiting_at)
-      SELECT $1,set_id,conversation_id,created_at,waiting_at FROM matches
-      ON CONFLICT(workspace_id,set_id,conversation_id) DO UPDATE SET created_at=EXCLUDED.created_at,waiting_at=EXCLUDED.waiting_at
-      WHERE (inbox_filter_members.created_at,inbox_filter_members.waiting_at) IS DISTINCT FROM (EXCLUDED.created_at,EXCLUDED.waiting_at)`,
+      INSERT INTO inbox_filter_members(workspace_id,set_id,conversation_id,created_at,waiting_at,sla_sort_at)
+      SELECT $1,set_id,conversation_id,created_at,waiting_at,sla_sort_at FROM matches
+      ON CONFLICT(workspace_id,set_id,conversation_id) DO UPDATE SET created_at=EXCLUDED.created_at,waiting_at=EXCLUDED.waiting_at,sla_sort_at=EXCLUDED.sla_sort_at
+      WHERE (inbox_filter_members.created_at,inbox_filter_members.waiting_at,inbox_filter_members.sla_sort_at) IS DISTINCT FROM (EXCLUDED.created_at,EXCLUDED.waiting_at,EXCLUDED.sla_sort_at)`,
       values,
     );
   }
@@ -670,12 +691,18 @@ export async function viewPage(
   const view = await visibleView(db, w, t, q.get("view") ?? "");
   const sort = q.get("sort") ?? view.sort;
   assert(
-    ["newest", "oldest", "waiting"].includes(sort),
+    ["newest", "oldest", "waiting", "sla"].includes(sort),
     "INVALID_SORT",
     "Choose an available sort.",
   );
   // Set members carry the sort keys, so each page is one index range scan.
-  const key = sort === "waiting" ? "m.waiting_at" : "m.created_at";
+  // Members projected before SLAs existed have no SLA key yet; they sort with "no SLA".
+  const key =
+    sort === "waiting"
+      ? "m.waiting_at"
+      : sort === "sla"
+        ? `COALESCE(m.sla_sort_at,'${NO_SLA}'::timestamptz)`
+        : "m.created_at";
   const descending = sort === "newest",
     values: unknown[] = [w, view.set_id, t.id];
   const where = [

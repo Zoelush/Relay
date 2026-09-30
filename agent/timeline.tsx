@@ -18,6 +18,12 @@ export type TimelinePart = {
     deleted?: boolean;
   };
 };
+const SLA_NAMES: Record<string, string> = {
+  first_response: "First response",
+  next_response: "Next response",
+  time_to_close: "Time to close",
+  time_to_resolve: "Time to resolve",
+};
 export type Directory = {
   teammates: { id: string; name: string }[];
   teams: { id: string; name: string }[];
@@ -103,6 +109,8 @@ export function describePart(p: TimelinePart, dir: Directory): string {
     case "channel_handover":
       return `Conversation moved to ${String(d.channel ?? "another channel")}`;
     case "system_event":
+      if (d.event === "sla_breached")
+        return `${SLA_NAMES[String(d.metric)] ?? "SLA"} SLA breached (${(d.policy as { name?: string })?.name ?? "policy"})`;
       if (d.event === "ticket_status")
         return `Customer sees: ticket #${String(d.number)} (${String(d.typeName)}): ${String(d.label)}`;
       if (d.event === "ticket_linked")

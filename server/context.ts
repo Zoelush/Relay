@@ -1,5 +1,6 @@
 import type { Sql } from "./db";
 import { ticketContext } from "./tickets";
+import { slaContext } from "./sla";
 import { authorize, can } from "./policy";
 import { access, conversation } from "./conversations";
 import { resolveContact } from "./people";
@@ -149,6 +150,7 @@ export async function conversationContext(
     attributes,
     canEditAttributes: await can(db, w, principal, "conversations.manage"),
     tickets: await ticketContext(db, w, c),
+    sla: await slaContext(db, w, c),
     apps,
   };
 }
