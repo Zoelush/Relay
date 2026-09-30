@@ -29,6 +29,12 @@ import { Timeline, type Directory } from "../../agent/timeline";
 import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
 import { NotificationsPanel } from "../../agent/notifications";
+import {
+  useTeammateActivity,
+  useWritingSignal,
+  describeActivity,
+  VIEWING_REFRESH_MS,
+} from "../../agent/activity";
 import { plainText, imageIds, type RichDoc } from "../../lib/rich-doc";
 import {
   imageProblem,
@@ -185,6 +191,17 @@ export default function PostgresInbox() {
     "palette" | "shortcuts" | "snooze" | "notifications" | null
   >(null);
   const [notificationCount, setNotificationCount] = useState(0);
+  // Other teammates viewing or writing, and this teammate's own writing signal.
+  const {
+    activity,
+    onSignal: onActivity,
+    clear: clearActivity,
+  } = useTeammateActivity(snapshot?.teammate.id ?? "");
+  const sendFrame = useCallback((frame: Record<string, unknown>) => {
+    if (ready.current && socket.current?.readyState === WebSocket.OPEN)
+      socket.current.send(JSON.stringify(frame));
+  }, []);
+  const writing = useWritingSignal(sendFrame);
   const [viewList, setViewList] = useState<{ id: string; name: string }[]>([]);
   const composer = useRef<ComposerHandle>(null);
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -322,6 +339,8 @@ export default function PostgresInbox() {
               );
           }
           if (frame.type === "reauthenticate") ws.close();
+          if (frame.type === "viewing" || frame.type === "typing")
+            onActivity(frame);
           if (frame.type === "unread" && frame.viewCounts)
             setViewCounts(frame.viewCounts);
           if (
@@ -418,6 +437,7 @@ export default function PostgresInbox() {
     show,
     retryDrafts,
     applyScan,
+    onActivity,
   ]);
 
   useLayoutEffect(() => {
@@ -506,6 +526,8 @@ export default function PostgresInbox() {
     }, 100);
   }
   function pick(id: string) {
+    writing.stop();
+    if (selectedRef.current) clearActivity(selectedRef.current);
     if (ready.current && selectedRef.current)
       socket.current?.send(
         JSON.stringify({
@@ -571,6 +593,21 @@ export default function PostgresInbox() {
       { status: "snoozed" },
     );
   const me = snapshot?.teammate.id ?? "";
+  // "Still viewing" while a conversation is open; switching mode ends the writing signal.
+  useEffect(() => {
+    if (!selected) return;
+    const timer = setInterval(
+      () => sendFrame({ type: "viewing", conversationId: selected }),
+      VIEWING_REFRESH_MS,
+    );
+    return () => clearInterval(timer);
+  }, [selected, sendFrame]);
+  const { stop: stopWriting } = writing;
+  useEffect(() => stopWriting, [mode, stopWriting]);
+  const here = describeActivity(
+    activity[selected] ?? {},
+    (id) => snapshot?.teammates.find((t) => t.id === id)?.name ?? "A teammate",
+  );
   const focusComposer = (next: "reply" | "note") => {
     setMode(next);
     requestAnimationFrame(() => composer.current?.focus());
@@ -862,6 +899,7 @@ export default function PostgresInbox() {
     const key = draftKey;
     failed.current.set(key, item);
     setPending((items) => [...items, item]);
+    writing.stop();
     drafts.sent(item.conversationId, item.mode);
     reseed(key);
     setError("");
@@ -1004,6 +1042,21 @@ export default function PostgresInbox() {
                     {conversation?.name || "Customer"}
                     {conversation?.email ? ` · ${conversation.email}` : ""}
                   </p>
+                  <p
+                    className="pg-activity"
+                    role="status"
+                    aria-live="polite"
+                    data-testid="teammate-activity"
+                  >
+                    {here.text}
+                  </p>
+                  {mode === "reply" && here.replying.length > 0 && (
+                    <p className="pg-collision" role="alert">
+                      {here.replying.join(" and ")}{" "}
+                      {here.replying.length === 1 ? "is" : "are"} also replying.
+                      Check before you send.
+                    </p>
+                  )}
                   <div
                     className="pg-thread-actions"
                     role="toolbar"
@@ -1197,7 +1250,11 @@ export default function PostgresInbox() {
                         doc: draft?.doc ?? null,
                       }}
                       disabled={!canSend}
-                      onChange={(doc) => drafts.edit(selected, mode, doc)}
+                      onChange={(doc) => {
+                        drafts.edit(selected, mode, doc);
+                        if (doc) writing.typed(selected, mode);
+                        else writing.stop();
+                      }}
                       onSubmit={() => void send()}
                       onFiles={(files) => void addImages(files)}
                       imageStatus={(id) => imageStates[id]}

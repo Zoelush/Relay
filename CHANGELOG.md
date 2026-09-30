@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — agent inbox step C3b (viewing and writing indicators)
+
+- One routing table for live signals, `fanOutSignal`, now used by both the Worker and the local relay, which previously disagreed.
+  - Viewing and a teammate's note typing reach teammates only, never customers.
+  - A teammate's reply typing still shows "Someone is typing…" to the customer.
+  - Presence reaches teammates only; signals never echo to the sender or cross workspaces.
+  - Teammate typing without `mode: "reply"` is treated as a note.
+- Viewing: joins are announced both ways, a newcomer learns who is already there, the inbox refreshes every 30 seconds and entries expire after 45, and leaving or a closed socket is announced at once.
+- Writing: the composer sends "writing a note" or "writing a reply" at most every 2 seconds, and stops after 4 idle seconds, on send, on a mode switch and on leaving.
+- The conversation header shows who is viewing or writing (for example "Grace is writing a note"), and warns "Grace is also replying" while you are in reply mode.
+- Fixed: a stop signal used up the 200ms typing throttle, so the next mode's signal after a mode switch was dropped. Only active typing is throttled now.
+- Tests: `tests/signals.test.ts` (the whole routing table, joins, refreshes, departures and the throttle regression) and `tests/browser/collision.spec.ts` (two teammates and a customer; departure clears indicators). 37/37 Node tests, typecheck and 20/20 browser tests pass. No migration. Flags remain off.
+
 ## Unreleased — agent inbox step C3a (mentions and notifications)
 
 - Notes can @-mention teammates and teams through a keyboard picker in the composer. Mentions are refused in customer replies (`MENTION_IN_REPLY`). The server checks each mention against the directory (`MENTION_NOT_FOUND`), rewrites its label from the directory and derives the plain text as `@Name`.

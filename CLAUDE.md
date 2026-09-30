@@ -10,12 +10,12 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 04 (agent inbox). Steps A, B1, B2, C1, C2a, C2b and C3a
-(mentions and notifications; `docs/AGENT_INBOX_STEP7.md`) are implemented
-locally; the step docs are `docs/AGENT_INBOX_STEP1.md` to `STEP7.md`. Next is
-step C3b: viewing/composing indicators and agent-only routing of note typing.
-Phases 01–03 are implemented locally but not complete or hosted; see
-`docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second teammate.
+Current position: phase 04 (agent inbox). Steps A, B and C are implemented locally
+(handoffs `docs/AGENT_INBOX_STEP1.md` to `STEP8.md`; C3b, viewing and writing
+indicators, is `STEP8`). Next is step D: macros, the context sidebar with the
+phase-15 app-slot contract, and bulk actions with undo. Phases 01–03 are
+implemented locally but not complete or hosted; see `docs/STATUS.md`. Locally,
+`/agent?as=grace` signs in as a second teammate.
 
 ## Known state
 
@@ -73,7 +73,9 @@ Phases 01–03 are implemented locally but not complete or hosted; see
 - Secrets live in `.dev.vars` locally and `wrangler secret put` for
   deployed. Never in `wrangler.toml`, never committed, never printed.
 - Internal notes must never be deliverable to a customer through any
-  path, including email notifications and the messenger.
+  path, including email notifications and the messenger. Live signals
+  follow `fanOutSignal` in `server/realtime.ts`; note typing and
+  viewing are teammate-only.
 
 ## Working style
 
