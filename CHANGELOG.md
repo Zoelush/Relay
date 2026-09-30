@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — routing step A (assignment engine and simulation)
+
+- Team inboxes have an assignment method (manual, round robin, balanced), an inbox limit, an optional ticket limit, whether tickets count toward capacity, and whether round robin includes away teammates. Teammates have their own limits. Behind `routing_v1`, off by default.
+- Round robin rotates through active members and ignores limits (by design, and documented). Balanced gives each conversation to the eligible member with the fewest active conversations, only while both the teammate's and the inbox's limits allow; otherwise it waits in the inbox.
+- Assignment is atomic in the database (a conditional update plus row locks while capacity is counted), and decisions are a pure function of team state and rotation cursor.
+- Waiting conversations are picked up when capacity appears (a close, snooze, reassignment, merge, raised limit, new member or return from away), with a sweep as a fallback. Assigning by hand beyond a limit is allowed, with a warning. A rule-based routing interface is ready for phase 11.
+- Migration 0027 adds team and teammate routing columns and two indexes. New routes: `/v1/agent/teams` and `/v1/agent/teammate-limits`.
+- Tests: `tests/routing.test.ts` and the acceptance simulation `tests/routing-simulation.test.ts` (20 teammates, mixed limits, random away, 2,000 arrivals: nothing lost, double-assigned or stranded, no limit exceeded, same-seed replay identical). 60/60 Node tests, typecheck and 36/36 browser tests pass.
+
 ## Unreleased — tickets and SLAs step C (customer ticket portal)
 
 - A customer portal for verified customers, behind `portal_v1`: "Your requests" (own conversations and customer tickets with their customer labels), each request's messages and status lines, plain-text replies (reopening closed ones), and sign-out. Brand-styled, English and Arabic, light and dark.

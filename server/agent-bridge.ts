@@ -37,6 +37,7 @@ const routes = {
     "calendar-resolve",
     "sla-policies",
     "portal-settings",
+    "teams",
   ]),
   POST: new Set([
     "command",
@@ -50,6 +51,8 @@ const routes = {
     "calendars",
     "sla-policies",
     "portal-settings",
+    "teams",
+    "teammate-limits",
     "realtime-ticket",
     "attachment/prepare",
     "attachment/complete",
