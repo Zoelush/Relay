@@ -16,7 +16,8 @@ export type ViewFilter =
         | "topic"
         | "priority"
         | "brand"
-        | "created_at";
+        | "created_at"
+        | "mentioned";
       op: "eq" | "ne" | "in" | "gte" | "lte";
       value: string | boolean | string[];
     };
@@ -73,7 +74,7 @@ export function validateFilter(
   }
   assert(
     typeof p.field === "string" &&
-      (p.field in columns || ["tag", "topic"].includes(p.field)),
+      (p.field in columns || ["tag", "topic", "mentioned"].includes(p.field)),
     "FILTER_UNAVAILABLE",
     "This filter is unavailable. Contact/company attributes require the people service; SLA requires phase 5.",
   );
@@ -82,7 +83,13 @@ export function validateFilter(
     "INVALID_FILTER",
     "Choose a supported comparison.",
   );
-  if (p.field === "priority")
+  if (p.field === "mentioned")
+    assert(
+      p.op === "eq" && typeof p.value === "string" && p.value.length <= 200,
+      "INVALID_FILTER",
+      "Choose a teammate who was mentioned.",
+    );
+  else if (p.field === "priority")
     assert(
       ["eq", "ne"].includes(String(p.op)) && typeof p.value === "boolean",
       "INVALID_FILTER",
@@ -133,6 +140,8 @@ export function compileFilter(filter: ViewFilter, values: unknown[]): string {
     values.push(v);
     return "$" + values.length;
   };
+  if (filter.field === "mentioned")
+    return `EXISTS(SELECT 1 FROM conversation_mentions x WHERE x.workspace_id=c.workspace_id AND x.conversation_id=c.id AND x.teammate_id=${bind(filter.value)})`;
   if (filter.field === "tag" || filter.field === "topic") {
     const p = bind(filter.op === "in" ? filter.value : [filter.value]);
     const expression =
@@ -214,12 +223,20 @@ async function enqueueRebuild(
       )
     : null;
 }
-// TODO(phase 4 step C): add the "mentions" default view. It needs structured teammate/team
-// mention records on note parts, which step C introduces; there is no data to filter on yet.
+/** Default views, in display order. Missing ones are added by the idempotent initialize. */
+export const BUILTIN_VIEWS = [
+  "mine",
+  "mentions",
+  "unassigned",
+  "open",
+  "snoozed",
+  "closed",
+] as const;
 export async function seedInboxViews(db: Sql, w: string, t: Teammate) {
   const eq = (field: string, value: string) => ({ field, op: "eq", value });
   for (const [builtin, name, filter] of [
     ["mine", "Mine", { and: [eq("state", "open"), eq("assignee", t.id)] }],
+    ["mentions", "Mentions", eq("mentioned", t.id)],
     [
       "unassigned",
       "Unassigned",
@@ -238,7 +255,7 @@ export async function seedInboxViews(db: Sql, w: string, t: Teammate) {
         name,
         JSON.stringify(filter),
         builtin,
-        ["mine", "unassigned", "open", "snoozed", "closed"].indexOf(builtin),
+        BUILTIN_VIEWS.indexOf(builtin),
       ],
     );
   }

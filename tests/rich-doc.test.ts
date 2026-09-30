@@ -181,6 +181,58 @@ test("images refer to an attachment id, never a URL, and are limited per message
   assert.equal(isPlain(withImages), false);
 });
 
+test("mentions name a teammate or team by id, with a bounded label and count", () => {
+  const m = (attrs: Record<string, unknown>) => ({ type: "mention", attrs });
+  assert.deepEqual(
+    normalizeDoc(
+      doc(
+        p(
+          text("Hi "),
+          m({
+            kind: "team",
+            id: "billing",
+            label: "  Billing  ",
+            mentionSuggestionChar: "@",
+            href: "x",
+          }),
+        ),
+      ),
+    ),
+    doc(
+      p(text("Hi "), {
+        type: "mention",
+        attrs: { kind: "team", id: "billing", label: "Billing" },
+      }),
+    ),
+  );
+  for (const attrs of [
+    { kind: "customer", id: "x" },
+    { kind: "teammate", id: "a b" },
+    { kind: "teammate" },
+  ])
+    assert.throws(() => normalizeDoc(doc(p(m(attrs)))), {
+      code: "INVALID_DOCUMENT",
+    });
+  assert.throws(
+    () =>
+      normalizeDoc(
+        doc(
+          p(
+            ...Array.from({ length: RICH_LIMITS.mentions + 1 }, () =>
+              m({ kind: "teammate", id: "ada" }),
+            ),
+          ),
+        ),
+      ),
+    { code: "DOCUMENT_TOO_LARGE" },
+  );
+  const withMention = normalizeDoc(
+    doc(p(text("cc "), m({ kind: "teammate", id: "ada", label: "Ada" }))),
+  );
+  assert.equal(plainText(withMention), "cc @Ada");
+  assert.equal(isPlain(withMention), false);
+});
+
 test("the plain-text fallback keeps structure and link destinations", () => {
   const rich = normalizeDoc(
     doc(

@@ -130,6 +130,15 @@ export async function startLocalRelay(
         "INSERT INTO teams(workspace_id,id,name) VALUES($1,'billing','Billing') ON CONFLICT DO NOTHING",
         [w],
       );
+      // A second teammate, in Billing, so mentions and notifications can be tried locally.
+      await sql.query(
+        "INSERT INTO teammates(workspace_id,id,principal_id,name,role_id) VALUES($1,'grace','local-grace','Grace','agent') ON CONFLICT DO NOTHING",
+        [w],
+      );
+      await sql.query(
+        "INSERT INTO teammate_teams(workspace_id,teammate_id,team_id) VALUES($1,'grace','billing') ON CONFLICT DO NOTHING",
+        [w],
+      );
       await sql.query(
         "INSERT INTO tags(workspace_id,id,name) VALUES($1,'vip','VIP'),($1,'refund','Refund') ON CONFLICT DO NOTHING",
         [w],
@@ -459,8 +468,11 @@ export async function startLocalRelay(
     if (url.pathname.startsWith("/agent/")) return staticResponse(req);
     if (url.pathname === "/agent") {
       // Development-only identity, issued only on the loopback fixture, never in app/ or workers/.
+      // `?as=grace` signs in as the seeded second teammate, to try mentions between two people.
       const token = await new SignJWT({})
-        .setSubject("local-owner")
+        .setSubject(
+          url.searchParams.get("as") === "grace" ? "local-grace" : "local-owner",
+        )
         .setProtectedHeader({ alg: "HS256" })
         .setIssuer("relay-local-fixture")
         .setAudience("agent-browser")

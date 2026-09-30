@@ -29,6 +29,15 @@ type Row = {
   unread?: boolean;
 };
 const initial: ViewFilter = { field: "state", op: "eq", value: "open" };
+/** Default views every teammate has; keep in step with BUILTIN_VIEWS on the server. */
+const BUILTINS = [
+  "mine",
+  "mentions",
+  "unassigned",
+  "open",
+  "snoozed",
+  "closed",
+];
 function FilterEditor({
   value,
   onChange,
@@ -357,6 +366,21 @@ export function InboxViews({
   useEffect(() => {
     onViews?.(views.map((v) => ({ id: v.id, name: v.name })));
   }, [views, onViews]);
+  // A teammate set up before a default view existed (such as Mentions) gets it added once,
+  // through the idempotent initialize action.
+  const toppedUp = useRef(false);
+  useEffect(() => {
+    if (toppedUp.current || !views.length) return;
+    const have = new Set(views.map((v) => v.builtin).filter(Boolean));
+    if (BUILTINS.every((b) => have.has(b))) return;
+    toppedUp.current = true;
+    api<{ jobId?: string }>("views", { action: "initialize" })
+      .then((result) => {
+        if (result.jobId) onJob(result.jobId);
+        return refresh();
+      })
+      .catch(onError);
+  }, [views, refresh, onJob, onError]);
   // Keyboard navigation (J/K) and palette view switching arrive as window events from the inbox.
   useEffect(() => {
     const navigate = (e: Event) => {

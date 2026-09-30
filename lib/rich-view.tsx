@@ -42,6 +42,17 @@ export function RichText({
 function inline(nodes: RichInline[] = []): ReactNode[] {
   return nodes.map((n, i) => {
     if (n.type === "hardBreak") return <br key={i} />;
+    if (n.type === "mention")
+      return (
+        <span
+          key={i}
+          className="rich-mention"
+          data-mention-kind={n.attrs.kind}
+          data-mention-id={n.attrs.id}
+        >
+          @{n.attrs.label}
+        </span>
+      );
     let node: ReactNode = n.text;
     for (const m of n.marks ?? []) {
       if (m.type === "bold") node = <strong>{node}</strong>;

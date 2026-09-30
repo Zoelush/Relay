@@ -20,6 +20,7 @@ import {
   CheckCircle,
   RotateCcw,
   Keyboard,
+  Bell,
 } from "lucide-react";
 import "../../agent/inbox.css";
 import { api, InboxError } from "../../agent/api";
@@ -27,6 +28,7 @@ import { InboxViews, type ViewCount } from "../../agent/views";
 import { Timeline, type Directory } from "../../agent/timeline";
 import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
+import { NotificationsPanel } from "../../agent/notifications";
 import { plainText, imageIds, type RichDoc } from "../../lib/rich-doc";
 import {
   imageProblem,
@@ -180,8 +182,9 @@ export default function PostgresInbox() {
     Record<string, Partial<Conversation>>
   >({});
   const [overlay, setOverlay] = useState<
-    "palette" | "shortcuts" | "snooze" | null
+    "palette" | "shortcuts" | "snooze" | "notifications" | null
   >(null);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [viewList, setViewList] = useState<{ id: string; name: string }[]>([]);
   const composer = useRef<ComposerHandle>(null);
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -321,6 +324,11 @@ export default function PostgresInbox() {
           if (frame.type === "reauthenticate") ws.close();
           if (frame.type === "unread" && frame.viewCounts)
             setViewCounts(frame.viewCounts);
+          if (
+            frame.type === "unread" &&
+            typeof frame.notifications === "number"
+          )
+            setNotificationCount(frame.notifications);
           if (frame.type === "job") {
             setViewRevision((n) => n + 1);
             applyScan(frame);
@@ -711,6 +719,12 @@ export default function PostgresInbox() {
       run: focusSearch,
     },
     {
+      id: "notifications",
+      group: "Navigate",
+      label: "Open notifications",
+      run: () => setOverlay("notifications"),
+    },
+    {
       id: "shortcuts",
       group: "Help",
       label: "Keyboard shortcuts",
@@ -884,6 +898,18 @@ export default function PostgresInbox() {
         <div className="pg-nav-active">
           <Inbox size={18} /> Inbox
         </div>
+        <button
+          className="pg-nav-bell"
+          aria-label={`Notifications, ${notificationCount} unread`}
+          onClick={() => setOverlay("notifications")}
+        >
+          <Bell size={15} /> Notifications
+          {notificationCount > 0 && (
+            <span className="pg-badge" aria-hidden="true">
+              {notificationCount > 99 ? "99+" : notificationCount}
+            </span>
+          )}
+        </button>
         <button className="pg-nav-help" onClick={() => setOverlay("shortcuts")}>
           <Keyboard size={15} /> Shortcuts <kbd>?</kbd>
         </button>
@@ -1175,6 +1201,24 @@ export default function PostgresInbox() {
                       onSubmit={() => void send()}
                       onFiles={(files) => void addImages(files)}
                       imageStatus={(id) => imageStates[id]}
+                      mentionables={
+                        mode === "note"
+                          ? [
+                              ...(snapshot?.teammates ?? [])
+                                .filter((t) => t.id !== me)
+                                .map((t) => ({
+                                  kind: "teammate" as const,
+                                  id: t.id,
+                                  label: t.name,
+                                })),
+                              ...(snapshot?.teams ?? []).map((t) => ({
+                                kind: "team" as const,
+                                id: t.id,
+                                label: t.name,
+                              })),
+                            ]
+                          : null
+                      }
                     />
                   </Suspense>
                   {draft?.status === "conflict" && (
@@ -1250,6 +1294,13 @@ export default function PostgresInbox() {
       </section>
       {overlay === "palette" && (
         <CommandPalette commands={commands} onClose={() => setOverlay(null)} />
+      )}
+      {overlay === "notifications" && (
+        <NotificationsPanel
+          onOpen={(id) => pick(id)}
+          onClose={() => setOverlay(null)}
+          onError={report}
+        />
       )}
       {overlay === "shortcuts" && (
         <ShortcutSheet onClose={() => setOverlay(null)} />
