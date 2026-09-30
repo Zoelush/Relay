@@ -1,6 +1,6 @@
 # Status
 
-Verified 29 September 2026 against commit `0bfdeb2`; phase 04 row and checks updated through step D2 by reading the code and
+Verified 29 September 2026 against commit `0bfdeb2`; phase 04 row and checks updated through step D3 by reading the code and
 running the checks below. Claims copied from earlier docs but not
 re-verified are marked as such.
 
@@ -19,7 +19,7 @@ have not been provisioned, and no data has moved from D1.
 | 01 Tenancy, identity, people | Partial | Workspaces, teammates, roles, contacts, identities and merge audit exist (`db/postgres/0002_people.sql`, `server/people.ts`, `server/identity.ts`). Companies, custom objects, typed contact/company values, events, subscriptions and segments are missing, and the 50,000-contact acceptance workload has not been run (`docs/LOCAL_READINESS.md` §2). |
 | 02 Conversation core and realtime | Done locally, not hosted | Typed parts, cycles, merges, search, jobs, outbox and WebSocket replay (`server/conversations.ts`, `server/realtime.ts`, `workers/relay.ts`); covered by the Node tests. Hosted acceptance not run. |
 | 03 Messenger | Done locally, not hosted | Iframe messenger and loader (`messenger/`, `docs/MESSENGER.md`). The production messenger is still the D1 one in `components/relay/messenger.tsx`. Its Playwright tests are not verified. |
-| 04 Agent inbox | Steps A, B (B1, B2), C (C1–C3b), D1 and D2 done locally; D3 not started | Handoffs: `docs/AGENT_INBOX_STEP1.md` (A), `STEP2` (B1 saved views), `STEP3` (B2 first screen; warm p95 15.6ms against 150ms), `STEP4` (C1 timeline, snooze, shortcuts), `STEP5` (C2a rich text, drafts), `STEP6` (C2b inline images), `STEP7` (C3a mentions, notifications), `STEP8` (C3b viewing and writing indicators), `STEP9` (D1 macros), `docs/AGENT_INBOX_STEP10.md` (D2 context sidebar and app-slot contract). |
+| 04 Agent inbox | Steps A, B (B1, B2), C (C1–C3b), D1, D2 and D3 done locally (phase 04 plan complete locally) | Handoffs: `docs/AGENT_INBOX_STEP1.md` (A), `STEP2` (B1 saved views), `STEP3` (B2 first screen; warm p95 15.6ms against 150ms), `STEP4` (C1 timeline, snooze, shortcuts), `STEP5` (C2a rich text, drafts), `STEP6` (C2b inline images), `STEP7` (C3a mentions, notifications), `STEP8` (C3b viewing and writing indicators), `STEP9` (D1 macros), `docs/AGENT_INBOX_STEP10.md` (D2 context sidebar and app-slot contract), `docs/AGENT_INBOX_STEP11.md` (D3 bulk actions with undo). |
 
 ## Inbox: storage and transport
 
@@ -48,13 +48,14 @@ On `phase-04/step-d2`:
 
 ```text
 npm test
-ℹ tests 41
-ℹ pass 41
+ℹ tests 42
+ℹ pass 42
 ℹ fail 0
 ```
 
 - `npm run typecheck`: passes.
-- `npm run test:e2e` (Playwright, Chromium): 24/24 pass.
+- `npm run test:e2e` (Playwright, Chromium): 27/27 pass.
+  - Bulk actions: 3/3 pass.
   - Agent inbox: 2/2 pass.
   - Views: 2/2 pass.
   - Timeline: 2/2 pass.

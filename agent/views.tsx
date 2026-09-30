@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { BulkBar, type Directory } from "./bulk";
 import type { ViewFilter } from "../server/inbox-views";
 export type ViewCount = {
   id: string;
@@ -191,7 +192,9 @@ export function InboxViews({
   onViews,
   onError,
   onJob,
+  dir,
 }: {
+  dir: Directory;
   selected: string;
   revision: number;
   counts: ViewCount[];
@@ -226,6 +229,36 @@ export function InboxViews({
     loadToken = useRef(0),
     queryRef = useRef("");
   const [height, setHeight] = useState(500);
+  // Bulk selection belongs to one list (view, sort and search); changing the list drops it.
+  const listKey = `${viewId}|${sort}|${query}`;
+  const [picked, setPicked] = useState<{
+    key: string;
+    ids: string[];
+    all: boolean;
+  }>({ key: "", ids: [], all: false });
+  const selection =
+    picked.key === listKey ? picked : { key: listKey, ids: [], all: false };
+  const pickedSet = new Set(selection.ids);
+  const anchor = useRef<string | null>(null);
+  /** Checks or unchecks a row; Shift extends from the last row clicked to this one. */
+  const toggle = (id: string, range: boolean) => {
+    const on = !pickedSet.has(id);
+    let ids = [id];
+    const from = anchor.current
+      ? rows.findIndex((r) => r.id === anchor.current)
+      : -1;
+    const to = rows.findIndex((r) => r.id === id);
+    if (range && from >= 0 && to >= 0)
+      ids = rows
+        .slice(Math.min(from, to), Math.max(from, to) + 1)
+        .map((r) => r.id);
+    anchor.current = id;
+    const next = new Set(selection.ids);
+    for (const x of ids)
+      if (on) next.add(x);
+      else next.delete(x);
+    setPicked({ key: listKey, ids: [...next], all: false });
+  };
   const refresh = useCallback(async () => {
     const data = await api<{ views: View[]; folders: Folder[] }>("views");
     setViews(withPending(data.views));
@@ -411,6 +444,17 @@ export function InboxViews({
       window.removeEventListener("relay:view", switchView);
     };
   }, [rows, selected, views, onSelect]);
+  // X checks or unchecks the open conversation's row.
+  const toggleRef = useRef(toggle);
+  useEffect(() => {
+    toggleRef.current = toggle;
+  });
+  useEffect(() => {
+    const onToggle = (e: Event) =>
+      toggleRef.current((e as CustomEvent<string>).detail, false);
+    window.addEventListener("relay:bulk-toggle", onToggle);
+    return () => window.removeEventListener("relay:bulk-toggle", onToggle);
+  }, []);
   const current = views.find((v) => v.id === viewId),
     countMap = new Map(counts.map((c) => [c.id, c]));
   async function mutate(
@@ -600,6 +644,35 @@ export function InboxViews({
           <option value="waiting">Longest waiting</option>
         </select>
       </div>
+      {(selection.ids.length > 0 || selection.all) && current && !query && (
+        <div className="pg-select-all">
+          {selection.all ? (
+            <button
+              onClick={() => setPicked({ key: listKey, ids: [], all: false })}
+            >
+              Clear selection
+            </button>
+          ) : (
+            <button
+              onClick={() => setPicked({ key: listKey, ids: [], all: true })}
+            >
+              Select all {(countMap.get(current.id) ?? current).count_label} in
+              this view
+            </button>
+          )}
+        </div>
+      )}
+      <BulkBar
+        selection={{ viewId, ids: selection.ids, all: selection.all }}
+        count={
+          selection.all
+            ? `All ${(current && (countMap.get(current.id) ?? current).count_label) || ""}`.trim()
+            : selection.ids.length.toLocaleString()
+        }
+        dir={dir}
+        onClear={() => setPicked({ key: listKey, ids: [], all: false })}
+        onJob={onJob}
+      />
       <div
         ref={viewport}
         className="pg-virtual-list"
@@ -617,30 +690,46 @@ export function InboxViews({
       >
         <div style={{ height: rows.length * rowHeight, position: "relative" }}>
           {rows.slice(start, end).map((c, index) => (
-            <button
+            <div
               key={c.id}
-              className={c.id === selected ? "pg-row selected" : "pg-row"}
+              className="pg-row-wrap"
               style={{
                 position: "absolute",
                 top: (start + index) * rowHeight,
                 height: rowHeight,
                 width: "100%",
               }}
-              onClick={() => onSelect(c)}
-              onMouseEnter={() => onPrefetch?.(c.id)}
-              onFocus={() => onPrefetch?.(c.id)}
             >
-              <span className="pg-avatar">
-                {c.unread ? "●" : (c.name || "C").slice(0, 1)}
-              </span>
-              <span>
-                <strong>{c.name || "Customer"}</strong>
-                <span className="pg-row-title">{c.title}</span>
-                <small>
-                  {c.status} · {c.channel}
-                </small>
-              </span>
-            </button>
+              <input
+                type="checkbox"
+                className="pg-row-check"
+                aria-label={`Select ${c.name || "Customer"}: ${c.title}`}
+                checked={selection.all || pickedSet.has(c.id)}
+                onChange={() => {}}
+                onClick={(e) => {
+                  if (selection.all)
+                    setPicked({ key: listKey, ids: [], all: false });
+                  else toggle(c.id, e.shiftKey);
+                }}
+              />
+              <button
+                className={c.id === selected ? "pg-row selected" : "pg-row"}
+                onClick={() => onSelect(c)}
+                onMouseEnter={() => onPrefetch?.(c.id)}
+                onFocus={() => onPrefetch?.(c.id)}
+              >
+                <span className="pg-avatar">
+                  {c.unread ? "●" : (c.name || "C").slice(0, 1)}
+                </span>
+                <span>
+                  <strong>{c.name || "Customer"}</strong>
+                  <span className="pg-row-title">{c.title}</span>
+                  <small>
+                    {c.status} · {c.channel}
+                  </small>
+                </span>
+              </button>
+            </div>
           ))}
         </div>
         {cursor && (

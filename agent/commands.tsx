@@ -21,6 +21,7 @@ export const SHORTCUTS: [string, string][] = [
   ["I", "Conversation details"],
   ["A", "Assign to me"],
   ["P", "Toggle priority"],
+  ["X / Shift-click", "Select for bulk actions"],
   ["/", "Search this view"],
   ["⌘ K", "Command palette"],
   ["?", "This shortcut sheet"],

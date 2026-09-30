@@ -8,6 +8,8 @@ export interface AgentBridgeConfig {
   RELAY_WORKSPACE_ID?: string;
   RELAY_BRIDGE_SECRET?: string;
 }
+/** Bulk selections carry up to 5,000 conversation ids, so that route alone allows 256 KB. */
+export const BULK_BODY_LIMIT = 256_000;
 export const postgresInboxEnabled = (config: AgentBridgeConfig) =>
   config.RELAY_AGENT_INBOX_V1 === "true";
 export const legacyWritesEnabled = (config: AgentBridgeConfig) =>
@@ -26,6 +28,7 @@ const routes = {
     "notifications",
     "macros",
     "context",
+    "bulk",
   ]),
   POST: new Set([
     "command",
@@ -33,6 +36,7 @@ const routes = {
     "drafts",
     "notifications",
     "macros",
+    "bulk",
     "realtime-ticket",
     "attachment/prepare",
     "attachment/complete",
@@ -116,7 +120,7 @@ export async function bridgeAgentRequest(
           const { value, done } = await reader.read();
           if (done) break;
           size += value.length;
-          if (size > 20000) {
+          if (size > (path === "bulk" ? BULK_BODY_LIMIT : 20000)) {
             await reader.cancel();
             throw new DomainError(
               "BODY_TOO_LARGE",

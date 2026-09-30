@@ -33,6 +33,7 @@ import { handleApi, type ApiEnvironment } from "../server/api";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset } from "../server/assets";
 import { notifyWorkspace } from "../server/realtime-batch";
+import { runBulkApply, runBulkUndo } from "../server/bulk";
 import { CoalescedPublisher } from "../server/publication";
 import { runJob, type JobHandler } from "../server/jobs";
 import { reindexSearch } from "../server/search";
@@ -287,6 +288,8 @@ export async function startLocalRelay(
     "search.reindex": (job) => reindexSearch(db.connect, job),
     "customer.unread.rebuild": (job) => rebuildCustomerUnread(db.connect, job),
     "conversation.metrics": (job) => computeResponseMetrics(db.connect, job),
+    "bulk.apply": (job) => runBulkApply(db.connect, job),
+    "bulk.undo": (job) => runBulkUndo(db.connect, job),
   };
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
