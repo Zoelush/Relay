@@ -52,6 +52,10 @@ export type TicketType = {
   description: string;
   version: string;
   archived: boolean;
+  /** Customer tickets of this type appear in the portal (never back-office or tracker ones). */
+  portal_visible: boolean;
+  /** Overrides the workspace's portal visibility for this type. */
+  portal_visibility: string | null;
   states: TicketState[];
   transitions: [string, string][];
   fields: TicketField[];
@@ -97,8 +101,10 @@ export async function loadTypes(db: Sql, w: string, ids?: string[]) {
       description: string;
       version: string;
       archived: boolean;
+      portal_visible: boolean;
+      portal_visibility: string | null;
     }>(
-      "SELECT id,name,icon,category,description,version,archived FROM ticket_types WHERE workspace_id=$1" +
+      "SELECT id,name,icon,category,description,version,archived,portal_visible,portal_visibility FROM ticket_types WHERE workspace_id=$1" +
         filter +
         " ORDER BY name,id",
       values,
@@ -305,6 +311,19 @@ export async function saveTicketType(
     }
     if (!reaches) invalid(`“${start.name}” has no path to a resolved state.`);
   }
+  if (p.portalVisible !== undefined && typeof p.portalVisible !== "boolean")
+    invalid("Choose whether the type shows in the portal.");
+  if (
+    p.portalVisibility !== undefined &&
+    p.portalVisibility !== null &&
+    p.portalVisibility !== "individual" &&
+    p.portalVisibility !== "company"
+  )
+    invalid("Portal visibility is individual or company.");
+  const portal = {
+    visible: p.portalVisible !== false,
+    visibility: (p.portalVisibility ?? null) as string | null,
+  };
   const fieldInput = Array.isArray(p.fields)
     ? (p.fields as Record<string, unknown>[])
     : [];
@@ -356,8 +375,8 @@ export async function saveTicketType(
       );
     }
     await db.query(
-      "UPDATE ticket_types SET name=$3,icon=$4,description=$5,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2",
-      [w, id, name, icon, description],
+      "UPDATE ticket_types SET name=$3,icon=$4,description=$5,portal_visible=$6,portal_visibility=$7,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2",
+      [w, id, name, icon, description, portal.visible, portal.visibility],
     );
     await db.query(
       "DELETE FROM ticket_transitions WHERE workspace_id=$1 AND type_id=$2",
@@ -380,8 +399,17 @@ export async function saveTicketType(
     ).rows.length;
     id = taken ? `${base}-${crypto.randomUUID().slice(0, 6)}` : base;
     await db.query(
-      "INSERT INTO ticket_types(workspace_id,id,name,icon,category,description) VALUES($1,$2,$3,$4,$5,$6)",
-      [w, id, name, icon, p.category, description],
+      "INSERT INTO ticket_types(workspace_id,id,name,icon,category,description,portal_visible,portal_visibility) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      [
+        w,
+        id,
+        name,
+        icon,
+        p.category,
+        description,
+        portal.visible,
+        portal.visibility,
+      ],
     );
   }
   for (const [position, s] of states.entries())

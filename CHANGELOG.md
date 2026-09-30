@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — tickets and SLAs step C (customer ticket portal)
+
+- A customer portal for verified customers, behind `portal_v1`: "Your requests" (own conversations and customer tickets with their customer labels), each request's messages and status lines, plain-text replies (reopening closed ones), and sign-out. Brand-styled, English and Arabic, light and dark.
+- Sign-in with the workspace's signed identity token (a link from the customer's site) or a one-time 60-second code from a verified messenger session, via its new "Your tickets and requests" button. Credentials travel only in the URL fragment. The session is an HttpOnly cookie whose secret is stored as a hash. Anonymous visitors can't use the portal.
+- Nothing internal is shown: the messenger's access check and delivery policy apply, back-office and tracker tickets and hidden ticket types never appear, and changes must come from the portal's own origin.
+- Settings: visibility (company-wide is stored but acts as "own requests" until phase 01), custom domains routed to a brand (certificates in phase 17), and a per-ticket-type "show in portal" switch.
+- Migration 0026 adds `portal_sessions`, `portal_handoffs`, `portal_settings`, `portal_domains` (tenant policy plus a read-only routing policy) and ticket-type portal columns. New routes: `/v1/portal/*`, `/v1/messenger/portal-handoff` and `/v1/agent/portal-settings`. New build: `npm run portal:build`.
+- Tests: `tests/portal.test.ts` and `tests/browser/portal.spec.ts` (from the messenger to the portal, status shown, reply seen by the teammate; another customer can't see or open someone else's request). 56/56 Node tests, typecheck and 36/36 browser tests pass.
+
 ## Unreleased — tickets and SLAs step B2 (SLAs)
 
 - SLA policies (API only; behind `sla_v1`): ordered, with conditions in the saved-view filter language, targets for first response, next response, time to close and time to resolve, business or all hours, and pause rules (snoozed, waiting on the customer; "in an automation" stored for phase 11).

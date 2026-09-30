@@ -46,6 +46,21 @@ import {
   publishCalendar,
 } from "./calendars";
 import { listPolicies, savePolicy } from "./sla";
+import {
+  createHandoff,
+  currentSession,
+  endSession,
+  listRequests,
+  portalContext,
+  portalScope,
+  portalSettings,
+  PORTAL_COOKIE,
+  readRequest,
+  replyToRequest,
+  requirePortalSession,
+  SESSION_MS,
+  startSession,
+} from "./portal";
 import { BULK_BODY_LIMIT } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -668,6 +683,76 @@ export async function handleApi(
           vary: "Origin",
         },
       });
+    if (url.pathname.startsWith("/v1/portal/")) {
+      // Same-origin only: the portal page and its API share the Relay origin (or a mapped
+      // domain). Every change must come from that origin; the session cookie is SameSite=Lax.
+      const post = req.method === "POST";
+      if (post)
+        assert(
+          origin === url.origin,
+          "FORBIDDEN",
+          "Cross-site request refused.",
+          403,
+        );
+      const body = post ? await readBody(req) : {};
+      const scope = await portalScope(env.connect, url.host, {
+        workspace: post ? body.workspace : url.searchParams.get("workspace"),
+        brand: post ? body.brand : url.searchParams.get("brand"),
+      });
+      const cookie = req.headers.get("cookie");
+      const route = url.pathname.slice("/v1/portal/".length);
+      const cookieAttributes = `HttpOnly; SameSite=Lax; Path=/${url.protocol === "https:" ? "; Secure" : ""}`;
+      if (post && route === "session") {
+        const started = await tenant(env.connect, scope.workspace, (db) =>
+          startSession(db, scope, env.identityMaster, body),
+        );
+        const response = json({
+          ok: true,
+          expiresAt: started.expires.toISOString(),
+        });
+        response.headers.append(
+          "set-cookie",
+          `${PORTAL_COOKIE}=${started.token}; Max-Age=${Math.floor(SESSION_MS / 1000)}; ${cookieAttributes}`,
+        );
+        return response;
+      }
+      return await tenant(env.connect, scope.workspace, async (db) => {
+        const session = await currentSession(db, scope, cookie);
+        if (!post && route === "context")
+          return json(await portalContext(db, scope, session));
+        if (post && route === "logout") {
+          const response = json(await endSession(db, scope, session));
+          response.headers.append(
+            "set-cookie",
+            `${PORTAL_COOKIE}=; Max-Age=0; ${cookieAttributes}`,
+          );
+          return response;
+        }
+        const signedIn = requirePortalSession(session);
+        if (!post && route === "requests")
+          return json(await listRequests(db, scope, signedIn));
+        if (!post && route === "request")
+          return json(
+            await readRequest(
+              db,
+              scope,
+              signedIn,
+              url.searchParams.get("id") ?? "",
+            ),
+          );
+        if (post && route === "reply")
+          return json(
+            await replyToRequest(
+              db,
+              scope,
+              signedIn,
+              req.headers.get("idempotency-key") ?? "",
+              body,
+            ),
+          );
+        throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
+      });
+    }
     if (url.pathname === "/v1/messenger/boot" && req.method === "POST") {
       const p = await readBody(req);
       assert(
@@ -800,7 +885,15 @@ export async function handleApi(
               availability: officeAvailability(b.settings.officeHours, locale),
               capabilities: {
                 help: false,
-                tickets: false,
+                // The portal is for verified customers; the messenger links to it for them.
+                tickets:
+                  verified &&
+                  (
+                    await db.query(
+                      "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='portal_v1' AND enabled",
+                      [p.workspaceId],
+                    )
+                  ).rows.length > 0,
                 queue: false,
                 attachments: !!env.attachments,
                 realtime: !!env.realtimeUrl,
@@ -854,6 +947,7 @@ export async function handleApi(
             "/v1/agent/calendars",
             "/v1/agent/calendar-resolve",
             "/v1/agent/sla-policies",
+            "/v1/agent/portal-settings",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -867,6 +961,7 @@ export async function handleApi(
               "/v1/agent/tickets",
               "/v1/agent/calendars",
               "/v1/agent/sla-policies",
+              "/v1/agent/portal-settings",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -922,6 +1017,7 @@ export async function handleApi(
           url.pathname.startsWith("/v1/agent/ticket") ||
           url.pathname.startsWith("/v1/agent/calendar") ||
           url.pathname === "/v1/agent/sla-policies" ||
+          url.pathname === "/v1/agent/portal-settings" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -965,6 +1061,12 @@ export async function handleApi(
             ),
           });
         }
+        if (url.pathname === "/v1/agent/portal-settings")
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              portalSettings(db, workspace, principal, p),
+            ),
+          );
         if (url.pathname === "/v1/agent/sla-policies") {
           const result = await tenant(env.connect, workspace, (db) =>
             savePolicy(db, workspace, principal, p),
@@ -1266,6 +1368,12 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listCalendars(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/portal-settings")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            portalSettings(db, workspace, principal),
           ),
         );
       if (url.pathname === "/v1/agent/sla-policies")
@@ -1690,6 +1798,12 @@ export async function handleApi(
         await env.notify?.(s.workspace, "");
         return json(result);
       }
+      if (url.pathname === "/v1/messenger/portal-handoff")
+        return json(
+          await tenant(env.connect, s.workspace, (db) =>
+            createHandoff(db, s, url.origin),
+          ),
+        );
       if (url.pathname === "/v1/messenger/realtime-ticket")
         return json({
           ticket: await sign(

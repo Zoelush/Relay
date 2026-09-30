@@ -1,4 +1,5 @@
 import { tenant, type Connect } from "./db";
+import { portalScope } from "./portal";
 
 export async function messengerAsset(
   request: Request,
@@ -67,4 +68,54 @@ export async function messengerAsset(
     `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self' ${url.origin.replace(/^http/, "ws")} ${storage}; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${origins.join(" ") || "'none'"}`,
   );
   return result;
+}
+
+/**
+ * The customer portal page: /portal on a mapped domain, or /portal/{workspace}/{brand}. Served
+ * only while the portal is enabled for that brand, with a strict CSP (same-origin script, style
+ * and API; no framing, no inline code). Its script and stylesheet are ordinary static files.
+ */
+export async function portalAsset(
+  request: Request,
+  connect: Connect,
+  load: (request: Request) => Promise<Response>,
+) {
+  const url = new URL(request.url);
+  const match = url.pathname.match(
+    /^\/portal(?:\/([A-Za-z0-9_-]{1,100})\/([A-Za-z0-9_-]{1,100}))?$/,
+  );
+  if (!match) return load(request);
+  let enabled = false;
+  try {
+    const scope = await portalScope(connect, url.host, {
+      workspace: match[1],
+      brand: match[2],
+    });
+    enabled = await tenant(
+      connect,
+      scope.workspace,
+      async (db) =>
+        (
+          await db.query(
+            "SELECT 1 FROM workspace_features f JOIN brands b ON b.workspace_id=f.workspace_id AND b.id=$2 WHERE f.workspace_id=$1 AND f.name='portal_v1' AND f.enabled",
+            [scope.workspace, scope.brand],
+          )
+        ).rows.length > 0,
+    );
+  } catch {
+    enabled = false;
+  }
+  if (!enabled) return new Response("Portal unavailable", { status: 404 });
+  const page = await load(new Request(new URL("/portal/index.html", url)));
+  const response = new Response(page.body, page);
+  for (const [k, v] of Object.entries({
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "content-security-policy":
+      "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  }))
+    response.headers.set(k, v);
+  return response;
 }
