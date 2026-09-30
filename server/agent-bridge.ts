@@ -25,6 +25,7 @@ const routes = {
     "drafts",
     "notifications",
     "macros",
+    "context",
   ]),
   POST: new Set([
     "command",

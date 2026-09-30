@@ -30,6 +30,7 @@ import {
 import { authorize, can } from "./policy";
 import { readDrafts, saveDraft } from "./drafts";
 import { applyMacro, listMacros, saveMacro } from "./macros";
+import { conversationContext } from "./context";
 import {
   listNotifications,
   markNotifications,
@@ -827,6 +828,7 @@ export async function handleApi(
             "/v1/agent/drafts",
             "/v1/agent/notifications",
             "/v1/agent/macros",
+            "/v1/agent/context",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -885,6 +887,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/drafts" ||
           url.pathname === "/v1/agent/notifications" ||
           url.pathname === "/v1/agent/macros" ||
+          url.pathname === "/v1/agent/context" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -1136,6 +1139,17 @@ export async function handleApi(
         });
         return new Response(file.body, { status: file.status, headers });
       }
+      if (url.pathname === "/v1/agent/context")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            conversationContext(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("conversation") ?? "",
+            ),
+          ),
+        );
       if (url.pathname === "/v1/agent/macros")
         return json(
           await tenant(env.connect, workspace, (db) =>

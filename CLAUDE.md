@@ -10,12 +10,13 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 04 (agent inbox). Steps A, B, C and D1 (macros;
-`docs/AGENT_INBOX_STEP9.md`) are implemented locally; the step docs are
-`docs/AGENT_INBOX_STEP1.md` to `STEP9.md`. Next is step D2: the context sidebar
-and the phase-15 app-slot contract. Phases 01–03 are implemented locally but not
-complete or hosted; see `docs/STATUS.md`. Locally, `/agent?as=grace` signs in as
-a second teammate.
+Current position: phase 04 (agent inbox). Steps A, B, C, D1 (macros) and D2
+(context sidebar and phase-15 app-slot contract; `docs/AGENT_INBOX_STEP10.md`) are
+implemented locally; the step docs are `docs/AGENT_INBOX_STEP1.md` to `STEP10.md`.
+Next is step D3: bulk actions with a server-counted selection, background job and
+10-second conflict-aware undo. Phases 01–03 are implemented locally but not complete
+or hosted; see `docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second
+teammate.
 
 ## Known state
 
