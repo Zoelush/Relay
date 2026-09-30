@@ -7,6 +7,7 @@ import {
   convertToTicket,
   setTicketState,
 } from "./tickets";
+import { linkToTracker, unlinkFromTracker } from "./ticket-links";
 import { verifyInlineImages } from "./attachments";
 import { resolveMentions, recordMentions } from "./mentions";
 import {
@@ -34,6 +35,8 @@ export interface Conversation {
   workspace_id: string;
   brand_id: string;
   primary_identity_id: string;
+  /** "internal" for back-office and tracker tickets, which no customer can see. */
+  visibility?: "customer" | "internal";
   status: string;
   assigned: string;
   team_id: string | null;
@@ -87,6 +90,7 @@ export interface Command {
   stateId?: string;
   mapping?: Record<string, string>;
   token?: string;
+  trackerId?: string;
 }
 export function agentConversation(c: Conversation, personalData: boolean) {
   const {
@@ -186,8 +190,9 @@ export async function access(
       originTimezone: actor.originTimezone,
     };
   }
+  // Back-office and tracker tickets have no customer; no customer can ever open one.
   assert(
-    c.brand_id === actor.brandId,
+    c.brand_id === actor.brandId && c.visibility !== "internal",
     "CONVERSATION_NOT_FOUND",
     "Conversation unavailable.",
     404,
@@ -563,6 +568,12 @@ export async function command(
       await access(db, w, target, actor, "conversations.manage");
       await assertMergeable(db, w, source);
       assert(
+        source.visibility !== "internal" && target.visibility !== "internal",
+        "INTERNAL_TICKET",
+        "Back-office and tracker tickets cannot be merged.",
+        409,
+      );
+      assert(
         source.id !== target.id,
         "ALREADY_MERGED",
         "These conversations already share a timeline.",
@@ -637,6 +648,12 @@ export async function command(
         "FORBIDDEN",
         "Customers cannot add internal notes.",
         403,
+      );
+      assert(
+        p.action === "note" || c.visibility !== "internal",
+        "INTERNAL_TICKET",
+        "This ticket has no customer to reply to. Add an internal note instead.",
+        409,
       );
       const content = messageContent(p, actor);
       const mentioned = await prepareMentions(
@@ -866,6 +883,12 @@ export async function command(
       p.action === "participant_remove"
     ) {
       assert(p.participantId, "INVALID_PARTICIPANT", "Choose a participant.");
+      assert(
+        c.visibility !== "internal",
+        "INTERNAL_TICKET",
+        "Customers cannot be added to back-office or tracker tickets.",
+        409,
+      );
       await identityContact(db, w, p.participantId);
       if (p.action === "participant_add")
         await db.query(
@@ -1153,6 +1176,10 @@ export async function command(
       await setTicketState(db, w, c, who, p, append);
     } else if (p.action === "ticket_type") {
       await changeTicketType(db, w, c, who, p, append);
+    } else if (p.action === "ticket_link") {
+      await linkToTracker(db, w, c, who, p);
+    } else if (p.action === "ticket_unlink") {
+      await unlinkFromTracker(db, w, c, who, p);
     } else assert(false, "UNKNOWN_COMMAND", "Unsupported conversation action.");
     await syncUnread(db, w, c);
     return { conversationId: c.id };

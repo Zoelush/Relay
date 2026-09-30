@@ -7,6 +7,7 @@ export type Directory = {
   teams: Named[];
   tags: Named[];
   ticketStates?: Named[];
+  trackers?: Named[];
 };
 /** Picked conversation ids, or every conversation in the view (counted by the server). */
 export type Selection = { viewId: string; ids: string[]; all: boolean };
@@ -16,7 +17,8 @@ type Action =
   | { type: "priority"; value: boolean }
   | { type: "snooze"; preset: "later_today" | "tomorrow" | "next_week" }
   | { type: "close" | "reopen" }
-  | { type: "ticket_state"; stateId: string };
+  | { type: "ticket_state"; stateId: string }
+  | { type: "ticket_link"; trackerId: string };
 type Status = {
   status: "prepared" | "running" | "done" | "undoing" | "undone";
   total: number;
@@ -58,6 +60,8 @@ function describe(action: Action, dir: Directory) {
       return "Close";
     case "reopen":
       return "Reopen";
+    case "ticket_link":
+      return `Link to tracker ${name(dir.trackers ?? [], action.trackerId)}:`;
     case "ticket_state":
       return `Set ticket state “${name(dir.ticketStates ?? [], action.stateId)}” on`;
   }
@@ -315,6 +319,12 @@ export function BulkBar({
               dir.ticketStates.map((t) => [t.id, t.name]),
               (v) => ({ type: "ticket_state", stateId: v }),
             )}
+          {!!dir.trackers?.length &&
+            select(
+              "Link to tracker",
+              dir.trackers.map((t) => [t.id, t.name]),
+              (v) => ({ type: "ticket_link", trackerId: v }),
+            )}
           <button disabled={busy} onClick={onClear}>
             Clear selection
           </button>
@@ -339,6 +349,9 @@ export function BulkBar({
                   : `Undone: ${plural(n("undone"))} restored.` +
                     (n("conflict")
                       ? ` ${plural(n("conflict"))} changed since and left alone.`
+                      : "") +
+                    (n("unreversed")
+                      ? ` ${plural(n("unreversed"))} could not be moved back.`
                       : "") +
                     (n("cancelled")
                       ? ` ${plural(n("cancelled"))} not reached.`

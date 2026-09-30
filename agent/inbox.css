@@ -571,3 +571,10 @@ kbd { font:11px ui-monospace, monospace; border:1px solid #cfdad4; border-bottom
 .pg-ticket-warning ul { margin:6px 0 0; padding-left:18px; }
 .pg-ticket-warning select { margin-left:8px; }
 .pg-ticket-dialog { width:min(520px,94vw); }
+/* Phase 05 step A2: linked tickets and conversations, broadcast. */
+.pg-ticket-links { flex-wrap:wrap; justify-content:flex-start; margin-top:8px; }
+.pg-link-row { display:flex; align-items:center; gap:6px; }
+.pg-link-row > button:first-child { flex:1; min-width:0; }
+.pg-inline-check { display:flex !important; flex-direction:row !important; align-items:center; gap:8px; }
+.pg-ticket-dialog textarea { width:100%; font:inherit; padding:8px; border:1px solid #cedcd4; border-radius:6px; }
+.pg-ticket-dialog label { display:flex; flex-direction:column; gap:4px; margin:10px 0; }

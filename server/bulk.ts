@@ -39,6 +39,7 @@ type Fields = {
   priority?: boolean;
   tag?: boolean;
   ticket_state?: string | null;
+  linked?: boolean;
 };
 
 function bulkAction(input: unknown): BulkAction {
@@ -65,6 +66,16 @@ async function fields(
       return { assigned: c.assigned, team_id: c.team_id ?? null };
     case "priority":
       return { priority: !!c.priority };
+    case "ticket_link":
+      return {
+        linked:
+          (
+            await db.query(
+              "SELECT 1 FROM ticket_links WHERE workspace_id=$1 AND ticket_id=$2 AND conversation_id=$3",
+              [w, action.trackerId, c.id],
+            )
+          ).rows.length > 0,
+      };
     case "ticket_state":
       return {
         ticket_state:
@@ -108,6 +119,8 @@ const toCommand = (action: BulkAction, timezone: string): Command => {
     case "tag_add":
     case "tag_remove":
       return { action: action.type, tagId: action.tagId };
+    case "ticket_link":
+      return { action: "ticket_link", trackerId: action.trackerId };
     case "ticket_state":
       return { action: "ticket_state", stateId: action.stateId };
     case "priority":
@@ -136,6 +149,8 @@ function inverse(
         teammateId: before.assigned || undefined,
         teamId: before.team_id || undefined,
       };
+    case "ticket_link":
+      return { action: "ticket_unlink", trackerId: action.trackerId };
     case "ticket_state":
       // Back along the type's transitions; if the graph has no way back, undo reports it.
       return before.ticket_state
@@ -556,7 +571,7 @@ export async function readBulk(
   const conflicts = (
     await db.query<{ id: string; title: string }>(
       `SELECT c.id,c.title FROM bulk_items i JOIN conversations c ON c.workspace_id=i.workspace_id AND c.id=i.conversation_id
-      WHERE i.workspace_id=$1 AND i.operation_id=$2 AND i.state='conflict' ORDER BY i.position LIMIT 20`,
+      WHERE i.workspace_id=$1 AND i.operation_id=$2 AND i.state='conflict' AND i.undo_error IS NULL ORDER BY i.position LIMIT 20`,
       [w, op.id],
     )
   ).rows;
@@ -567,7 +582,29 @@ export async function readBulk(
     action: op.action,
     undoUntil: op.undo_until ? new Date(op.undo_until).toISOString() : null,
     undoMs: undoMs === null ? null : Number(undoMs),
-    counts: await counts(db, w, op.id),
+    counts: await undoCounts(db, w, op.id),
     conflicts,
   };
+}
+
+/**
+ * Counts with undo refusals apart: `conflict` is "changed since and left alone", while
+ * `unreversed` is "could not be put back" (for example, a ticket state with no way back).
+ */
+async function undoCounts(db: Sql, w: string, id: string) {
+  const all = await counts(db, w, id);
+  const unreversed = Number(
+    (
+      await db.query<{ n: string }>(
+        "SELECT count(*) AS n FROM bulk_items WHERE workspace_id=$1 AND operation_id=$2 AND state='conflict' AND undo_error IS NOT NULL",
+        [w, id],
+      )
+    ).rows[0].n,
+  );
+  if (unreversed) {
+    all.unreversed = unreversed;
+    all.conflict -= unreversed;
+    if (!all.conflict) delete all.conflict;
+  }
+  return all;
 }

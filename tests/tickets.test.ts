@@ -115,7 +115,7 @@ test("tickets: types validated whole, conversion, transitions, required-to-close
   const events = async (id: string) =>
     (
       await sql<{ data: any; audience: string }>(
-        "SELECT data,audience FROM conversation_parts WHERE conversation_id=$1 AND kind='system_event' AND data->>'event' LIKE 'ticket_%' ORDER BY seq",
+        "SELECT data,audience FROM conversation_parts WHERE conversation_id=$1 AND kind='system_event' AND data->>'event' LIKE 'ticket_%' AND data->>'event'<>'ticket_status' ORDER BY seq",
         [id],
       )
     ).map((r) => ({ ...r.data, audience: r.audience }));

@@ -29,6 +29,7 @@ import { rebuildCustomerUnread } from "../server/unread";
 import { computeResponseMetrics } from "../server/business-time";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
+import { runBroadcast } from "../server/ticket-links";
 import { CoalescedPublisher } from "../server/publication";
 
 interface Env extends Partial<StorageEnv> {
@@ -311,6 +312,7 @@ const relayWorker = {
         computeResponseMetrics(runtime.connect, job),
       "bulk.apply": (job) => runBulkApply(runtime.connect, job),
       "bulk.undo": (job) => runBulkUndo(runtime.connect, job),
+      "ticket.broadcast": (job) => runBroadcast(runtime.connect, job),
     };
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>

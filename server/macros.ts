@@ -16,7 +16,8 @@ export type MacroAction =
   | { type: "snooze"; preset: (typeof SNOOZE_PRESETS)[number] }
   | { type: "close" | "reopen" }
   | { type: "attribute_set"; attributeId: string; value: unknown }
-  | { type: "ticket_state"; stateId: string };
+  | { type: "ticket_state"; stateId: string }
+  | { type: "ticket_link"; trackerId: string };
 type Macro = {
   id: string;
   owner_id: string;
@@ -89,6 +90,8 @@ export function validateActions(input: unknown): MacroAction[] {
         if (typeof a.stateId !== "string" || !STATE_ID.test(a.stateId))
           invalid("Choose a ticket state.");
         return { type: "ticket_state", stateId: a.stateId as string };
+      case "ticket_link":
+        return { type: "ticket_link", trackerId: id(a.trackerId) };
       default:
         return invalid("Use a supported action.");
     }
@@ -117,6 +120,13 @@ export async function checkTargets(db: Sql, w: string, actions: MacroAction[]) {
         !(await exists("tags", a.tagId))) ||
       (a.type === "attribute_set" &&
         !(await exists("attribute_definitions", a.attributeId))) ||
+      (a.type === "ticket_link" &&
+        !(
+          await db.query(
+            "SELECT 1 FROM tickets t JOIN ticket_types y ON y.workspace_id=t.workspace_id AND y.id=t.type_id AND y.category='tracker' WHERE t.workspace_id=$1 AND t.conversation_id=$2",
+            [w, a.trackerId],
+          )
+        ).rows.length) ||
       (a.type === "ticket_state" &&
         !(
           await db.query(
@@ -319,6 +329,8 @@ const commandFor = (a: MacroAction, timezone: unknown): Command => {
       };
     case "ticket_state":
       return { action: "ticket_state", stateId: a.stateId };
+    case "ticket_link":
+      return { action: "ticket_link", trackerId: a.trackerId };
   }
 };
 
