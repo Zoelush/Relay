@@ -1,3 +1,4 @@
+import { resolveWake } from "./snooze";
 import { assert, once, type Sql } from "./db";
 import { authorize, type Capability } from "./policy";
 import { resolveContact } from "./people";
@@ -25,6 +26,8 @@ export interface Conversation {
   updated_at: string;
   title: string;
   snooze_version: string;
+  snooze_unassign?: boolean;
+  snooze_timezone?: string | null;
   [key: string]: unknown;
 }
 export interface Part {
@@ -51,6 +54,9 @@ export interface Command {
   targetId?: string;
   partId?: string;
   wakeAt?: string;
+  preset?: string;
+  timezone?: string;
+  unassignOnWake?: boolean;
   expectedVersion?: number;
   teammateId?: string;
   teamId?: string;
@@ -71,6 +77,8 @@ export function agentConversation(c: Conversation, personalData: boolean) {
     created_at,
     updated_at,
     snooze_until,
+    snooze_unassign,
+    snooze_timezone,
     first_response_ms,
     first_response_business_ms,
     last_contact_reply_at,
@@ -92,6 +100,8 @@ export function agentConversation(c: Conversation, personalData: boolean) {
     created_at,
     updated_at,
     snooze_until,
+    snooze_unassign,
+    snooze_timezone,
     first_response_ms,
     first_response_business_ms,
     last_contact_reply_at,
@@ -251,11 +261,13 @@ async function transition(
   c: Conversation,
   author: { type: string; id: string },
   state: string,
+  detail: Record<string, unknown> = {},
 ) {
   if (c.status === state && state !== "snoozed") return;
   const part = await append(db, w, c, author, "state_change", "", {
     from: c.status,
     to: state,
+    ...detail,
   });
   if (state === "closed")
     await db.query(
@@ -268,7 +280,7 @@ async function transition(
       [w, c.id, part.seq, part.created_at],
     );
   await db.query(
-    "UPDATE conversations SET status=$3,snooze_until=CASE WHEN $3='snoozed' THEN snooze_until ELSE NULL END,snooze_version=snooze_version+1 WHERE workspace_id=$1 AND id=$2",
+    "UPDATE conversations SET status=$3,snooze_until=CASE WHEN $3='snoozed' THEN snooze_until ELSE NULL END,snooze_unassign=CASE WHEN $3='snoozed' THEN snooze_unassign ELSE false END,snooze_timezone=CASE WHEN $3='snoozed' THEN snooze_timezone ELSE NULL END,snooze_version=snooze_version+1 WHERE workspace_id=$1 AND id=$2",
     [w, c.id, state],
   );
   c.status = state;
@@ -616,18 +628,33 @@ export async function command(
       403,
     );
     if (["close", "reopen", "wake", "snooze"].includes(p.action)) {
+      let detail: Record<string, unknown> = {};
       if (p.action === "snooze") {
+        // Presets resolve on the server in the teammate's timezone; the client never sends a
+        // computed instant for them. A custom wakeAt must carry an explicit offset.
+        const wake = resolveWake(p);
         assert(
-          p.wakeAt &&
-            Number.isFinite(Date.parse(p.wakeAt)) &&
-            Date.parse(p.wakeAt) > Date.now(),
-          "INVALID_WAKE_TIME",
-          "Choose a future wake time.",
+          p.unassignOnWake === undefined ||
+            typeof p.unassignOnWake === "boolean",
+          "INVALID_SNOOZE",
+          "Choose whether waking unassigns.",
         );
         await db.query(
-          "UPDATE conversations SET snooze_until=$3 WHERE workspace_id=$1 AND id=$2",
-          [w, c.id, p.wakeAt],
+          "UPDATE conversations SET snooze_until=$3,snooze_unassign=$4,snooze_timezone=$5 WHERE workspace_id=$1 AND id=$2",
+          [
+            w,
+            c.id,
+            wake.wakeAt.toISOString(),
+            p.unassignOnWake === true,
+            wake.timeZone,
+          ],
         );
+        detail = {
+          until: wake.wakeAt.toISOString(),
+          timezone: wake.timeZone,
+          ...(p.preset ? { preset: p.preset } : {}),
+          ...(p.unassignOnWake ? { unassignOnWake: true } : {}),
+        };
       }
       if (p.action === "wake" && p.expectedVersion !== undefined)
         assert(
@@ -646,6 +673,7 @@ export async function command(
           : p.action === "snooze"
             ? "snoozed"
             : "open",
+        detail,
       );
     } else if (p.action === "priority") {
       assert(
@@ -1183,12 +1211,38 @@ export async function wakeConversation(
   if (
     c.id !== id ||
     c.status !== "snoozed" ||
-    String(c.snooze_version) !== version ||
+    // Compare as text: the production driver returns bigint as a string, PGlite as a number.
+    String(c.snooze_version) !== String(version) ||
     !c.snooze_until ||
     new Date(c.snooze_until as string).getTime() > Date.now()
   )
     return { woke: false };
-  await transition(db, w, c, { type: "system", id: "snooze-clock" }, "open");
+  // Read before the transition, which clears it. The version check above rejects a stale timer.
+  const unassign = c.snooze_unassign === true && !!c.assigned;
+  await transition(db, w, c, { type: "system", id: "snooze-clock" }, "open", {
+    woke: true,
+  });
+  if (unassign) {
+    await append(
+      db,
+      w,
+      c,
+      { type: "system", id: "snooze-clock" },
+      "assignment_change",
+      "",
+      {
+        before: { teammate: c.assigned, team: c.team_id },
+        after: { teammate: "", team: c.team_id },
+        reason: "snooze_wake",
+      },
+      "internal",
+    );
+    await db.query(
+      "UPDATE conversations SET assigned='' WHERE workspace_id=$1 AND id=$2",
+      [w, c.id],
+    );
+    c.assigned = "";
+  }
   await syncUnread(db, w, c);
   return { woke: true };
 }

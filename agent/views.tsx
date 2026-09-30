@@ -179,6 +179,7 @@ export function InboxViews({
   counts,
   onSelect,
   onPrefetch,
+  onViews,
   onError,
   onJob,
 }: {
@@ -187,6 +188,8 @@ export function InboxViews({
   counts: ViewCount[];
   onSelect: (row: Row) => void;
   onPrefetch?: (id: string) => void;
+  /** Receives the teammate's views, for the command palette. */
+  onViews?: (views: { id: string; name: string }[]) => void;
   onError: (error: unknown) => void;
   onJob: (id: string) => void;
 }) {
@@ -351,6 +354,39 @@ export function InboxViews({
     setScroll(0);
     if (viewport.current) viewport.current.scrollTop = 0;
   }, [viewId, sort, query]);
+  useEffect(() => {
+    onViews?.(views.map((v) => ({ id: v.id, name: v.name })));
+  }, [views, onViews]);
+  // Keyboard navigation (J/K) and palette view switching arrive as window events from the inbox.
+  useEffect(() => {
+    const navigate = (e: Event) => {
+      const direction = (e as CustomEvent<number>).detail;
+      const at = rows.findIndex((r) => r.id === selected);
+      const next = rows[at < 0 ? 0 : at + direction];
+      if (!next) return;
+      onSelect(next);
+      const el = viewport.current;
+      const index = rows.indexOf(next);
+      if (el) {
+        const top = index * 86;
+        if (top < el.scrollTop) el.scrollTop = top;
+        else if (top + 86 > el.scrollTop + el.clientHeight)
+          el.scrollTop = top + 86 - el.clientHeight;
+      }
+    };
+    const switchView = (e: Event) => {
+      const v = views.find((x) => x.id === (e as CustomEvent<string>).detail);
+      if (!v) return;
+      setViewId(v.id);
+      setSort(v.sort);
+    };
+    window.addEventListener("relay:navigate", navigate);
+    window.addEventListener("relay:view", switchView);
+    return () => {
+      window.removeEventListener("relay:navigate", navigate);
+      window.removeEventListener("relay:view", switchView);
+    };
+  }, [rows, selected, views, onSelect]);
   const current = views.find((v) => v.id === viewId),
     countMap = new Map(counts.map((c) => [c.id, c]));
   async function mutate(

@@ -12,11 +12,25 @@ import {
   MessageSquare,
   Send,
   RefreshCw,
-  Paperclip,
+  Clock,
+  Flag,
+  UserPlus,
+  CheckCircle,
+  RotateCcw,
+  Keyboard,
 } from "lucide-react";
 import "../../agent/inbox.css";
 import { api, InboxError } from "../../agent/api";
 import { InboxViews, type ViewCount } from "../../agent/views";
+import { Timeline, type Directory } from "../../agent/timeline";
+import {
+  CommandPalette,
+  ShortcutSheet,
+  SnoozeMenu,
+  typing,
+  type PaletteCommand,
+  type SnoozeChoice,
+} from "../../agent/commands";
 
 type Conversation = {
   id: string;
@@ -26,6 +40,9 @@ type Conversation = {
   status: string;
   channel: string;
   assigned: string;
+  priority?: boolean;
+  team_id?: string | null;
+  snooze_until?: string | null;
 };
 type Part = {
   id: string;
@@ -37,7 +54,8 @@ type Part = {
   body: string;
   supersedes_id?: string;
   author_type: string;
-  data: {
+  author_id?: string;
+  data: Record<string, unknown> & {
     authorName?: string;
     clientMutationId?: string;
     attachmentId?: string;
@@ -45,12 +63,19 @@ type Part = {
     deleted?: boolean;
   };
 };
-type Snapshot = {
+type Snapshot = Directory & {
   conversations: Conversation[];
   teammate: { id: string; name: string; role_id?: string };
   storage: { engine: string; transport: string; workspaceId: string };
-  capabilities: { reply: boolean; note: boolean; views?: boolean };
+  capabilities: {
+    reply: boolean;
+    note: boolean;
+    manage?: boolean;
+    views?: boolean;
+  };
 };
+/** The teammate's own IANA zone: snooze presets are resolved in it on the server. */
+const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 /** A cached timeline: parts, the live replay cursor, and the cursor for older history. */
 type Entry = {
   parts: Map<string, Part>;
@@ -93,6 +118,16 @@ export default function PostgresInbox() {
   const [viewCounts, setViewCounts] = useState<ViewCount[]>([]);
   const [pickedConversation, setPickedConversation] = useState<Conversation>();
   const [retry, setRetry] = useState(0);
+  // Optimistic conversation changes, dropped when the server confirms or rejects them.
+  const [overrides, setOverrides] = useState<
+    Record<string, Partial<Conversation>>
+  >({});
+  const [overlay, setOverlay] = useState<
+    "palette" | "shortcuts" | "snooze" | null
+  >(null);
+  const [viewList, setViewList] = useState<{ id: string; name: string }[]>([]);
+  const composer = useRef<HTMLTextAreaElement>(null);
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
   const selectedRef = useRef("");
   const socket = useRef<WebSocket | null>(null);
   const ready = useRef(false);
@@ -414,6 +449,244 @@ export default function PostgresInbox() {
       );
     void api("command", { action: "read", conversationId: id }).catch(report);
   }
+  const base =
+    snapshot?.conversations.find((c) => c.id === selected) ??
+    (pickedConversation?.id === selected ? pickedConversation : undefined);
+  const conversation = base && { ...base, ...overrides[selected] };
+  /** Runs a conversation command optimistically; a rejection reverts it and shows the error. */
+  async function act(
+    p: Record<string, unknown>,
+    optimistic: Partial<Conversation> = {},
+  ) {
+    const id = String(p.conversationId ?? selectedRef.current);
+    if (!id) return;
+    setOverrides((o) => ({ ...o, [id]: { ...o[id], ...optimistic } }));
+    setError("");
+    try {
+      await api("command", { ...p, conversationId: id });
+      await load();
+    } catch (e) {
+      report(e);
+    } finally {
+      setOverrides((o) => {
+        const next = { ...o };
+        delete next[id];
+        return next;
+      });
+    }
+  }
+  const snooze = (choice: SnoozeChoice, unassignOnWake: boolean) =>
+    void act(
+      {
+        action: "snooze",
+        ...choice,
+        timezone: timeZone(),
+        ...(unassignOnWake ? { unassignOnWake } : {}),
+      },
+      { status: "snoozed" },
+    );
+  const me = snapshot?.teammate.id ?? "";
+  const focusComposer = (next: "reply" | "note") => {
+    setMode(next);
+    requestAnimationFrame(() => composer.current?.focus());
+  };
+  const move = (direction: 1 | -1) => {
+    if (snapshot?.capabilities.views) {
+      window.dispatchEvent(
+        new CustomEvent("relay:navigate", { detail: direction }),
+      );
+      return;
+    }
+    const list = snapshot?.conversations ?? [];
+    const at = list.findIndex((c) => c.id === selectedRef.current);
+    const next = list[at < 0 ? 0 : at + direction];
+    if (next) pick(next.id);
+  };
+  const focusSearch = () =>
+    document
+      .querySelector<HTMLInputElement>('[aria-label="Search within view"]')
+      ?.focus();
+  const commands: PaletteCommand[] = [
+    ...(selected
+      ? [
+          {
+            id: "close",
+            group: "Conversation",
+            label: "Close conversation",
+            keys: "E",
+            run: () => void act({ action: "close" }, { status: "closed" }),
+          },
+          {
+            id: "reopen",
+            group: "Conversation",
+            label: "Reopen conversation",
+            keys: "Shift E",
+            run: () => void act({ action: "reopen" }, { status: "open" }),
+          },
+          {
+            id: "snooze-later",
+            group: "Snooze",
+            label: "Snooze until later today",
+            run: () => snooze({ preset: "later_today" }, false),
+          },
+          {
+            id: "snooze-tomorrow",
+            group: "Snooze",
+            label: "Snooze until tomorrow 09:00",
+            run: () => snooze({ preset: "tomorrow" }, false),
+          },
+          {
+            id: "snooze-week",
+            group: "Snooze",
+            label: "Snooze until next Monday 09:00",
+            run: () => snooze({ preset: "next_week" }, false),
+          },
+          {
+            id: "snooze-custom",
+            group: "Snooze",
+            label: "Snooze until…",
+            keys: "S",
+            run: () => setOverlay("snooze"),
+          },
+          {
+            id: "assign-me",
+            group: "Assign",
+            label: "Assign to me",
+            keys: "A",
+            run: () =>
+              void act({ action: "assign", teammateId: me }, { assigned: me }),
+          },
+          {
+            id: "unassign",
+            group: "Assign",
+            label: "Unassign",
+            run: () =>
+              void act({ action: "assign" }, { assigned: "", team_id: null }),
+          },
+          ...(snapshot?.teammates ?? [])
+            .filter((t) => t.id !== me)
+            .map((t) => ({
+              id: "assign-" + t.id,
+              group: "Assign",
+              label: "Assign to " + t.name,
+              run: () =>
+                void act(
+                  { action: "assign", teammateId: t.id },
+                  { assigned: t.id },
+                ),
+            })),
+          ...(snapshot?.teams ?? []).map((t) => ({
+            id: "team-" + t.id,
+            group: "Assign",
+            label: "Assign to team " + t.name,
+            run: () =>
+              void act(
+                { action: "assign", teamId: t.id },
+                { assigned: "", team_id: t.id },
+              ),
+          })),
+          ...(snapshot?.tags ?? []).map((t) => ({
+            id: "tag-" + t.id,
+            group: "Tag",
+            label: "Add tag " + t.name,
+            run: () => void act({ action: "tag_add", tagId: t.id }),
+          })),
+          {
+            id: "priority",
+            group: "Conversation",
+            label: "Toggle priority",
+            keys: "P",
+            run: () =>
+              void act(
+                { action: "priority", value: !conversation?.priority },
+                { priority: !conversation?.priority },
+              ),
+          },
+          {
+            id: "reply",
+            group: "Compose",
+            label: "Reply",
+            keys: "R",
+            run: () => focusComposer("reply"),
+          },
+          {
+            id: "note",
+            group: "Compose",
+            label: "Internal note",
+            keys: "N",
+            run: () => focusComposer("note"),
+          },
+        ]
+      : []),
+    // TODO(phase 4 step D): macros join the palette here, with their own permissions.
+    ...viewList.map((v) => ({
+      id: "view-" + v.id,
+      group: "Go to view",
+      label: v.name,
+      run: () =>
+        window.dispatchEvent(new CustomEvent("relay:view", { detail: v.id })),
+    })),
+    {
+      id: "search",
+      group: "Navigate",
+      label: "Search this view",
+      keys: "/",
+      run: focusSearch,
+    },
+    {
+      id: "shortcuts",
+      group: "Help",
+      label: "Keyboard shortcuts",
+      keys: "?",
+      run: () => setOverlay("shortcuts"),
+    },
+  ];
+  // The listener is registered once; it always calls the latest handler.
+  useEffect(() => {
+    keyHandler.current = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setOverlay((o) => (o === "palette" ? null : "palette"));
+        return;
+      }
+      if (overlay || typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const key = e.key;
+      const run = (f: () => void) => {
+        e.preventDefault();
+        f();
+      };
+      if (key === "j") run(() => move(1));
+      else if (key === "k") run(() => move(-1));
+      else if (key === "/") run(focusSearch);
+      else if (key === "?") run(() => setOverlay("shortcuts"));
+      else if (!selectedRef.current) return;
+      else if (key === "r") run(() => focusComposer("reply"));
+      else if (key === "n") run(() => focusComposer("note"));
+      else if (key === "e")
+        run(() => void act({ action: "close" }, { status: "closed" }));
+      else if (key === "E")
+        run(() => void act({ action: "reopen" }, { status: "open" }));
+      else if (key === "s") run(() => setOverlay("snooze"));
+      else if (key === "a")
+        run(
+          () =>
+            void act({ action: "assign", teammateId: me }, { assigned: me }),
+        );
+      else if (key === "p")
+        run(
+          () =>
+            void act(
+              { action: "priority", value: !conversation?.priority },
+              { priority: !conversation?.priority },
+            ),
+        );
+    };
+  });
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => keyHandler.current(e);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
   const draftKey = selected + ":" + mode;
   const draft = drafts[draftKey] ?? "";
   async function send() {
@@ -460,11 +733,6 @@ export default function PostgresInbox() {
       report(e);
     }
   }
-  const conversation =
-    snapshot?.conversations.find((c) => c.id === selected) ??
-    (pickedConversation?.id === selected ? pickedConversation : undefined);
-  const superseded = new Set(parts.map((p) => p.supersedes_id).filter(Boolean));
-  const visible = parts.filter((p) => !superseded.has(p.id));
   const canSend = snapshot?.capabilities[mode === "note" ? "note" : "reply"];
   return (
     <main className="pg-inbox">
@@ -476,6 +744,9 @@ export default function PostgresInbox() {
         <div className="pg-nav-active">
           <Inbox size={18} /> Inbox
         </div>
+        <button className="pg-nav-help" onClick={() => setOverlay("shortcuts")}>
+          <Keyboard size={15} /> Shortcuts <kbd>?</kbd>
+        </button>
         <div className="pg-nav-foot">
           <LockKeyhole size={15} />
           <span>{snapshot?.teammate.name ?? "Authenticated inbox"}</span>
@@ -517,6 +788,7 @@ export default function PostgresInbox() {
                   pick(c.id);
                 }}
                 onPrefetch={prefetch}
+                onViews={setViewList}
                 onJob={(id) => {
                   if (ready.current)
                     socket.current?.send(
@@ -566,6 +838,77 @@ export default function PostgresInbox() {
                     {conversation?.name || "Customer"}
                     {conversation?.email ? ` · ${conversation.email}` : ""}
                   </p>
+                  <div
+                    className="pg-thread-actions"
+                    role="toolbar"
+                    aria-label="Conversation actions"
+                  >
+                    <span className="pg-state" data-testid="conversation-state">
+                      {conversation?.status ?? "open"}
+                      {conversation?.priority ? " · priority" : ""}
+                      {conversation?.assigned
+                        ? " · " +
+                          (conversation.assigned === me
+                            ? "you"
+                            : (snapshot?.teammates.find(
+                                (t) => t.id === conversation.assigned,
+                              )?.name ?? "assigned"))
+                        : ""}
+                    </span>
+                    {conversation?.status === "open" ? (
+                      <button
+                        title="Close (E)"
+                        onClick={() =>
+                          void act({ action: "close" }, { status: "closed" })
+                        }
+                      >
+                        <CheckCircle size={14} /> Close
+                      </button>
+                    ) : (
+                      <button
+                        title="Reopen (Shift E)"
+                        onClick={() =>
+                          void act({ action: "reopen" }, { status: "open" })
+                        }
+                      >
+                        <RotateCcw size={14} /> Reopen
+                      </button>
+                    )}
+                    <button
+                      title="Snooze (S)"
+                      onClick={() => setOverlay("snooze")}
+                    >
+                      <Clock size={14} /> Snooze
+                    </button>
+                    {conversation?.assigned !== me && (
+                      <button
+                        title="Assign to me (A)"
+                        onClick={() =>
+                          void act(
+                            { action: "assign", teammateId: me },
+                            { assigned: me },
+                          )
+                        }
+                      >
+                        <UserPlus size={14} /> Assign to me
+                      </button>
+                    )}
+                    <button
+                      title="Toggle priority (P)"
+                      aria-pressed={!!conversation?.priority}
+                      onClick={() =>
+                        void act(
+                          {
+                            action: "priority",
+                            value: !conversation?.priority,
+                          },
+                          { priority: !conversation?.priority },
+                        )
+                      }
+                    >
+                      <Flag size={14} /> Priority
+                    </button>
+                  </div>
                 </header>
                 <div
                   className="pg-timeline"
@@ -600,63 +943,14 @@ export default function PostgresInbox() {
                       )}
                     </div>
                   )}
-                  {visible.map((p) => {
-                    const internal =
-                      p.audience === "internal" || p.kind === "internal_note";
-                    const system = ![
-                      "customer_message",
-                      "teammate_reply",
-                      "internal_note",
-                      "ai_reply",
-                      "attachment",
-                    ].includes(p.kind);
-                    if (system)
-                      return (
-                        <details className="pg-event" key={p.id}>
-                          <summary>{p.kind.replaceAll("_", " ")}</summary>
-                          <p>{p.body || "Conversation activity"}</p>
-                        </details>
-                      );
-                    return (
-                      <article
-                        key={p.id}
-                        data-part-id={p.id}
-                        className={
-                          internal ? "pg-message pg-note" : "pg-message"
-                        }
-                      >
-                        <header>
-                          {internal && <LockKeyhole size={13} />}
-                          <strong>
-                            {internal
-                              ? "Internal note · Team only"
-                              : p.author_type === "contact"
-                                ? "Customer"
-                                : (p.data.authorName ??
-                                  (p.author_type === "ai"
-                                    ? "AI agent"
-                                    : "Teammate"))}
-                          </strong>
-                        </header>
-                        <p>
-                          {p.data.deleted ? "This part was deleted." : p.body}
-                        </p>
-                        {p.kind === "attachment" && p.data.attachmentId && (
-                          <a
-                            href={
-                              "/api/agent/attachment/content?id=" +
-                              encodeURIComponent(p.data.attachmentId)
-                            }
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <Paperclip size={14} />
-                            {p.data.name ?? "Attachment"}
-                          </a>
-                        )}
-                      </article>
-                    );
-                  })}
+                  <Timeline
+                    parts={parts}
+                    dir={{
+                      teammates: snapshot?.teammates ?? [],
+                      teams: snapshot?.teams ?? [],
+                      tags: snapshot?.tags ?? [],
+                    }}
+                  />
                   {pending
                     .filter(
                       (p) =>
@@ -716,6 +1010,13 @@ export default function PostgresInbox() {
                     </small>
                   </div>
                   <textarea
+                    ref={composer}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        void send();
+                      } else if (e.key === "Escape") e.currentTarget.blur();
+                    }}
                     aria-label={
                       mode === "note" ? "Internal note" : "Reply message"
                     }
@@ -766,6 +1067,15 @@ export default function PostgresInbox() {
           </section>
         </div>
       </section>
+      {overlay === "palette" && (
+        <CommandPalette commands={commands} onClose={() => setOverlay(null)} />
+      )}
+      {overlay === "shortcuts" && (
+        <ShortcutSheet onClose={() => setOverlay(null)} />
+      )}
+      {overlay === "snooze" && selected && (
+        <SnoozeMenu onSnooze={snooze} onClose={() => setOverlay(null)} />
+      )}
     </main>
   );
 }

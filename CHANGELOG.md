@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — agent inbox step C1 (timeline and fast actions)
+
+- The timeline gives every system part kind readable text, naming teammates, teams and tags (for example "Ada assigned this to Grace and team Billing" or "Snoozed until Thu 1 Oct, 09:00 BST"), instead of raw kind names. Consecutive system events collapse into an expandable "Show N updates" line. Edited parts are marked.
+- Snooze presets (later today, tomorrow 09:00, next Monday 09:00) resolve on the server in the teammate's IANA zone, correctly on daylight-saving days. Custom times need an explicit offset. An optional "unassign when it wakes" flag applies only to the current snooze. Migration 0016 adds `snooze_unassign` and `snooze_timezone`; the rollback keeps them.
+- Fixed: snooze versions were compared as strings to PGlite's numbers, so snoozed conversations never woke on the local relay.
+- A thread toolbar (close/reopen, snooze, assign to me, priority) with optimistic updates that revert on rejection. Keyboard shortcuts: J/K, R, N, ⌘Enter, Esc, E, Shift E, S, A, P, /, ?, and ⌘K. A command palette covers conversation actions, assignment to any teammate or team, tags and views. Shortcuts are suppressed while typing.
+- The inbox snapshot now includes teammates, teams, tags and the `manage` capability. The local seed adds a team and two tags per workspace.
+- Tests: `tests/snooze.test.ts`, `tests/timeline.test.ts` and `tests/browser/triage.spec.ts` (keyboard-only triage; rejected snooze). 28/28 Node tests, typecheck and 12/12 browser tests pass. Flags remain off.
+
 ## Unreleased — agent inbox step B2 (first screen)
 
 - An inbox conversation now opens on its newest 50 parts instead of replaying its whole history from the oldest part. Older history loads on scroll (100 parts per page) through `GET /v1/agent/history`, with signed per-teammate cursors that a merge invalidates. The live cursor resumes exactly after the first screen, with no gap or repeat. The customer messenger and other agent clients are unchanged.
