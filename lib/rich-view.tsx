@@ -53,6 +53,12 @@ function inline(nodes: RichInline[] = []): ReactNode[] {
           @{n.attrs.label}
         </span>
       );
+    if (n.type === "variable")
+      return (
+        <span key={i} className="rich-variable" data-variable={n.attrs.name}>
+          {"{" + n.attrs.name + "}"}
+        </span>
+      );
     let node: ReactNode = n.text;
     for (const m of n.marks ?? []) {
       if (m.type === "bold") node = <strong>{node}</strong>;

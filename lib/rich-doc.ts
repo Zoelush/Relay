@@ -11,7 +11,23 @@ export type RichMark =
 export type RichInline =
   | { type: "text"; text: string; marks?: RichMark[] }
   | { type: "hardBreak" }
-  | RichMention;
+  | RichMention
+  | RichVariable;
+/** A macro placeholder, filled with plain text on the server when the macro is applied. */
+export type RichVariable = {
+  type: "variable";
+  attrs: { name: MacroVariable; fallback: string };
+};
+/** Values a macro may insert. Company fields arrive with companies in phase 1. */
+export const MACRO_VARIABLES = [
+  "contact.name",
+  "contact.first_name",
+  "contact.email",
+  "conversation.title",
+  "teammate.name",
+  "brand.name",
+] as const;
+export type MacroVariable = (typeof MACRO_VARIABLES)[number];
 /** A mention of a teammate or team. The server rewrites `label` from the directory at send. */
 export type RichMention = {
   type: "mention";
@@ -87,7 +103,10 @@ export function safeHref(href: unknown): string {
 }
 
 /** Validates any input and returns a rebuilt document containing only allowed content. */
-export function normalizeDoc(input: unknown): RichDoc {
+export function normalizeDoc(
+  input: unknown,
+  options: { variables?: boolean } = {},
+): RichDoc {
   const budget = { nodes: 0, text: 0, images: 0, mentions: 0 };
   const count = () => {
     if (++budget.nodes > RICH_LIMITS.nodes)
@@ -130,7 +149,21 @@ export function normalizeDoc(input: unknown): RichDoc {
       count();
       if (!isObject(n)) fail("Unsupported content.");
       if (n.type === "hardBreak") out.push({ type: "hardBreak" });
-      else if (n.type === "mention") {
+      else if (n.type === "variable") {
+        if (!options.variables)
+          fail("Fill in the macro's variables before sending.");
+        const attrs = isObject(n.attrs) ? n.attrs : {};
+        if (!MACRO_VARIABLES.includes(attrs.name as MacroVariable))
+          fail("Use a supported variable.");
+        const fallback =
+          typeof attrs.fallback === "string"
+            ? attrs.fallback.slice(0, 100)
+            : "";
+        out.push({
+          type: "variable",
+          attrs: { name: attrs.name as MacroVariable, fallback },
+        });
+      } else if (n.type === "mention") {
         const attrs = isObject(n.attrs) ? n.attrs : {};
         if (attrs.kind !== "teammate" && attrs.kind !== "team")
           fail("Mention a teammate or a team.");
@@ -276,6 +309,7 @@ export function plainText(doc: RichDoc): string {
       .map((n) => {
         if (n.type === "hardBreak") return "\n";
         if (n.type === "mention") return "@" + n.attrs.label;
+        if (n.type === "variable") return "{" + n.attrs.name + "}";
         const link = n.marks?.find((m) => m.type === "link");
         return link && !sameDestination(n.text, link.attrs.href)
           ? `${n.text} (${link.attrs.href})`
@@ -360,6 +394,46 @@ export function relabelMentions(
     switch (b.type) {
       case "paragraph":
         return b.content ? { ...b, content: inline(b.content) } : b;
+      case "blockquote":
+        return { ...b, content: b.content.map(block) };
+      case "bulletList":
+      case "orderedList":
+        return {
+          ...b,
+          content: b.content.map((item) => ({
+            ...item,
+            content: item.content.map(block),
+          })),
+        };
+      default:
+        return b;
+    }
+  };
+  return { type: "doc", content: doc.content.map(block) };
+}
+/**
+ * Replaces each variable with plain text: its value, or its fallback when the value is empty.
+ * Values become text nodes, so they can never add formatting, links or mentions.
+ */
+export function fillVariables(
+  doc: RichDoc,
+  values: Partial<Record<MacroVariable, string>>,
+): RichDoc {
+  const inline = (content: RichInline[]): RichInline[] =>
+    content.flatMap((n) => {
+      if (n.type !== "variable") return [n];
+      const text = (values[n.attrs.name]?.trim() || n.attrs.fallback).slice(
+        0,
+        500,
+      );
+      return text ? [{ type: "text" as const, text }] : [];
+    });
+  const block = (b: RichBlock): RichBlock => {
+    switch (b.type) {
+      case "paragraph": {
+        const content = b.content ? inline(b.content) : undefined;
+        return content?.length ? { ...b, content } : { type: "paragraph" };
+      }
       case "blockquote":
         return { ...b, content: b.content.map(block) };
       case "bulletList":

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — agent inbox step D1 (macros)
+
+- Personal and shared macros: a saved reply or note, with variables, plus up to 10 actions (assign, add or remove a tag, priority, snooze preset, close, reopen, set an attribute). Migration 0020 adds the `macros` table.
+- Permissions: `macros.use` lets a teammate apply macros and manage their own personal ones. `macros.create`, `macros.edit` and `macros.delete` govern shared macros and are granted only to roles already holding `macros.manage`.
+- Variables (customer name, first name and email, conversation title, your name, brand name) are filled on the server as plain text, with fallbacks when a value is empty or the teammate lacks personal-data access. Variables are refused anywhere but a macro body.
+- Applying (M, or "Apply macro: …" in the command palette) validates the whole bundle, then runs every action in one transaction as the applying teammate, with their own permissions: any failure rolls back everything. It is idempotent and publishes only after commit. The filled text goes to the composer for review. Ticket actions are rejected whole until phase 5.
+- The macro manager edits the name, mode, sharing, rich text with a variable picker, and actions, with version conflicts.
+- Fixed keyboard traps found by the browser tests: "Insert variable" kept focus, so a space re-inserted it; and Escape could not close the manager after saving.
+- Local seed adds two sample macros per workspace.
+- Tests: `tests/macros.test.ts`, variable cases in `tests/rich-doc.test.ts`, and `tests/browser/macros.spec.ts` (create, apply and send; a macro with a removed assignee refused whole). 39/39 Node tests, typecheck and 22/22 browser tests pass. Flags remain off.
+
 ## Unreleased — agent inbox step C3b (viewing and writing indicators)
 
 - One routing table for live signals, `fanOutSignal`, now used by both the Worker and the local relay, which previously disagreed.
