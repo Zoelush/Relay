@@ -37,6 +37,7 @@ import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
 import { runBroadcast } from "../server/ticket-links";
 import { checkDueSlas, reevaluateJob } from "../server/sla";
+import { drainAll } from "../server/routing";
 import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
 import { runJob, type JobHandler } from "../server/jobs";
@@ -522,6 +523,13 @@ export async function startLocalRelay(
         // SLA due times that have passed: record breaches and push them live.
         const breached = await checkDueSlas(db.connect, w);
         if (breached.length) await publishBatch(w, breached);
+        // Queues left waiting (a missed trigger): route what now fits.
+        const routed = await drainAll(db.connect, w);
+        if (routed.length)
+          await publishBatch(
+            w,
+            routed.map((r) => r.conversationId),
+          );
         // Draft retention, at most once a day per workspace (the Worker runs it at 03:00 UTC).
         if (Date.now() - (lastPurge.get(w) ?? 0) > 86_400_000) {
           lastPurge.set(w, Date.now());

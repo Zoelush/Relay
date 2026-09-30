@@ -10,6 +10,7 @@ import {
 import { linkToTracker, unlinkFromTracker } from "./ticket-links";
 import { resolveCalendar } from "./calendars";
 import { syncSla } from "./sla";
+import { afterChange, overLimit } from "./routing";
 import { verifyInlineImages } from "./attachments";
 import { resolveMentions, recordMentions } from "./mentions";
 import {
@@ -642,6 +643,12 @@ export async function command(
         );
       await refreshCustomerUnread(db, w, [target.id]);
       await syncSla(db, w, target.id);
+      // The merged-away conversation no longer counts toward its assignee's workload.
+      await afterChange(db, w, source.id, {
+        assigned: source.assigned,
+        status: source.status,
+        team_id: source.team_id,
+      });
       return {
         conversationId: target.id,
         aliases: [source.id, target.id],
@@ -649,6 +656,12 @@ export async function command(
       };
     }
     const c = await conversation(db, w, p.conversationId, true);
+    // Who had it and in what state, so routing can react afterwards (phase 06).
+    const before = {
+      assigned: c.assigned,
+      status: c.status,
+      team_id: c.team_id,
+    };
     const capability: Capability =
       p.action === "reply"
         ? "conversations.reply"
@@ -757,8 +770,12 @@ export async function command(
         kind === "customer_message",
         actor.type === "teammate" ? who.id : undefined,
       );
-      // Replies start and stop response clocks; notes change nothing.
-      if (p.action === "reply") await syncSla(db, w, c.id);
+      // Replies start and stop response clocks; notes change nothing. A customer's reply can
+      // reopen a closed conversation, which may send it back through its team's routing.
+      if (p.action === "reply") {
+        await syncSla(db, w, c.id);
+        await afterChange(db, w, c.id, before);
+      }
       return {
         conversationId: c.id,
         partId: part.id,
@@ -1206,7 +1223,17 @@ export async function command(
     // from the timeline is safe after any command.
     if (!["read", "note", "rating"].includes(p.action))
       await syncSla(db, w, c.id);
-    return { conversationId: c.id };
+    // Arrivals in a team inbox are routed; a teammate whose workload dropped may get queued work.
+    if (!["read", "note", "rating"].includes(p.action))
+      await afterChange(db, w, c.id, before);
+    // Limits bind automatic assignment only: assigning by hand beyond one is allowed, with a warning.
+    const warning =
+      p.action === "assign" &&
+      p.teammateId &&
+      (await overLimit(db, w, p.teammateId))
+        ? { overLimit: true }
+        : {};
+    return { conversationId: c.id, ...warning };
   });
 }
 
@@ -1441,5 +1468,10 @@ export async function wakeConversation(
   }
   await syncUnread(db, w, c);
   await syncSla(db, w, c.id);
+  await afterChange(db, w, c.id, {
+    assigned: unassign ? "" : c.assigned,
+    status: "snoozed",
+    team_id: c.team_id,
+  });
   return { woke: true };
 }

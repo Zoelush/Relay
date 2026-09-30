@@ -31,6 +31,7 @@ import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
 import { runBroadcast } from "../server/ticket-links";
 import { reevaluateJob, syncSla } from "../server/sla";
+import { drainAll } from "../server/routing";
 import { CoalescedPublisher } from "../server/publication";
 
 interface Env extends Partial<StorageEnv> {
@@ -401,6 +402,11 @@ const relayWorker = {
           );
           for (const c of overdue)
             await scheduleClock(env, work.workspace, c.id);
+          // Queues left waiting (a missed trigger): route what now fits.
+          for (const r of await drainAll(runtime.connect, work.workspace))
+            await env.RELAY_HUB.getByName(work.workspace).notify(
+              r.conversationId,
+            );
           // Daily draft retention: during 03:00 UTC each sweep removes up to 500 expired drafts.
           if (new Date().getUTCHours() === 3) {
             await purgeDrafts(runtime.connect, work.workspace);

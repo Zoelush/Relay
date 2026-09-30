@@ -61,6 +61,7 @@ import {
   SESSION_MS,
   startSession,
 } from "./portal";
+import { listTeams, saveTeam, saveTeammateLimits } from "./routing";
 import { BULK_BODY_LIMIT } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -948,6 +949,7 @@ export async function handleApi(
             "/v1/agent/calendar-resolve",
             "/v1/agent/sla-policies",
             "/v1/agent/portal-settings",
+            "/v1/agent/teams",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -962,6 +964,8 @@ export async function handleApi(
               "/v1/agent/calendars",
               "/v1/agent/sla-policies",
               "/v1/agent/portal-settings",
+              "/v1/agent/teams",
+              "/v1/agent/teammate-limits",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -1018,6 +1022,8 @@ export async function handleApi(
           url.pathname.startsWith("/v1/agent/calendar") ||
           url.pathname === "/v1/agent/sla-policies" ||
           url.pathname === "/v1/agent/portal-settings" ||
+          url.pathname === "/v1/agent/teams" ||
+          url.pathname === "/v1/agent/teammate-limits" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -1060,6 +1066,18 @@ export async function handleApi(
               "realtime",
             ),
           });
+        }
+        if (
+          url.pathname === "/v1/agent/teams" ||
+          url.pathname === "/v1/agent/teammate-limits"
+        ) {
+          const result = await tenant(env.connect, workspace, (db) =>
+            url.pathname === "/v1/agent/teams"
+              ? saveTeam(db, workspace, principal, p)
+              : saveTeammateLimits(db, workspace, principal, p),
+          );
+          await env.notify?.(workspace, "");
+          return json(result);
         }
         if (url.pathname === "/v1/agent/portal-settings")
           return json(
@@ -1374,6 +1392,12 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             portalSettings(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/teams")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listTeams(db, workspace, principal),
           ),
         );
       if (url.pathname === "/v1/agent/sla-policies")
