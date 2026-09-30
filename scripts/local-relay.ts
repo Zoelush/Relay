@@ -34,6 +34,7 @@ import {
   drainJobStatusOutbox,
 } from "../server/outbox";
 import { command, wakeConversation } from "../server/conversations";
+import { purgeDrafts } from "../server/drafts";
 
 export async function startLocalRelay(
   options: {
@@ -200,6 +201,7 @@ export async function startLocalRelay(
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
       attachmentScan(db.connect, env.attachments!, job);
+  const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
     stopped = false;
   const maintain = () => {
@@ -237,6 +239,11 @@ export async function startLocalRelay(
           await tenant(db.connect, w, (sql) =>
             wakeConversation(sql, w, timer.id, timer.snooze_version),
           );
+        // Draft retention, at most once a day per workspace (the Worker runs it at 03:00 UTC).
+        if (Date.now() - (lastPurge.get(w) ?? 0) > 86_400_000) {
+          lastPurge.set(w, Date.now());
+          await purgeDrafts(db.connect, w);
+        }
         await drainConversationOutbox(db.connect, w, (ids) =>
           publishBatch(w, ids),
         );

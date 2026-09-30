@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { language } from "./strings";
+import { RichText } from "../lib/rich-view";
 import "./frame.css";
 
 type Part = {
@@ -706,7 +707,13 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
                         }
                       >
                         <small>{name}</small>
-                        <p>{p.data.deleted ? t.deleted : p.body}</p>
+                        {p.data.deleted ? (
+                          <p>{t.deleted}</p>
+                        ) : p.data.doc ? (
+                          <RichText doc={p.data.doc} fallback={p.body} />
+                        ) : (
+                          <p>{p.body}</p>
+                        )}
                         <time dateTime={p.created_at}>
                           {p.display_time ?? p.created_at}
                         </time>

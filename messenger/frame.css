@@ -472,3 +472,12 @@ footer strong {
   padding-inline: 16px;
   color: var(--muted);
 }
+/* Rich teammate replies (lib/rich-view.tsx). */
+.rich > :first-child { margin-top: 0; }
+.rich > :last-child { margin-bottom: 0; }
+.rich p { margin: 0 0 6px; }
+.rich ul, .rich ol { margin: 4px 0 6px; padding-inline-start: 20px; }
+.rich blockquote { margin: 4px 0; padding-inline-start: 10px; border-inline-start: 3px solid currentColor; opacity: .85; }
+.rich pre { margin: 4px 0; padding: 8px; overflow-x: auto; border-radius: 6px; background: rgba(0,0,0,.06); white-space: pre-wrap; }
+.rich code { font-family: ui-monospace, monospace; font-size: .92em; }
+.rich a { color: inherit; text-decoration: underline; }

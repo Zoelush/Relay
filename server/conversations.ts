@@ -1,5 +1,12 @@
 import { resolveWake } from "./snooze";
-import { assert, once, type Sql } from "./db";
+import {
+  normalizeDoc,
+  plainText,
+  isPlain,
+  RichDocError,
+  type RichDoc,
+} from "../lib/rich-doc";
+import { assert, once, DomainError, type Sql } from "./db";
 import { authorize, type Capability } from "./policy";
 import { resolveContact } from "./people";
 import { customerReply, refreshCustomerUnread } from "./unread";
@@ -55,6 +62,7 @@ export interface Command {
   partId?: string;
   wakeAt?: string;
   preset?: string;
+  doc?: unknown;
   timezone?: string;
   unassignOnWake?: boolean;
   expectedVersion?: number;
@@ -357,6 +365,43 @@ export async function syncUnread(
   }
 }
 
+/**
+ * Message content from a command: plain `text`, or a rich `doc` (teammates only) that is
+ * validated, rebuilt from allowed content and flattened to the plain-text `body`. A document
+ * without formatting is stored as plain text only.
+ */
+function messageContent(
+  p: Command,
+  actor: Actor,
+): { text: string; doc?: RichDoc } {
+  if (p.doc === undefined) {
+    assert(
+      typeof p.text === "string" &&
+        p.text.trim().length > 0 &&
+        p.text.length <= 5000,
+      "INVALID_MESSAGE",
+      "Write a message of up to 5,000 characters.",
+    );
+    return { text: p.text.trim() };
+  }
+  assert(
+    actor.type === "teammate",
+    "FORBIDDEN",
+    "Formatted messages are for teammates.",
+    403,
+  );
+  let doc: RichDoc;
+  try {
+    doc = normalizeDoc(p.doc);
+  } catch (e) {
+    if (e instanceof RichDocError)
+      throw new DomainError(e.code, e.message, 400);
+    throw e;
+  }
+  const text = plainText(doc);
+  assert(text.length > 0, "INVALID_MESSAGE", "Write a message.");
+  return isPlain(doc) ? { text } : { text, doc };
+}
 export async function command(
   db: Sql,
   w: string,
@@ -546,13 +591,7 @@ export async function command(
         "Customers cannot add internal notes.",
         403,
       );
-      assert(
-        typeof p.text === "string" &&
-          p.text.trim().length > 0 &&
-          p.text.length <= 5000,
-        "INVALID_MESSAGE",
-        "Write a message of up to 5,000 characters.",
-      );
+      const content = messageContent(p, actor);
       if (actor.type === "contact" && c.status !== "open")
         await transition(db, w, c, who, "open");
       const kind =
@@ -567,12 +606,21 @@ export async function command(
         c,
         who,
         kind,
-        p.text.trim(),
-        actor.type === "teammate" && /^[0-9a-f-]{36}$/i.test(key)
-          ? { clientMutationId: key }
-          : {},
+        content.text,
+        {
+          ...(actor.type === "teammate" && /^[0-9a-f-]{36}$/i.test(key)
+            ? { clientMutationId: key }
+            : {}),
+          ...(content.doc ? { doc: content.doc } : {}),
+        },
         p.action === "note" ? "internal" : "public",
       );
+      // Sending consumes the author's draft for this mode, in the same transaction.
+      if (actor.type === "teammate")
+        await db.query(
+          "DELETE FROM conversation_drafts WHERE workspace_id=$1 AND conversation_id=$2 AND teammate_id=$3 AND mode=$4",
+          [w, c.id, who.id, p.action],
+        );
       if (kind === "customer_message")
         await db.query(
           "UPDATE conversations SET last_contact_reply_at=$3 WHERE workspace_id=$1 AND id=$2",
@@ -800,22 +848,19 @@ export async function command(
         "This part has a newer version.",
         409,
       );
-      assert(
-        p.action === "delete" ||
-          (typeof p.text === "string" &&
-            p.text.trim().length > 0 &&
-            p.text.length <= 5000),
-        "INVALID_MESSAGE",
-        "Enter replacement text.",
-      );
+      const content =
+        p.action === "delete" ? { text: "" } : messageContent(p, actor);
       await append(
         db,
         w,
         c,
         who,
         part.kind,
-        p.action === "delete" ? "" : p.text!.trim(),
-        { deleted: p.action === "delete" },
+        content.text,
+        {
+          deleted: p.action === "delete",
+          ...(content.doc ? { doc: content.doc } : {}),
+        },
         part.audience,
         part.id,
       );

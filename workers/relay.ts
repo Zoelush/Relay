@@ -3,6 +3,7 @@ import {
   projectionJob,
   scheduleInboxProjection,
 } from "../server/inbox-views";
+import { purgeDrafts } from "../server/drafts";
 import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
 import { hyperdriveConnection } from "../server/postgres";
@@ -367,6 +368,9 @@ const relayWorker = {
           );
           for (const c of overdue)
             await scheduleClock(env, work.workspace, c.id);
+          // Daily draft retention: during 03:00 UTC each sweep removes up to 500 expired drafts.
+          if (new Date().getUTCHours() === 3)
+            await purgeDrafts(runtime.connect, work.workspace);
           message.ack();
           continue;
         }

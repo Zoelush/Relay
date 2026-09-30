@@ -28,6 +28,7 @@ import {
   type OlderBounds,
 } from "./conversations";
 import { authorize, can } from "./policy";
+import { readDrafts, saveDraft } from "./drafts";
 import {
   customerRead,
   customerUnreadSnapshots,
@@ -808,11 +809,13 @@ export async function handleApi(
             "/v1/agent/job",
             "/v1/agent/attachment/content",
             "/v1/agent/history",
+            "/v1/agent/drafts",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
               "/v1/agent/command",
               "/v1/agent/views",
+              "/v1/agent/drafts",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -860,6 +863,7 @@ export async function handleApi(
           inbox ||
           url.pathname.startsWith("/v1/agent/attachment/") ||
           url.pathname === "/v1/agent/history" ||
+          url.pathname === "/v1/agent/drafts" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -899,6 +903,23 @@ export async function handleApi(
               "realtime",
             ),
           });
+        }
+        if (url.pathname === "/v1/agent/drafts") {
+          const result = await tenant(env.connect, workspace, (db) =>
+            saveDraft(db, workspace, principal, p),
+          );
+          return result.conflict
+            ? json(
+                {
+                  error: {
+                    code: "DRAFT_CONFLICT",
+                    message: "This draft changed in another tab or device.",
+                  },
+                  draft: result.draft,
+                },
+                409,
+              )
+            : json({ version: result.version });
         }
         if (url.pathname === "/v1/agent/views") {
           const result = await tenant(env.connect, workspace, (db) =>
@@ -1066,6 +1087,17 @@ export async function handleApi(
         });
         return new Response(file.body, { status: file.status, headers });
       }
+      if (url.pathname === "/v1/agent/drafts")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readDrafts(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("conversation") ?? "",
+            ),
+          ),
+        );
       if (url.pathname === "/v1/agent/history") {
         const id = url.searchParams.get("conversation") ?? "",
           before = url.searchParams.get("before");

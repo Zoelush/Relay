@@ -215,7 +215,7 @@ test("rejected optimistic note restores the draft and removes its pending row", 
   await expect(page.locator(".pg-pending")).toHaveCount(0);
   await expect(
     page.getByRole("textbox", { name: "Internal note", exact: true }),
-  ).toHaveValue("Keep this unsent draft");
+  ).toHaveText("Keep this unsent draft"); // a rich editor, so text rather than value
   const rows = await tenant(relay.db.connect, "demo", (db) =>
     db.query(
       "SELECT id FROM conversation_parts WHERE workspace_id=$1 AND body=$2",
