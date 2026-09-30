@@ -36,6 +36,8 @@ export class DomainError extends Error {
     public code: string,
     message: string,
     public status = 400,
+    /** Structured detail returned with the error, such as the fields a closure is missing. */
+    public details?: Record<string, unknown>,
   ) {
     super(message);
   }

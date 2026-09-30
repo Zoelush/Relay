@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 
 type Named = { id: string; name: string };
-export type Directory = { teammates: Named[]; teams: Named[]; tags: Named[] };
+export type Directory = {
+  teammates: Named[];
+  teams: Named[];
+  tags: Named[];
+  ticketStates?: Named[];
+};
 /** Picked conversation ids, or every conversation in the view (counted by the server). */
 export type Selection = { viewId: string; ids: string[]; all: boolean };
 type Action =
@@ -10,7 +15,8 @@ type Action =
   | { type: "tag_add" | "tag_remove"; tagId: string }
   | { type: "priority"; value: boolean }
   | { type: "snooze"; preset: "later_today" | "tomorrow" | "next_week" }
-  | { type: "close" | "reopen" };
+  | { type: "close" | "reopen" }
+  | { type: "ticket_state"; stateId: string };
 type Status = {
   status: "prepared" | "running" | "done" | "undoing" | "undone";
   total: number;
@@ -52,6 +58,8 @@ function describe(action: Action, dir: Directory) {
       return "Close";
     case "reopen":
       return "Reopen";
+    case "ticket_state":
+      return `Set ticket state “${name(dir.ticketStates ?? [], action.stateId)}” on`;
   }
 }
 const plural = (n: number) =>
@@ -301,6 +309,12 @@ export function BulkBar({
             ],
             (v) => ({ type: "snooze", preset: v as "later_today" }),
           )}
+          {!!dir.ticketStates?.length &&
+            select(
+              "Ticket state",
+              dir.ticketStates.map((t) => [t.id, t.name]),
+              (v) => ({ type: "ticket_state", stateId: v }),
+            )}
           <button disabled={busy} onClick={onClear}>
             Clear selection
           </button>

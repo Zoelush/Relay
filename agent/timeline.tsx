@@ -22,6 +22,8 @@ export type Directory = {
   teammates: { id: string; name: string }[];
   teams: { id: string; name: string }[];
   tags: { id: string; name: string }[];
+  /** Ticket states across types, named "Type: State"; empty when tickets are off. */
+  ticketStates?: { id: string; name: string }[];
 };
 const MESSAGES = new Set([
   "customer_message",
@@ -101,6 +103,19 @@ export function describePart(p: TimelinePart, dir: Directory): string {
     case "channel_handover":
       return `Conversation moved to ${String(d.channel ?? "another channel")}`;
     case "system_event":
+      if (d.event === "ticket_created")
+        return `${who} converted this to ${(d.type as { name?: string })?.name ?? "a"} ticket #${String(d.number)} (${(d.state as { name?: string })?.name ?? ""})`;
+      if (d.event === "ticket_state_change")
+        return `${who} moved the ticket to ${(d.to as { name?: string })?.name ?? "another state"}`;
+      if (d.event === "ticket_type_change") {
+        const lost = (Array.isArray(d.lost) ? d.lost : []) as {
+          name: string;
+        }[];
+        return (
+          `${who} changed the ticket type to ${(d.to as { name?: string })?.name ?? "another type"}` +
+          (lost.length ? `; cleared ${lost.map((f) => f.name).join(", ")}` : "")
+        );
+      }
       if (d.event === "human_joined")
         return `${pick(dir.teammates, d.teammateId) || "A teammate"} joined the conversation`;
       return "Conversation activity";

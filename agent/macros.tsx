@@ -14,7 +14,8 @@ export type MacroAction =
   | { type: "tag_add" | "tag_remove"; tagId: string }
   | { type: "priority"; value: boolean }
   | { type: "snooze"; preset: "later_today" | "tomorrow" | "next_week" }
-  | { type: "close" | "reopen" };
+  | { type: "close" | "reopen" }
+  | { type: "ticket_state"; stateId: string };
 export type Macro = {
   id: string;
   owner_id: string;
@@ -183,6 +184,7 @@ const ACTION_TYPES: [MacroAction["type"], string][] = [
   ["snooze", "Snooze"],
   ["close", "Close"],
   ["reopen", "Reopen"],
+  ["ticket_state", "Ticket state"],
 ];
 const blankAction = (
   type: MacroAction["type"],
@@ -198,6 +200,8 @@ const blankAction = (
       return { type, value: true };
     case "snooze":
       return { type, preset: "tomorrow" };
+    case "ticket_state":
+      return { type, stateId: dir.ticketStates?.[0]?.id ?? "" };
     default:
       return { type };
   }
@@ -226,7 +230,9 @@ function ActionRow({
           onChange(blankAction(e.target.value as MacroAction["type"], dir))
         }
       >
-        {ACTION_TYPES.map(([type, label]) => (
+        {ACTION_TYPES.filter(
+          ([type]) => type !== "ticket_state" || dir.ticketStates?.length,
+        ).map(([type, label]) => (
           <option key={type} value={type}>
             {label}
           </option>
@@ -298,6 +304,21 @@ function ActionRow({
           <option value="later_today">Later today</option>
           <option value="tomorrow">Tomorrow 09:00</option>
           <option value="next_week">Next Monday 09:00</option>
+        </select>
+      )}
+      {action.type === "ticket_state" && (
+        <select
+          aria-label={`Action ${n} ticket state`}
+          value={action.stateId}
+          onChange={(e) =>
+            onChange({ type: "ticket_state", stateId: e.target.value })
+          }
+        >
+          {(dir.ticketStates ?? []).map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
         </select>
       )}
       <button

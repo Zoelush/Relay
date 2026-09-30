@@ -171,7 +171,7 @@ test("macros: permissions per operation, variables filled as text, whole-bundle 
       ],
       [
         { body, actions: [{ type: "ticket_state", state: "resolved" }] },
-        "TICKETS_UNAVAILABLE",
+        "INVALID_MACRO",
       ],
       [
         { body, actions: [{ type: "close" }, { type: "reopen" }] },

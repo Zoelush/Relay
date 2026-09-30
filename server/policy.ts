@@ -9,6 +9,7 @@ export const capabilities = [
   "macros.create",
   "macros.edit",
   "macros.delete",
+  "tickets.manage",
   "conversations.assign",
   "reports.view",
   "reports.share",

@@ -1,4 +1,12 @@
 import { resolveWake } from "./snooze";
+import {
+  assertClosable,
+  assertFieldAllowed,
+  assertMergeable,
+  changeTicketType,
+  convertToTicket,
+  setTicketState,
+} from "./tickets";
 import { verifyInlineImages } from "./attachments";
 import { resolveMentions, recordMentions } from "./mentions";
 import {
@@ -75,6 +83,10 @@ export interface Command {
   attributeId?: string;
   tagId?: string;
   attributes?: Record<string, unknown>;
+  typeId?: string;
+  stateId?: string;
+  mapping?: Record<string, string>;
+  token?: string;
 }
 export function agentConversation(c: Conversation, personalData: boolean) {
   const {
@@ -204,7 +216,7 @@ export async function access(
     originTimezone: actor.originTimezone,
   };
 }
-async function append(
+export async function append(
   db: Sql,
   w: string,
   c: Conversation,
@@ -549,6 +561,7 @@ export async function command(
         target = await conversation(db, w, p.targetId, true);
       const who = await access(db, w, source, actor, "conversations.manage");
       await access(db, w, target, actor, "conversations.manage");
+      await assertMergeable(db, w, source);
       assert(
         source.id !== target.id,
         "ALREADY_MERGED",
@@ -771,6 +784,7 @@ export async function command(
           "This wake timer has been replaced.",
           409,
         );
+      if (p.action === "close") await assertClosable(db, w, c);
       await transition(
         db,
         w,
@@ -1049,6 +1063,7 @@ export async function command(
         "Active conversation attribute unavailable.",
         404,
       );
+      await assertFieldAllowed(db, w, c, p.attributeId!);
       const value = p.value,
         kind = definition.value_type;
       const valid =
@@ -1133,12 +1148,11 @@ export async function command(
         [w, c.id, p.value],
       );
     } else if (p.action === "ticket") {
-      assert(
-        false,
-        "TICKET_PROVIDER_UNAVAILABLE",
-        "Ticket conversion becomes available in phase 5.",
-        501,
-      );
+      await convertToTicket(db, w, c, who, p, append);
+    } else if (p.action === "ticket_state") {
+      await setTicketState(db, w, c, who, p, append);
+    } else if (p.action === "ticket_type") {
+      await changeTicketType(db, w, c, who, p, append);
     } else assert(false, "UNKNOWN_COMMAND", "Unsupported conversation action.");
     await syncUnread(db, w, c);
     return { conversationId: c.id };

@@ -31,6 +31,7 @@ import { authorize, can } from "./policy";
 import { readDrafts, saveDraft } from "./drafts";
 import { applyMacro, listMacros, saveMacro } from "./macros";
 import { commitBulk, prepareBulk, readBulk, undoBulk } from "./bulk";
+import { listTicketTypes, previewTypeChange, saveTicketType } from "./tickets";
 import { BULK_BODY_LIMIT } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -832,6 +833,8 @@ export async function handleApi(
             "/v1/agent/macros",
             "/v1/agent/context",
             "/v1/agent/bulk",
+            "/v1/agent/ticket-types",
+            "/v1/agent/ticket-preview",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -841,6 +844,7 @@ export async function handleApi(
               "/v1/agent/notifications",
               "/v1/agent/macros",
               "/v1/agent/bulk",
+              "/v1/agent/ticket-types",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -893,6 +897,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/macros" ||
           url.pathname === "/v1/agent/context" ||
           url.pathname === "/v1/agent/bulk" ||
+          url.pathname.startsWith("/v1/agent/ticket-") ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -936,6 +941,12 @@ export async function handleApi(
             ),
           });
         }
+        if (url.pathname === "/v1/agent/ticket-types")
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              saveTicketType(db, workspace, principal, p),
+            ),
+          );
         if (url.pathname === "/v1/agent/bulk") {
           const key = req.headers.get("idempotency-key") ?? "";
           const result = await tenant(
@@ -1182,6 +1193,38 @@ export async function handleApi(
               url.searchParams.get("conversation") ?? "",
             ),
           ),
+        );
+      if (url.pathname === "/v1/agent/ticket-types")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listTicketTypes(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/ticket-preview")
+        return json(
+          await tenant(env.connect, workspace, async (db) => {
+            await authorize(db, workspace, principal, "conversations.manage");
+            let mapping: unknown = {};
+            try {
+              mapping = JSON.parse(url.searchParams.get("mapping") || "{}");
+            } catch {
+              throw new DomainError("TICKET_MAPPING", "Invalid field mapping.");
+            }
+            return previewTypeChange(
+              db,
+              workspace,
+              await conversation(
+                db,
+                workspace,
+                url.searchParams.get("conversation") ?? "",
+              ),
+              {
+                typeId: url.searchParams.get("type") ?? "",
+                stateId: url.searchParams.get("state") ?? undefined,
+                mapping,
+              },
+            );
+          }),
         );
       if (url.pathname === "/v1/agent/bulk")
         return json(
@@ -1556,7 +1599,13 @@ export async function handleApi(
   } catch (error) {
     if (error instanceof DomainError)
       return json(
-        { error: { code: error.code, message: error.message } },
+        {
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(error.details ? { details: error.details } : {}),
+          },
+        },
         error.status,
       );
     console.error("Relay API failed", {

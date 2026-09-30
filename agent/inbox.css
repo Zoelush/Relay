@@ -557,3 +557,17 @@ kbd { font:11px ui-monospace, monospace; border:1px solid #cfdad4; border-bottom
 .pg-bulk-status ul { flex-basis:100%; margin:0; padding-left:18px; }
 .pg-bulk-error { color:#a4262c; padding:6px 10px; margin:0; font-size:12px; }
 .pg-bulk-confirm { width:min(420px,92vw); }
+/* Phase 05 step A1: ticket panel, state badge, type change. */
+.pg-ticket-head { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:4px 0 8px; }
+.pg-ticket-state { border-radius:999px; padding:2px 8px; font-size:11px; background:#e3ece7; color:#1d3d31; }
+.pg-state-resolved { background:#e6e6e6; color:#444; }
+.pg-state-waiting_on_customer { background:#fff1d6; color:#6b4a00; }
+.pg-ticket-convert { display:flex; flex-direction:column; gap:8px; }
+.pg-ticket-convert label { display:flex; flex-direction:column; gap:4px; font-size:12px; }
+.pg-ticket-buttons { display:flex; gap:8px; justify-content:flex-end; }
+.pg-attr-required { color:#7d8d82; font-weight:normal; }
+.pg-attr-missing input, .pg-attr-missing select { border-color:#a4262c !important; }
+.pg-ticket-warning { background:#fff4f4; border:1px solid #f0c8ca; border-radius:8px; padding:10px; margin:10px 0; }
+.pg-ticket-warning ul { margin:6px 0 0; padding-left:18px; }
+.pg-ticket-warning select { margin-left:8px; }
+.pg-ticket-dialog { width:min(520px,94vw); }

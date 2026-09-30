@@ -1,4 +1,5 @@
 import type { Sql } from "./db";
+import { ticketContext } from "./tickets";
 import { authorize, can } from "./policy";
 import { access, conversation } from "./conversations";
 import { resolveContact } from "./people";
@@ -108,7 +109,8 @@ export async function conversationContext(
       value_type: string;
       options: string[] | null;
     }>(
-      "SELECT id,name,value_type,options FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='conversation' AND archived_at IS NULL ORDER BY name,id",
+      // Ticket fields are shown with the ticket, not with the general attributes.
+      "SELECT id,name,value_type,options FROM attribute_definitions a WHERE workspace_id=$1 AND owner_type='conversation' AND archived_at IS NULL AND NOT EXISTS(SELECT 1 FROM ticket_type_attributes f WHERE f.workspace_id=a.workspace_id AND f.attribute_id=a.id) ORDER BY name,id",
       [w],
     )
   ).rows.map((a) => ({
@@ -146,6 +148,7 @@ export async function conversationContext(
     recent,
     attributes,
     canEditAttributes: await can(db, w, principal, "conversations.manage"),
+    tickets: await ticketContext(db, w, c),
     apps,
   };
 }
