@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — tickets and SLAs step B1 (business-time engine)
+
+- A new business-time engine that works with whole time periods, exact to the millisecond. Opening hours are local wall-clock times: a skipped hour is never open, a repeated one counts twice. It supports overnight hours, holidays and special days. `dueAt`, `businessBetween` and a pure `clock()` over start, pause, resume and stop events report elapsed, remaining, due time and breach; a clock stopped exactly at its due time has met it.
+- Calendars are named and versioned: each publish adds an immutable version, and editing from a stale version is refused. They can be assigned to the workspace default, a brand or a team; resolution is team, then brand, then workspace, then 24/7. New conversations pin the version in force, so later edits don't change their metrics.
+- The first-response business-time metric uses the new engine; its results are unchanged apart from being exact to the millisecond.
+- Migration 0024 adds `calendars`, `calendar_assignments` and the `sla_v1` flag (off; on in the local relay). New routes: `/v1/agent/calendars` and `/v1/agent/calendar-resolve`.
+- Tests: the clock acceptance matrix `tests/business-clock.test.ts` covers office-hours boundaries, holidays, special days, a leap day, half-hour, 45-minute and +14 time zones, daylight saving in London, New York and Lord Howe, overnight hours, snooze, reopen, breach, and 120 generated cases against a minute-by-minute reference. Also `tests/calendars.test.ts`. 54/54 Node tests, typecheck and 32/32 browser tests pass.
+
 ## Unreleased — tickets step A2 (categories and linking)
 
 - Customer tickets tell the customer: converting, each change of customer label, and a type change add a messenger line such as "Ticket #12 (Bug report): Received", carrying only the number, type name and customer label. The delivery policy now only lets customers see `human_joined` and `ticket_status` system events.

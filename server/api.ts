@@ -39,6 +39,12 @@ import {
   prepareBroadcast,
   readBroadcast,
 } from "./ticket-links";
+import {
+  assignCalendar,
+  conversationCalendar,
+  listCalendars,
+  publishCalendar,
+} from "./calendars";
 import { BULK_BODY_LIMIT } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -844,6 +850,8 @@ export async function handleApi(
             "/v1/agent/ticket-preview",
             "/v1/agent/tickets",
             "/v1/agent/ticket-broadcast",
+            "/v1/agent/calendars",
+            "/v1/agent/calendar-resolve",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -855,6 +863,7 @@ export async function handleApi(
               "/v1/agent/bulk",
               "/v1/agent/ticket-types",
               "/v1/agent/tickets",
+              "/v1/agent/calendars",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -908,6 +917,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/context" ||
           url.pathname === "/v1/agent/bulk" ||
           url.pathname.startsWith("/v1/agent/ticket") ||
+          url.pathname.startsWith("/v1/agent/calendar") ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -951,6 +961,14 @@ export async function handleApi(
             ),
           });
         }
+        if (url.pathname === "/v1/agent/calendars")
+          return json(
+            await tenant(env.connect, workspace, (db): Promise<unknown> =>
+              p.op === "assign"
+                ? assignCalendar(db, workspace, principal, p)
+                : publishCalendar(db, workspace, principal, p),
+            ),
+          );
         if (url.pathname === "/v1/agent/tickets") {
           const key = req.headers.get("idempotency-key") ?? "";
           const result = await tenant(
@@ -1231,6 +1249,27 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listTicketTypes(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/calendars")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listCalendars(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/calendar-resolve")
+        return json(
+          await tenant(env.connect, workspace, async (db) =>
+            conversationCalendar(
+              db,
+              workspace,
+              principal,
+              await conversation(
+                db,
+                workspace,
+                url.searchParams.get("conversation") ?? "",
+              ),
+            ),
           ),
         );
       if (url.pathname === "/v1/agent/tickets")

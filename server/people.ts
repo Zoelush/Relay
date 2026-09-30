@@ -98,6 +98,11 @@ export async function seedFoundation(
     "UPDATE brands SET settings=settings||jsonb_build_object('calendarId','default','calendarVersion',1) WHERE workspace_id=$1 AND id='default' AND NOT settings ? 'calendarId'",
     [workspace],
   );
+  // Named, so it can be listed and republished (migration 0024 named older ones the same way).
+  await db.query(
+    "INSERT INTO calendars(workspace_id,id,name,current_version) SELECT $1,'default','Office hours',1 WHERE EXISTS(SELECT 1 FROM business_calendars WHERE workspace_id=$1 AND id='default' AND version=1) ON CONFLICT DO NOTHING",
+    [workspace],
+  );
   for (const name of [
     "storage_postgres",
     "people_v1",
@@ -109,7 +114,7 @@ export async function seedFoundation(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
       [workspace, name, options.enable ?? false],
     );
-  for (const name of ["agent_inbox_views_v1", "tickets_v1"])
+  for (const name of ["agent_inbox_views_v1", "tickets_v1", "sla_v1"])
     await db.query(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,false) ON CONFLICT DO NOTHING",
       [workspace, name],
