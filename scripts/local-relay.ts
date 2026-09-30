@@ -130,6 +130,15 @@ export async function startLocalRelay(
         "INSERT INTO teams(workspace_id,id,name) VALUES($1,'billing','Billing') ON CONFLICT DO NOTHING",
         [w],
       );
+      // Conversation attributes for the details sidebar.
+      await sql.query(
+        `INSERT INTO attribute_definitions(workspace_id,id,name,owner_type,value_type,options) VALUES
+        ($1,'order_number','Order number','conversation','string',NULL),
+        ($1,'plan','Plan','conversation','options','["Free","Pro","Enterprise"]'),
+        ($1,'refund_approved','Refund approved','conversation','boolean',NULL)
+        ON CONFLICT DO NOTHING`,
+        [w],
+      );
       // A second teammate, in Billing, so mentions and notifications can be tried locally.
       await sql.query(
         "INSERT INTO teammates(workspace_id,id,principal_id,name,role_id) VALUES($1,'grace','local-grace','Grace','agent') ON CONFLICT DO NOTHING",
@@ -224,6 +233,30 @@ export async function startLocalRelay(
               conversationId,
               text: (i % 10 === 0 ? "Team note " : "Reply ") + i,
             },
+          );
+        // The same customer, with details and two earlier conversations, for the sidebar.
+        await sql.query(
+          `UPDATE contacts SET name='Jo Bloggs',role='lead',origin_timezone='Europe/London'
+          WHERE workspace_id=$1 AND id=(SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2)`,
+          [w, identity.identityId],
+        );
+        await sql.query(
+          `INSERT INTO contact_emails(workspace_id,contact_id,email,verified)
+          SELECT $1,contact_id,'jo@example.test',true FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2
+          ON CONFLICT DO NOTHING`,
+          [w, identity.identityId],
+        );
+        for (const text of ["Where is my order?", "Change my plan"])
+          await command(
+            sql,
+            w,
+            {
+              type: "contact",
+              identityId: identity.identityId,
+              brandId: "default",
+            },
+            "local-seed-earlier-" + text,
+            { action: "start", text },
           );
       });
   // Two-workspace views seed: the owner's default views plus one shared view each. Fixed

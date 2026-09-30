@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Keyboard,
   Bell,
+  PanelRight,
 } from "lucide-react";
 import "../../agent/inbox.css";
 import { api, InboxError } from "../../agent/api";
@@ -29,6 +30,7 @@ import { Timeline, type Directory } from "../../agent/timeline";
 import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
 import { NotificationsPanel } from "../../agent/notifications";
+import { ContextSidebar } from "../../agent/sidebar";
 import {
   MacroManager,
   MacroPicker,
@@ -206,6 +208,28 @@ export default function PostgresInbox() {
   const [notificationCount, setNotificationCount] = useState(0);
   const [macroList, setMacroList] = useState<MacroList | null>(null);
   const [macroNotice, setMacroNotice] = useState("");
+  // Details sidebar: open by default on wide screens; the choice is remembered in this browser
+  // (a UI preference only, never conversation data).
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = window.localStorage.getItem("relay.sidebar");
+      if (saved) return saved === "open";
+    } catch {
+      // Storage may be unavailable; fall back to the screen width.
+    }
+    return window.innerWidth >= 1200;
+  });
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((open) => {
+      try {
+        window.localStorage.setItem("relay.sidebar", open ? "closed" : "open");
+      } catch {
+        // Not remembered; the toggle still works for this page.
+      }
+      return !open;
+    });
+  }, []);
   // Other teammates viewing or writing, and this teammate's own writing signal.
   const {
     activity,
@@ -844,6 +868,19 @@ export default function PostgresInbox() {
       keys: "/",
       run: focusSearch,
     },
+    ...(selected
+      ? [
+          {
+            id: "details",
+            group: "Conversation",
+            label: sidebarOpen
+              ? "Hide conversation details"
+              : "Show conversation details",
+            keys: "I",
+            run: toggleSidebar,
+          },
+        ]
+      : []),
     {
       id: "notifications",
       group: "Navigate",
@@ -885,6 +922,7 @@ export default function PostgresInbox() {
         run(() => void act({ action: "reopen" }, { status: "open" }));
       else if (key === "s") run(() => setOverlay("snooze"));
       else if (key === "m" && canMacros) run(() => setOverlay("macros"));
+      else if (key === "i") run(toggleSidebar);
       else if (key === "a")
         run(
           () =>
@@ -1217,6 +1255,13 @@ export default function PostgresInbox() {
                     >
                       <Flag size={14} /> Priority
                     </button>
+                    <button
+                      title="Conversation details (I)"
+                      aria-pressed={sidebarOpen}
+                      onClick={toggleSidebar}
+                    >
+                      <PanelRight size={14} /> Details
+                    </button>
                   </div>
                 </header>
                 <div
@@ -1442,6 +1487,16 @@ export default function PostgresInbox() {
               </div>
             )}
           </section>
+          {selected && sidebarOpen && (
+            <ContextSidebar
+              conversationId={selected}
+              refresh={
+                parts.filter((p) => p.kind === "attribute_change").length
+              }
+              onOpen={(id) => pick(id)}
+              onError={report}
+            />
+          )}
         </div>
       </section>
       {overlay === "palette" && (

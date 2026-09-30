@@ -18,6 +18,7 @@ export const SHORTCUTS: [string, string][] = [
   ["Shift E", "Reopen conversation"],
   ["S", "Snooze"],
   ["M", "Apply a macro"],
+  ["I", "Conversation details"],
   ["A", "Assign to me"],
   ["P", "Toggle priority"],
   ["/", "Search this view"],

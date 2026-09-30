@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — agent inbox step D2 (context sidebar and app slot)
+
+- A conversation details sidebar showing:
+  - the customer, resolved through contact merges: name, emails, phones and external id for teammates with personal-data access, and type, times, time zone and live local time for everyone
+  - conversation attributes, editable inline by type through the existing typed command, reverting on rejection
+  - up to five of the customer's other recent conversations, across their merged contacts
+  - participants
+- New route: `GET /v1/agent/context`. No migration.
+- The sidebar is open by default on wide screens and toggled with I, "Details" or the palette; the choice is remembered in the browser as a UI preference only.
+- The phase-15 app-slot contract (`lib/app-slots.ts`): versioned types, a scoped context, declared capabilities, loading/error/ready states, and a host that refuses undeclared capabilities and other conversations. No app code is loaded, and no cards appear until phase 15.
+- Local seed adds three conversation attributes. In development, a customer with an email and two earlier conversations.
+- Tests: `tests/context.test.ts` (merges, personal-data gating, same-customer history, attributes, workspaces, app-slot host) and `tests/browser/sidebar.spec.ts` (details, local time, inline attribute save, history navigation, the toggle remembered; an invalid value reverted). 41/41 Node tests, typecheck and 24/24 browser tests pass. Flags remain off.
+
 ## Unreleased — agent inbox step D1 (macros)
 
 - Personal and shared macros: a saved reply or note, with variables, plus up to 10 actions (assign, add or remove a tag, priority, snooze preset, close, reopen, set an attribute). Migration 0020 adds the `macros` table.
