@@ -24,6 +24,7 @@ export class RealtimeClient {
   jobs = new Set<string>();
   presence = "active";
   private ephemeralAt = 0;
+  private viewingAt = new Map<string, number>();
   private lastUnread = "";
   private chain: Promise<void> = Promise.resolve();
   constructor(
@@ -126,10 +127,30 @@ export class RealtimeClient {
         message.cursor || undefined,
       );
       await this.replay(String(message.conversationId));
+      // Teammates see each other arrive; `joined` asks peers to announce themselves back.
+      if (isAgent(this.session))
+        this.ephemeral(this, {
+          ...this.viewing(String(message.conversationId), true),
+          joined: true,
+        });
       return;
     }
     if (message.type === "unsubscribe") {
-      this.subscriptions.delete(String(message.conversationId));
+      const id = String(message.conversationId);
+      if (this.subscriptions.delete(id) && isAgent(this.session))
+        this.ephemeral(this, this.viewing(id, false));
+      return;
+    }
+    if (
+      message.type === "viewing" &&
+      isAgent(this.session) &&
+      this.subscriptions.has(message.conversationId)
+    ) {
+      // Refreshes "viewing" before it expires; the inbox sends this every 30 seconds.
+      const id = String(message.conversationId);
+      if (Date.now() - (this.viewingAt.get(id) ?? 0) < 5000) return;
+      this.viewingAt.set(id, Date.now());
+      this.ephemeral(this, this.viewing(id, true));
       return;
     }
     if (message.type === "subscribe_job") {
@@ -146,15 +167,23 @@ export class RealtimeClient {
       message.type === "typing" &&
       this.subscriptions.has(message.conversationId)
     ) {
-      if (Date.now() - this.ephemeralAt < 200) return;
-      this.ephemeralAt = Date.now();
+      // Only "active" typing is throttled: a stop signal must never be dropped, and must not use
+      // up the window for the active signal that often follows it (for example, a mode switch).
+      if (message.active) {
+        if (Date.now() - this.ephemeralAt < 200) return;
+        this.ephemeralAt = Date.now();
+      }
+      const s = this.session;
       this.ephemeral(this, {
         type: "typing",
         conversationId: message.conversationId,
-        authorType: isAgent(this.session) ? "teammate" : "contact",
-        authorId: isAgent(this.session)
-          ? this.session.teammateId
-          : this.session.identityId,
+        authorType: isAgent(s) ? "teammate" : "contact",
+        authorId: isAgent(s) ? s.teammateId : s.identityId,
+        // A teammate's typing is a note unless it says reply, so a missing or unknown mode
+        // can never reach the customer.
+        ...(isAgent(s)
+          ? { mode: message.mode === "reply" ? "reply" : "note" }
+          : {}),
         active: !!message.active,
         expiresAt: Date.now() + 5000,
       });
@@ -181,6 +210,22 @@ export class RealtimeClient {
       return;
     }
     throw new DomainError("INVALID_FRAME", "Unsupported realtime frame.");
+  }
+  private viewing(conversationId: string, active: boolean) {
+    return {
+      type: "viewing",
+      conversationId,
+      teammateId: isAgent(this.session!) ? this.session.teammateId : "",
+      active,
+      expiresAt: Date.now() + VIEWING_TTL_MS,
+    };
+  }
+  /** Announces that this teammate left every conversation it had open (socket closed). */
+  leave() {
+    if (!this.session || !isAgent(this.session)) return;
+    for (const id of this.subscriptions.keys())
+      this.ephemeral(this, this.viewing(id, false));
+    this.subscriptions.clear();
   }
   private async replay(id: string) {
     assert(this.session, "AUTH_REQUIRED", "Authenticate the connection.", 401);
@@ -247,5 +292,54 @@ export class RealtimeClient {
     });
     if (error instanceof DomainError && error.status === 401)
       this.wire.close(4401, "Session expired");
+  }
+}
+
+/** "Viewing" expires this long after its last refresh (the inbox refreshes every 30 seconds). */
+export const VIEWING_TTL_MS = 45_000;
+/**
+ * Routes an ephemeral signal from one connection to the others. Used by the Worker and the local
+ * relay, so both follow one table:
+ * - presence: teammates in the workspace;
+ * - viewing, and a teammate's note typing: teammates subscribed to the conversation, never customers;
+ * - a teammate's reply typing and customer typing: everyone subscribed to the conversation;
+ * never the sender, never another workspace. Teammates receive other teammates' typing marked as
+ * a collision. When a teammate joins, each teammate already viewing is announced back to them.
+ */
+export function fanOutSignal(
+  clients: Iterable<RealtimeClient>,
+  sender: RealtimeClient,
+  data: Record<string, unknown>,
+) {
+  const from = sender.session;
+  if (!from) return;
+  const conversationId = String(data.conversationId ?? "");
+  const agentOnly =
+    data.type === "presence" ||
+    data.type === "viewing" ||
+    (data.type === "typing" &&
+      data.authorType === "teammate" &&
+      data.mode !== "reply");
+  for (const target of clients) {
+    const to = target.session;
+    if (target === sender || !to || to.workspace !== from.workspace) continue;
+    const agent = isAgent(to);
+    if (agentOnly && !agent) continue;
+    if (data.type !== "presence" && !target.subscriptions.has(conversationId))
+      continue;
+    target.emit({
+      ...data,
+      ...(data.type === "typing" && data.authorType === "teammate" && agent
+        ? { collision: true }
+        : {}),
+    });
+    if (data.type === "viewing" && data.joined && agent && isAgent(from))
+      sender.emit({
+        type: "viewing",
+        conversationId,
+        teammateId: to.teammateId,
+        active: true,
+        expiresAt: Date.now() + VIEWING_TTL_MS,
+      });
   }
 }

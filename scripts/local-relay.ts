@@ -30,7 +30,7 @@ import {
 import { getIdentity, seedFoundation } from "../server/people";
 import { tenant, digest } from "../server/db";
 import { handleApi, type ApiEnvironment } from "../server/api";
-import { RealtimeClient } from "../server/realtime";
+import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset } from "../server/assets";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { CoalescedPublisher } from "../server/publication";
@@ -407,21 +407,15 @@ export async function startLocalRelay(
         close: (code, reason) => socket.close(code, reason),
       },
       env,
-      (sender, data) => {
-        for (const peer of clients)
-          if (
-            peer !== sender &&
-            peer.session?.workspace === sender.session?.workspace &&
-            peer.subscriptions.has(String(data.conversationId))
-          )
-            peer.emit(data);
-      },
+      // The same routing as the deployed Worker (server/realtime.ts).
+      (sender, data) => fanOutSignal(clients, sender, data),
       w,
     );
     clients.add(c);
     sockets.set(socket, c);
     socket.on("message", (data) => void c.receive(data.toString()));
     socket.on("close", () => {
+      c.leave();
       clients.delete(c);
       sockets.delete(socket);
     });
@@ -471,7 +465,9 @@ export async function startLocalRelay(
       // `?as=grace` signs in as the seeded second teammate, to try mentions between two people.
       const token = await new SignJWT({})
         .setSubject(
-          url.searchParams.get("as") === "grace" ? "local-grace" : "local-owner",
+          url.searchParams.get("as") === "grace"
+            ? "local-grace"
+            : "local-owner",
         )
         .setProtectedHeader({ alg: "HS256" })
         .setIssuer("relay-local-fixture")

@@ -8,7 +8,7 @@ import { purgeInlineImages } from "../server/attachments";
 import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
 import { hyperdriveConnection } from "../server/postgres";
-import { RealtimeClient } from "../server/realtime";
+import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset } from "../server/assets";
 import {
   drainConversationOutbox,
@@ -204,25 +204,7 @@ export class RelayHub extends DurableObject<Env> {
         close: (code, reason) => socket.close(code, reason),
       },
       environment(this.env),
-      (sender, data) => {
-        for (const target of this.clients.values())
-          if (
-            target !== sender &&
-            target.session?.workspace === sender.session?.workspace &&
-            (data.type === "presence"
-              ? target.session && isAgent(target.session)
-              : target.subscriptions.has(String(data.conversationId)))
-          )
-            target.emit({
-              ...data,
-              ...(data.type === "typing" &&
-              data.authorType === "teammate" &&
-              target.session &&
-              isAgent(target.session)
-                ? { collision: true }
-                : {}),
-            });
-      },
+      (sender, data) => fanOutSignal(this.clients.values(), sender, data),
       socket.deserializeAttachment()?.workspace,
     );
     this.clients.set(socket, client);
@@ -245,9 +227,11 @@ export class RelayHub extends DurableObject<Env> {
     }
   }
   webSocketClose(socket: WebSocket) {
+    this.clients.get(socket)?.leave();
     this.clients.delete(socket);
   }
   webSocketError(socket: WebSocket) {
+    this.clients.get(socket)?.leave();
     this.clients.delete(socket);
   }
   notify(id: string) {
