@@ -30,6 +30,12 @@ import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
 import { NotificationsPanel } from "../../agent/notifications";
 import {
+  MacroManager,
+  MacroPicker,
+  type Macro,
+  type MacroList,
+} from "../../agent/macros";
+import {
   useTeammateActivity,
   useWritingSignal,
   describeActivity,
@@ -89,6 +95,7 @@ type Snapshot = Directory & {
     reply: boolean;
     note: boolean;
     manage?: boolean;
+    macros?: boolean;
     views?: boolean;
   };
 };
@@ -188,9 +195,17 @@ export default function PostgresInbox() {
     Record<string, Partial<Conversation>>
   >({});
   const [overlay, setOverlay] = useState<
-    "palette" | "shortcuts" | "snooze" | "notifications" | null
+    | "palette"
+    | "shortcuts"
+    | "snooze"
+    | "notifications"
+    | "macros"
+    | "macro-manager"
+    | null
   >(null);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [macroList, setMacroList] = useState<MacroList | null>(null);
+  const [macroNotice, setMacroNotice] = useState("");
   // Other teammates viewing or writing, and this teammate's own writing signal.
   const {
     activity,
@@ -527,6 +542,7 @@ export default function PostgresInbox() {
   }
   function pick(id: string) {
     writing.stop();
+    setMacroNotice("");
     if (selectedRef.current) clearActivity(selectedRef.current);
     if (ready.current && selectedRef.current)
       socket.current?.send(
@@ -628,6 +644,62 @@ export default function PostgresInbox() {
     document
       .querySelector<HTMLInputElement>('[aria-label="Search within view"]')
       ?.focus();
+  const canMacros = !!snapshot?.capabilities.macros;
+  const loadMacros = useCallback(
+    () => api<MacroList>("macros").then(setMacroList).catch(report),
+    [report],
+  );
+  useEffect(() => {
+    if (canMacros) void loadMacros();
+  }, [canMacros, loadMacros]);
+  /**
+   * Applies a macro: its actions run on the server at once (all or nothing), and its text, with
+   * variables filled, is added to the composer in the macro's mode for review before sending.
+   */
+  async function applyMacro(m: Macro) {
+    const conversationId = selectedRef.current;
+    if (!conversationId) return;
+    setMacroNotice("");
+    try {
+      const result = await api<{
+        mode: "reply" | "note";
+        doc: RichDoc | null;
+        applied: number;
+        macro: string;
+      }>("macros", {
+        action: "apply",
+        macroId: m.id,
+        conversationId,
+        timezone: timeZone(),
+      });
+      setMode(result.mode);
+      if (result.doc) {
+        const key = drafts.keyOf(conversationId, result.mode);
+        const existing = drafts.drafts[key]?.doc;
+        drafts.edit(
+          conversationId,
+          result.mode,
+          existing
+            ? {
+                type: "doc",
+                content: [...existing.content, ...result.doc.content],
+              }
+            : result.doc,
+        );
+        reseed(key);
+      }
+      setMacroNotice(
+        `Applied “${result.macro}”` +
+          (result.applied
+            ? ` · ${result.applied} action${result.applied > 1 ? "s" : ""}`
+            : "") +
+          (result.doc ? " · review the text, then send" : ""),
+      );
+      await load();
+    } catch (e) {
+      report(e);
+    }
+  }
   const commands: PaletteCommand[] = [
     ...(selected
       ? [
@@ -740,7 +812,24 @@ export default function PostgresInbox() {
           },
         ]
       : []),
-    // TODO(phase 4 step D): macros join the palette here, with their own permissions.
+    ...(selected && canMacros
+      ? (macroList?.macros ?? []).map((m) => ({
+          id: "macro-" + m.id,
+          group: "Macro",
+          label: "Apply macro: " + m.name,
+          run: () => void applyMacro(m),
+        }))
+      : []),
+    ...(canMacros
+      ? [
+          {
+            id: "macros",
+            group: "Macro",
+            label: "Manage macros",
+            run: () => setOverlay("macro-manager"),
+          },
+        ]
+      : []),
     ...viewList.map((v) => ({
       id: "view-" + v.id,
       group: "Go to view",
@@ -795,6 +884,7 @@ export default function PostgresInbox() {
       else if (key === "E")
         run(() => void act({ action: "reopen" }, { status: "open" }));
       else if (key === "s") run(() => setOverlay("snooze"));
+      else if (key === "m" && canMacros) run(() => setOverlay("macros"));
       else if (key === "a")
         run(
           () =>
@@ -1303,6 +1393,11 @@ export default function PostgresInbox() {
                           ? "Private to your team"
                           : "Messenger"}
                     </span>
+                    {macroNotice && (
+                      <small className="pg-macro-notice" role="status">
+                        {macroNotice}
+                      </small>
+                    )}
                     {imageError && (
                       <span className="pg-image-error" role="alert">
                         {imageError}
@@ -1351,6 +1446,26 @@ export default function PostgresInbox() {
       </section>
       {overlay === "palette" && (
         <CommandPalette commands={commands} onClose={() => setOverlay(null)} />
+      )}
+      {overlay === "macros" && selected && (
+        <MacroPicker
+          list={macroList}
+          onApply={(m) => void applyMacro(m)}
+          onManage={() => setOverlay("macro-manager")}
+          onClose={() => setOverlay(null)}
+        />
+      )}
+      {overlay === "macro-manager" && (
+        <MacroManager
+          list={macroList}
+          dir={{
+            teammates: snapshot?.teammates ?? [],
+            teams: snapshot?.teams ?? [],
+            tags: snapshot?.tags ?? [],
+          }}
+          onChanged={() => void loadMacros()}
+          onClose={() => setOverlay(null)}
+        />
       )}
       {overlay === "notifications" && (
         <NotificationsPanel

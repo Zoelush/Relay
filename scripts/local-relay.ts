@@ -139,6 +139,43 @@ export async function startLocalRelay(
         "INSERT INTO teammate_teams(workspace_id,teammate_id,team_id) VALUES($1,'grace','billing') ON CONFLICT DO NOTHING",
         [w],
       );
+      // Two sample macros: shared (variable plus actions) and the owner's personal one.
+      const p = (...content: unknown[]) => ({
+        type: "doc",
+        content: [{ type: "paragraph", content }],
+      });
+      await sql.query(
+        `INSERT INTO macros(workspace_id,id,owner_id,shared,name,mode,body,actions) VALUES
+        ($1,'refund-approved','owner',true,'Refund approved','reply',$2,$3),
+        ($1,'ask-order','owner',false,'Ask for order number','reply',$4,'[]')
+        ON CONFLICT DO NOTHING`,
+        [
+          w,
+          JSON.stringify(
+            p(
+              { type: "text", text: "Hi " },
+              {
+                type: "variable",
+                attrs: { name: "contact.first_name", fallback: "there" },
+              },
+              {
+                type: "text",
+                text: ", your refund is approved and should arrive within 5 working days.",
+              },
+            ),
+          ),
+          JSON.stringify([
+            { type: "tag_add", tagId: "refund" },
+            { type: "close" },
+          ]),
+          JSON.stringify(
+            p({
+              type: "text",
+              text: "Could you share your order number so I can look into this?",
+            }),
+          ),
+        ],
+      );
       await sql.query(
         "INSERT INTO tags(workspace_id,id,name) VALUES($1,'vip','VIP'),($1,'refund','Refund') ON CONFLICT DO NOTHING",
         [w],

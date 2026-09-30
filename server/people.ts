@@ -32,6 +32,7 @@ export async function seedFoundation(
           "conversations.read",
           "conversations.manage",
           "contacts.personal_data",
+          "macros.use",
         ].includes(c),
     ))
       await db.query(

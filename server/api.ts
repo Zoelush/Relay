@@ -29,6 +29,7 @@ import {
 } from "./conversations";
 import { authorize, can } from "./policy";
 import { readDrafts, saveDraft } from "./drafts";
+import { applyMacro, listMacros, saveMacro } from "./macros";
 import {
   listNotifications,
   markNotifications,
@@ -825,6 +826,7 @@ export async function handleApi(
             "/v1/agent/history",
             "/v1/agent/drafts",
             "/v1/agent/notifications",
+            "/v1/agent/macros",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -832,6 +834,7 @@ export async function handleApi(
               "/v1/agent/views",
               "/v1/agent/drafts",
               "/v1/agent/notifications",
+              "/v1/agent/macros",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -881,6 +884,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/history" ||
           url.pathname === "/v1/agent/drafts" ||
           url.pathname === "/v1/agent/notifications" ||
+          url.pathname === "/v1/agent/macros" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -920,6 +924,27 @@ export async function handleApi(
               "realtime",
             ),
           });
+        }
+        if (url.pathname === "/v1/agent/macros") {
+          if (p.action === "apply") {
+            const result = await tenant(env.connect, workspace, (db) =>
+              applyMacro(
+                db,
+                workspace,
+                principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+              ),
+            );
+            // Published only after the actions' transaction has committed.
+            await env.notify?.(workspace, String(p.conversationId ?? ""));
+            return json(result);
+          }
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              saveMacro(db, workspace, principal, p),
+            ),
+          );
         }
         if (url.pathname === "/v1/agent/notifications") {
           const result = await tenant(env.connect, workspace, (db) =>
@@ -1111,6 +1136,12 @@ export async function handleApi(
         });
         return new Response(file.body, { status: file.status, headers });
       }
+      if (url.pathname === "/v1/agent/macros")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listMacros(db, workspace, principal),
+          ),
+        );
       if (url.pathname === "/v1/agent/notifications")
         return json(
           await tenant(env.connect, workspace, (db) =>
@@ -1233,6 +1264,7 @@ export async function handleApi(
                 principal,
                 "conversations.manage",
               ),
+              macros: await can(db, workspace, principal, "macros.use"),
               attachments: !!env.attachments,
             },
           };

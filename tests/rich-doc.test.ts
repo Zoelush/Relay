@@ -5,6 +5,7 @@ import {
   plainText,
   isPlain,
   imageIds,
+  fillVariables,
   RICH_LIMITS,
 } from "../lib/rich-doc";
 
@@ -231,6 +232,51 @@ test("mentions name a teammate or team by id, with a bounded label and count", (
   );
   assert.equal(plainText(withMention), "cc @Ada");
   assert.equal(isPlain(withMention), false);
+});
+
+test("variables exist only in macro bodies and fill as plain text", () => {
+  const v = (name: string, fallback = "") => ({
+    type: "variable",
+    attrs: { name, fallback, extra: 1 },
+  });
+  const body = doc(
+    p(
+      text("Hi "),
+      v("contact.first_name", "there"),
+      text(" from "),
+      v("brand.name"),
+    ),
+  );
+  assert.throws(
+    () => normalizeDoc(body),
+    { code: "INVALID_DOCUMENT" },
+    "not in messages",
+  );
+  assert.throws(
+    () => normalizeDoc(doc(p(v("company.name"))), { variables: true }),
+    {
+      code: "INVALID_DOCUMENT",
+    },
+  );
+  const macro = normalizeDoc(body, { variables: true });
+  assert.deepEqual((macro.content[0] as any).content[1], {
+    type: "variable",
+    attrs: { name: "contact.first_name", fallback: "there" },
+  });
+  assert.equal(plainText(macro), "Hi {contact.first_name} from {brand.name}");
+  const filled = fillVariables(macro, {
+    "contact.first_name": "**Jo** <b>",
+    "brand.name": "",
+  });
+  assert.deepEqual((filled.content[0] as any).content, [
+    { type: "text", text: "Hi " },
+    { type: "text", text: "**Jo** <b>" },
+    { type: "text", text: " from " },
+  ]);
+  assert.equal(plainText(fillVariables(macro, {})), "Hi there from");
+  assert.doesNotThrow(() =>
+    normalizeDoc(fillVariables(macro, { "brand.name": "Relay" })),
+  );
 });
 
 test("the plain-text fallback keeps structure and link destinations", () => {

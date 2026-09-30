@@ -13,6 +13,7 @@ import {
   ImagePlus,
 } from "lucide-react";
 import { mentionExtension, type Mentionable } from "./mentions";
+import { VariableNode } from "./variables";
 import {
   InlineImage,
   ImageStatusContext,
@@ -27,9 +28,9 @@ import {
 } from "../lib/rich-doc";
 
 /** The editor's content as Relay's restricted document, or null when there is no text. */
-export function editorDoc(editor: Editor): RichDoc | null {
+export function editorDoc(editor: Editor, variables = false): RichDoc | null {
   try {
-    const doc = normalizeDoc(editor.getJSON());
+    const doc = normalizeDoc(editor.getJSON(), { variables });
     // The editor keeps an empty paragraph after lists and quotes; it is not content.
     while (doc.content.length > 1) {
       const last = doc.content[doc.content.length - 1];
@@ -44,6 +45,8 @@ export function editorDoc(editor: Editor): RichDoc | null {
 }
 
 export type ComposerHandle = {
+  /** Places a macro variable at the cursor (macro editors only). */
+  insertVariable?: (name: string, fallback: string) => void;
   focus: () => void;
   /** Places an image (by attachment id) at the cursor. */
   insertImage: (attachmentId: string, alt: string) => void;
@@ -65,6 +68,7 @@ export function Composer({
   onFiles,
   imageStatus,
   mentionables,
+  variables = false,
 }: {
   label: string;
   placeholder: string;
@@ -79,6 +83,8 @@ export function Composer({
   imageStatus: (attachmentId: string) => ImageStatus | undefined;
   /** Teammates and teams for @-mentions; null where mentions are not allowed (replies). */
   mentionables: Mentionable[] | null;
+  /** Macro bodies: allow variable placeholders. */
+  variables?: boolean;
 }) {
   const submit = useRef(onSubmit);
   const change = useRef(onChange);
@@ -99,6 +105,7 @@ export function Composer({
       extensions: [
         InlineImage,
         ...(mentionables ? [mentionExtension(mentionables)] : []),
+        ...(variables ? [VariableNode] : []),
         StarterKit.configure({
           heading: false,
           horizontalRule: false,
@@ -158,7 +165,7 @@ export function Composer({
           return false;
         },
       },
-      onUpdate: ({ editor }) => change.current(editorDoc(editor)),
+      onUpdate: ({ editor }) => change.current(editorDoc(editor, variables)),
     },
     [value.key],
   );
@@ -178,6 +185,12 @@ export function Composer({
   useEffect(() => {
     handleRef.current = {
       focus: () => editor?.commands.focus("end"),
+      insertVariable: (name, fallback) =>
+        editor
+          ?.chain()
+          .focus()
+          .insertContent({ type: "variable", attrs: { name, fallback } })
+          .run(),
       insertImage: (attachmentId, alt) =>
         editor
           ?.chain()
