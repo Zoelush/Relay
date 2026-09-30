@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { LockKeyhole, Paperclip } from "lucide-react";
+import { RichText } from "../lib/rich-view";
 
 export type TimelinePart = {
   id: string;
@@ -129,7 +130,13 @@ function Message({ p, edited }: { p: TimelinePart; edited: boolean }) {
           <small className="pg-edited">Edited</small>
         )}
       </header>
-      <p>{p.data.deleted ? "This part was deleted." : p.body}</p>
+      {p.data.deleted ? (
+        <p>This part was deleted.</p>
+      ) : p.data.doc ? (
+        <RichText doc={p.data.doc} fallback={p.body} />
+      ) : (
+        <p>{p.body}</p>
+      )}
       {p.kind === "attachment" && p.data.attachmentId && (
         <a
           href={

@@ -10,11 +10,10 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 04 (agent inbox). Steps A, B1 (saved views;
-`docs/AGENT_INBOX_STEP2.md`), B2 (first screen; `docs/AGENT_INBOX_STEP3.md`)
-and C1 (timeline and fast actions; `docs/AGENT_INBOX_STEP4.md`) are implemented
-locally. Next is step C2: the composer (rich text, inline images, drafts).
-Phases 01–03 are implemented locally but not complete or hosted; see
+Current position: phase 04 (agent inbox). Steps A, B1, B2, C1 and C2a (rich text and
+drafts; `docs/AGENT_INBOX_STEP5.md`) are implemented locally; the step docs are
+`docs/AGENT_INBOX_STEP1.md` to `STEP5.md`. Next is step C2b: inline images in the
+composer. Phases 01–03 are implemented locally but not complete or hosted; see
 `docs/STATUS.md`.
 
 ## Known state

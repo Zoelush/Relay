@@ -459,3 +459,25 @@ kbd { font:11px ui-monospace, monospace; border:1px solid #cfdad4; border-bottom
 .pg-edited { margin-left:8px; font-weight:400; color:#7b8a80; }
 .pg-nav-help { display:flex; align-items:center; gap:6px; margin-top:auto; background:none; border:0; color:inherit; cursor:pointer; font-size:12px; }
 @media (max-width: 720px) { .pg-thread-actions { gap:6px; } .pg-thread-actions button { padding:4px 8px; } }
+/* Step C2a: rich composer, rendered rich text, drafts. */
+.pg-editor-shell { display:flex; flex-direction:column; gap:6px; }
+.pg-toolbar { display:flex; flex-wrap:wrap; gap:2px; }
+.pg-toolbar button { display:inline-grid; place-items:center; width:28px; height:26px; border:1px solid transparent; border-radius:6px; background:none; cursor:pointer; color:#40564a; }
+.pg-toolbar button[aria-pressed="true"] { background:#e8f3ee; border-color:#cfe1d7; }
+.pg-toolbar button:focus-visible { outline:2px solid #087a57; }
+.pg-editor { min-height:72px; max-height:260px; overflow:auto; padding:8px 10px; border:1px solid #dce6df; border-radius:8px; background:#fff; outline:none; font-size:14px; line-height:1.45; }
+.pg-editor:focus { border-color:#087a57; box-shadow:0 0 0 2px #087a5722; }
+.pg-editor p.is-editor-empty:first-child::before { content:attr(data-placeholder); color:#9aa9a0; float:left; height:0; pointer-events:none; }
+.pg-editor[aria-disabled="true"], .pg-editor[contenteditable="false"] { background:#f5f7f6; }
+.pg-link-form { display:flex; align-items:center; gap:6px; font-size:12px; }
+.pg-link-form input { flex:1; padding:5px 8px; border:1px solid #d3dfd9; border-radius:6px; }
+.pg-draft-status { color:#7b8a80; font-size:11px; margin-left:auto; margin-right:10px; }
+.pg-draft-conflict { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:6px 0; padding:8px 10px; border-radius:8px; background:#fff4d6; font-size:12px; }
+.pg-draft-conflict button { padding:3px 8px; border:1px solid #e9d594; border-radius:6px; background:#fff; cursor:pointer; }
+.rich > :first-child, .pg-editor > :first-child { margin-top:0; }
+.rich > :last-child, .pg-editor > :last-child { margin-bottom:0; }
+.rich ul, .rich ol, .pg-editor ul, .pg-editor ol { margin:4px 0 6px; padding-inline-start:22px; }
+.rich blockquote, .pg-editor blockquote { margin:4px 0; padding-inline-start:10px; border-inline-start:3px solid #cfdad4; color:#4d6156; }
+.rich pre, .pg-editor pre { margin:4px 0; padding:8px; border-radius:6px; background:#f2f5f3; white-space:pre-wrap; overflow-x:auto; }
+.rich code, .pg-editor code { font-family:ui-monospace, monospace; font-size:.92em; }
+.rich a, .pg-editor a { color:#087a57; }

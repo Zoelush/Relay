@@ -1,5 +1,7 @@
 "use client";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -23,6 +25,9 @@ import "../../agent/inbox.css";
 import { api, InboxError } from "../../agent/api";
 import { InboxViews, type ViewCount } from "../../agent/views";
 import { Timeline, type Directory } from "../../agent/timeline";
+import type { ComposerHandle } from "../../agent/composer";
+import { useDrafts } from "../../agent/use-drafts";
+import { plainText, type RichDoc } from "../../lib/rich-doc";
 import {
   CommandPalette,
   ShortcutSheet,
@@ -74,6 +79,10 @@ type Snapshot = Directory & {
     views?: boolean;
   };
 };
+/** The rich editor is its own chunk (about 130 KB gzip), so the list and timeline load first. */
+const Composer = lazy(() =>
+  import("../../agent/composer").then((m) => ({ default: m.Composer })),
+);
 /** The teammate's own IANA zone: snooze presets are resolved in it on the server. */
 const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 /** A cached timeline: parts, the live replay cursor, and the cursor for older history. */
@@ -99,6 +108,7 @@ type Pending = {
   conversationId: string;
   mode: "reply" | "note";
   body: string;
+  doc: RichDoc;
 };
 
 /**
@@ -110,7 +120,15 @@ export default function PostgresInbox() {
   const [selected, setSelected] = useState("");
   const [parts, setParts] = useState<Part[]>([]);
   const [mode, setMode] = useState<"reply" | "note">("reply");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // Bumped per draft key when the composer must reload content (restore, conflict, send).
+  const [seeds, setSeeds] = useState<Record<string, number>>({});
+  const reseed = useCallback(
+    (key: string) => setSeeds((s) => ({ ...s, [key]: (s[key] ?? 0) + 1 })),
+    [],
+  );
+  const drafts = useDrafts(reseed);
+  // Stable callbacks from the hook; the object itself changes every render.
+  const { reset: resetDrafts, retry: retryDrafts, load: loadDrafts } = drafts;
   const [pending, setPending] = useState<Pending[]>([]);
   const [error, setError] = useState("");
   const [connection, setConnection] = useState("Connecting");
@@ -126,7 +144,7 @@ export default function PostgresInbox() {
     "palette" | "shortcuts" | "snooze" | null
   >(null);
   const [viewList, setViewList] = useState<{ id: string; name: string }[]>([]);
-  const composer = useRef<HTMLTextAreaElement>(null);
+  const composer = useRef<ComposerHandle>(null);
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
   const selectedRef = useRef("");
   const socket = useRef<WebSocket | null>(null);
@@ -183,28 +201,32 @@ export default function PostgresInbox() {
     setOlderState("idle");
   }, []);
 
-  const report = useCallback((reason: unknown) => {
-    setError(
-      reason instanceof Error ? reason.message : "Reconnect to continue.",
-    );
-    if (
-      reason instanceof InboxError &&
-      ([401, 403].includes(reason.status) || reason.code === "FEATURE_DISABLED")
-    ) {
-      fatal.current = true;
-      cache.current.clear();
-      failed.current.clear();
-      setSnapshot(undefined);
-      setViewCounts([]);
-      setPickedConversation(undefined);
-      setParts([]);
-      setPending([]);
-      setDrafts({});
-      ready.current = false;
-      socket.current?.close();
-      setConnection("Access unavailable");
-    }
-  }, []);
+  const report = useCallback(
+    (reason: unknown) => {
+      setError(
+        reason instanceof Error ? reason.message : "Reconnect to continue.",
+      );
+      if (
+        reason instanceof InboxError &&
+        ([401, 403].includes(reason.status) ||
+          reason.code === "FEATURE_DISABLED")
+      ) {
+        fatal.current = true;
+        cache.current.clear();
+        failed.current.clear();
+        setSnapshot(undefined);
+        setViewCounts([]);
+        setPickedConversation(undefined);
+        setParts([]);
+        setPending([]);
+        resetDrafts();
+        ready.current = false;
+        socket.current?.close();
+        setConnection("Access unavailable");
+      }
+    },
+    [resetDrafts],
+  );
   const load = useCallback(async () => {
     const version = ++loadVersion.current;
     try {
@@ -247,6 +269,7 @@ export default function PostgresInbox() {
             setConnection("Live");
             setError("");
             void load();
+            retryDrafts();
             if (selectedRef.current)
               ws.send(
                 JSON.stringify({
@@ -335,7 +358,16 @@ export default function PostgresInbox() {
       socket.current?.close();
       invalidateLoads();
     };
-  }, [load, report, retry, invalidateLoads, adopt, remember, show]);
+  }, [
+    load,
+    report,
+    retry,
+    invalidateLoads,
+    adopt,
+    remember,
+    show,
+    retryDrafts,
+  ]);
 
   useLayoutEffect(() => {
     const el = timelineRef.current;
@@ -448,6 +480,8 @@ export default function PostgresInbox() {
         }),
       );
     void api("command", { action: "read", conversationId: id }).catch(report);
+    // The teammate's own drafts for this conversation; failures leave the composer usable.
+    void loadDrafts(id).catch(() => {});
   }
   const base =
     snapshot?.conversations.find((c) => c.id === selected) ??
@@ -687,28 +721,30 @@ export default function PostgresInbox() {
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, []);
-  const draftKey = selected + ":" + mode;
-  const draft = drafts[draftKey] ?? "";
+  const draftKey = drafts.keyOf(selected, mode);
+  const draft = drafts.drafts[draftKey];
   async function send() {
-    if (
-      !selected ||
-      !draft.trim() ||
-      pending.some((p) => p.conversationId === selected)
-    )
+    const doc = draft?.doc;
+    if (!selected || !doc || pending.some((p) => p.conversationId === selected))
       return;
+    const body = plainText(doc);
     const previous = failed.current.get(draftKey);
+    // A retry of the same text reuses its key, so the server applies it once.
     const item: Pending =
-      previous?.body === draft
+      previous?.body === body
         ? previous
         : {
             id: crypto.randomUUID(),
             conversationId: selected,
             mode,
-            body: draft,
+            body,
+            doc,
           };
-    failed.current.set(draftKey, item);
+    const key = draftKey;
+    failed.current.set(key, item);
     setPending((items) => [...items, item]);
-    setDrafts((items) => ({ ...items, [draftKey]: "" }));
+    drafts.sent(item.conversationId, item.mode);
+    reseed(key);
     setError("");
     try {
       const result = await api<{ partId: string }>(
@@ -716,20 +752,19 @@ export default function PostgresInbox() {
         {
           action: item.mode,
           conversationId: item.conversationId,
-          text: item.body,
+          doc: item.doc,
         },
         item.id,
       );
-      failed.current.delete(draftKey);
+      failed.current.delete(key);
       // Keep the pending row until its committed part arrives over replay.
       if (cache.current.get(item.conversationId)?.parts.has(result.partId))
         setPending((items) => items.filter((p) => p.id !== item.id));
     } catch (e) {
       setPending((items) => items.filter((p) => p.id !== item.id));
-      setDrafts((items) => ({
-        ...items,
-        [draftKey]: items[draftKey] || item.body,
-      }));
+      // Put the text back in the composer and let autosave keep it.
+      drafts.edit(item.conversationId, item.mode, item.doc);
+      reseed(key);
       report(e);
     }
   }
@@ -1009,32 +1044,49 @@ export default function PostgresInbox() {
                         : "Visible to the customer"}
                     </small>
                   </div>
-                  <textarea
-                    ref={composer}
-                    onKeyDown={(e) => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                        e.preventDefault();
-                        void send();
-                      } else if (e.key === "Escape") e.currentTarget.blur();
-                    }}
-                    aria-label={
-                      mode === "note" ? "Internal note" : "Reply message"
+                  <Suspense
+                    fallback={
+                      <div className="pg-editor-shell" aria-busy="true">
+                        Loading editor…
+                      </div>
                     }
-                    placeholder={
-                      mode === "note"
-                        ? "Leave a private note for your team…"
-                        : "Write a reply…"
-                    }
-                    value={draft}
-                    maxLength={5000}
-                    disabled={!canSend}
-                    onChange={(e) =>
-                      setDrafts((items) => ({
-                        ...items,
-                        [draftKey]: e.target.value,
-                      }))
-                    }
-                  />
+                  >
+                    <Composer
+                      handleRef={composer}
+                      label={
+                        mode === "note" ? "Internal note" : "Reply message"
+                      }
+                      placeholder={
+                        mode === "note"
+                          ? "Leave a private note for your team…"
+                          : "Write a reply…"
+                      }
+                      value={{
+                        key: draftKey + ":" + (seeds[draftKey] ?? 0),
+                        doc: draft?.doc ?? null,
+                      }}
+                      disabled={!canSend}
+                      onChange={(doc) => drafts.edit(selected, mode, doc)}
+                      onSubmit={() => void send()}
+                    />
+                  </Suspense>
+                  {draft?.status === "conflict" && (
+                    <div className="pg-draft-conflict" role="alert">
+                      This draft changed in another tab or device.
+                      <button
+                        type="button"
+                        onClick={() => drafts.resolve(draftKey, "mine")}
+                      >
+                        Keep mine
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => drafts.resolve(draftKey, "theirs")}
+                      >
+                        Use the other version
+                      </button>
+                    </div>
+                  )}
                   <footer>
                     <span>
                       {!canSend
@@ -1043,11 +1095,20 @@ export default function PostgresInbox() {
                           ? "Private to your team"
                           : "Messenger"}
                     </span>
+                    <small className="pg-draft-status" aria-live="polite">
+                      {draft?.status === "saving"
+                        ? "Saving draft…"
+                        : draft?.status === "saved"
+                          ? "Draft saved"
+                          : draft?.status === "offline"
+                            ? "Offline: draft kept in this tab, retrying"
+                            : ""}
+                    </small>
                     <button
                       type="submit"
                       disabled={
                         !canSend ||
-                        !draft.trim() ||
+                        !draft?.doc ||
                         pending.some((p) => p.conversationId === selected)
                       }
                     >

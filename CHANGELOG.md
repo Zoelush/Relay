@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — agent inbox step C2a (rich text and drafts)
+
+- Rich replies, notes and edits use a restricted document format: paragraphs, lists, quotes, code blocks, line breaks, bold, italic, inline code and links. Links must be https, http or mailto; limits are 5,000 characters, four levels of nesting and 2,000 nodes. The server rebuilds each document from allowed content only, stores it as `data.doc` and derives the plain-text `body` used by search and future plain channels. Customers cannot send documents.
+- Documents render as React elements, never as HTML, in the inbox and in the customer messenger (the frame grows from 67.0 to 68.4 KB gzip). Notes stay private; a test places a secret in a note's text, link and code and checks it never reaches the customer.
+- The composer is a TipTap 3.31.3 editor with an accessible formatting toolbar, lazy-loaded (about 130 KB gzip) so the list and timeline load first.
+- Drafts are server-backed and visible only to their author (migration 0017). They autosave after 800ms, carry a version so another tab's newer save produces a "Keep mine" / "Use the other version" choice, are sent at once when the page is hidden, are kept in memory while offline, are deleted on send, and are purged after 30 days.
+- Fixed while testing: a draft that loaded before the editor mounted was dropped; the editor's trailing empty paragraph counted as an edit; and `jsonb` key order made identical drafts compare unequal.
+- Tests: `tests/rich-doc.test.ts`, `tests/drafts.test.ts` and `tests/browser/composer.spec.ts`. 32/32 Node tests, typecheck and 14/14 browser tests pass. Flags remain off.
+
 ## Unreleased — agent inbox step C1 (timeline and fast actions)
 
 - The timeline gives every system part kind readable text, naming teammates, teams and tags (for example "Ada assigned this to Grace and team Billing" or "Snoozed until Thu 1 Oct, 09:00 BST"), instead of raw kind names. Consecutive system events collapse into an expandable "Show N updates" line. Edited parts are marked.
