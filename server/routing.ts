@@ -1,6 +1,7 @@
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { authorize, can } from "./policy";
 import { append, syncUnread, type Conversation } from "./conversations";
+import type { RoutingPort } from "./ports";
 
 /**
  * Routing and workload (phase 06, step A).
@@ -351,11 +352,14 @@ export async function drainTeam(
       assigned.push({ conversationId: item.id, teammateId: decision.assignee });
     }
   }
-  if (assigned.length)
+  if (assigned.length) {
     await db.query(
       "UPDATE teams SET rotation_cursor=$3 WHERE workspace_id=$1 AND id=$2",
       [w, teamId, team.cursor],
     );
+    // Whoever is still waiting moved up the line.
+    await announceQueue(db, w, teamId);
+  }
   return assigned;
 }
 
@@ -397,6 +401,9 @@ export async function afterChange(
     )
   ).rows[0];
   if (!after) return;
+  // Taken from the line by hand: those behind it move up.
+  if (before.team_id && before.assigned === "" && after.assigned !== "")
+    await announceQueue(db, w, before.team_id);
   if (after.team_id && after.assigned === "" && after.status === "open")
     await drainTeam(db, w, after.team_id);
   if (
@@ -896,8 +903,10 @@ export async function nextConversation(db: Sql, w: string, principal: string) {
   ).rows;
   // Claiming is atomic: if someone else took one first, try the next.
   for (const c of candidates)
-    if (await claim(db, w, c.id, c.team_id, t.id, "next"))
+    if (await claim(db, w, c.id, c.team_id, t.id, "next")) {
+      await announceQueue(db, w, c.team_id);
       return { conversationId: c.id };
+    }
   throw new DomainError(
     "NEXT_NONE",
     "Nothing is waiting in your team inboxes.",
@@ -943,5 +952,58 @@ export async function myWorkload(db: Sql, w: string, principal: string) {
     ticketLimit: me.ticket_limit,
     teams: all.teams.filter((team) => team.members.some((m) => m.id === t.id)),
     canManage: all.canManage,
+  };
+}
+
+/**
+ * A waiting customer's place in their team inbox, in the order routing takes work (priority,
+ * soonest SLA due, longest waiting), for the messenger. Only for open, unassigned conversations in
+ * a team that assigns automatically, and only if the brand shows queue positions (the default).
+ */
+export async function queuePosition(
+  db: Sql,
+  w: string,
+  conversationId: string,
+) {
+  if (!(await routingEnabled(db, w))) return null;
+  const row = (
+    await db.query<{ position: string }>(
+      `WITH me AS (
+        SELECT c.team_id FROM conversations c JOIN teams t ON t.workspace_id=c.workspace_id AND t.id=c.team_id AND t.method<>'manual'
+        JOIN brands b ON b.workspace_id=c.workspace_id AND b.id=c.brand_id AND COALESCE((b.settings->>'showQueuePosition')::boolean,true)
+        WHERE c.workspace_id=$1 AND c.id=$2 AND c.assigned='' AND c.status='open' AND c.merged_into_id IS NULL
+      ), queue AS (
+        SELECT c.id,row_number() OVER (ORDER BY c.priority DESC,COALESCE(c.sla_sort_at,'9999-12-31'::timestamptz),COALESCE(c.last_contact_reply_at,c.created_at),c.id) AS position
+        FROM conversations c WHERE c.workspace_id=$1 AND c.team_id=(SELECT team_id FROM me) AND c.assigned='' AND c.status='open' AND c.merged_into_id IS NULL
+      ) SELECT position FROM queue WHERE id=$2`,
+      [w, conversationId],
+    )
+  ).rows[0];
+  return row
+    ? { position: Number(row.position), asOf: new Date().toISOString() }
+    : null;
+}
+
+/**
+ * When a team's queue moves, the conversations still waiting in it (the first 100) are marked
+ * changed, so their customers' messengers re-read their position. Nothing polls.
+ */
+export async function announceQueue(db: Sql, w: string, teamId: string) {
+  await db.query(
+    `INSERT INTO outbox(workspace_id,id,kind,resource_id,payload)
+    SELECT $1,'queue:'||c.id||':'||gen_random_uuid(),'conversation',c.id,jsonb_build_object('conversationId',c.id,'queue',true)
+    FROM (SELECT id FROM conversations WHERE workspace_id=$1 AND team_id=$2 AND assigned='' AND status='open' AND merged_into_id IS NULL
+      ORDER BY priority DESC,COALESCE(sla_sort_at,'9999-12-31'::timestamptz),COALESCE(last_contact_reply_at,created_at),id LIMIT 100) c`,
+    [w, teamId],
+  );
+}
+
+/** The phase 03 routing port, for the messenger: a waiting conversation's place in line. */
+export function routingPort(connect: Connect): RoutingPort {
+  return {
+    queuePosition: ({ workspaceId, conversationId }) =>
+      tenant(connect, workspaceId, (db) =>
+        queuePosition(db, workspaceId, conversationId),
+      ),
   };
 }

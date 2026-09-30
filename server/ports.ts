@@ -33,7 +33,7 @@ export interface TicketPort {
   ): Promise<{ ticketId: string }>;
 }
 export interface RoutingPort {
-  // TODO: Routing/workload phase owns queue ordering; never estimate position from browser history.
+  // Implemented by routingPort in server/routing.ts (phase 06): the server's own queue order.
   queuePosition(scope: {
     workspaceId: string;
     brandId: string;

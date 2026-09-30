@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — routing step C (queue position and one office-hours source)
+
+- One office-hours source: the messenger's availability and next opening now come from the business calendar that applies (team, then brand, then workspace), so holidays and special days count. The old `officeHours` brand setting is no longer read, and its minute-by-minute checker is removed. `openNow` is the helper for phase 11's automations and phase 14's reporting.
+- Expected reply time in the messenger while open: the measured median first response (business hours, last 14 days, at least 20 conversations) in plain bands, or the brand's own phrase. Out of hours it shows "We'll reply from …" instead. With no calendar, no hours line is shown.
+- Queue position: "You're 2nd in line" for customers waiting in an automatic team inbox, in routing's order, pushed live as the line moves (no polling). Brands can hide it. The phase 03 routing port is implemented.
+- Tests: `tests/office-hours.test.ts` and `tests/browser/office-hours.spec.ts` (reply time and a live-updating place in line; a holiday showing when the team is back with no reply promise). 63/63 Node tests, typecheck and 40/40 browser tests pass.
+
 ## Unreleased — routing step B (away mode and workload in the inbox)
 
 - Away mode: set your status (Active, Away, Away and reassign replies) from the inbox header, or anyone's with `teammates.manage`. A team can return a member's open conversations to its inbox when they go away. A customer's reply to an away-and-reassign teammate hands the conversation back to its team inbox.
