@@ -192,15 +192,15 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
       Number(
         (await sql("a", "SELECT count(*) FROM inbox_filter_sets"))[0].count,
       ),
-      7,
-      "open, snoozed, closed, unassigned and three Mine sets",
+      10,
+      "open, snoozed, closed, unassigned, three Mine and three Mentions sets",
     );
     assert.equal(ownerOpen.ready, true);
     assert.equal(Number(ownerOpen.count), await openCount());
     assert.equal(
       (await views()).length,
-      5,
-      "Mentions is deferred to step C; five defaults exist",
+      6,
+      "six defaults, including Mentions",
     );
 
     // Tenant isolation: workspace B cannot read workspace A's view, even by id.

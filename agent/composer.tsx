@@ -12,6 +12,7 @@ import {
   SquareCode,
   ImagePlus,
 } from "lucide-react";
+import { mentionExtension, type Mentionable } from "./mentions";
 import {
   InlineImage,
   ImageStatusContext,
@@ -63,6 +64,7 @@ export function Composer({
   handleRef,
   onFiles,
   imageStatus,
+  mentionables,
 }: {
   label: string;
   placeholder: string;
@@ -75,6 +77,8 @@ export function Composer({
   /** Image files chosen, pasted or dropped. */
   onFiles: (files: File[]) => void;
   imageStatus: (attachmentId: string) => ImageStatus | undefined;
+  /** Teammates and teams for @-mentions; null where mentions are not allowed (replies). */
+  mentionables: Mentionable[] | null;
 }) {
   const submit = useRef(onSubmit);
   const change = useRef(onChange);
@@ -94,6 +98,7 @@ export function Composer({
       content: value.doc ?? "",
       extensions: [
         InlineImage,
+        ...(mentionables ? [mentionExtension(mentionables)] : []),
         StarterKit.configure({
           heading: false,
           horizontalRule: false,

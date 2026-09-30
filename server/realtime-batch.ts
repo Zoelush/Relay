@@ -1,4 +1,5 @@
 import { viewCounts } from "./inbox-views";
+import { unreadNotificationCounts } from "./mentions";
 import { tenant, type Connect } from "./db";
 import { isAgent, type RealtimeSession, type Session } from "./api";
 import type { RealtimeClient } from "./realtime";
@@ -84,6 +85,13 @@ export async function notifyWorkspace(
             roles.map((r) => r.id),
           )
         : [],
+      notifications: agents.some((s) => s.inbox)
+        ? await unreadNotificationCounts(
+            db,
+            w,
+            roles.map((r) => r.id),
+          )
+        : new Map<string, number>(),
       agentCounts,
       customerCounts,
       aliases,
@@ -116,6 +124,9 @@ export async function notifyWorkspace(
           sessionKey: key,
           unread: {
             views: byAgent.get(s.teammateId) ?? [],
+            ...(s.inbox
+              ? { notifications: snapshot.notifications.get(s.teammateId) ?? 0 }
+              : {}),
             viewCounts: s.inbox
               ? snapshot.viewCounts.filter(
                   (v) => v.shared || v.owner_id === s.teammateId,

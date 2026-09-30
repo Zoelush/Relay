@@ -1,10 +1,12 @@
 import { resolveWake } from "./snooze";
 import { verifyInlineImages } from "./attachments";
+import { resolveMentions, recordMentions } from "./mentions";
 import {
   normalizeDoc,
   plainText,
   isPlain,
   imageIds,
+  mentions,
   RichDocError,
   type RichDoc,
 } from "../lib/rich-doc";
@@ -413,6 +415,27 @@ async function recordImages(db: Sql, w: string, partId: string, doc?: RichDoc) {
       [w, partId, ids],
     );
 }
+/**
+ * Resolves mentions in a message: refused in customer replies; in notes, labels are rewritten
+ * from the directory and the text re-derived. Returns the teammates to notify.
+ */
+async function prepareMentions(
+  db: Sql,
+  w: string,
+  content: { text: string; doc?: RichDoc },
+  note: boolean,
+) {
+  if (!content.doc || !mentions(content.doc).length) return [];
+  assert(
+    note,
+    "MENTION_IN_REPLY",
+    "Mention teammates in an internal note, not in a reply the customer sees.",
+  );
+  const resolved = await resolveMentions(db, w, content.doc);
+  content.doc = resolved.doc;
+  content.text = plainText(resolved.doc);
+  return resolved.recipients;
+}
 export async function command(
   db: Sql,
   w: string,
@@ -603,6 +626,12 @@ export async function command(
         403,
       );
       const content = messageContent(p, actor);
+      const mentioned = await prepareMentions(
+        db,
+        w,
+        content,
+        p.action === "note",
+      );
       if (content.doc)
         await verifyInlineImages(
           db,
@@ -636,6 +665,16 @@ export async function command(
         p.action === "note" ? "internal" : "public",
       );
       await recordImages(db, w, part.id, content.doc);
+      if (mentioned.length)
+        await recordMentions(
+          db,
+          w,
+          c.id,
+          part,
+          who.id,
+          mentioned,
+          content.doc!,
+        );
       // Sending consumes the author's draft for this mode, in the same transaction.
       if (actor.type === "teammate")
         await db.query(
@@ -871,6 +910,12 @@ export async function command(
       );
       const content: { text: string; doc?: RichDoc } =
         p.action === "delete" ? { text: "" } : messageContent(p, actor);
+      const mentioned = await prepareMentions(
+        db,
+        w,
+        content,
+        part.kind === "internal_note",
+      );
       if (content.doc)
         await verifyInlineImages(
           db,
@@ -895,6 +940,16 @@ export async function command(
         part.id,
       );
       await recordImages(db, w, replacement.id, content.doc);
+      if (mentioned.length)
+        await recordMentions(
+          db,
+          w,
+          c.id,
+          { id: replacement.id, supersedes_id: part.id },
+          who.id,
+          mentioned,
+          content.doc!,
+        );
       await db.query(
         "DELETE FROM conversation_search_documents WHERE workspace_id=$1 AND part_id=$2",
         [w, part.id],

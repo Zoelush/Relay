@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — agent inbox step C3a (mentions and notifications)
+
+- Notes can @-mention teammates and teams through a keyboard picker in the composer. Mentions are refused in customer replies (`MENTION_IN_REPLY`). The server checks each mention against the directory (`MENTION_NOT_FOUND`), rewrites its label from the directory and derives the plain text as `@Name`.
+- Teams expand to their members at send time. Duplicates are removed, and the author is never notified, even through a team. An edited note notifies only newly mentioned people.
+- In-app notifications (migration 0019): a bell with a live unread count pushed over the socket, and a panel with who, where and a 140-character excerpt. Opening one goes to the conversation and marks it read; "Mark all as read" and a palette command are also there. Notifications are only ever read with the signed-in teammate's id.
+- A Mentions default view for every teammate, through a new `mentioned` filter. Teammates set up earlier get it automatically.
+- Local development seeds a second teammate, Grace, in Billing, and a loopback-only `/agent?as=grace` sign-in.
+- Tests: `tests/mentions.test.ts`, mention cases in `tests/rich-doc.test.ts`, and `tests/browser/mentions.spec.ts` (live notification between two teammates; a removed teammate's mention refused with the note kept). The views test now expects six default views. 36/36 Node tests, typecheck and 18/18 browser tests pass. One full browser run logged two unexplained server errors that did not recur in five further runs. Flags remain off.
+
 ## Unreleased — agent inbox step C2b (inline images)
 
 - Teammates can place PNG and JPEG images (up to 10 MB each, 10 per message) inside replies and notes by button, paste or drag-and-drop. Inline uploads use the existing prepare, upload, byte-check and scan flow but never become separate attachment messages (migration 0018 adds `attachments.purpose` and `conversation_part_images`). The image node holds an attachment id, never a URL.

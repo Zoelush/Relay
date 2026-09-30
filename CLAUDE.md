@@ -10,11 +10,12 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 04 (agent inbox). Steps A, B1, B2, C1, C2a and C2b (inline
-images; `docs/AGENT_INBOX_STEP6.md`) are implemented locally; the step docs are
-`docs/AGENT_INBOX_STEP1.md` to `STEP6.md`. Next is step C3: mentions and in-app
-notifications, the Mentions view, and viewing/composing indicators. Phases 01–03
-are implemented locally but not complete or hosted; see `docs/STATUS.md`.
+Current position: phase 04 (agent inbox). Steps A, B1, B2, C1, C2a, C2b and C3a
+(mentions and notifications; `docs/AGENT_INBOX_STEP7.md`) are implemented
+locally; the step docs are `docs/AGENT_INBOX_STEP1.md` to `STEP7.md`. Next is
+step C3b: viewing/composing indicators and agent-only routing of note typing.
+Phases 01–03 are implemented locally but not complete or hosted; see
+`docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second teammate.
 
 ## Known state
 

@@ -9,7 +9,14 @@ export type RichMark =
   | { type: "code" }
   | { type: "link"; attrs: { href: string } };
 export type RichInline =
-  { type: "text"; text: string; marks?: RichMark[] } | { type: "hardBreak" };
+  | { type: "text"; text: string; marks?: RichMark[] }
+  | { type: "hardBreak" }
+  | RichMention;
+/** A mention of a teammate or team. The server rewrites `label` from the directory at send. */
+export type RichMention = {
+  type: "mention";
+  attrs: { kind: "teammate" | "team"; id: string; label: string };
+};
 export type RichBlock =
   | { type: "paragraph"; content?: RichInline[] }
   | { type: "codeBlock"; content?: { type: "text"; text: string }[] }
@@ -32,7 +39,10 @@ export const RICH_LIMITS = {
   marks: 4,
   images: 10,
   alt: 200,
+  mentions: 20,
+  label: 100,
 };
+const DIRECTORY_ID = /^[A-Za-z0-9_-]{1,100}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROTOCOLS = ["https:", "http:", "mailto:"];
 
@@ -78,7 +88,7 @@ export function safeHref(href: unknown): string {
 
 /** Validates any input and returns a rebuilt document containing only allowed content. */
 export function normalizeDoc(input: unknown): RichDoc {
-  const budget = { nodes: 0, text: 0, images: 0 };
+  const budget = { nodes: 0, text: 0, images: 0, mentions: 0 };
   const count = () => {
     if (++budget.nodes > RICH_LIMITS.nodes)
       throw new RichDocError("DOCUMENT_TOO_LARGE", "This message is too long.");
@@ -120,7 +130,30 @@ export function normalizeDoc(input: unknown): RichDoc {
       count();
       if (!isObject(n)) fail("Unsupported content.");
       if (n.type === "hardBreak") out.push({ type: "hardBreak" });
-      else if (n.type === "text") {
+      else if (n.type === "mention") {
+        const attrs = isObject(n.attrs) ? n.attrs : {};
+        if (attrs.kind !== "teammate" && attrs.kind !== "team")
+          fail("Mention a teammate or a team.");
+        if (typeof attrs.id !== "string" || !DIRECTORY_ID.test(attrs.id))
+          fail("Mention a teammate or a team.");
+        if (++budget.mentions > RICH_LIMITS.mentions)
+          throw new RichDocError(
+            "DOCUMENT_TOO_LARGE",
+            "Mention up to 20 people or teams.",
+          );
+        const label =
+          typeof attrs.label === "string"
+            ? attrs.label.trim().slice(0, RICH_LIMITS.label)
+            : "";
+        out.push({
+          type: "mention",
+          attrs: {
+            kind: attrs.kind as "teammate" | "team",
+            id: attrs.id as string,
+            label: label || (attrs.id as string),
+          },
+        });
+      } else if (n.type === "text") {
         const m = marks(n.marks);
         out.push(
           m
@@ -242,6 +275,7 @@ export function plainText(doc: RichDoc): string {
     content
       .map((n) => {
         if (n.type === "hardBreak") return "\n";
+        if (n.type === "mention") return "@" + n.attrs.label;
         const link = n.marks?.find((m) => m.type === "link");
         return link && !sameDestination(n.text, link.attrs.href)
           ? `${n.text} (${link.attrs.href})`
@@ -296,11 +330,60 @@ export function imageIds(doc: RichDoc): string[] {
   walk(doc.content);
   return [...new Set(ids)];
 }
+/** Every mention in a document, in order (repeats included). */
+export function mentions(doc: RichDoc): RichMention[] {
+  const out: RichMention[] = [];
+  const walk = (blocks: RichBlock[]) => {
+    for (const b of blocks) {
+      if (b.type === "paragraph")
+        for (const n of b.content ?? []) if (n.type === "mention") out.push(n);
+      if (b.type === "blockquote") walk(b.content);
+      if (b.type === "bulletList" || b.type === "orderedList")
+        for (const item of b.content) walk(item.content);
+    }
+  };
+  walk(doc.content);
+  return out;
+}
+/** Returns a copy of the document with each mention's label replaced by `label(mention)`. */
+export function relabelMentions(
+  doc: RichDoc,
+  label: (m: RichMention) => string,
+): RichDoc {
+  const inline = (content: RichInline[]) =>
+    content.map((n) =>
+      n.type === "mention"
+        ? { ...n, attrs: { ...n.attrs, label: label(n) } }
+        : n,
+    );
+  const block = (b: RichBlock): RichBlock => {
+    switch (b.type) {
+      case "paragraph":
+        return b.content ? { ...b, content: inline(b.content) } : b;
+      case "blockquote":
+        return { ...b, content: b.content.map(block) };
+      case "bulletList":
+      case "orderedList":
+        return {
+          ...b,
+          content: b.content.map((item) => ({
+            ...item,
+            content: item.content.map(block),
+          })),
+        };
+      default:
+        return b;
+    }
+  };
+  return { type: "doc", content: doc.content.map(block) };
+}
 /** A document is plain when it is one or more unformatted paragraphs. */
 export function isPlain(doc: RichDoc) {
   return doc.content.every(
     (b) =>
       b.type === "paragraph" &&
-      (b.content ?? []).every((n) => n.type === "hardBreak" || !n.marks),
+      (b.content ?? []).every(
+        (n) => n.type === "hardBreak" || (n.type === "text" && !n.marks),
+      ),
   );
 }

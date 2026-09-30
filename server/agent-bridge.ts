@@ -23,11 +23,13 @@ const routes = {
     "view-page",
     "history",
     "drafts",
+    "notifications",
   ]),
   POST: new Set([
     "command",
     "views",
     "drafts",
+    "notifications",
     "realtime-ticket",
     "attachment/prepare",
     "attachment/complete",

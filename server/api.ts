@@ -30,6 +30,11 @@ import {
 import { authorize, can } from "./policy";
 import { readDrafts, saveDraft } from "./drafts";
 import {
+  listNotifications,
+  markNotifications,
+  unreadNotifications,
+} from "./mentions";
+import {
   customerRead,
   customerUnreadSnapshots,
   customerAudience,
@@ -333,6 +338,15 @@ export async function realtimeUnread(env: ApiEnvironment, s: RealtimeSession) {
     viewCounts: s.inbox
       ? await viewCounts(db, s.workspace, [s.teammateId])
       : [],
+    ...(s.inbox
+      ? {
+          notifications: await unreadNotifications(
+            db,
+            s.workspace,
+            s.teammateId,
+          ),
+        }
+      : {}),
     views: (
       await db.query(
         "SELECT view,count::int,version FROM inbox_counters WHERE workspace_id=$1 AND teammate_id=$2",
@@ -810,12 +824,14 @@ export async function handleApi(
             "/v1/agent/attachment/content",
             "/v1/agent/history",
             "/v1/agent/drafts",
+            "/v1/agent/notifications",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
               "/v1/agent/command",
               "/v1/agent/views",
               "/v1/agent/drafts",
+              "/v1/agent/notifications",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -864,6 +880,7 @@ export async function handleApi(
           url.pathname.startsWith("/v1/agent/attachment/") ||
           url.pathname === "/v1/agent/history" ||
           url.pathname === "/v1/agent/drafts" ||
+          url.pathname === "/v1/agent/notifications" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -903,6 +920,13 @@ export async function handleApi(
               "realtime",
             ),
           });
+        }
+        if (url.pathname === "/v1/agent/notifications") {
+          const result = await tenant(env.connect, workspace, (db) =>
+            markNotifications(db, workspace, principal, p),
+          );
+          await env.notify?.(workspace, "");
+          return json(result);
         }
         if (url.pathname === "/v1/agent/drafts") {
           const result = await tenant(env.connect, workspace, (db) =>
@@ -1087,6 +1111,12 @@ export async function handleApi(
         });
         return new Response(file.body, { status: file.status, headers });
       }
+      if (url.pathname === "/v1/agent/notifications")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listNotifications(db, workspace, principal),
+          ),
+        );
       if (url.pathname === "/v1/agent/drafts")
         return json(
           await tenant(env.connect, workspace, (db) =>
