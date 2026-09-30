@@ -95,7 +95,7 @@ export function validateActions(input: unknown): MacroAction[] {
 }
 
 /** Checks every teammate, team, tag and attribute an action names exists in this workspace. */
-async function checkTargets(db: Sql, w: string, actions: MacroAction[]) {
+export async function checkTargets(db: Sql, w: string, actions: MacroAction[]) {
   const exists = async (table: string, id: string) =>
     (
       await db.query(`SELECT 1 FROM ${table} WHERE workspace_id=$1 AND id=$2`, [

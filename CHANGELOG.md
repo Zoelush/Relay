@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — agent inbox step D3 (bulk actions with undo)
+
+- Bulk actions from the saved-views list:
+  - **Selecting:** row checkboxes, Shift-click ranges, X for the open conversation, and "Select all N in this view".
+  - **Actions:** close, reopen, assign, add or remove a tag, priority and snooze.
+  - **Confirming:** the confirmation shows the server's count, at most 5,000 conversations.
+- A background job applies 25 conversations per step through the ordinary commands, as the teammate and with their permissions. Each conversation's failure is recorded with its reason without stopping the rest.
+- Undo is available for 10 seconds from commit (server time), with a live countdown. Conversations not yet reached are cancelled. A reversing command runs only if the changed field still holds what the bulk action set; otherwise that conversation is left alone and reported as changed since.
+- Migration 0021 adds `bulk_operations` and `bulk_items`, with a rollback. New route `POST`/`GET /v1/agent/bulk`, which alone accepts bodies up to 256 KB, so 5,000 ids fit.
+- Tests: `tests/bulk.test.ts` and `tests/browser/bulk.spec.ts` (tag three by Shift-click and undo; select all, close, and undo with a conflict; per-conversation failures and an expired undo refused). 42/42 Node tests, typecheck and 27/27 browser tests pass. Flags remain off.
+
 ## Unreleased — agent inbox step D2 (context sidebar and app slot)
 
 - A conversation details sidebar showing:

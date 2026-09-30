@@ -28,6 +28,7 @@ import { reindexSearch } from "../server/search";
 import { rebuildCustomerUnread } from "../server/unread";
 import { computeResponseMetrics } from "../server/business-time";
 import { notifyWorkspace } from "../server/realtime-batch";
+import { runBulkApply, runBulkUndo } from "../server/bulk";
 import { CoalescedPublisher } from "../server/publication";
 
 interface Env extends Partial<StorageEnv> {
@@ -308,6 +309,8 @@ const relayWorker = {
       "search.reindex": (job) => reindexSearch(runtime.connect, job),
       "conversation.metrics": (job) =>
         computeResponseMetrics(runtime.connect, job),
+      "bulk.apply": (job) => runBulkApply(runtime.connect, job),
+      "bulk.undo": (job) => runBulkUndo(runtime.connect, job),
     };
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>

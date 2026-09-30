@@ -389,6 +389,9 @@ export default function PostgresInbox() {
             setNotificationCount(frame.notifications);
           if (frame.type === "job") {
             setViewRevision((n) => n + 1);
+            window.dispatchEvent(
+              new CustomEvent("relay:job", { detail: frame }),
+            );
             applyScan(frame);
           }
           if (frame.type === "inbox_changed") {
@@ -914,6 +917,14 @@ export default function PostgresInbox() {
       else if (key === "/") run(focusSearch);
       else if (key === "?") run(() => setOverlay("shortcuts"));
       else if (!selectedRef.current) return;
+      else if (key === "x")
+        run(() =>
+          window.dispatchEvent(
+            new CustomEvent("relay:bulk-toggle", {
+              detail: selectedRef.current,
+            }),
+          ),
+        );
       else if (key === "r") run(() => focusComposer("reply"));
       else if (key === "n") run(() => focusComposer("note"));
       else if (key === "e")
@@ -1111,6 +1122,11 @@ export default function PostgresInbox() {
           <section className="pg-list" aria-label="Conversations">
             {snapshot?.capabilities.views ? (
               <InboxViews
+                dir={{
+                  teammates: snapshot?.teammates ?? [],
+                  teams: snapshot?.teams ?? [],
+                  tags: snapshot?.tags ?? [],
+                }}
                 selected={selected}
                 revision={viewRevision}
                 counts={viewCounts}

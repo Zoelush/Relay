@@ -544,3 +544,16 @@ kbd { font:11px ui-monospace, monospace; border:1px solid #cfdad4; border-bottom
 .pg-ctx-recent small { color:#7b8a80; text-transform:capitalize; }
 .pg-app-card { border:1px solid #e1e8e4; border-radius:8px; padding:8px 10px; }
 @media (max-width: 1000px) { .pg-context { display:none; } }
+/* Step D3: bulk selection, bulk bar, progress and undo. */
+.pg-row-wrap { display:flex; align-items:stretch; background:#fff; }
+.pg-row-wrap .pg-row { flex:1; min-width:0; }
+.pg-row-check { align-self:center; margin:0 0 0 10px; width:16px; height:16px; flex:none; }
+.pg-select-all { padding:6px 10px; }
+.pg-select-all button { border:0; background:none; color:#087a57; text-decoration:underline; cursor:pointer; padding:0; }
+.pg-bulk { border-bottom:1px solid #d3dfd9; background:#f4f8f6; }
+.pg-bulk [role="toolbar"] { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px 10px; }
+.pg-bulk [role="toolbar"] select { max-width:120px; }
+.pg-bulk-status { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 10px; font-size:12px; }
+.pg-bulk-status ul { flex-basis:100%; margin:0; padding-left:18px; }
+.pg-bulk-error { color:#a4262c; padding:6px 10px; margin:0; font-size:12px; }
+.pg-bulk-confirm { width:min(420px,92vw); }

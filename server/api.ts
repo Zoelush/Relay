@@ -30,6 +30,8 @@ import {
 import { authorize, can } from "./policy";
 import { readDrafts, saveDraft } from "./drafts";
 import { applyMacro, listMacros, saveMacro } from "./macros";
+import { commitBulk, prepareBulk, readBulk, undoBulk } from "./bulk";
+import { BULK_BODY_LIMIT } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
   listNotifications,
@@ -135,9 +137,9 @@ async function claims(token: string, env: ApiEnvironment, audience: string) {
     );
   }
 }
-async function readBody(req: Request) {
+async function readBody(req: Request, limit = 20000) {
   assert(
-    Number(req.headers.get("content-length") ?? 0) <= 20000,
+    Number(req.headers.get("content-length") ?? 0) <= limit,
     "BODY_TOO_LARGE",
     "Request is too large.",
     413,
@@ -151,7 +153,7 @@ async function readBody(req: Request) {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > 20000) {
+      if (size > limit) {
         await reader.cancel();
         throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
       }
@@ -829,6 +831,7 @@ export async function handleApi(
             "/v1/agent/notifications",
             "/v1/agent/macros",
             "/v1/agent/context",
+            "/v1/agent/bulk",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -837,6 +840,7 @@ export async function handleApi(
               "/v1/agent/drafts",
               "/v1/agent/notifications",
               "/v1/agent/macros",
+              "/v1/agent/bulk",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -888,6 +892,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/notifications" ||
           url.pathname === "/v1/agent/macros" ||
           url.pathname === "/v1/agent/context" ||
+          url.pathname === "/v1/agent/bulk" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -904,7 +909,10 @@ export async function handleApi(
         );
       });
       if (req.method === "POST") {
-        const p = await readBody(req);
+        const p = await readBody(
+          req,
+          url.pathname === "/v1/agent/bulk" ? BULK_BODY_LIMIT : undefined,
+        );
         assert(
           c.digest === (await digest(p)) &&
             c.method === req.method &&
@@ -927,6 +935,31 @@ export async function handleApi(
               "realtime",
             ),
           });
+        }
+        if (url.pathname === "/v1/agent/bulk") {
+          const key = req.headers.get("idempotency-key") ?? "";
+          const result = await tenant(
+            env.connect,
+            workspace,
+            (db): Promise<unknown> =>
+              p.op === "prepare"
+                ? prepareBulk(db, workspace, principal, p)
+                : p.op === "commit"
+                  ? commitBulk(db, workspace, principal, key, {
+                      ...p,
+                      timezone: actor.originTimezone ?? "UTC",
+                    })
+                  : p.op === "undo"
+                    ? undoBulk(db, workspace, principal, key, p)
+                    : Promise.reject(
+                        new DomainError(
+                          "INVALID_BULK",
+                          "Choose prepare, commit or undo.",
+                        ),
+                      ),
+          );
+          if (p.op !== "prepare") await env.dispatchJobs?.(workspace);
+          return json(result, p.op === "prepare" ? 200 : 202);
         }
         if (url.pathname === "/v1/agent/macros") {
           if (p.action === "apply") {
@@ -1147,6 +1180,17 @@ export async function handleApi(
               workspace,
               principal,
               url.searchParams.get("conversation") ?? "",
+            ),
+          ),
+        );
+      if (url.pathname === "/v1/agent/bulk")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readBulk(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("id") ?? "",
             ),
           ),
         );
