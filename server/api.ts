@@ -32,6 +32,13 @@ import { readDrafts, saveDraft } from "./drafts";
 import { applyMacro, listMacros, saveMacro } from "./macros";
 import { commitBulk, prepareBulk, readBulk, undoBulk } from "./bulk";
 import { listTicketTypes, previewTypeChange, saveTicketType } from "./tickets";
+import {
+  commitBroadcast,
+  createInternalTicket,
+  listTrackers,
+  prepareBroadcast,
+  readBroadcast,
+} from "./ticket-links";
 import { BULK_BODY_LIMIT } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -835,6 +842,8 @@ export async function handleApi(
             "/v1/agent/bulk",
             "/v1/agent/ticket-types",
             "/v1/agent/ticket-preview",
+            "/v1/agent/tickets",
+            "/v1/agent/ticket-broadcast",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -845,6 +854,7 @@ export async function handleApi(
               "/v1/agent/macros",
               "/v1/agent/bulk",
               "/v1/agent/ticket-types",
+              "/v1/agent/tickets",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -897,7 +907,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/macros" ||
           url.pathname === "/v1/agent/context" ||
           url.pathname === "/v1/agent/bulk" ||
-          url.pathname.startsWith("/v1/agent/ticket-") ||
+          url.pathname.startsWith("/v1/agent/ticket") ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -940,6 +950,29 @@ export async function handleApi(
               "realtime",
             ),
           });
+        }
+        if (url.pathname === "/v1/agent/tickets") {
+          const key = req.headers.get("idempotency-key") ?? "";
+          const result = await tenant(
+            env.connect,
+            workspace,
+            (db): Promise<unknown> =>
+              p.op === "create"
+                ? createInternalTicket(db, workspace, principal, key, p)
+                : p.op === "broadcast-prepare"
+                  ? prepareBroadcast(db, workspace, principal, p)
+                  : p.op === "broadcast-commit"
+                    ? commitBroadcast(db, workspace, principal, key, p)
+                    : Promise.reject(
+                        new DomainError(
+                          "INVALID_TICKET_OPERATION",
+                          "Choose create, broadcast-prepare or broadcast-commit.",
+                        ),
+                      ),
+          );
+          if (p.op === "broadcast-commit") await env.dispatchJobs?.(workspace);
+          await env.notify?.(workspace, "");
+          return json(result);
         }
         if (url.pathname === "/v1/agent/ticket-types")
           return json(
@@ -1198,6 +1231,23 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listTicketTypes(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/tickets")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listTrackers(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/ticket-broadcast")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readBroadcast(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("id") ?? "",
+            ),
           ),
         );
       if (url.pathname === "/v1/agent/ticket-preview")
@@ -1480,7 +1530,7 @@ export async function handleApi(
      UNION ALL SELECT c.id FROM contacts c JOIN related r ON c.merged_into_contact_id=r.id WHERE c.workspace_id=$1
     ), eligible AS (SELECT $2::text AS id UNION SELECT identity_id FROM identity_contact_mappings WHERE workspace_id=$1 AND $4::boolean AND contact_id IN(SELECT id FROM related))
     SELECT c.id,c.title,c.updated_at,c.status,EXISTS(SELECT 1 FROM customer_unread_threads u WHERE u.workspace_id=$1 AND u.audience_type=$6 AND u.audience_id=$5 AND u.conversation_id=c.id) AS unread
-    FROM conversations c WHERE c.workspace_id=$1 AND c.brand_id=$3 AND c.merged_into_id IS NULL AND (c.primary_identity_id IN(SELECT id FROM eligible) OR EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.workspace_id=$1 AND cp.conversation_id=c.id AND cp.identity_id IN(SELECT id FROM eligible)))
+    FROM conversations c WHERE c.workspace_id=$1 AND c.brand_id=$3 AND c.merged_into_id IS NULL AND c.visibility='customer' AND (c.primary_identity_id IN(SELECT id FROM eligible) OR EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.workspace_id=$1 AND cp.conversation_id=c.id AND cp.identity_id IN(SELECT id FROM eligible)))
     ORDER BY c.updated_at DESC,c.id LIMIT 100`,
               [
                 s.workspace,

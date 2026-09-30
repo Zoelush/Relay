@@ -11,8 +11,9 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
 Current position: phase 05 (tickets and SLAs), planned in `docs/TICKETS_PLAN.md`
-(steps A1, A2, B1, B2, C). Step A1, ticket core, is implemented locally
-(`docs/TICKETS_STEP1.md`); next is step A2: ticket categories and linking. Phase 04
+(steps A1, A2, B1, B2, C). Steps A1 (ticket core, `docs/TICKETS_STEP1.md`) and A2
+(categories, linking and tracker broadcasts, `docs/TICKETS_STEP2.md`) are implemented
+locally; next is step B1: the business-time engine and SLA clock test matrix. Phase 04
 (agent inbox) is complete locally; its step docs are `docs/AGENT_INBOX_STEP1.md` to
 `STEP11.md`. Phases 01–03 are implemented locally but not complete
 or hosted; see `docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second

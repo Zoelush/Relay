@@ -679,7 +679,10 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
                             : p.kind === "system_event" &&
                                 p.data.event === "human_joined"
                               ? t.joined
-                              : null;
+                              : p.kind === "system_event" &&
+                                  p.data.event === "ticket_status"
+                                ? `${t.ticket} #${String(p.data.number)} (${String(p.data.typeName)}): ${String(p.data.label)}`
+                                : null;
                       return label ? (
                         <p className="event" key={p.id} data-part-id={p.id}>
                           {label}

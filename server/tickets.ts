@@ -74,7 +74,7 @@ export async function ticketsEnabled(db: Sql, w: string) {
     ).rows.length > 0
   );
 }
-async function requireTickets(db: Sql, w: string) {
+export async function requireTickets(db: Sql, w: string) {
   assert(
     await ticketsEnabled(db, w),
     "TICKETS_DISABLED",
@@ -168,7 +168,7 @@ export async function loadTypes(db: Sql, w: string, ids?: string[]) {
       })),
   }));
 }
-async function loadType(db: Sql, w: string, id: unknown) {
+export async function loadType(db: Sql, w: string, id: unknown) {
   const [type] =
     typeof id === "string" && id ? await loadTypes(db, w, [id]) : [];
   assert(type, "TICKET_TYPE_NOT_FOUND", "Ticket type unavailable.", 404);
@@ -415,7 +415,7 @@ export async function saveTicketType(
   return { id, version: (await loadType(db, w, id)).version };
 }
 
-async function ticketOf(db: Sql, w: string, conversationId: string) {
+export async function ticketOf(db: Sql, w: string, conversationId: string) {
   return (
     await db.query<TicketRow>(
       "SELECT conversation_id,number,type_id,state_id,version FROM tickets WHERE workspace_id=$1 AND conversation_id=$2",
@@ -423,9 +423,46 @@ async function ticketOf(db: Sql, w: string, conversationId: string) {
     )
   ).rows[0];
 }
-const stateRef = (s: TicketState) => ({ id: s.id, name: s.name, kind: s.kind });
+export const stateRef = (s: TicketState) => ({
+  id: s.id,
+  name: s.name,
+  kind: s.kind,
+});
 const hasValue = (v: unknown) =>
   v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && !v.length);
+
+/**
+ * What a customer is told about their ticket: the number, the type's name and the state's
+ * customer label, and nothing else (no internal state names, fields or notes). Only customer
+ * tickets tell the customer anything; the delivery policy also lets only this event through.
+ */
+async function tellCustomer(
+  db: Sql,
+  w: string,
+  c: Conversation,
+  who: Author,
+  number: number | string,
+  type: TicketType,
+  state: TicketState,
+  append: Append,
+) {
+  if (type.category !== "customer" || c.visibility === "internal") return;
+  await append(
+    db,
+    w,
+    c,
+    who,
+    "system_event",
+    "",
+    {
+      event: "ticket_status",
+      number: Number(number),
+      typeName: type.name,
+      label: state.customerLabel,
+    },
+    "public",
+  );
+}
 
 /** Fields the type requires before closing that this conversation has not filled. */
 function missingRequired(type: TicketType, c: Conversation) {
@@ -511,12 +548,12 @@ export async function convertToTicket(
     "Ticket type unavailable.",
     404,
   );
-  // TODO(phase 05, step A2): back-office and tracker tickets are created alongside and linked
-  // to conversations, not converted from them.
+  // Back-office and tracker tickets are their own internal conversations, created and linked
+  // from the sidebar (server/ticket-links.ts), never converted from a customer's conversation.
   assert(
-    type.category === "customer",
+    type.category === "customer" && c.visibility !== "internal",
     "TICKET_CATEGORY",
-    "Back-office and tracker tickets are linked to conversations rather than converted from them.",
+    "Back-office and tracker tickets are created alongside a conversation and linked to it.",
     409,
   );
   const state =
@@ -538,7 +575,6 @@ export async function convertToTicket(
     "INSERT INTO tickets(workspace_id,conversation_id,number,type_id,state_id,created_by) VALUES($1,$2,$3,$4,$5,$6)",
     [w, c.id, number, type.id, state.id, who.id],
   );
-  // Internal for now: customer-visible ticket updates arrive with the categories in step A2.
   await append(
     db,
     w,
@@ -554,6 +590,7 @@ export async function convertToTicket(
     },
     "internal",
   );
+  await tellCustomer(db, w, c, who, number, type, state, append);
   return { number: Number(number) };
 }
 
@@ -599,6 +636,36 @@ export async function setTicketState(
     },
     "internal",
   );
+  // The customer hears only when what they see changes.
+  if (from?.customerLabel !== to.customerLabel)
+    await tellCustomer(db, w, c, who, ticket.number, type, to, append);
+  // A back-office ticket's progress is noted (internally) on the conversation it came from.
+  if (type.category === "back_office") {
+    const { conversation } = await import("./conversations");
+    const origins = (
+      await db.query<{ conversation_id: string }>(
+        "SELECT conversation_id FROM ticket_links WHERE workspace_id=$1 AND ticket_id=$2 ORDER BY created_at",
+        [w, c.id],
+      )
+    ).rows;
+    for (const o of origins)
+      await append(
+        db,
+        w,
+        await conversation(db, w, o.conversation_id),
+        who,
+        "system_event",
+        "",
+        {
+          event: "linked_ticket_state",
+          ticketId: c.id,
+          number: Number(ticket.number),
+          type: { id: type.id, name: type.name },
+          state: stateRef(to),
+        },
+        "internal",
+      );
+  }
 }
 
 type Preview = {
@@ -790,18 +857,33 @@ export async function changeTicketType(
     },
     "internal",
   );
+  const newState = change.toType.states.find((s) => s.id === change.state.id)!;
+  await tellCustomer(
+    db,
+    w,
+    c,
+    who,
+    change.ticket.number,
+    change.toType,
+    newState,
+    append,
+  );
 }
 
 /** The ticket panel for the conversation sidebar. */
 export async function ticketContext(db: Sql, w: string, c: Conversation) {
-  if (!(await ticketsEnabled(db, w))) return { enabled: false, ticket: null };
+  if (!(await ticketsEnabled(db, w)))
+    return { enabled: false, ticket: null, links: null };
+  const { ticketLinks } = await import("./ticket-links");
+  const links = await ticketLinks(db, w, c);
   const ticket = await ticketOf(db, w, c.id);
-  if (!ticket) return { enabled: true, ticket: null };
+  if (!ticket) return { enabled: true, ticket: null, links };
   const type = await loadType(db, w, ticket.type_id);
   const state = type.states.find((s) => s.id === ticket.state_id);
   const values = (c.attributes ?? {}) as Record<string, unknown>;
   return {
     enabled: true,
+    links,
     ticket: {
       number: Number(ticket.number),
       version: String(ticket.version),

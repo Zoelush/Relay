@@ -30,6 +30,7 @@ import { Timeline, type Directory } from "../../agent/timeline";
 import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
 import { NotificationsPanel } from "../../agent/notifications";
+import { CreateInternal } from "../../agent/tickets";
 import { ContextSidebar } from "../../agent/sidebar";
 import {
   MacroManager,
@@ -203,6 +204,7 @@ export default function PostgresInbox() {
     | "notifications"
     | "macros"
     | "macro-manager"
+    | "tracker"
     | null
   >(null);
   const [notificationCount, setNotificationCount] = useState(0);
@@ -683,24 +685,55 @@ export default function PostgresInbox() {
   const [ticketStates, setTicketStates] = useState<
     { id: string; name: string }[]
   >([]);
+  // Open trackers, for the bulk bar's "Link to tracker".
+  const [trackers, setTrackers] = useState<{ id: string; name: string }[]>([]);
+  const [ticketsOn, setTicketsOn] = useState(false);
   const loadTicketStates = useCallback(
     () =>
       api<{
         types: { name: string; states: { id: string; name: string }[] }[];
       }>("ticket-types")
-        .then((r) =>
+        .then(async (r) => {
+          setTicketsOn(true);
           setTicketStates(
             r.types.flatMap((t) =>
               t.states.map((s) => ({ id: s.id, name: `${t.name}: ${s.name}` })),
             ),
-          ),
-        )
-        .catch(() => setTicketStates([])),
+          );
+          const list = await api<{
+            trackers: { id: string; number: number; title: string }[];
+          }>("tickets");
+          setTrackers(
+            list.trackers.map((t) => ({
+              id: t.id,
+              name: `#${t.number} ${t.title}`,
+            })),
+          );
+        })
+        .catch(() => {
+          setTicketsOn(false);
+          setTicketStates([]);
+          setTrackers([]);
+        }),
     [],
   );
   useEffect(() => {
     void loadTicketStates();
   }, [loadTicketStates]);
+  // Components outside the views list (the tracker broadcast) ask for job progress this way.
+  useEffect(() => {
+    const onSubscribe = (e: Event) => {
+      if (ready.current)
+        socket.current?.send(
+          JSON.stringify({
+            type: "subscribe_job",
+            jobId: (e as CustomEvent<string>).detail,
+          }),
+        );
+    };
+    window.addEventListener("relay:subscribe-job", onSubscribe);
+    return () => window.removeEventListener("relay:subscribe-job", onSubscribe);
+  }, []);
   /**
    * Applies a macro: its actions run on the server at once (all or nothing), and its text, with
    * variables filled, is added to the composer in the macro's mode for review before sending.
@@ -912,6 +945,16 @@ export default function PostgresInbox() {
       label: "Open notifications",
       run: () => setOverlay("notifications"),
     },
+    ...(ticketsOn
+      ? [
+          {
+            id: "tracker",
+            group: "Tickets",
+            label: "Create tracker ticket",
+            run: () => setOverlay("tracker"),
+          },
+        ]
+      : []),
     {
       id: "shortcuts",
       group: "Help",
@@ -1149,6 +1192,7 @@ export default function PostgresInbox() {
                   teams: snapshot?.teams ?? [],
                   tags: snapshot?.tags ?? [],
                   ticketStates,
+                  trackers,
                 }}
                 selected={selected}
                 revision={viewRevision}
@@ -1532,8 +1576,7 @@ export default function PostgresInbox() {
               refresh={
                 parts.filter(
                   (p) =>
-                    p.kind === "attribute_change" ||
-                    String(p.data?.event ?? "").startsWith("ticket_"),
+                    p.kind === "attribute_change" || p.kind === "system_event",
                 ).length
               }
               onOpen={(id) => pick(id)}
@@ -1571,6 +1614,17 @@ export default function PostgresInbox() {
           onOpen={(id) => pick(id)}
           onClose={() => setOverlay(null)}
           onError={report}
+        />
+      )}
+      {overlay === "tracker" && (
+        <CreateInternal
+          category="tracker"
+          onCreated={(id) => {
+            setOverlay(null);
+            void loadTicketStates();
+            pick(id);
+          }}
+          onClose={() => setOverlay(null)}
         />
       )}
       {overlay === "shortcuts" && (

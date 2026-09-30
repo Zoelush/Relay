@@ -81,6 +81,8 @@ test("a conversation becomes a ticket, moves along its states, and resolves once
   await convert(page, "Bug report");
   await expect(panel(page).getByTestId("ticket-state")).toHaveText("New");
   await expect(panel(page)).toContainText("#1 · Bug report");
+  // The internal record and the customer's status line fold into one run of updates.
+  await expandUpdates(page);
   await expect(
     timeline(page).getByText(/converted this to Bug report ticket #1 \(New\)/),
   ).toBeVisible();

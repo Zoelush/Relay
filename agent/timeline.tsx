@@ -103,6 +103,20 @@ export function describePart(p: TimelinePart, dir: Directory): string {
     case "channel_handover":
       return `Conversation moved to ${String(d.channel ?? "another channel")}`;
     case "system_event":
+      if (d.event === "ticket_status")
+        return `Customer sees: ticket #${String(d.number)} (${String(d.typeName)}): ${String(d.label)}`;
+      if (d.event === "ticket_linked")
+        return `${who} linked ${d.category === "tracker" ? "tracker" : "back-office ticket"} #${String(d.number)} (${(d.type as { name?: string })?.name ?? ""})`;
+      if (d.event === "ticket_unlinked")
+        return `${who} unlinked ticket #${String(d.number)}`;
+      if (d.event === "conversation_linked")
+        return `${who} linked the conversation “${String(d.title ?? "")}”`;
+      if (d.event === "conversation_unlinked")
+        return `${who} unlinked the conversation “${String(d.title ?? "")}”`;
+      if (d.event === "linked_ticket_state")
+        return `Linked ticket #${String(d.number)} (${(d.type as { name?: string })?.name ?? ""}) moved to ${(d.state as { name?: string })?.name ?? ""}`;
+      if (d.event === "tracker_broadcast")
+        return `${who} broadcast an update to the linked conversations`;
       if (d.event === "ticket_created")
         return `${who} converted this to ${(d.type as { name?: string })?.name ?? "a"} ticket #${String(d.number)} (${(d.state as { name?: string })?.name ?? ""})`;
       if (d.event === "ticket_state_change")

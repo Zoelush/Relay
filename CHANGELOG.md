@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — tickets step A2 (categories and linking)
+
+- Customer tickets tell the customer: converting, each change of customer label, and a type change add a messenger line such as "Ticket #12 (Bug report): Received", carrying only the number, type name and customer label. The delivery policy now only lets customers see `human_joined` and `ticket_status` system events.
+- Back-office tickets and trackers are internal conversations (no customer identity, `visibility='internal'`). A back-office ticket is created from and linked to its conversation, allows notes only, and notes its progress internally on the origin. A tracker is created on its own or from a conversation.
+- Link and unlink customer conversations to a tracker (up to 5,000) from the sidebar, a macro or the bulk bar (bulk undo unlinks).
+- Tracker broadcast: one update sent as a public reply to every open and snoozed linked conversation (closed ones skipped), optionally closing them. It runs as a background job, 25 per step, safe to retry, with progress and a list of anything needing attention.
+- Bulk undo reports ticket states that couldn't be moved back separately from "changed since".
+- Migration 0023 adds `conversations.visibility`, `ticket_links`, `ticket_broadcasts` and `broadcast_items`. New routes: `/v1/agent/tickets` and `/v1/agent/ticket-broadcast`.
+- The local seed adds Refund approval (back-office) and Incident (tracker) types.
+- Tests: `tests/ticket-links.test.ts` and `tests/browser/ticket-links.spec.ts` (a tracker broadcast reaching two messengers and closing them; a back-office ticket refusing replies and staying invisible to the customer). 44/44 Node tests, typecheck and 32/32 browser tests pass.
+
 ## Unreleased — tickets step A1 (ticket core)
 
 - Workspace-defined ticket types (customer, back-office, tracker), each with its own states, allowed transitions and typed fields. A whole definition is checked before saving: at least one resolved state, transitions only within the type, and every open state able to reach a resolved one. Defining types needs the new `tickets.manage` capability.

@@ -34,6 +34,7 @@ import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset } from "../server/assets";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
+import { runBroadcast } from "../server/ticket-links";
 import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
 import { runJob, type JobHandler } from "../server/jobs";
@@ -272,6 +273,43 @@ export async function startLocalRelay(
             { attributeId: "refund_reason", requiredToClose: false },
           ],
         });
+        // Back-office: finance approves refunds without talking to the customer.
+        await saveTicketType(sql, w, "local-owner", {
+          name: "Refund approval",
+          icon: "wallet",
+          category: "back_office",
+          states: [
+            { key: "pending", name: "Pending finance", kind: "submitted" },
+            { key: "approved", name: "Approved", kind: "resolved" },
+            { key: "declined", name: "Declined", kind: "resolved" },
+          ],
+          transitions: [
+            ["pending", "approved"],
+            ["pending", "declined"],
+          ],
+          fields: [],
+        });
+        // Tracker: one incident, many affected customers.
+        await saveTicketType(sql, w, "local-owner", {
+          name: "Incident",
+          icon: "siren",
+          category: "tracker",
+          states: [
+            {
+              key: "investigating",
+              name: "Investigating",
+              kind: "in_progress",
+            },
+            { key: "monitoring", name: "Monitoring", kind: "in_progress" },
+            { key: "resolved", name: "Resolved", kind: "resolved" },
+          ],
+          transitions: [
+            ["investigating", "monitoring"],
+            ["monitoring", "resolved"],
+            ["investigating", "resolved"],
+          ],
+          fields: [],
+        });
       }
       if (options.tickets === false)
         await sql.query(
@@ -378,6 +416,7 @@ export async function startLocalRelay(
     "conversation.metrics": (job) => computeResponseMetrics(db.connect, job),
     "bulk.apply": (job) => runBulkApply(db.connect, job),
     "bulk.undo": (job) => runBulkUndo(db.connect, job),
+    "ticket.broadcast": (job) => runBroadcast(db.connect, job),
   };
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>

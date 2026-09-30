@@ -7,7 +7,7 @@ The phase prompt is "Phase 05 — Tickets and SLAs" in `docs/BUILD_PHASES.md`. T
 | Step | Scope | Handoff |
 |---|---|---|
 | **A1: Ticket core** | Ticket types, custom states and transitions, typed fields, fields required before closing, converting a conversation, changing type with a preview | `docs/TICKETS_STEP1.md` |
-| **A2: Categories and linking** | Customer, back-office and tracker behaviour; links from a back-office ticket to its conversation and from a tracker to many conversations; a tracker broadcast that updates every linked conversation in one action; customer-visible state updates | — |
+| **A2: Categories and linking** | Customer, back-office and tracker behaviour; links from a back-office ticket to its conversation and from a tracker to many conversations; a tracker broadcast that updates every linked conversation in one action; customer-visible state updates | `docs/TICKETS_STEP2.md` |
 | **B1: Business-time engine** | Due-time calculations with second precision; per-team and per-brand calendars with holidays; the acceptance test matrix (office-hours boundaries, holidays, time zone changes, snooze, reopen after close, daylight saving) | — |
 | **B2: SLAs** | Policies, targets (first response, next response, time to close, time to resolve) and conditions, re-evaluated when relevant attributes change; pause rules; clocks; breach handling (marked and emitted as an event, never silently expired); time remaining on the conversation and sortable in views | — |
 | **C: Customer portal** | A branded page where a signed-in customer sees their tickets and conversations and can reply; visibility rules; a link from the messenger | — |

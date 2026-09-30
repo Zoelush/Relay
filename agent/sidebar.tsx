@@ -311,6 +311,7 @@ export function ContextSidebar({
         tickets={c.tickets ?? { enabled: false, ticket: null }}
         editable={c.canEditAttributes}
         onError={onError}
+        onOpen={onOpen}
       />
       {c.attributes.length > 0 && (
         <section aria-labelledby="ctx-attributes">

@@ -4,8 +4,25 @@ import { AttributeField, type Attribute } from "./sidebar";
 
 type StateRef = { id: string; name: string; kind: string };
 type Field = Attribute & { requiredToClose: boolean };
+type LinkedTicket = {
+  id: string;
+  number: number;
+  title: string;
+  category: string;
+  type: string;
+  state: string;
+  resolved: boolean;
+};
+type Links = {
+  internal: boolean;
+  tickets: LinkedTicket[];
+  conversations: { id: string; title: string; status: string }[];
+  total: number;
+  broadcasts: { id: string; status: string; body: string }[];
+};
 export type TicketContext = {
   enabled: boolean;
+  links?: Links | null;
   ticket: null | {
     number: number;
     version: string;
@@ -364,25 +381,489 @@ function ChangeType({
   );
 }
 
+/** Subscribes the inbox socket to a job, so its pushed progress reaches this page. */
+const watchJob = (id: string) =>
+  window.dispatchEvent(new CustomEvent("relay:subscribe-job", { detail: id }));
+
+/**
+ * Creates a back-office ticket (from `conversationId`, linked to it) or a tracker (standalone,
+ * or from `conversationId`, which is then linked).
+ */
+export function CreateInternal({
+  category,
+  conversationId,
+  onCreated,
+  onClose,
+}: {
+  category: "back_office" | "tracker";
+  conversationId?: string;
+  onCreated: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [types, setTypes] = useState<TicketType[]>([]);
+  const [typeId, setTypeId] = useState(""),
+    [title, setTitle] = useState(""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const first = useRef<HTMLInputElement>(null);
+  const label =
+    category === "tracker" ? "tracker ticket" : "back-office ticket";
+  useEffect(() => {
+    let live = true;
+    api<{ types: TicketType[] }>("ticket-types")
+      .then((r) => {
+        if (!live) return;
+        const list = r.types.filter((t) => t.category === category);
+        setTypes(list);
+        setTypeId(list[0]?.id ?? "");
+      })
+      .catch((e) => live && setError(message(e, "Ticket types unavailable.")));
+    first.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      live = false;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [category, onClose]);
+  const create = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api<{ conversationId: string }>("tickets", {
+        op: "create",
+        typeId,
+        title,
+        ...(conversationId ? { conversationId } : {}),
+      });
+      onCreated(r.conversationId);
+    } catch (e) {
+      setError(message(e, "The ticket could not be created."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="pg-modal-backdrop">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Create ${label}`}
+        className="pg-view-dialog pg-ticket-dialog"
+      >
+        <h3>Create {label}</h3>
+        <label>
+          Title
+          <input
+            ref={first}
+            value={title}
+            maxLength={200}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </label>
+        {types.length ? (
+          <label>
+            Ticket type
+            <select value={typeId} onChange={(e) => setTypeId(e.target.value)}>
+              {types.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          !error && <p className="pg-empty">No {label} types are set up yet.</p>
+        )}
+        {conversationId && (
+          <p className="pg-empty">
+            It will be linked to this conversation. The customer sees nothing of
+            it.
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="pg-attr-error">
+            {error}
+          </p>
+        )}
+        <footer>
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || !typeId || !title.trim()}
+            onClick={() => void create()}
+          >
+            Create
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+/** Links this customer conversation to an open tracker. */
+function LinkTracker({ conversationId }: { conversationId: string }) {
+  const [trackers, setTrackers] = useState<
+    { id: string; number: number; title: string }[] | null
+  >(null);
+  const [error, setError] = useState("");
+  const load = async () => {
+    try {
+      setTrackers(
+        (
+          await api<{
+            trackers: { id: string; number: number; title: string }[];
+          }>("tickets")
+        ).trackers,
+      );
+    } catch (e) {
+      setError(message(e, "Trackers unavailable."));
+    }
+  };
+  const link = async (trackerId: string) => {
+    setError("");
+    try {
+      await api("command", {
+        action: "ticket_link",
+        conversationId,
+        trackerId,
+      });
+      setTrackers(null);
+    } catch (e) {
+      setError(message(e, "The conversation could not be linked."));
+    }
+  };
+  return (
+    <>
+      {trackers === null ? (
+        <button type="button" onClick={() => void load()}>
+          Link to tracker
+        </button>
+      ) : trackers.length ? (
+        <label className="pg-attr">
+          Tracker
+          <select
+            value=""
+            onChange={(e) => e.target.value && void link(e.target.value)}
+          >
+            <option value="">Choose a tracker…</option>
+            {trackers.map((t) => (
+              <option key={t.id} value={t.id}>
+                #{t.number} {t.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <p className="pg-empty">No open trackers.</p>
+      )}
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+type BroadcastStatus = {
+  status: string;
+  closeAfter: boolean;
+  counts: Record<string, number>;
+  problems: { id: string; title: string; state: string; error: string }[];
+};
+/**
+ * A tracker broadcast: the server counts who will receive it (open and snoozed linked
+ * conversations; closed ones are skipped), the teammate confirms, and a job sends it.
+ */
+function Broadcast({
+  trackerId,
+  onClose,
+}: {
+  trackerId: string;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState(""),
+    [closeAfter, setCloseAfter] = useState(false),
+    [prepared, setPrepared] = useState<{
+      broadcastId: string;
+      sending: number;
+      skipped: number;
+    } | null>(null),
+    [job, setJob] = useState<{ broadcastId: string; jobId: string } | null>(
+      null,
+    ),
+    [status, setStatus] = useState<BroadcastStatus | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const first = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    first.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  // Progress arrives as pushed job frames; each one re-reads the broadcast.
+  useEffect(() => {
+    if (!job) return;
+    let live = true;
+    const read = () =>
+      api<BroadcastStatus>(
+        "ticket-broadcast?" + new URLSearchParams({ id: job.broadcastId }),
+      )
+        .then((s) => live && setStatus(s))
+        .catch((e) => live && setError(message(e, "Progress unavailable.")));
+    const listener = (e: Event) => {
+      if ((e as CustomEvent<{ id: string }>).detail?.id === job.jobId)
+        void read();
+    };
+    window.addEventListener("relay:job", listener);
+    void read();
+    return () => {
+      live = false;
+      window.removeEventListener("relay:job", listener);
+    };
+  }, [job]);
+  const prepare = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      setPrepared(
+        await api("tickets", {
+          op: "broadcast-prepare",
+          trackerId,
+          text,
+          closeAfter,
+        }),
+      );
+    } catch (e) {
+      setError(message(e, "The update could not be prepared."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const send = async () => {
+    if (!prepared) return;
+    setBusy(true);
+    try {
+      const r = await api<{ jobId: string }>("tickets", {
+        op: "broadcast-commit",
+        broadcastId: prepared.broadcastId,
+      });
+      watchJob(r.jobId);
+      setJob({ broadcastId: prepared.broadcastId, jobId: r.jobId });
+    } catch (e) {
+      setError(message(e, "The update could not be sent."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const plural = (n: number) =>
+    `${n.toLocaleString()} conversation${n === 1 ? "" : "s"}`;
+  const n = (k: string) => status?.counts[k] ?? 0;
+  return (
+    <div className="pg-modal-backdrop">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="Broadcast update"
+        className="pg-view-dialog pg-ticket-dialog"
+      >
+        <h3>Broadcast update</h3>
+        {!prepared ? (
+          <>
+            <label>
+              Message to every linked customer
+              <textarea
+                ref={first}
+                rows={5}
+                maxLength={5000}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              />
+            </label>
+            <label className="pg-inline-check">
+              <input
+                type="checkbox"
+                checked={closeAfter}
+                onChange={(e) => setCloseAfter(e.target.checked)}
+              />
+              Close linked conversations after sending
+            </label>
+          </>
+        ) : !job ? (
+          <p>
+            Send this as a reply to <strong>{plural(prepared.sending)}</strong>?
+            {prepared.skipped > 0 &&
+              ` ${plural(prepared.skipped)} already closed will be skipped.`}
+            {closeAfter && " They will then be closed."}
+          </p>
+        ) : (
+          <div role="status" aria-label="Broadcast progress">
+            {!status || status.status !== "done" ? (
+              <p>
+                Sending… {n("sent") + n("failed")} of {prepared.sending} done
+              </p>
+            ) : (
+              <p>
+                Sent to {plural(n("sent"))}.
+                {status.closeAfter && ` Closed ${plural(n("closed"))}.`}
+                {n("failed") > 0 &&
+                  ` ${plural(n("failed"))} could not be sent.`}
+                {n("skipped") > 0 &&
+                  ` ${plural(n("skipped"))} skipped (closed).`}
+              </p>
+            )}
+            {status && status.problems.length > 0 && (
+              <ul aria-label="Needs attention">
+                {status.problems.map((p) => (
+                  <li key={p.id}>
+                    {p.title || "Conversation"}: {p.error}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="pg-attr-error">
+            {error}
+          </p>
+        )}
+        <footer>
+          <button type="button" onClick={onClose}>
+            {job ? "Close" : "Cancel"}
+          </button>
+          {!prepared && (
+            <button
+              type="button"
+              disabled={busy || !text.trim()}
+              onClick={() => void prepare()}
+            >
+              Review
+            </button>
+          )}
+          {prepared && !job && (
+            <button type="button" disabled={busy} onClick={() => void send()}>
+              Send to {plural(prepared.sending)}
+            </button>
+          )}
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+/** Linked tickets (on a customer conversation) or linked conversations (on a ticket). */
+function LinkList({
+  links,
+  trackerId,
+  editable,
+  onOpen,
+}: {
+  links: Links;
+  trackerId: string | null;
+  editable: boolean;
+  onOpen: (id: string) => void;
+}) {
+  const unlink = (conversationId: string) =>
+    void api("command", {
+      action: "ticket_unlink",
+      conversationId,
+      trackerId,
+    }).catch(() => {});
+  return (
+    <>
+      {links.tickets.length > 0 && (
+        <ul className="pg-ctx-recent" aria-label="Linked tickets">
+          {links.tickets.map((t) => (
+            <li key={t.id}>
+              <button type="button" onClick={() => onOpen(t.id)}>
+                <span>
+                  #{t.number} {t.title}
+                </span>
+                <small>
+                  {t.category === "tracker" ? "Tracker" : "Back-office"} ·{" "}
+                  {t.type} · {t.state}
+                </small>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {links.internal && (
+        <div aria-label="Linked conversations" role="region">
+          <h4>
+            Linked conversations <small>({links.total.toLocaleString()})</small>
+          </h4>
+          {links.conversations.length ? (
+            <ul className="pg-ctx-recent">
+              {links.conversations.map((c) => (
+                <li key={c.id} className="pg-link-row">
+                  <button type="button" onClick={() => onOpen(c.id)}>
+                    <span>{c.title || "Conversation"}</span>
+                    <small>{c.status}</small>
+                  </button>
+                  {trackerId && editable && (
+                    <button
+                      type="button"
+                      aria-label={`Unlink ${c.title || "conversation"}`}
+                      onClick={() => unlink(c.id)}
+                    >
+                      Unlink
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="pg-empty">No linked conversations yet.</p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 /** The ticket section of the conversation sidebar. */
 export function TicketPanel({
   conversationId,
   tickets,
   editable,
   onError,
+  onOpen,
 }: {
   conversationId: string;
   tickets: TicketContext;
   editable: boolean;
   onError: (e: unknown) => void;
+  onOpen: (id: string) => void;
 }) {
   const [error, setError] = useState<{ text: string; fields: string[] }>({
     text: "",
     fields: [],
   });
   const [changing, setChanging] = useState(false);
+  const [dialog, setDialog] = useState<"back_office" | "broadcast" | null>(
+    null,
+  );
   if (!tickets.enabled) return null;
   const t = tickets.ticket;
+  const links = tickets.links;
+  const internal = !!links?.internal;
+  const tracker = t?.type.category === "tracker";
   const move = async (stateId: string) => {
     setError({ text: "", fields: [] });
     try {
@@ -402,7 +883,7 @@ export function TicketPanel({
     <section aria-labelledby="ctx-ticket" className="pg-ticket">
       <h3 id="ctx-ticket">Ticket</h3>
       {!t ? (
-        editable ? (
+        editable && !internal ? (
           <Convert conversationId={conversationId} onError={onError} />
         ) : (
           <p className="pg-empty">Not a ticket.</p>
@@ -462,6 +943,38 @@ export function TicketPanel({
             />
           )}
         </>
+      )}
+      {links && (
+        <LinkList
+          links={links}
+          trackerId={tracker ? conversationId : null}
+          editable={editable}
+          onOpen={onOpen}
+        />
+      )}
+      {editable && !internal && (
+        <div className="pg-ticket-buttons pg-ticket-links">
+          <button type="button" onClick={() => setDialog("back_office")}>
+            Create back-office ticket
+          </button>
+          <LinkTracker conversationId={conversationId} />
+        </div>
+      )}
+      {editable && tracker && (
+        <button type="button" onClick={() => setDialog("broadcast")}>
+          Broadcast update…
+        </button>
+      )}
+      {dialog === "back_office" && (
+        <CreateInternal
+          category="back_office"
+          conversationId={conversationId}
+          onCreated={() => setDialog(null)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "broadcast" && (
+        <Broadcast trackerId={conversationId} onClose={() => setDialog(null)} />
       )}
     </section>
   );
