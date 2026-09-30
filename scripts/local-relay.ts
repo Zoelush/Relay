@@ -111,6 +111,18 @@ export async function startLocalRelay(
         enable: true,
       }),
     );
+  // Directory seed: a team and two tags per workspace, for assignment and tagging locally.
+  for (const w of ["demo", "other"])
+    await tenant(db.connect, w, async (sql) => {
+      await sql.query(
+        "INSERT INTO teams(workspace_id,id,name) VALUES($1,'billing','Billing') ON CONFLICT DO NOTHING",
+        [w],
+      );
+      await sql.query(
+        "INSERT INTO tags(workspace_id,id,name) VALUES($1,'vip','VIP'),($1,'refund','Refund') ON CONFLICT DO NOTHING",
+        [w],
+      );
+    });
   // Explicit local seed opt-in. Deployed flags remain off by default.
   for (const w of ["demo", "other"])
     await tenant(db.connect, w, (sql) =>

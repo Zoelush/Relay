@@ -1136,10 +1136,21 @@ export async function handleApi(
               [workspace, t.id],
             )
           ).rows;
+          // Workspace directory for names in the timeline and targets in the command palette.
+          const directory = async (table: "teammates" | "teams" | "tags") =>
+            (
+              await db.query<{ id: string; name: string }>(
+                `SELECT id,name FROM ${table} WHERE workspace_id=$1 ORDER BY name,id LIMIT 500`,
+                [workspace],
+              )
+            ).rows;
           return {
             conversations,
             counters,
             teammate: t,
+            teammates: await directory("teammates"),
+            teams: await directory("teams"),
+            tags: await directory("tags"),
             storage: {
               engine: "postgresql",
               transport: env.storageTransport ?? "hyperdrive",
@@ -1154,6 +1165,12 @@ export async function handleApi(
               ).rows.length,
               reply: await can(db, workspace, principal, "conversations.reply"),
               note: await can(db, workspace, principal, "conversations.note"),
+              manage: await can(
+                db,
+                workspace,
+                principal,
+                "conversations.manage",
+              ),
               attachments: !!env.attachments,
             },
           };
