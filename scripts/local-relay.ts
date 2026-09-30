@@ -35,6 +35,7 @@ import { messengerAsset } from "../server/assets";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
 import { runBroadcast } from "../server/ticket-links";
+import { checkDueSlas, reevaluateJob } from "../server/sla";
 import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
 import { runJob, type JobHandler } from "../server/jobs";
@@ -317,6 +318,21 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='sla_v1'",
         [w, options.sla !== false],
       );
+      // A sample SLA policy on the seeded office hours (Mon–Fri 09:00–17:00 UTC).
+      await sql.query(
+        `INSERT INTO sla_policies(workspace_id,id,name,position,conditions,targets,hours,pause)
+        VALUES($1,'standard','Standard support',10,NULL,$2,'business','{"snoozed":true,"waiting_on_customer":true}')
+        ON CONFLICT DO NOTHING`,
+        [
+          w,
+          JSON.stringify({
+            first_response: 60 * 60_000,
+            next_response: 2 * 60 * 60_000,
+            time_to_close: 8 * 60 * 60_000,
+            time_to_resolve: 24 * 60 * 60_000,
+          }),
+        ],
+      );
       if (options.tickets === false)
         await sql.query(
           "UPDATE workspace_features SET enabled=false WHERE workspace_id=$1 AND name='tickets_v1'",
@@ -423,6 +439,7 @@ export async function startLocalRelay(
     "bulk.apply": (job) => runBulkApply(db.connect, job),
     "bulk.undo": (job) => runBulkUndo(db.connect, job),
     "ticket.broadcast": (job) => runBroadcast(db.connect, job),
+    "sla.reevaluate": (job) => reevaluateJob(db.connect, job),
   };
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
@@ -465,6 +482,9 @@ export async function startLocalRelay(
           await tenant(db.connect, w, (sql) =>
             wakeConversation(sql, w, timer.id, timer.snooze_version),
           );
+        // SLA due times that have passed: record breaches and push them live.
+        const breached = await checkDueSlas(db.connect, w);
+        if (breached.length) await publishBatch(w, breached);
         // Draft retention, at most once a day per workspace (the Worker runs it at 03:00 UTC).
         if (Date.now() - (lastPurge.get(w) ?? 0) > 86_400_000) {
           lastPurge.set(w, Date.now());
