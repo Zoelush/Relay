@@ -31,7 +31,8 @@ import { getIdentity, seedFoundation } from "../server/people";
 import { tenant, digest } from "../server/db";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
-import { messengerAsset } from "../server/assets";
+import { messengerAsset, portalAsset } from "../server/assets";
+import { identityIssuer, unwrapIdentityKey } from "../server/identity";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
 import { runBroadcast } from "../server/ticket-links";
@@ -62,6 +63,8 @@ export async function startLocalRelay(
     tickets?: boolean;
     /** Business hours and SLAs, likewise on locally unless turned off. */
     sla?: boolean;
+    /** The customer portal, likewise. */
+    portal?: boolean;
     longTimeline?: boolean;
   } = {},
 ) {
@@ -87,6 +90,36 @@ export async function startLocalRelay(
       await writeFile(path, JSON.stringify(keys), { mode: 0o600, flag: "wx" });
     }
   }
+  /** Signs a demo customer's identity token with the demo workspace's stored key. */
+  const demoIdentity = async (userId: string) => {
+    const wrapped = await tenant(
+      db.connect,
+      "demo",
+      async (sql) =>
+        (
+          await sql.query<{ wrapped_key: string }>(
+            "SELECT wrapped_key FROM identity_keys WHERE workspace_id='demo' AND kid='initial'",
+          )
+        ).rows[0].wrapped_key,
+    );
+    const key = await unwrapIdentityKey(
+      wrapped,
+      keys.identity,
+      "demo",
+      "initial",
+    );
+    return new SignJWT({
+      email: userId + "@example.test",
+      workspace_id: "demo",
+    })
+      .setProtectedHeader({ alg: "HS256", kid: "initial" })
+      .setSubject(userId)
+      .setIssuer(identityIssuer("demo"))
+      .setAudience("relay-messenger")
+      .setIssuedAt()
+      .setExpirationTime("10m")
+      .sign(key);
+  };
   const publishers = new Map<string, CoalescedPublisher>(),
     background = new Set<Promise<void>>();
   const publishBatch = (w: string, ids: string[]) => {
@@ -317,6 +350,10 @@ export async function startLocalRelay(
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='sla_v1'",
         [w, options.sla !== false],
+      );
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='portal_v1'",
+        [w, options.portal !== false],
       );
       // A sample SLA policy on the seeded office hours (Mon–Fri 09:00–17:00 UTC).
       await sql.query(
@@ -613,7 +650,9 @@ export async function startLocalRelay(
     const { value: response, timing } = await db.measure(() =>
       new URL(req.url).pathname.startsWith("/v1/")
         ? handleApi(req, env)
-        : messengerAsset(req, db.connect, staticResponse),
+        : messengerAsset(req, db.connect, (r) =>
+            portalAsset(r, db.connect, staticResponse),
+          ),
     );
     response.headers.append(
       "server-timing",
@@ -715,9 +754,22 @@ export async function startLocalRelay(
         },
       );
     }
+    // Development-only signed customer (loopback fixture): `?user=jo` boots the messenger as a
+    // verified customer, and /demo/portal-link?user=jo is a signed link into the portal, as the
+    // customer's own site would build them with its identity key.
+    const demoUser = url.searchParams.get("user");
+    if (url.pathname === "/demo/portal-link" && demoUser) {
+      const token = await demoIdentity(demoUser);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: `${apiOrigin}/portal/demo/default#${new URLSearchParams({ token, user: demoUser, email: demoUser + "@example.test" })}`,
+        },
+      });
+    }
     if (url.pathname === "/demo/boot.js")
       return new Response(
-        `window.relayViolations=[];document.addEventListener('securitypolicyviolation',e=>window.relayViolations.push(e.violatedDirective));window.Relay=window.Relay||function(){(window.Relay.q=window.Relay.q||[]).push(arguments)};Relay('boot',{api:${JSON.stringify(apiOrigin)},workspaceId:'demo',brandId:'default',locale:new URLSearchParams(location.search).get('locale')||'en'});document.getElementById('open-support').onclick=()=>Relay('open');document.getElementById('notifications').onclick=()=>Relay('enableNotifications');`,
+        `window.relayViolations=[];document.addEventListener('securitypolicyviolation',e=>window.relayViolations.push(e.violatedDirective));window.Relay=window.Relay||function(){(window.Relay.q=window.Relay.q||[]).push(arguments)};Relay('boot',{api:${JSON.stringify(apiOrigin)},workspaceId:'demo',brandId:'default',locale:new URLSearchParams(location.search).get('locale')||'en'${demoUser ? `,user:${JSON.stringify({ userId: demoUser, email: demoUser + "@example.test", jwt: await demoIdentity(demoUser) })}` : ""}});document.getElementById('open-support').onclick=()=>Relay('open');document.getElementById('notifications').onclick=()=>Relay('enableNotifications');`,
         { headers: { "content-type": "text/javascript" } },
       );
     if (url.pathname === "/demo/hostile.css")
@@ -726,7 +778,7 @@ export async function startLocalRelay(
         { headers: { "content-type": "text/css" } },
       );
     const baseline = url.searchParams.has("baseline");
-    const body = `<article><p>Relay / integration test</p><h1>A deliberately unfriendly host page</h1><p>This page applies aggressive styles to every element, button and iframe. Relay's controls stay inside their own document and shadow root.</p><button id="open-support">Open support</button><button id="notifications">Enable reply notifications</button><p><a href="/agent">Open the local agent inbox</a></p><p id="anchor">This paragraph must not move when the messenger boots or opens.</p></article>${baseline ? "" : `<script src="/demo/boot.js" defer></script><script src="${apiOrigin}/messenger/loader.js" async></script>`}`;
+    const body = `<article><p>Relay / integration test</p><h1>A deliberately unfriendly host page</h1><p>This page applies aggressive styles to every element, button and iframe. Relay's controls stay inside their own document and shadow root.</p><button id="open-support">Open support</button><button id="notifications">Enable reply notifications</button><p><a href="/agent">Open the local agent inbox</a></p><p id="anchor">This paragraph must not move when the messenger boots or opens.</p></article>${baseline ? "" : `<script src="/demo/boot.js${url.searchParams.get("user") ? "?user=" + encodeURIComponent(url.searchParams.get("user")!) : ""}" defer></script><script src="${apiOrigin}/messenger/loader.js" async></script>`}`;
     return new Response(
       `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relay hostile host</title><link rel="stylesheet" href="/demo/hostile.css"></head><body>${body}</body></html>`,
       {

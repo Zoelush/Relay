@@ -9,7 +9,7 @@ import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
 import { hyperdriveConnection } from "../server/postgres";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
-import { messengerAsset } from "../server/assets";
+import { messengerAsset, portalAsset } from "../server/assets";
 import {
   drainConversationOutbox,
   drainJobStatusOutbox,
@@ -330,7 +330,10 @@ const relayWorker = {
     return messengerAsset(
       request,
       hyperdriveConnection(env.HYPERDRIVE),
-      (req) => env.ASSETS.fetch(req),
+      (req) =>
+        portalAsset(req, hyperdriveConnection(env.HYPERDRIVE), (r) =>
+          env.ASSETS.fetch(r),
+        ),
       env.R2_ACCOUNT_ID
         ? [`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`]
         : [],

@@ -148,6 +148,22 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
     },
     [api, boot.token, t.error],
   );
+  /**
+   * Opens the customer portal in a new tab with a one-time, 60-second code (verified customers
+   * only). The tab opens first, inside the click, so pop-up blockers allow it.
+   */
+  async function openPortal() {
+    const tab = window.open("", "_blank");
+    try {
+      const { url } = await request<{ url: string }>("portal-handoff", {});
+      if (tab) {
+        tab.opener = null;
+        tab.location.href = url;
+      } else window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      tab?.close();
+    }
+  }
   const refreshList = useCallback(async () => {
     const data = await request<{ conversations: Conversation[] }>(
       "conversations",
@@ -545,6 +561,13 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
                 <small>{boot.availability.nextOpenLabel}</small>
               )}
             </div>
+            {boot.capabilities.tickets && (
+              <section>
+                <button className="card" onClick={() => void openPortal()}>
+                  {t.yourTickets}
+                </button>
+              </section>
+            )}
             {(
               boot.brand.homeBlocks ?? [{ type: "start" }, { type: "recent" }]
             ).map((block, index: number) => (

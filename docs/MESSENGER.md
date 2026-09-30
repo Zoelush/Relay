@@ -130,3 +130,13 @@ The load fixture is embedded PostgreSQL plus Node and minimal DOM clients. It do
 The mobile SDK remains a specification only: `MOBILE_SDK.md`.
 
 Sources: [JWT security practices](https://www.rfc-editor.org/rfc/rfc8725), [CSP specification](https://www.w3.org/TR/CSP3/), [cross-document messaging](https://html.spec.whatwg.org/multipage/web-messaging.html), [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/), [Queues retries](https://developers.cloudflare.com/queues/configuration/batching-retries/).
+
+## Customer portal link (phase 05)
+
+Verified customers can open their requests in the customer portal. The messenger shows a "Your tickets and requests" button to verified sessions while the portal is enabled (`portal_v1`), using a one-time, 60-second hand-over code. Your site can also link to the portal directly with the same signed identity token the messenger accepts:
+
+```text
+https://support.example.com/portal/{workspaceId}/{brandId}#token={identity JWT}&user={userId}&email={email}
+```
+
+On a domain mapped to a brand (`/v1/agent/portal-settings`), use `https://help.example.com/portal#token=…`. The token and code travel in the fragment, which is never sent to a server or in a referrer; the portal removes it from the address bar at once and holds its session in an HttpOnly cookie. Anonymous visitors cannot use the portal.

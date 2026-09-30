@@ -114,7 +114,12 @@ export async function seedFoundation(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
       [workspace, name, options.enable ?? false],
     );
-  for (const name of ["agent_inbox_views_v1", "tickets_v1", "sla_v1"])
+  for (const name of [
+    "agent_inbox_views_v1",
+    "tickets_v1",
+    "sla_v1",
+    "portal_v1",
+  ])
     await db.query(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,false) ON CONFLICT DO NOTHING",
       [workspace, name],

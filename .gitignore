@@ -54,3 +54,4 @@ next-env.d.ts
 /playwright-report/
 
 /public/agent/
+/public/portal/

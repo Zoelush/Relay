@@ -10,14 +10,12 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 05 (tickets and SLAs), planned in `docs/TICKETS_PLAN.md`
-(steps A1, A2, B1, B2, C). Steps A1 (ticket core, `docs/TICKETS_STEP1.md`) and A2
-(categories, linking and tracker broadcasts, `docs/TICKETS_STEP2.md`) and B1 (business-time
-engine, calendars and the SLA clock matrix, `docs/TICKETS_STEP3.md`) and B2 (SLA policies,
-clocks and breaches, `docs/TICKETS_STEP4.md`) are implemented locally; next is step C:
-the customer ticket portal. Phase 04
-(agent inbox) is complete locally; its step docs are `docs/AGENT_INBOX_STEP1.md` to
-`STEP11.md`. Phases 01–03 are implemented locally but not complete
+Current position: phase 05 (tickets and SLAs) is complete locally, planned in
+`docs/TICKETS_PLAN.md`; its step docs are `docs/TICKETS_STEP1.md` (A1 ticket core) to
+`STEP5.md` (C customer portal). Phase 04 (agent inbox) is complete locally; its step docs are
+`docs/AGENT_INBOX_STEP1.md` to `STEP11.md`. Next is phase 06 (routing, teams and workload).
+Flags `tickets_v1`, `sla_v1` and `portal_v1` default off; the local relay turns them on.
+Phases 01–03 are implemented locally but not complete
 or hosted; see `docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second
 teammate.
 
@@ -50,8 +48,9 @@ teammate.
 - The local relay uses in-memory loopback attachment storage
   (`scripts/local-storage.ts`); its scanner flags the EICAR test file.
 - Frontend is React 19 + TypeScript on Vinext/Vite. Tests:
-  `npm test` (Node), `npm run test:e2e` (Playwright; builds the bundles
-  first, so do not call `npx playwright test` directly), `npm run typecheck`.
+  `npm test` (Node), `npm run test:e2e` (Playwright; builds the messenger, agent
+  and portal bundles first, so do not call `npx playwright test` directly),
+  `npm run typecheck`.
 
 ## Rules
 
