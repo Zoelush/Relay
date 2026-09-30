@@ -679,6 +679,28 @@ export default function PostgresInbox() {
   useEffect(() => {
     if (canMacros) void loadMacros();
   }, [canMacros, loadMacros]);
+  // Ticket states for macros and bulk actions, as "Type: State". Off (or absent) means none.
+  const [ticketStates, setTicketStates] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const loadTicketStates = useCallback(
+    () =>
+      api<{
+        types: { name: string; states: { id: string; name: string }[] }[];
+      }>("ticket-types")
+        .then((r) =>
+          setTicketStates(
+            r.types.flatMap((t) =>
+              t.states.map((s) => ({ id: s.id, name: `${t.name}: ${s.name}` })),
+            ),
+          ),
+        )
+        .catch(() => setTicketStates([])),
+    [],
+  );
+  useEffect(() => {
+    void loadTicketStates();
+  }, [loadTicketStates]);
   /**
    * Applies a macro: its actions run on the server at once (all or nothing), and its text, with
    * variables filled, is added to the composer in the macro's mode for review before sending.
@@ -1126,6 +1148,7 @@ export default function PostgresInbox() {
                   teammates: snapshot?.teammates ?? [],
                   teams: snapshot?.teams ?? [],
                   tags: snapshot?.tags ?? [],
+                  ticketStates,
                 }}
                 selected={selected}
                 revision={viewRevision}
@@ -1507,7 +1530,11 @@ export default function PostgresInbox() {
             <ContextSidebar
               conversationId={selected}
               refresh={
-                parts.filter((p) => p.kind === "attribute_change").length
+                parts.filter(
+                  (p) =>
+                    p.kind === "attribute_change" ||
+                    String(p.data?.event ?? "").startsWith("ticket_"),
+                ).length
               }
               onOpen={(id) => pick(id)}
               onError={report}
@@ -1533,6 +1560,7 @@ export default function PostgresInbox() {
             teammates: snapshot?.teammates ?? [],
             teams: snapshot?.teams ?? [],
             tags: snapshot?.tags ?? [],
+            ticketStates,
           }}
           onChanged={() => void loadMacros()}
           onClose={() => setOverlay(null)}

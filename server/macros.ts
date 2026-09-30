@@ -15,7 +15,8 @@ export type MacroAction =
   | { type: "priority"; value: boolean }
   | { type: "snooze"; preset: (typeof SNOOZE_PRESETS)[number] }
   | { type: "close" | "reopen" }
-  | { type: "attribute_set"; attributeId: string; value: unknown };
+  | { type: "attribute_set"; attributeId: string; value: unknown }
+  | { type: "ticket_state"; stateId: string };
 type Macro = {
   id: string;
   owner_id: string;
@@ -28,19 +29,22 @@ type Macro = {
 };
 const MAX_ACTIONS = 10;
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
+/** Ticket state ids are `<type id>.<state key>`. */
+const STATE_ID = /^[A-Za-z0-9_-]{1,100}\.[a-z0-9_-]{1,40}$/;
 const invalid = (message: string): never => {
   throw new DomainError("INVALID_MACRO", message, 400);
 };
 
 /**
- * Validates an action list's shape. Ticket state is part of the format but unavailable until
- * phase 5 provides tickets, so any list containing it is rejected whole.
+ * Validates an action list's shape. A ticket state action applies only to tickets of that
+ * state's type; on anything else it fails like any other refused action.
  */
 export function validateActions(input: unknown): MacroAction[] {
   if (input === undefined) return [];
   if (!Array.isArray(input) || input.length > MAX_ACTIONS)
     invalid("Add up to 10 actions.");
-  let states = 0;
+  let states = 0,
+    ticketStates = 0;
   const out = (input as unknown[]).map((raw): MacroAction => {
     const a = (raw && typeof raw === "object" ? raw : {}) as Record<
       string,
@@ -81,16 +85,16 @@ export function validateActions(input: unknown): MacroAction[] {
           value: a.value,
         };
       case "ticket_state":
-        throw new DomainError(
-          "TICKETS_UNAVAILABLE",
-          "Ticket actions arrive with tickets. Remove the ticket action to save or apply this macro.",
-          400,
-        );
+        ticketStates++;
+        if (typeof a.stateId !== "string" || !STATE_ID.test(a.stateId))
+          invalid("Choose a ticket state.");
+        return { type: "ticket_state", stateId: a.stateId as string };
       default:
         return invalid("Use a supported action.");
     }
   });
   if (states > 1) invalid("Use one of close, reopen or snooze.");
+  if (ticketStates > 1) invalid("Use one ticket state action.");
   return out;
 }
 
@@ -112,7 +116,14 @@ export async function checkTargets(db: Sql, w: string, actions: MacroAction[]) {
       ((a.type === "tag_add" || a.type === "tag_remove") &&
         !(await exists("tags", a.tagId))) ||
       (a.type === "attribute_set" &&
-        !(await exists("attribute_definitions", a.attributeId)));
+        !(await exists("attribute_definitions", a.attributeId))) ||
+      (a.type === "ticket_state" &&
+        !(
+          await db.query(
+            "SELECT 1 FROM ticket_states WHERE workspace_id=$1 AND id=$2 AND NOT archived",
+            [w, a.stateId],
+          )
+        ).rows.length);
     if (missing)
       throw new DomainError(
         "MACRO_TARGET_MISSING",
@@ -306,6 +317,8 @@ const commandFor = (a: MacroAction, timezone: unknown): Command => {
         attributeId: a.attributeId,
         value: a.value,
       };
+    case "ticket_state":
+      return { action: "ticket_state", stateId: a.stateId };
   }
 };
 

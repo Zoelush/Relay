@@ -34,6 +34,7 @@ import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset } from "../server/assets";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
+import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
 import { runJob, type JobHandler } from "../server/jobs";
 import { reindexSearch } from "../server/search";
@@ -55,6 +56,8 @@ export async function startLocalRelay(
     attachments?: AttachmentStorage;
     agentInbox?: boolean;
     inboxViews?: boolean;
+    /** Tickets are on locally unless turned off; deployed workspaces default to off. */
+    tickets?: boolean;
     longTimeline?: boolean;
   } = {},
 ) {
@@ -190,6 +193,91 @@ export async function startLocalRelay(
         "INSERT INTO tags(workspace_id,id,name) VALUES($1,'vip','VIP'),($1,'refund','Refund') ON CONFLICT DO NOTHING",
         [w],
       );
+      // Two sample customer ticket types, with their own fields (kept out of the general
+      // attributes above, which stay usable on any conversation).
+      await sql.query(
+        `INSERT INTO attribute_definitions(workspace_id,id,name,owner_type,value_type,options) VALUES
+        ($1,'severity','Severity','conversation','options','["Low","Medium","High"]'),
+        ($1,'affected_version','Affected version','conversation','string',NULL),
+        ($1,'refund_amount','Refund amount','conversation','float',NULL),
+        ($1,'refund_reason','Refund reason','conversation','string',NULL)
+        ON CONFLICT DO NOTHING`,
+        [w],
+      );
+      await sql.query(
+        "UPDATE workspace_features SET enabled=true WHERE workspace_id=$1 AND name='tickets_v1'",
+        [w],
+      );
+      const seeded = (
+        await sql.query("SELECT 1 FROM ticket_types WHERE workspace_id=$1", [w])
+      ).rows.length;
+      if (!seeded) {
+        await saveTicketType(sql, w, "local-owner", {
+          name: "Bug report",
+          icon: "bug",
+          category: "customer",
+          states: [
+            {
+              key: "new",
+              name: "New",
+              customerLabel: "Received",
+              kind: "submitted",
+            },
+            {
+              key: "investigating",
+              name: "Investigating",
+              customerLabel: "In progress",
+              kind: "in_progress",
+            },
+            {
+              key: "waiting",
+              name: "Waiting on customer",
+              customerLabel: "Waiting for you",
+              kind: "waiting_on_customer",
+            },
+            {
+              key: "fixed",
+              name: "Fixed",
+              customerLabel: "Resolved",
+              kind: "resolved",
+            },
+          ],
+          transitions: [
+            ["new", "investigating"],
+            ["investigating", "waiting"],
+            ["waiting", "investigating"],
+            ["investigating", "fixed"],
+            ["fixed", "investigating"],
+          ],
+          fields: [
+            { attributeId: "severity", requiredToClose: true },
+            { attributeId: "affected_version", requiredToClose: false },
+          ],
+        });
+        await saveTicketType(sql, w, "local-owner", {
+          name: "Refund request",
+          icon: "coins",
+          category: "customer",
+          states: [
+            { key: "submitted", name: "Submitted", kind: "submitted" },
+            { key: "reviewing", name: "Reviewing", kind: "in_progress" },
+            { key: "refunded", name: "Refunded", kind: "resolved" },
+          ],
+          transitions: [
+            ["submitted", "reviewing"],
+            ["reviewing", "refunded"],
+          ],
+          fields: [
+            { attributeId: "refund_amount", requiredToClose: true },
+            { attributeId: "refund_reason", requiredToClose: false },
+          ],
+        });
+      }
+      if (options.tickets === false)
+        await sql.query(
+          "UPDATE workspace_features SET enabled=false WHERE workspace_id=$1 AND name='tickets_v1'",
+          [w],
+        );
     });
   // Explicit local seed opt-in. Deployed flags remain off by default.
   for (const w of ["demo", "other"])

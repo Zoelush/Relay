@@ -144,7 +144,7 @@ test("bulk actions: server-counted selection, stepped job, per-item failures, co
     // Validation: the action is checked before anything is stored.
     for (const [action, code] of [
       [{ type: "attribute_set", attributeId: "x", value: 1 }, "INVALID_BULK"],
-      [{ type: "ticket_state", state: "resolved" }, "TICKETS_UNAVAILABLE"],
+      [{ type: "ticket_state", state: "resolved" }, "INVALID_MACRO"],
     ] as const) {
       const r = await bulk({ op: "prepare", action, conversationIds: ids });
       assert.equal(r.body.error?.code, code, JSON.stringify(r.body));

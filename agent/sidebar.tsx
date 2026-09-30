@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { AppCard } from "../lib/app-slots";
+import { TicketPanel, type TicketContext } from "./tickets";
 
-type Attribute = {
+export type Attribute = {
   id: string;
   name: string;
   valueType: "string" | "integer" | "float" | "boolean" | "date" | "options";
@@ -28,6 +29,7 @@ export type Context = {
   recent: { id: string; title: string; status: string; updatedAt: string }[];
   attributes: Attribute[];
   canEditAttributes: boolean;
+  tickets: TicketContext;
   apps: AppCard[];
 };
 
@@ -70,14 +72,20 @@ function LocalTime({ timezone }: { timezone: string }) {
  * One conversation attribute, edited inline. Changes apply at once and are saved through the
  * attribute command; a rejected value is put back, with the server's reason shown.
  */
-function AttributeField({
+export function AttributeField({
   attribute,
   conversationId,
   editable,
+  required,
+  missing,
 }: {
   attribute: Attribute;
   conversationId: string;
   editable: boolean;
+  /** A ticket field that must be filled before the ticket is closed. */
+  required?: boolean;
+  /** Highlighted after a closure was refused for want of this field. */
+  missing?: boolean;
 }) {
   const [value, setValue] = useState<unknown>(attribute.value);
   const [draft, setDraft] = useState(
@@ -181,9 +189,12 @@ function AttributeField({
       />
     );
   return (
-    <div className="pg-attr">
+    <div className={missing ? "pg-attr pg-attr-missing" : "pg-attr"}>
       <label id={id + "-label"} htmlFor={id}>
         {attribute.name}
+        {required && (
+          <small className="pg-attr-required"> · Required to close</small>
+        )}
       </label>
       {field}
       {error && (
@@ -295,6 +306,12 @@ export function ContextSidebar({
           </dl>
         )}
       </section>
+      <TicketPanel
+        conversationId={conversationId}
+        tickets={c.tickets ?? { enabled: false, ticket: null }}
+        editable={c.canEditAttributes}
+        onError={onError}
+      />
       {c.attributes.length > 0 && (
         <section aria-labelledby="ctx-attributes">
           <h3 id="ctx-attributes">Conversation attributes</h3>

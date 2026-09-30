@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — tickets step A1 (ticket core)
+
+- Workspace-defined ticket types (customer, back-office, tracker), each with its own states, allowed transitions and typed fields. A whole definition is checked before saving: at least one resolved state, transitions only within the type, and every open state able to reach a resolved one. Defining types needs the new `tickets.manage` capability.
+- Convert a conversation to a customer ticket (numbered per workspace) with a starting state. Move it only along its type's transitions. Resolving, or closing the conversation, is refused until the fields required to close are filled, and the refusal names them.
+- Change a ticket's type after reviewing what will be kept, moved to a compatible field, or cleared. The change applies only with that preview's token; cleared values are kept in the internal timeline event.
+- Every ticket change is an internal timeline event. Ticket fields appear with the ticket and can't be set on other conversations, and merging a ticket away is refused.
+- Macros and bulk actions can set ticket state (bulk undo goes back where the type allows).
+- Sidebar: convert, state badge and "Move to", fields marked "Required to close", and a type-change dialog. Timeline wording for ticket events.
+- Migration 0022 adds six ticket tables, the capability and the `tickets_v1` flag (off). Errors can now carry `details`.
+- The local seed adds Bug report and Refund request types, and turns tickets on locally only.
+- Tests: `tests/tickets.test.ts` and `tests/browser/tickets.spec.ts` (convert, move and resolve once filled; change type with a moved field; closing without a required field refused). 43/43 Node tests, typecheck and 30/30 browser tests pass.
+
 ## Unreleased — agent inbox step D3 (bulk actions with undo)
 
 - Bulk actions from the saved-views list:

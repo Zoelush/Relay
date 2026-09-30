@@ -38,6 +38,7 @@ type Fields = {
   team_id?: string | null;
   priority?: boolean;
   tag?: boolean;
+  ticket_state?: string | null;
 };
 
 function bulkAction(input: unknown): BulkAction {
@@ -64,6 +65,16 @@ async function fields(
       return { assigned: c.assigned, team_id: c.team_id ?? null };
     case "priority":
       return { priority: !!c.priority };
+    case "ticket_state":
+      return {
+        ticket_state:
+          (
+            await db.query<{ state_id: string }>(
+              "SELECT state_id FROM tickets WHERE workspace_id=$1 AND conversation_id=$2",
+              [w, c.id],
+            )
+          ).rows[0]?.state_id ?? null,
+      };
     case "tag_add":
     case "tag_remove":
       return {
@@ -97,6 +108,8 @@ const toCommand = (action: BulkAction, timezone: string): Command => {
     case "tag_add":
     case "tag_remove":
       return { action: action.type, tagId: action.tagId };
+    case "ticket_state":
+      return { action: "ticket_state", stateId: action.stateId };
     case "priority":
       return { action: "priority", value: action.value };
     case "snooze":
@@ -123,6 +136,11 @@ function inverse(
         teammateId: before.assigned || undefined,
         teamId: before.team_id || undefined,
       };
+    case "ticket_state":
+      // Back along the type's transitions; if the graph has no way back, undo reports it.
+      return before.ticket_state
+        ? { action: "ticket_state", stateId: before.ticket_state }
+        : null;
     case "priority":
       return { action: "priority", value: !!before.priority };
     case "tag_add":

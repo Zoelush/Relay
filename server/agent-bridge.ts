@@ -29,6 +29,8 @@ const routes = {
     "macros",
     "context",
     "bulk",
+    "ticket-types",
+    "ticket-preview",
   ]),
   POST: new Set([
     "command",
@@ -37,6 +39,7 @@ const routes = {
     "notifications",
     "macros",
     "bulk",
+    "ticket-types",
     "realtime-ticket",
     "attachment/prepare",
     "attachment/complete",
