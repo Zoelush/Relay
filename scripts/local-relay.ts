@@ -59,6 +59,8 @@ export async function startLocalRelay(
     inboxViews?: boolean;
     /** Tickets are on locally unless turned off; deployed workspaces default to off. */
     tickets?: boolean;
+    /** Business hours and SLAs, likewise on locally unless turned off. */
+    sla?: boolean;
     longTimeline?: boolean;
   } = {},
 ) {
@@ -311,6 +313,10 @@ export async function startLocalRelay(
           fields: [],
         });
       }
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='sla_v1'",
+        [w, options.sla !== false],
+      );
       if (options.tickets === false)
         await sql.query(
           "UPDATE workspace_features SET enabled=false WHERE workspace_id=$1 AND name='tickets_v1'",

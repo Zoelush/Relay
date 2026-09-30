@@ -8,6 +8,7 @@ import {
   setTicketState,
 } from "./tickets";
 import { linkToTracker, unlinkFromTracker } from "./ticket-links";
+import { resolveCalendar } from "./calendars";
 import { verifyInlineImages } from "./attachments";
 import { resolveMentions, recordMentions } from "./mentions";
 import {
@@ -505,14 +506,17 @@ export async function command(
           [w, id, actor.brandId, actor.identityId, p.text.slice(0, 70)],
         )
       ).rows[0];
-      if (brand.settings.calendarId)
+      // The calendar in force now (brand, then workspace default; a new conversation has no
+      // team yet) is pinned, so later edits to it do not change this conversation's metrics.
+      const calendar = await resolveCalendar(db, w, { brandId: actor.brandId });
+      if (calendar.calendarId)
         await db.query(
           "UPDATE conversations SET calendar_id=$3,calendar_version=$4,origin_timezone=$5 WHERE workspace_id=$1 AND id=$2",
           [
             w,
             id,
-            brand.settings.calendarId,
-            brand.settings.calendarVersion,
+            calendar.calendarId,
+            calendar.version,
             actor.originTimezone ?? null,
           ],
         );
