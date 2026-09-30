@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — agent inbox step C2b (inline images)
+
+- Teammates can place PNG and JPEG images (up to 10 MB each, 10 per message) inside replies and notes by button, paste or drag-and-drop. Inline uploads use the existing prepare, upload, byte-check and scan flow but never become separate attachment messages (migration 0018 adds `attachments.purpose` and `conversation_part_images`). The image node holds an attachment id, never a URL.
+- At send, each image must be the sender's own clean inline upload in this conversation, and a reply may only use customer-visible uploads. Each failure has its own error: `IMAGE_NOT_FOUND`, `IMAGE_NOT_READY`, `IMAGE_BLOCKED` or `IMAGE_AUDIENCE`. The composer shows uploading, checking, blocked and clean states, and keeps Send disabled until every image is clean.
+- Customers can fetch an inline image only once a sent public reply references it, through the messenger's short-lived links. Note images never reach them; the tests cover downloads, history and live replay.
+- Unreferenced inline uploads are deleted after 30 days, from storage (R2 `deleteClean`) and the database.
+- Local development and browser tests use a new loopback storage adapter, never deployed; its scanner flags the EICAR test file. The local relay now accepts binary uploads.
+- Tests: `tests/inline-images.test.ts`, image cases in `tests/rich-doc.test.ts`, and `tests/browser/inline-images.spec.ts` (image decoded in inbox and messenger; blocked image gates Send). 34/34 Node tests, typecheck and 16/16 browser tests pass. Flags remain off.
+
 ## Unreleased — agent inbox step C2a (rich text and drafts)
 
 - Rich replies, notes and edits use a restricted document format: paragraphs, lists, quotes, code blocks, line breaks, bold, italic, inline code and links. Links must be https, http or mailto; limits are 5,000 characters, four levels of nesting and 2,000 nodes. The server rebuilds each document from allowed content only, stores it as `data.doc` and derives the plain-text `body` used by search and future plain channels. Customers cannot send documents.

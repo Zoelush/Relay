@@ -10,7 +10,14 @@ import {
   ListOrdered,
   Quote,
   SquareCode,
+  ImagePlus,
 } from "lucide-react";
+import {
+  InlineImage,
+  ImageStatusContext,
+  IMAGE_TYPES,
+  type ImageStatus,
+} from "./images";
 import {
   normalizeDoc,
   plainText,
@@ -35,7 +42,11 @@ export function editorDoc(editor: Editor): RichDoc | null {
   }
 }
 
-export type ComposerHandle = { focus: () => void };
+export type ComposerHandle = {
+  focus: () => void;
+  /** Places an image (by attachment id) at the cursor. */
+  insertImage: (attachmentId: string, alt: string) => void;
+};
 
 /**
  * Rich composer limited to Relay's document format: paragraphs, lists, quotes, code blocks and
@@ -50,6 +61,8 @@ export function Composer({
   onChange,
   onSubmit,
   handleRef,
+  onFiles,
+  imageStatus,
 }: {
   label: string;
   placeholder: string;
@@ -59,13 +72,19 @@ export function Composer({
   onChange: (doc: RichDoc | null) => void;
   onSubmit: () => void;
   handleRef: React.RefObject<ComposerHandle | null>;
+  /** Image files chosen, pasted or dropped. */
+  onFiles: (files: File[]) => void;
+  imageStatus: (attachmentId: string) => ImageStatus | undefined;
 }) {
   const submit = useRef(onSubmit);
   const change = useRef(onChange);
+  const files = useRef(onFiles);
   useEffect(() => {
     submit.current = onSubmit;
     change.current = onChange;
+    files.current = onFiles;
   });
+  const picker = useRef<HTMLInputElement>(null);
   // The editor is recreated whenever `value.key` changes (a new conversation or mode, or a
   // restored draft) with that content. Setting content on a just-created editor, before its view
   // mounts, can be dropped; typing never round-trips through here, so the cursor stays put.
@@ -74,6 +93,7 @@ export function Composer({
       immediatelyRender: false,
       content: value.doc ?? "",
       extensions: [
+        InlineImage,
         StarterKit.configure({
           heading: false,
           horizontalRule: false,
@@ -106,6 +126,20 @@ export function Composer({
           "data-placeholder": placeholder,
           class: "pg-editor",
         },
+        // Image files become uploads; anything else pastes as the schema allows.
+        handlePaste: (_view, event) => {
+          const list = [...(event.clipboardData?.files ?? [])];
+          if (!list.length) return false;
+          files.current(list);
+          return true;
+        },
+        handleDrop: (_view, event) => {
+          const list = [...((event as DragEvent).dataTransfer?.files ?? [])];
+          if (!list.length) return false;
+          event.preventDefault();
+          files.current(list);
+          return true;
+        },
         handleKeyDown: (view, event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
@@ -137,7 +171,18 @@ export function Composer({
     });
   }, [editor, disabled, label, placeholder]);
   useEffect(() => {
-    handleRef.current = { focus: () => editor?.commands.focus("end") };
+    handleRef.current = {
+      focus: () => editor?.commands.focus("end"),
+      insertImage: (attachmentId, alt) =>
+        editor
+          ?.chain()
+          .focus()
+          .insertContent([
+            { type: "image", attrs: { attachmentId, alt } },
+            { type: "paragraph" },
+          ])
+          .run(),
+    };
   }, [editor, handleRef]);
   const [linking, setLinking] = useState(false);
   const [href, setHref] = useState("");
@@ -217,6 +262,29 @@ export function Composer({
           () => chain().toggleCodeBlock().run(),
           <SquareCode size={14} />,
         )}
+        <button
+          type="button"
+          aria-label="Insert image"
+          title="Insert image"
+          disabled={disabled}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => picker.current?.click()}
+        >
+          <ImagePlus size={14} />
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          accept={IMAGE_TYPES.join(",")}
+          multiple
+          hidden
+          aria-label="Choose images"
+          onChange={(e) => {
+            const list = [...(e.target.files ?? [])];
+            e.target.value = "";
+            if (list.length) files.current(list);
+          }}
+        />
       </div>
       {linking && (
         <div className="pg-link-form">
@@ -253,7 +321,9 @@ export function Composer({
           {linkError && <span role="alert">{linkError}</span>}
         </div>
       )}
-      <EditorContent editor={editor} />
+      <ImageStatusContext.Provider value={imageStatus}>
+        <EditorContent editor={editor} />
+      </ImageStatusContext.Provider>
     </div>
   );
 }

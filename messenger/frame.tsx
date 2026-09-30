@@ -710,7 +710,17 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
                         {p.data.deleted ? (
                           <p>{t.deleted}</p>
                         ) : p.data.doc ? (
-                          <RichText doc={p.data.doc} fallback={p.body} />
+                          <RichText
+                            doc={p.data.doc}
+                            fallback={p.body}
+                            image={(image) => (
+                              <InlineImage
+                                id={image.attachmentId}
+                                alt={image.alt ?? ""}
+                                request={request}
+                              />
+                            )}
+                          />
                         ) : (
                           <p>{p.body}</p>
                         )}
@@ -878,6 +888,30 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
         {t.poweredBy} <strong>Relay</strong>
       </footer>
     </div>
+  );
+}
+/** An image inside a teammate's reply: a short-lived link from the customer attachment route. */
+function InlineImage({
+  id,
+  alt,
+  request,
+}: {
+  id: string;
+  alt: string;
+  request: (path: string) => Promise<{ url: string }>;
+}) {
+  const [src, setSrc] = useState("");
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    void request("attachment?preview=true&id=" + encodeURIComponent(id))
+      .then((d) => setSrc(d.url))
+      .catch(() => setFailed(true));
+  }, [id, request]);
+  if (failed) return <p>[Image{alt ? ": " + alt : ""}]</p>;
+  return src ? (
+    <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />
+  ) : (
+    <span className="rich-image-loading" aria-label={alt || "Image"} />
   );
 }
 function Attachment({

@@ -1,8 +1,10 @@
 import { resolveWake } from "./snooze";
+import { verifyInlineImages } from "./attachments";
 import {
   normalizeDoc,
   plainText,
   isPlain,
+  imageIds,
   RichDocError,
   type RichDoc,
 } from "../lib/rich-doc";
@@ -402,6 +404,15 @@ function messageContent(
   assert(text.length > 0, "INVALID_MESSAGE", "Write a message.");
   return isPlain(doc) ? { text } : { text, doc };
 }
+/** Records which images a sent part places, after `verifyInlineImages` accepted them. */
+async function recordImages(db: Sql, w: string, partId: string, doc?: RichDoc) {
+  const ids = doc ? imageIds(doc) : [];
+  if (ids.length)
+    await db.query(
+      "INSERT INTO conversation_part_images(workspace_id,part_id,attachment_id) SELECT $1,$2,unnest($3::text[]) ON CONFLICT DO NOTHING",
+      [w, partId, ids],
+    );
+}
 export async function command(
   db: Sql,
   w: string,
@@ -592,6 +603,15 @@ export async function command(
         403,
       );
       const content = messageContent(p, actor);
+      if (content.doc)
+        await verifyInlineImages(
+          db,
+          w,
+          c,
+          who.id,
+          imageIds(content.doc),
+          p.action === "note" ? "internal" : "public",
+        );
       if (actor.type === "contact" && c.status !== "open")
         await transition(db, w, c, who, "open");
       const kind =
@@ -615,6 +635,7 @@ export async function command(
         },
         p.action === "note" ? "internal" : "public",
       );
+      await recordImages(db, w, part.id, content.doc);
       // Sending consumes the author's draft for this mode, in the same transaction.
       if (actor.type === "teammate")
         await db.query(
@@ -848,9 +869,18 @@ export async function command(
         "This part has a newer version.",
         409,
       );
-      const content =
+      const content: { text: string; doc?: RichDoc } =
         p.action === "delete" ? { text: "" } : messageContent(p, actor);
-      await append(
+      if (content.doc)
+        await verifyInlineImages(
+          db,
+          w,
+          c,
+          who.id,
+          imageIds(content.doc),
+          part.audience === "internal" ? "internal" : "public",
+        );
+      const replacement = await append(
         db,
         w,
         c,
@@ -864,6 +894,7 @@ export async function command(
         part.audience,
         part.id,
       );
+      await recordImages(db, w, replacement.id, content.doc);
       await db.query(
         "DELETE FROM conversation_search_documents WHERE workspace_id=$1 AND part_id=$2",
         [w, part.id],

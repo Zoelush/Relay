@@ -16,8 +16,17 @@ import { pathToFileURL } from "node:url";
 import { WebSocketServer } from "ws";
 import { SignJWT, jwtVerify } from "jose";
 import { bridgeAgentRequest } from "../server/agent-bridge";
-import { attachmentScan, type AttachmentStorage } from "../server/attachments";
+import {
+  attachmentScan,
+  purgeInlineImages,
+  type AttachmentStorage,
+} from "../server/attachments";
 import { localDatabase } from "./local-db";
+import {
+  localAttachmentStorage,
+  LOCAL_STORAGE_PATH,
+  LOCAL_UPLOAD_LIMIT,
+} from "./local-storage";
 import { getIdentity, seedFoundation } from "../server/people";
 import { tenant, digest } from "../server/db";
 import { handleApi, type ApiEnvironment } from "../server/api";
@@ -41,6 +50,7 @@ export async function startLocalRelay(
     apiPort?: number;
     hostPort?: number;
     directory?: string;
+    /** Storage for uploads; defaults to in-memory loopback storage. */
     attachments?: AttachmentStorage;
     agentInbox?: boolean;
     inboxViews?: boolean;
@@ -52,6 +62,7 @@ export async function startLocalRelay(
     ),
     apiPort = options.apiPort ?? 8788,
     hostPort = options.hostPort ?? 8789;
+  const localFiles = localAttachmentStorage();
   const apiOrigin = `http://127.0.0.1:${apiPort}`,
     hostOrigin = `http://127.0.0.1:${hostPort}`,
     clients = new Set<RealtimeClient>(),
@@ -96,7 +107,7 @@ export async function startLocalRelay(
   const env: ApiEnvironment = {
     connect: db.connect,
     storageTransport: "local-pglite",
-    attachments: options.attachments,
+    attachments: options.attachments ?? localFiles.storage,
     sessionSecret: keys.session,
     identityMaster: keys.identity,
     bridgeSecret: keys.bridge,
@@ -243,6 +254,7 @@ export async function startLocalRelay(
         if (Date.now() - (lastPurge.get(w) ?? 0) > 86_400_000) {
           lastPurge.set(w, Date.now());
           await purgeDrafts(db.connect, w);
+          await purgeInlineImages(db.connect, env.attachments, w);
         }
         await drainConversationOutbox(db.connect, w, (ids) =>
           publishBatch(w, ids),
@@ -332,21 +344,29 @@ export async function startLocalRelay(
   const serve = (origin: string, handler: (r: Request) => Promise<Response>) =>
     createServer(async (req: IncomingMessage, res: ServerResponse) => {
       try {
-        let body = "";
+        // Raw bytes: uploads to local storage are binary and up to 10 MB; everything else 24 KB.
+        const limit = req.url?.startsWith(LOCAL_STORAGE_PATH)
+          ? LOCAL_UPLOAD_LIMIT
+          : 24000;
+        const chunks: Buffer[] = [];
+        let size = 0;
         for await (const chunk of req) {
-          body += chunk;
-          if (body.length > 24000) {
+          size += (chunk as Buffer).length;
+          if (size > limit) {
             res.writeHead(413);
             res.end();
             return;
           }
+          chunks.push(chunk as Buffer);
         }
+        const body = Buffer.concat(chunks);
         const request = new Request(origin + req.url, {
           method: req.method,
           headers: req.headers as HeadersInit,
-          ...(body ? { body } : {}),
+          ...(body.length ? { body } : {}),
         });
-        const r = await handler(request);
+        const r =
+          (await localFiles.handle(request)) ?? (await handler(request));
         res.writeHead(r.status, Object.fromEntries(r.headers));
         res.end(Buffer.from(await r.arrayBuffer()));
       } catch {
