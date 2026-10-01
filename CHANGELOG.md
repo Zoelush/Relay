@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased: knowledge step B2 (search and feedback)
+
+- **Help center search:** language-aware stemming, accents ignored and typo tolerance ("pasword" finds "password"), ranked by title, then text, then closeness, showing only what the visitor may read in their language. It's in every help center header and the homepage, and works without JavaScript.
+- **The messenger's Help space is live:** browse collections, search, and read articles inside the messenger.
+- **"Was this helpful?"** on every article, in the help center and the messenger, with a comment after "No".
+- **"Talk to us":** starts a conversation (in the messenger, or the portal for signed-in help center visitors) with the article attached for the teammate. The teammate also sees what the customer searched for. That context is teammate-only and built by the server.
+- **"Search before contacting" now works:** a signed, 30-minute search receipt bound to the customer is needed to start a conversation, or coming from an article.
+- **Reports:**
+  - searches are logged without email addresses or long numbers and kept for 180 days
+  - Knowledge shows searches with no results, searches nobody opened a result for, and the articles most often marked "not helpful"
+  - each article shows its votes and comments
+- **Migration** 0032 (`pg_trgm` and three tables) with rollback. **Tests:** `tests/help-search.test.ts` and `tests/browser/help-search.spec.ts`. Details: `docs/KNOWLEDGE_STEP4.md`.
+
 ## Unreleased: knowledge step B1 (the public help center)
 
 - **Public pages:** home, collection, section, article, a 404 page and a sign-in page, rendered on the server with no client script. Behind a new `help_center_v1` flag, off by default. Addresses are `/help/{workspace}/{center}/{language}/…`, or the root of a custom domain already mapped for the portal.

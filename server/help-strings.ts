@@ -20,6 +20,21 @@ export type HelpStrings = {
   signInLink: string;
   language: string;
   empty: string;
+  // Phase 07 B2: search and feedback.
+  search: string;
+  searchPlaceholder: string;
+  searchTitle: string;
+  results: (n: number, q: string) => string;
+  noResults: (q: string) => string;
+  helpful: string;
+  yes: string;
+  no: string;
+  thanks: string;
+  tellUs: string;
+  send: string;
+  sendAndTalk: string;
+  talkElsewhere: (brand: string) => string;
+  talkDefault: (title: string) => string;
 };
 const en: HelpStrings = {
   home: "Home",
@@ -40,6 +55,22 @@ const en: HelpStrings = {
   signInLink: "Go to your requests",
   language: "Language",
   empty: "Nothing here yet.",
+  search: "Search",
+  searchPlaceholder: "Search for answers",
+  searchTitle: "Search results",
+  results: (n, q) =>
+    n === 1 ? `1 result for “${q}”` : `${n} results for “${q}”`,
+  noResults: (q) => `No results for “${q}”. Try other words, or contact us.`,
+  helpful: "Was this helpful?",
+  yes: "Yes",
+  no: "No",
+  thanks: "Thanks for letting us know.",
+  tellUs: "What were you looking for? (optional)",
+  send: "Send",
+  sendAndTalk: "Send and talk to us",
+  talkElsewhere: (b) =>
+    `To talk to us, open the chat on ${b}'s website or app, or sign in to see your requests.`,
+  talkDefault: (t) => `I read “${t}” and still need help.`,
 };
 const fr: HelpStrings = {
   home: "Accueil",
@@ -60,6 +91,23 @@ const fr: HelpStrings = {
   signInLink: "Aller à vos demandes",
   language: "Langue",
   empty: "Rien pour le moment.",
+  search: "Rechercher",
+  searchPlaceholder: "Rechercher une réponse",
+  searchTitle: "Résultats de recherche",
+  results: (n, q) =>
+    n <= 1 ? `${n} résultat pour « ${q} »` : `${n} résultats pour « ${q} »`,
+  noResults: (q) =>
+    `Aucun résultat pour « ${q} ». Essayez d'autres mots ou contactez-nous.`,
+  helpful: "Cet article vous a-t-il aidé ?",
+  yes: "Oui",
+  no: "Non",
+  thanks: "Merci pour votre retour.",
+  tellUs: "Que cherchiez-vous ? (facultatif)",
+  send: "Envoyer",
+  sendAndTalk: "Envoyer et nous contacter",
+  talkElsewhere: (b) =>
+    `Pour nous parler, ouvrez la messagerie sur le site ou l'application de ${b}, ou connectez-vous pour voir vos demandes.`,
+  talkDefault: (t) => `J'ai lu « ${t} » et j'ai encore besoin d'aide.`,
 };
 const de: HelpStrings = {
   home: "Startseite",
@@ -80,6 +128,23 @@ const de: HelpStrings = {
   signInLink: "Zu Ihren Anfragen",
   language: "Sprache",
   empty: "Noch nichts hier.",
+  search: "Suchen",
+  searchPlaceholder: "Nach Antworten suchen",
+  searchTitle: "Suchergebnisse",
+  results: (n, q) =>
+    n === 1 ? `1 Ergebnis für „${q}“` : `${n} Ergebnisse für „${q}“`,
+  noResults: (q) =>
+    `Keine Ergebnisse für „${q}“. Versuchen Sie andere Wörter oder kontaktieren Sie uns.`,
+  helpful: "War das hilfreich?",
+  yes: "Ja",
+  no: "Nein",
+  thanks: "Danke für Ihr Feedback.",
+  tellUs: "Wonach haben Sie gesucht? (optional)",
+  send: "Senden",
+  sendAndTalk: "Senden und Kontakt aufnehmen",
+  talkElsewhere: (b) =>
+    `Um mit uns zu sprechen, öffnen Sie den Chat auf der Website oder in der App von ${b}, oder melden Sie sich an, um Ihre Anfragen zu sehen.`,
+  talkDefault: (t) => `Ich habe „${t}“ gelesen und brauche noch Hilfe.`,
 };
 const es: HelpStrings = {
   home: "Inicio",
@@ -100,6 +165,23 @@ const es: HelpStrings = {
   signInLink: "Ir a tus solicitudes",
   language: "Idioma",
   empty: "Todavía no hay nada aquí.",
+  search: "Buscar",
+  searchPlaceholder: "Buscar respuestas",
+  searchTitle: "Resultados de búsqueda",
+  results: (n, q) =>
+    n === 1 ? `1 resultado para «${q}»` : `${n} resultados para «${q}»`,
+  noResults: (q) =>
+    `No hay resultados para «${q}». Prueba con otras palabras o contáctanos.`,
+  helpful: "¿Te ha resultado útil?",
+  yes: "Sí",
+  no: "No",
+  thanks: "Gracias por tu opinión.",
+  tellUs: "¿Qué estabas buscando? (opcional)",
+  send: "Enviar",
+  sendAndTalk: "Enviar y hablar con nosotros",
+  talkElsewhere: (b) =>
+    `Para hablar con nosotros, abre el chat en el sitio web o la app de ${b}, o inicia sesión para ver tus solicitudes.`,
+  talkDefault: (t) => `Leí «${t}» y todavía necesito ayuda.`,
 };
 const ar: HelpStrings = {
   home: "الرئيسية",
@@ -120,6 +202,21 @@ const ar: HelpStrings = {
   signInLink: "الانتقال إلى طلباتك",
   language: "اللغة",
   empty: "لا يوجد شيء هنا بعد.",
+  search: "بحث",
+  searchPlaceholder: "ابحث عن إجابات",
+  searchTitle: "نتائج البحث",
+  results: (n, q) => `${n} نتيجة لـ "${q}"`,
+  noResults: (q) => `لا توجد نتائج لـ "${q}". جرّب كلمات أخرى أو تواصل معنا.`,
+  helpful: "هل كان هذا مفيدًا؟",
+  yes: "نعم",
+  no: "لا",
+  thanks: "شكرًا لملاحظاتك.",
+  tellUs: "ما الذي كنت تبحث عنه؟ (اختياري)",
+  send: "إرسال",
+  sendAndTalk: "إرسال والتحدث إلينا",
+  talkElsewhere: (b) =>
+    `للتحدث إلينا، افتح المحادثة في موقع ${b} أو تطبيقه، أو سجّل الدخول لرؤية طلباتك.`,
+  talkDefault: (t) => `قرأت "${t}" وما زلت بحاجة إلى مساعدة.`,
 };
 const STRINGS: Record<string, HelpStrings> = { en, fr, de, es, ar };
 

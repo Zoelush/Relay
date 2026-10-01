@@ -305,6 +305,7 @@ function CenterEditor({
           ).then((ok) => ok && onChanged())
         }
       />
+      <Insights centerId={center.id} />
       <section className="pg-help-tree" aria-label="Collections">
         <header>
           <h3>Collections</h3>
@@ -852,6 +853,97 @@ function CenterSettings({
       >
         Save settings
       </button>
+    </section>
+  );
+}
+
+type InsightRow = { query: string; searches: number; last: string };
+type InsightData = {
+  days: number;
+  totals: { searches: number; empty: number; opened: number };
+  noResults: InsightRow[];
+  noClicks: InsightRow[];
+  unhelpful: {
+    id: string;
+    title: string;
+    helpful: number;
+    unhelpful: number;
+  }[];
+};
+/**
+ * What readers couldn't find (phase 07, B2): searches with no results, searches whose results
+ * nobody opened, and the articles most often marked "not helpful".
+ */
+function Insights({ centerId }: { centerId: string }) {
+  const [data, setData] = useState<InsightData | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    api<InsightData>(
+      "help-insights?" + new URLSearchParams({ centerId, days: "30" }),
+    )
+      .then((d) => live && setData(d))
+      .catch(
+        (e) => live && setError(message(e, "The report could not be loaded.")),
+      );
+    return () => {
+      live = false;
+    };
+  }, [centerId]);
+  const table = (rows: InsightRow[], label: string) =>
+    rows.length ? (
+      <table className="pg-help-insights-table" aria-label={label}>
+        <thead>
+          <tr>
+            <th scope="col">Search</th>
+            <th scope="col">Times</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.query}>
+              <td>{r.query}</td>
+              <td>{r.searches}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    ) : (
+      <p className="pg-muted">None.</p>
+    );
+  return (
+    <section className="pg-help-insights" aria-label="Search and feedback">
+      <h3>Search and feedback, last {data?.days ?? 30} days</h3>
+      {error && <p role="alert">{error}</p>}
+      {data && (
+        <>
+          <p className="pg-muted">
+            {data.totals.searches} searches · {data.totals.empty} with no
+            results · {data.totals.opened} led to an article
+          </p>
+          <h4>Searches with no results</h4>
+          {table(data.noResults, "Searches with no results")}
+          <h4>Searches where no result was opened</h4>
+          {table(data.noClicks, "Searches where no result was opened")}
+          <h4>Most often “not helpful”</h4>
+          {data.unhelpful.length ? (
+            <ul>
+              {data.unhelpful.map((a) => (
+                <li key={a.id}>
+                  {a.title || "Untitled"}: {a.unhelpful} not helpful,{" "}
+                  {a.helpful} helpful
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="pg-muted">None.</p>
+          )}
+          <p className="pg-muted">
+            Searches are kept for 180 days, without email addresses or long
+            numbers.
+          </p>
+        </>
+      )}
     </section>
   );
 }

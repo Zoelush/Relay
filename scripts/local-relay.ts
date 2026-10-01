@@ -52,6 +52,7 @@ import {
 } from "../server/outbox";
 import { command, wakeConversation } from "../server/conversations";
 import { purgeDrafts } from "../server/drafts";
+import { purgeHelpSearches, reindexKnowledge } from "../server/help-search";
 
 export async function startLocalRelay(
   options: {
@@ -405,6 +406,8 @@ export async function startLocalRelay(
         [w, options.helpCenter !== false],
       );
       await seedKnowledge(sql, w);
+      // Seeded articles bypass publishing, so they are indexed for search here.
+      await reindexKnowledge(sql, w);
       if (options.tickets === false)
         await sql.query(
           "UPDATE workspace_features SET enabled=false WHERE workspace_id=$1 AND name='tickets_v1'",
@@ -568,6 +571,7 @@ export async function startLocalRelay(
         if (Date.now() - (lastPurge.get(w) ?? 0) > 86_400_000) {
           lastPurge.set(w, Date.now());
           await purgeDrafts(db.connect, w);
+          await purgeHelpSearches(db.connect, w);
           await purgeInlineImages(db.connect, env.attachments, w);
         }
         await drainConversationOutbox(db.connect, w, (ids) =>
@@ -713,7 +717,7 @@ export async function startLocalRelay(
         ? handleApi(req, env)
         : messengerAsset(req, db.connect, (r) =>
             portalAsset(r, db.connect, (x) =>
-              helpSite(x, db.connect, apiOrigin, staticResponse),
+              helpSite(x, db.connect, apiOrigin, staticResponse, env.notify),
             ),
           ),
     );

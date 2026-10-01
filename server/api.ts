@@ -76,6 +76,17 @@ import {
   listHelpCenters,
   readHelpCenter,
 } from "./help-centers";
+import {
+  helpAvailable,
+  helpContextArticle,
+  messengerArticle,
+  messengerCollection,
+  messengerFeedback,
+  messengerHelp,
+  messengerSearch,
+  type MessengerScope,
+} from "./help-messenger";
+import { helpInsights, linkFeedback, verifyReceipt } from "./help-search";
 import { bodyLimit } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -949,7 +960,8 @@ export async function handleApi(
               ),
               replyTime: await expectedReply(db, p.workspaceId, b.id),
               capabilities: {
-                help: false,
+                // The brand's help center in the messenger's Help space (phase 07, B2).
+                help: await helpAvailable(db, p.workspaceId, b.id),
                 // The portal is for verified customers; the messenger links to it for them.
                 tickets:
                   verified &&
@@ -1019,6 +1031,7 @@ export async function handleApi(
             "/v1/agent/knowledge-record",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
+            "/v1/agent/help-insights",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -1102,6 +1115,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/next" ||
           url.pathname.startsWith("/v1/agent/knowledge") ||
           url.pathname.startsWith("/v1/agent/help-center") ||
+          url.pathname === "/v1/agent/help-insights" ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -1532,6 +1546,18 @@ export async function handleApi(
             listHelpCenters(db, workspace, principal),
           ),
         );
+      if (url.pathname === "/v1/agent/help-insights")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            helpInsights(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("centerId") ?? "",
+              Number(url.searchParams.get("days") ?? 30),
+            ),
+          ),
+        );
       if (url.pathname === "/v1/agent/help-center")
         return json(
           await tenant(env.connect, workspace, (db) =>
@@ -1787,7 +1813,44 @@ export async function handleApi(
           if (origin !== url.origin) allowedOrigin(b, origin);
           corsOrigin = origin;
         }
-        return command(
+        // Help context is never taken from the client: it is rebuilt from a verified search
+        // receipt and an article this customer may read (phase 07, B2).
+        const started = p as Command & {
+          searchReceipt?: unknown;
+          helpArticleId?: unknown;
+          helpFeedbackId?: unknown;
+        };
+        delete started.helpContext;
+        if (started.action === "start") {
+          const scope = helpScope(s);
+          const searched = await verifyReceipt(
+            env.sessionSecret,
+            started.searchReceipt,
+            {
+              workspace: s.workspace,
+              brand: s.brandId,
+              identity: s.identityId,
+            },
+          );
+          const article = await helpContextArticle(
+            db,
+            scope,
+            started.helpArticleId,
+          );
+          if (searched || article)
+            started.helpContext = {
+              ...(searched ? { searched } : {}),
+              ...(article
+                ? {
+                    article,
+                    ...(started.helpFeedbackId
+                      ? { feedback: "not_helpful" as const }
+                      : {}),
+                  }
+                : {}),
+            };
+        }
+        const result = await command(
           db,
           s.workspace,
           {
@@ -1798,8 +1861,21 @@ export async function handleApi(
             originTimezone: s.originTimezone,
           },
           req.headers.get("idempotency-key") ?? "",
-          p as Command,
+          started,
         );
+        if (
+          started.action === "start" &&
+          typeof started.helpFeedbackId === "string" &&
+          "conversationId" in result
+        )
+          await linkFeedback(
+            db,
+            s.workspace,
+            started.helpFeedbackId,
+            String(result.conversationId),
+            s.identityId,
+          );
+        return result;
       });
       await env.notify?.(
         s.workspace,
@@ -1848,6 +1924,36 @@ export async function handleApi(
         ),
       );
       return json(await env.attachments.signDownload(key, preview));
+    }
+    if (url.pathname.startsWith("/v1/messenger/help") && req.method === "GET") {
+      const scope = helpScope(s);
+      const route = url.pathname.slice("/v1/messenger/help".length);
+      return json(
+        await tenant(env.connect, s.workspace, async (db) => {
+          if (route === "") return messengerHelp(db, scope);
+          if (route === "/collection")
+            return messengerCollection(
+              db,
+              scope,
+              url.searchParams.get("id") ?? "",
+            );
+          if (route === "/article")
+            return messengerArticle(
+              db,
+              scope,
+              url.searchParams.get("id") ?? "",
+              url.searchParams.get("query"),
+            );
+          if (route === "/search")
+            return messengerSearch(
+              db,
+              scope,
+              url.searchParams.get("q") ?? "",
+              env.sessionSecret,
+            );
+          throw new DomainError("NOT_FOUND", "Route not found.", 404);
+        }),
+      );
     }
     if (url.pathname === "/v1/messenger/unread" && req.method === "GET")
       return json(await unreadSnapshot(env, s));
@@ -1904,6 +2010,14 @@ export async function handleApi(
     if (req.method === "POST") {
       const p = await readBody(req),
         key = req.headers.get("idempotency-key") ?? "";
+      if (url.pathname === "/v1/messenger/help/feedback")
+        return json(
+          await tenant(env.connect, s.workspace, (db) =>
+            once(db, s.workspace, "help-feedback:" + s.identityId, key, p, () =>
+              messengerFeedback(db, helpScope(s), p),
+            ),
+          ),
+        );
       if (url.pathname === "/v1/messenger/attachment/prepare") {
         assert(
           env.attachments,
@@ -2031,3 +2145,12 @@ export async function handleApi(
     );
   }
 }
+
+/** The messenger session as a help center visitor (phase 07, B2). */
+const helpScope = (s: Session): MessengerScope => ({
+  workspace: s.workspace,
+  brand: s.brandId,
+  identity: s.identityId,
+  verified: s.verified,
+  locale: s.locale ?? "en",
+});

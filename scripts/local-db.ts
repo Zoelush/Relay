@@ -1,4 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
+// Trigram matching for help center search (phase 07, B2); hosted PostgreSQL has it built in.
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { readFile, readdir, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import type { Connect, Sql } from "../server/db";
@@ -13,7 +15,7 @@ type Timing = {
 
 export async function localDatabase(directory?: string) {
   if (directory) await mkdir(directory, { recursive: true });
-  const pg = new PGlite(directory);
+  const pg = new PGlite({ dataDir: directory, extensions: { pg_trgm } });
   await pg.exec(
     "CREATE TABLE IF NOT EXISTS relay_schema_migrations(workspace_id text NOT NULL,name text NOT NULL,checksum text NOT NULL,PRIMARY KEY(workspace_id,name));ALTER TABLE relay_schema_migrations ENABLE ROW LEVEL SECURITY;ALTER TABLE relay_schema_migrations FORCE ROW LEVEL SECURITY;DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='relay_schema_migrations' AND policyname='tenant') THEN CREATE POLICY tenant ON relay_schema_migrations USING(workspace_id=current_setting('relay.workspace_id',true)) WITH CHECK(workspace_id=current_setting('relay.workspace_id',true)); END IF; END $$;",
   );

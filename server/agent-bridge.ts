@@ -52,6 +52,7 @@ const routes = {
     "knowledge-record",
     "help-centers",
     "help-center",
+    "help-insights",
   ]),
   POST: new Set([
     "command",

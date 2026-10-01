@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { language } from "./strings";
+import { HelpSpace } from "./help";
 import { RichText } from "../lib/rich-view";
 import "./frame.css";
 
@@ -101,6 +102,13 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       boot.brand.directConversation ? "messages" : "home",
     ),
     [composing, setComposing] = useState(!!boot.brand.directConversation),
+    // Phase 07 B2: the last search's signed receipt ("search before contacting"), and the
+    // article a "Talk to us" came from.
+    [receipt, setReceipt] = useState<string | null>(null),
+    [helpTalk, setHelpTalk] = useState<{
+      articleId: string;
+      feedbackId: string;
+    } | null>(null),
     [conversations, setConversations] = useState<Conversation[]>([]),
     [selected, setSelected] = useState<string | null>(null),
     [parts, setParts] = useState<Part[]>([]),
@@ -463,6 +471,13 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
           action: selected ? "reply" : "start",
           conversationId: selected ?? undefined,
           text,
+          ...(selected
+            ? {}
+            : {
+                searchReceipt: receipt ?? undefined,
+                helpArticleId: helpTalk?.articleId,
+                helpFeedbackId: helpTalk?.feedbackId,
+              }),
         },
         key: crypto.randomUUID(),
       };
@@ -475,6 +490,7 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       pending.current = null;
       setCanRetry(false);
       setDraft("");
+      setHelpTalk(null);
       if (result.conversationId !== selected) select(result.conversationId);
       await refreshList();
     } catch (e) {
@@ -524,7 +540,7 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
   const superseded = new Set(parts.map((p) => p.supersedes_id).filter(Boolean));
   const mayStart =
     (boot.brand.allowVisitors !== false || boot.session.verified) &&
-    !boot.brand.requireSearch;
+    (!boot.brand.requireSearch || !!receipt || !!helpTalk);
   const rows = (limit = 100) => (
     <div className="conversation-list">
       {conversations.slice(0, limit).map((c) => (
@@ -907,7 +923,22 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
         {space === "help" && (
           <div className="help">
             <h1>{t.help}</h1>
-            <p>{t.unavailable}</p>
+            {boot.capabilities.help ? (
+              <HelpSpace
+                request={request}
+                t={t}
+                onSearched={setReceipt}
+                onTalk={({ comment, ...context }) => {
+                  setHelpTalk(context);
+                  // What they told us they were looking for starts their message.
+                  if (comment) setDraft(comment);
+                  setSpace("messages");
+                  select(null);
+                }}
+              />
+            ) : (
+              <p>{t.unavailable}</p>
+            )}
             {start()}
           </div>
         )}

@@ -5,15 +5,29 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { tenant, type Connect, type Sql } from "./db";
 import { currentSession } from "./portal";
-import {
-  DEFAULT_THEME,
-  resolvePath,
-  type LayoutBlock,
-  type Theme,
-} from "./help-centers";
+import { DEFAULT_THEME, resolvePath, type Theme } from "./help-centers";
 import { helpPath, resolveLocale } from "../lib/help-paths";
 import { plainText, type RichBlock, type RichDoc } from "../lib/rich-doc";
 import { ArticleText } from "../lib/rich-view";
+import { DomainError } from "./db";
+import { command } from "./conversations";
+import {
+  linkFeedback,
+  logSearch,
+  openedResult,
+  recordFeedback,
+  searchHelp,
+} from "./help-search";
+import {
+  centerBy,
+  chainOf,
+  enabled,
+  first,
+  loadCenter,
+  type Center,
+  type CenterData,
+  type Node,
+} from "./help-content";
 import { HELP_CSS, themeCss } from "./help-style";
 import {
   helpStrings,
@@ -43,36 +57,6 @@ import {
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
 const PUBLIC_CACHE = "public, max-age=60, stale-while-revalidate=300";
 
-type Center = {
-  id: string;
-  brand_id: string;
-  brand_name: string;
-  name: string;
-  slug: string;
-  default_locale: string;
-  locales: string[];
-  theme: Partial<Theme>;
-  layout: LayoutBlock[];
-  noindex: boolean;
-  access: "public" | "signed_in";
-};
-type Node = {
-  id: string;
-  kind: "collection" | "section";
-  parent_id: string | null;
-  names: Record<string, { name: string; description: string; slug: string }>;
-  articles: string[];
-};
-type Article = {
-  id: string;
-  audience: "public" | "signed_in";
-  faq: boolean;
-  locales: Record<
-    string,
-    { title: string; slug: string; publishedAt: string; text: string }
-  >;
-};
-/** A page's address in each language it really exists in, for hreflang. */
 type Alternates = { locale: string; path: string }[];
 
 /** How addresses look on this host. */
@@ -106,6 +90,8 @@ export async function helpSite(
   connect: Connect,
   ownOrigin: string,
   load: (request: Request) => Promise<Response>,
+  /** Tells the inbox about a conversation started from "Talk to us" (phase 07, B2). */
+  notify?: (workspace: string, conversationId: string) => unknown,
 ): Promise<Response> {
   const url = new URL(request.url);
   let site: Site | null = null;
@@ -127,7 +113,7 @@ export async function helpSite(
         return load(request);
       site = customSite(mapped.workspace_id, url.origin);
       rest = url.pathname;
-      return serve(request, connect, site, rest, mapped.brand_id, load);
+      return serve(request, connect, site, rest, mapped.brand_id, load, notify);
     }
   }
   const hosted = url.pathname.match(/^\/help\/([^/]+)(\/.*)?$/);
@@ -135,7 +121,7 @@ export async function helpSite(
   if (!ID.test(hosted[1])) return plainNotFound();
   site = hostedSite(hosted[1], url.origin);
   rest = hosted[2] ?? "/";
-  return serve(request, connect, site, rest, null, load);
+  return serve(request, connect, site, rest, null, load, notify);
 }
 
 async function serve(
@@ -145,12 +131,17 @@ async function serve(
   rest: string,
   brand: string | null,
   load: (request: Request) => Promise<Response>,
+  notify?: (workspace: string, conversationId: string) => unknown,
 ): Promise<Response> {
-  if (request.method !== "GET" && request.method !== "HEAD")
+  const feedbackPost =
+    request.method === "POST" && /\/feedback$/.test(rest.replace(/\/+$/, ""));
+  if (request.method !== "GET" && request.method !== "HEAD" && !feedbackPost)
     return new Response("Method not allowed", {
       status: 405,
       headers: { allow: "GET, HEAD" },
     });
+  const url = new URL(request.url);
+  let started: string | null = null;
   const response = await tenant(connect, site.workspace, async (db) => {
     if (!(await enabled(db, site.workspace))) return plainNotFound();
     const segments = rest.split("/").filter(Boolean);
@@ -178,6 +169,83 @@ async function serve(
           "cache-control": "no-store",
         },
       });
+    // Search: {center}/{locale}/search?q=…, and …/search/open?r=…&a=… when a result is opened.
+    if (center && segments[2] === "search" && segments.length <= 4) {
+      const { locale, chain } = resolveLocale(segments[1], {
+        defaultLocale: center.default_locale,
+        locales: center.locales,
+      });
+      if (locale !== segments[1])
+        return new Response(null, {
+          status: 301,
+          headers: {
+            location:
+              site.url([center.slug, locale, ...segments.slice(2)].join("/")) +
+              url.search,
+          },
+        });
+      const session = await currentSession(
+        db,
+        { workspace: site.workspace, brand: center.brand_id },
+        request.headers.get("cookie"),
+      );
+      const page = new Page(
+        db,
+        site,
+        center,
+        await loadCenter(db, site.workspace, center),
+        !!session,
+        url,
+      );
+      if (center.access === "signed_in" && !session) return page.signIn(locale);
+      if (segments[3] === "open") return page.openResult(locale, chain);
+      if (segments[3]) return page.notFound(locale);
+      return page.search(locale, chain);
+    }
+    // Feedback: POST {center}/{locale}/articles/{slug}/feedback.
+    if (feedbackPost) {
+      if (!center || segments.length !== 5 || segments[2] !== "articles")
+        return plainNotFound();
+      const origin = request.headers.get("origin");
+      if (
+        (origin && origin !== site.origin) ||
+        request.headers.get("sec-fetch-site") === "cross-site"
+      )
+        return new Response("Cross-site request refused", { status: 403 });
+      const target = await resolvePath(
+        db,
+        site.workspace,
+        segments.slice(0, 4).join("/"),
+      );
+      if (target.type !== "article") return plainNotFound();
+      const session = await currentSession(
+        db,
+        { workspace: site.workspace, brand: center.brand_id },
+        request.headers.get("cookie"),
+      );
+      if (
+        (center.access === "signed_in" || target.audience === "signed_in") &&
+        !session
+      )
+        return plainNotFound();
+      const body = (await request.text()).slice(0, 4000);
+      const page = new Page(
+        db,
+        site,
+        center,
+        await loadCenter(db, site.workspace, center),
+        !!session,
+        url,
+      );
+      const result = await page.feedback(
+        target,
+        new URLSearchParams(body),
+        site.url(segments.slice(0, 4).join("/")),
+        session,
+      );
+      started = result.conversationId;
+      return result.response;
+    }
     const resolved = await resolvePath(db, site.workspace, segments.join("/"));
     if (resolved.type === "redirect")
       return new Response(null, {
@@ -194,7 +262,7 @@ async function serve(
       request.headers.get("cookie"),
     );
     const data = await loadCenter(db, site.workspace, center);
-    const page = new Page(db, site, center, data, !!session);
+    const page = new Page(db, site, center, data, !!session, url);
     if (resolved.type === "not_found") return page.notFound(segments[1]);
     if (center.access === "signed_in" && !session)
       return page.signIn(resolved.locale);
@@ -206,33 +274,8 @@ async function serve(
     return page.article(resolved.id, resolved.locale, resolved.chain);
   });
   if (!response) return load(new Request(request));
+  if (started) await notify?.(site.workspace, started);
   return conditional(request, response);
-}
-
-async function enabled(db: Sql, w: string) {
-  return (
-    (
-      await db.query<{ n: number }>(
-        "SELECT count(*)::int AS n FROM workspace_features WHERE workspace_id=$1 AND name IN ('knowledge_v1','help_center_v1') AND enabled",
-        [w],
-      )
-    ).rows[0].n === 2
-  );
-}
-async function centerBy(
-  db: Sql,
-  w: string,
-  column: "slug" | "brand_id",
-  value: string,
-) {
-  return (
-    await db.query<Center>(
-      `SELECT c.id,c.brand_id,b.name AS brand_name,c.name,c.slug,c.default_locale,c.locales,c.theme,c.layout,c.noindex,c.access
-      FROM help_centers c JOIN brands b ON b.workspace_id=c.workspace_id AND b.id=c.brand_id
-      WHERE c.workspace_id=$1 AND c.${column}=$2`,
-      [w, value],
-    )
-  ).rows[0];
 }
 
 /** The best supported language for the visitor (Accept-Language, by weight), else the default. */
@@ -264,86 +307,6 @@ export function negotiate(
   return center.default_locale;
 }
 
-/** Everything visible in a help center: live collections and sections, and placed articles. */
-async function loadCenter(db: Sql, w: string, c: Center) {
-  const nodes = (
-    await db.query<{
-      id: string;
-      kind: "collection" | "section";
-      parent_id: string | null;
-      names: Node["names"] | null;
-      articles: string[] | null;
-    }>(
-      `SELECT n.id,n.kind,n.parent_id,
-        (SELECT json_object_agg(l.locale,json_build_object('name',l.name,'description',l.description,'slug',l.slug))
-          FROM help_node_locales l WHERE l.workspace_id=n.workspace_id AND l.node_id=n.id) AS names,
-        (SELECT array_agg(p.record_id ORDER BY p.position,p.record_id) FROM help_placements p WHERE p.workspace_id=n.workspace_id AND p.node_id=n.id) AS articles
-      FROM help_nodes n LEFT JOIN help_nodes parent ON parent.workspace_id=n.workspace_id AND parent.id=n.parent_id
-      WHERE n.workspace_id=$1 AND n.center_id=$2 AND NOT n.archived AND NOT COALESCE(parent.archived,false)
-      ORDER BY n.position,n.id`,
-      [w, c.id],
-    )
-  ).rows.map((n): Node => ({
-    ...n,
-    names: n.names ?? {},
-    articles: n.articles ?? [],
-  }));
-  const ids = [...new Set(nodes.flatMap((n) => n.articles))];
-  const featured = c.layout.flatMap((b) =>
-    b.type === "featured" ? b.recordIds : [],
-  );
-  const rows = (
-    await db.query<{
-      id: string;
-      audience: "public" | "signed_in";
-      faq: boolean;
-      locale: string;
-      title: string;
-      slug: string;
-      published_at: string;
-      text: string;
-    }>(
-      `SELECT r.id,r.audience,r.faq,l.locale,l.published_title AS title,l.slug,l.published_at,left(COALESCE(l.published_text,''),400) AS text
-      FROM knowledge_records r JOIN knowledge_locales l ON l.workspace_id=r.workspace_id AND l.record_id=r.id
-      WHERE r.workspace_id=$1 AND r.id=ANY($2::text[]) AND r.source='article' AND r.for_help_center
-        AND r.audience IN ('public','signed_in') AND l.status='published' AND l.slug IS NOT NULL AND l.locale=ANY($3::text[])`,
-      [w, [...new Set([...ids, ...featured])], c.locales],
-    )
-  ).rows;
-  const articles = new Map<string, Article>();
-  for (const r of rows) {
-    const a = articles.get(r.id) ?? {
-      id: r.id,
-      audience: r.audience,
-      faq: r.faq,
-      locales: {},
-    };
-    a.locales[r.locale] = {
-      title: r.title,
-      slug: r.slug,
-      publishedAt: new Date(r.published_at).toISOString(),
-      text: r.text,
-    };
-    articles.set(r.id, a);
-  }
-  // Featured articles show only if they are placed somewhere live.
-  const placed = new Set(ids);
-  for (const id of featured) if (!placed.has(id)) articles.delete(id);
-  return { nodes, articles, featured };
-}
-type CenterData = Awaited<ReturnType<typeof loadCenter>>;
-
-const chainOf = (c: Center, locale: string) =>
-  resolveLocale(locale, { defaultLocale: c.default_locale, locales: c.locales })
-    .chain;
-const first = <T,>(chain: string[], pick: (l: string) => T | undefined) => {
-  for (const l of chain) {
-    const v = pick(l);
-    if (v) return { locale: l, value: v };
-  }
-  return null;
-};
-
 class Page {
   constructor(
     private db: Sql,
@@ -351,7 +314,31 @@ class Page {
     private center: Center,
     private data: CenterData,
     private signedIn: boolean,
+    private url: URL,
   ) {}
+  private searchUrl = (locale: string) =>
+    this.site.url(`${this.center.slug}/${locale}/search`);
+  private searchForm(locale: string, label: string, value = "") {
+    const t = helpStrings(locale);
+    return (
+      <form
+        role="search"
+        className="search"
+        action={this.searchUrl(locale)}
+        method="get"
+      >
+        <input
+          type="search"
+          name="q"
+          aria-label={label}
+          placeholder={t.searchPlaceholder}
+          defaultValue={value}
+          maxLength={200}
+        />
+        <button type="submit">{t.search}</button>
+      </form>
+    );
+  }
   private theme = (): Theme => ({ ...DEFAULT_THEME, ...this.center.theme });
   private abs = (path: string) => this.site.origin + path;
 
@@ -460,7 +447,12 @@ class Page {
             <a href={this.portalUrl()}>{t.contactLink}</a>
           </section>
         );
-      // TODO(phase 07 B2): the search block.
+      if (b.type === "search")
+        return (
+          <section key="search" className="search-block">
+            {this.searchForm(locale, t.searchPlaceholder)}
+          </section>
+        );
       return null;
     });
     if (!collections.length && !blocks.some(Boolean))
@@ -672,8 +664,258 @@ class Page {
             fallback={body.published_text}
             link={(recordId) => this.articleUrl(recordId, locale, chain)}
           />
+          {this.feedbackForm(
+            locale,
+            this.site.url(
+              helpPath.article(this.center.slug, locale, shown.value.slug),
+            ),
+          )}
         </article>
       ),
+    });
+  }
+
+  /** "Was this helpful?", the comment after a "No", or the thanks, depending on the URL. */
+  private feedbackForm(locale: string, articlePath: string) {
+    const t = helpStrings(locale);
+    const state = this.url.searchParams.get("feedback") ?? "";
+    const action = articlePath + "/feedback";
+    let content: ReactNode;
+    if (state === "thanks" || state === "talk")
+      content = (
+        <p role="status">
+          {t.thanks}
+          {state === "talk" && (
+            <>
+              {" "}
+              {t.talkElsewhere(this.center.brand_name)}{" "}
+              <a href={this.portalUrl()}>{t.requests}</a>
+            </>
+          )}
+        </p>
+      );
+    else if (/^[0-9a-f-]{36}$/.test(state))
+      content = (
+        <form method="post" action={action}>
+          <input type="hidden" name="feedback" value={state} />
+          <label>
+            {t.tellUs}
+            <textarea name="comment" rows={3} maxLength={1000} />
+          </label>
+          <p className="buttons">
+            <button type="submit" name="action" value="send">
+              {t.send}
+            </button>
+            <button type="submit" name="action" value="talk">
+              {t.sendAndTalk}
+            </button>
+          </p>
+        </form>
+      );
+    else
+      content = (
+        <form method="post" action={action} className="vote">
+          <span>{t.helpful}</span>
+          <button type="submit" name="helpful" value="yes">
+            {t.yes}
+          </button>
+          <button type="submit" name="helpful" value="no">
+            {t.no}
+          </button>
+        </form>
+      );
+    return (
+      <section id="feedback" className="feedback" aria-label={t.helpful}>
+        {content}
+      </section>
+    );
+  }
+
+  /**
+   * A feedback form's POST. A vote; then, after a "No", an optional comment and "Talk to us": a
+   * signed-in customer starts a conversation (the article and their comment go to the teammate)
+   * and lands on it in the portal. Anyone else is told how to reach the team.
+   */
+  async feedback(
+    target: { id: string; locale: string; chain: string[] },
+    form: URLSearchParams,
+    articlePath: string,
+    session: { identityId: string } | null,
+  ): Promise<{ response: Response; conversationId: string | null }> {
+    const back = (state: string) => ({
+      response: new Response(null, {
+        status: 303,
+        headers: {
+          location: `${articlePath}?feedback=${state}#feedback`,
+          "cache-control": "no-store",
+        },
+      }),
+      conversationId: null,
+    });
+    const shown = this.shown(target.id, target.chain);
+    if (!shown) return { response: plainNotFound(), conversationId: null };
+    const w = this.site.workspace;
+    const helpful = form.get("helpful");
+    if (helpful === "yes" || helpful === "no") {
+      const { id } = await recordFeedback(this.db, w, {
+        recordId: target.id,
+        locale: shown.locale,
+        surface: "help_center",
+        helpful: helpful === "yes",
+        identityId: session?.identityId ?? null,
+      });
+      return back(helpful === "yes" ? "thanks" : id);
+    }
+    const feedbackId = form.get("feedback") ?? "";
+    if (!/^[0-9a-f-]{36}$/.test(feedbackId)) return back("thanks");
+    const comment = (form.get("comment") ?? "").trim().slice(0, 1000);
+    if (comment)
+      await recordFeedback(this.db, w, {
+        recordId: target.id,
+        locale: shown.locale,
+        surface: "help_center",
+        feedbackId,
+        comment,
+      }).catch((e) => {
+        // An old or already-commented vote: keep the visitor's flow going.
+        if (!(e instanceof DomainError)) throw e;
+      });
+    if (form.get("action") !== "talk") return back("thanks");
+    if (!session) return back("talk");
+    const t = helpStrings(target.locale);
+    // The saved comment, not the form's: a repeated post (a double click) is the same request,
+    // so the conversation is started once.
+    const saved = (
+      await this.db.query<{ comment: string | null }>(
+        "SELECT comment FROM knowledge_feedback WHERE workspace_id=$1 AND id=$2 AND record_id=$3",
+        [w, feedbackId, target.id],
+      )
+    ).rows[0];
+    if (!saved) return back("thanks");
+    const result = (await command(
+      this.db,
+      w,
+      {
+        type: "contact",
+        identityId: session.identityId,
+        brandId: this.center.brand_id,
+        verified: true,
+      },
+      "help-talk-" + feedbackId,
+      {
+        action: "start",
+        text: saved.comment || t.talkDefault(shown.value.title),
+        helpContext: {
+          article: { id: target.id, title: shown.value.title },
+          feedback: "not_helpful",
+        },
+      },
+    )) as { conversationId: string };
+    await linkFeedback(
+      this.db,
+      w,
+      feedbackId,
+      result.conversationId,
+      session.identityId,
+    );
+    return {
+      response: new Response(null, {
+        status: 303,
+        headers: {
+          location: `${this.portalUrl()}?request=${encodeURIComponent(result.conversationId)}`,
+          "cache-control": "no-store",
+        },
+      }),
+      conversationId: result.conversationId,
+    };
+  }
+
+  /** Search results: logged (without personal details) so the team learns what's missing. */
+  async search(locale: string, chain: string[]) {
+    const t = helpStrings(locale);
+    const q = (this.url.searchParams.get("q") ?? "").trim().slice(0, 200);
+    const results = q
+      ? await searchHelp(
+          this.db,
+          this.site.workspace,
+          this.center.id,
+          chain,
+          q,
+          this.signedIn,
+        )
+      : [];
+    const queryId = q
+      ? await logSearch(this.db, this.site.workspace, {
+          centerId: this.center.id,
+          locale,
+          surface: "help_center",
+          query: q,
+          results: results.length,
+        })
+      : null;
+    const href = (id: string) =>
+      queryId
+        ? `${this.searchUrl(locale)}/open?r=${queryId}&a=${encodeURIComponent(id)}`
+        : this.articleUrl(id, locale, chain)!;
+    return this.render({
+      status: 200,
+      locale,
+      contentLocale: locale,
+      title: `${t.searchTitle} | ${this.center.name}`,
+      heading: t.searchTitle,
+      description: t.searchTitle,
+      canonical: null,
+      // The switcher keeps the search in another language (no hreflang: search pages are noindex).
+      alternates: this.center.locales.map((l) => ({
+        locale: l,
+        path: this.searchUrl(l) + (q ? "?q=" + encodeURIComponent(q) : ""),
+      })),
+      ogType: "website",
+      crumbs: [
+        { name: t.home, url: this.homeUrl(locale) },
+        { name: t.searchTitle, url: this.searchUrl(locale) },
+      ],
+      jsonLd: [],
+      portal: await this.portalOn(),
+      // Search pages are for people, not search engines, and are never cached (each is logged).
+      restricted: true,
+      searchPage: true,
+      body: (
+        <>
+          {this.searchForm(locale, t.searchPlaceholder, q)}
+          {q && (
+            <p role="status" className="lead">
+              {results.length ? t.results(results.length, q) : t.noResults(q)}
+            </p>
+          )}
+          {results.length > 0 && (
+            <ol className="results">
+              {results.map((r) => (
+                <li key={r.id}>
+                  <a href={href(r.id)} lang={r.locale}>
+                    {r.title}
+                  </a>
+                  {r.excerpt && <p lang={r.locale}>{r.excerpt}</p>}
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      ),
+    });
+  }
+
+  /** A search result opened: noted against the search, then on to the article. */
+  async openResult(locale: string, chain: string[]) {
+    const article = this.url.searchParams.get("a") ?? "";
+    const href = this.articleUrl(article, locale, chain);
+    if (!href) return this.notFound(locale);
+    const queryId = this.url.searchParams.get("r");
+    if (queryId)
+      await openedResult(this.db, this.site.workspace, queryId, article);
+    return new Response(null, {
+      status: 302,
+      headers: { location: href, "cache-control": "no-store" },
     });
   }
 
@@ -761,6 +1003,8 @@ class Page {
     portal: boolean;
     /** Signed-in only, or an error page: never indexed or cached publicly. */
     restricted: boolean;
+    /** The search page has its own search box, so the header leaves it out. */
+    searchPage?: boolean;
     notice?: string;
     body: ReactNode;
   }) {
@@ -859,6 +1103,9 @@ class Page {
                   {this.center.name}
                 </a>
                 <nav aria-label={this.center.name}>
+                  {!p.searchPage &&
+                    p.status !== 401 &&
+                    this.searchForm(p.locale, t.search)}
                   {p.portal && <a href={this.portalUrl()}>{t.requests}</a>}
                   {switcher && (
                     <ul className="langs" aria-label={t.language}>
@@ -919,14 +1166,17 @@ class Page {
         "img-src 'self' data:",
         "frame-src https://www.youtube-nocookie.com https://player.vimeo.com",
         "base-uri 'none'",
-        "form-action 'none'",
+        // Search (GET) and feedback (POST) forms go to this help center only.
+        "form-action 'self'",
         "frame-ancestors 'none'",
       ].join("; "),
       "x-content-type-options": "nosniff",
       // YouTube's player needs the page's origin as referrer.
       "referrer-policy": "strict-origin-when-cross-origin",
       "cache-control":
-        p.restricted || this.signedIn ? "private, no-store" : PUBLIC_CACHE,
+        p.restricted || this.signedIn || this.url.searchParams.has("feedback")
+          ? "private, no-store"
+          : PUBLIC_CACHE,
       vary: "cookie",
       "content-language": p.contentLocale,
     });

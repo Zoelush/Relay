@@ -138,6 +138,17 @@ export function describePart(p: TimelinePart, dir: Directory): string {
           (lost.length ? `; cleared ${lost.map((f) => f.name).join(", ")}` : "")
         );
       }
+      if (d.event === "help_context") {
+        const article = d.article as { title?: string } | undefined;
+        const searched = typeof d.searched === "string" ? d.searched : "";
+        return [
+          searched && `Customer searched the help center for “${searched}”`,
+          article &&
+            `Customer read “${String(article.title ?? "")}”${d.feedback === "not_helpful" ? " and said it didn't help" : ""}`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
       if (d.event === "human_joined")
         return `${pick(dir.teammates, d.teammateId) || "A teammate"} joined the conversation`;
       return "Conversation activity";
