@@ -691,3 +691,12 @@ button.pg-nav-active { border:0; color:inherit; font:inherit; cursor:pointer; te
 .pg-help-articles li { display:flex; gap:8px; align-items:center; padding:4px 0; border-bottom:1px solid #eef3f0; }
 @media (max-width: 1000px) { .pg-help-center { grid-template-columns:1fr; } }
 .pg-help-settings input[type="color"] { width:44px; height:28px; padding:0 2px; border:1px solid #cfdcd4; border-radius:5px; background:#fff; cursor:pointer; }
+
+/* Search and feedback (phase 07, step B2) */
+.pg-help-insights { grid-column: 1 / -1; border:1px solid #dfe8e2; border-radius:9px; padding:12px; background:#fff; display:flex; flex-direction:column; gap:6px; }
+.pg-help-insights h3, .pg-help-insights h4 { margin:4px 0; }
+.pg-help-insights-table { border-collapse:collapse; max-width:520px; }
+.pg-help-insights-table th, .pg-help-insights-table td { border-bottom:1px solid #eef3f0; padding:4px 10px 4px 0; text-align:left; }
+.pg-knowledge-feedback { border-top:1px solid #dfe8e2; padding-top:10px; }
+.pg-knowledge-feedback h3 { margin:0 0 4px; }
+.pg-knowledge-feedback ul { margin:6px 0 0; padding-left:18px; }

@@ -11,7 +11,7 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
 Current position: phase 07 (help center and knowledge store, `docs/KNOWLEDGE_PLAN.md`) steps A1,
-A2 and B1 are done locally (`docs/KNOWLEDGE_STEP1.md` to `STEP3.md`); next is step B2. The public
+A2, B1 and B2 are done locally (`docs/KNOWLEDGE_STEP1.md` to `STEP4.md`); next is step C1. The public
 help center is at `/help/demo/relay-help` locally. Phase 06 (routing, teams and workload) is complete locally, planned in
 `docs/ROUTING_PLAN.md`; its step docs are `docs/ROUTING_STEP1.md` to `STEP3.md`. Phase 05
 (tickets and SLAs; `docs/TICKETS_PLAN.md`, `TICKETS_STEP1.md` to `STEP5.md`) and phase 04

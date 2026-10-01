@@ -63,6 +63,12 @@ type Detail = {
     createdAt: string;
     by: string | null;
   }[];
+  /** Phase 07 B2: readers' votes and comments (for knowledge.manage). */
+  feedback: {
+    helpful: number;
+    unhelpful: number;
+    comments: { comment: string; locale: string; createdAt: string }[];
+  } | null;
   canManage: boolean;
 };
 
@@ -608,6 +614,25 @@ function RecordView({
           onChanged();
         }}
       />
+      {detail.feedback && (
+        <section className="pg-knowledge-feedback" aria-label="Reader feedback">
+          <h3>Reader feedback</h3>
+          <p>
+            {detail.feedback.helpful} found it helpful ·{" "}
+            {detail.feedback.unhelpful} did not
+          </p>
+          {detail.feedback.comments.length > 0 && (
+            <ul>
+              {detail.feedback.comments.map((c, i) => (
+                <li key={i}>
+                  <q lang={c.locale}>{c.comment}</q>{" "}
+                  <span className="pg-muted">{when(c.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
       <section className="pg-knowledge-history" aria-label="Version history">
         <h3>Published versions</h3>
         <ul>
@@ -724,8 +749,8 @@ function Settings({
             checked={form.faq}
             onChange={(e) => setForm((f) => ({ ...f, faq: e.target.checked }))}
           />
-          FAQ article (each H2 ending in &ldquo;?&rdquo; becomes a question
-          for search engines)
+          FAQ article (each H2 ending in &ldquo;?&rdquo; becomes a question for
+          search engines)
         </label>
       )}
       <label>

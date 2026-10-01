@@ -487,3 +487,36 @@ footer strong {
 .rich-image-loading { display: block; width: 160px; height: 90px; border-radius: 8px; background: rgba(0,0,0,.06); }
 /* Phase 06 step C: place in line and when the team is next open. */
 .queue { margin: 6px 16px 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent, #087a57) 10%, transparent); font-size: 13px; }
+
+/* The Help space (phase 07, step B2): the messenger's own theme variables. */
+.help-space { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.help-search { display: flex; gap: 6px; }
+.help-search input { flex: 1; min-width: 0; font: inherit; padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); }
+.help-search button, .help-feedback button { font: inherit; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+.help-feedback button.help-talk { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+.help-back { align-self: flex-start; background: none; border: 0; padding: 4px 0; color: var(--muted); }
+.help-back:hover { color: var(--text); }
+.help-collections, .help-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.help-collections .card { width: 100%; text-align: start; display: flex; flex-direction: column; gap: 4px; }
+.help-collections .card span { color: var(--muted); font-size: 0.9em; }
+.help-list button { width: 100%; text-align: start; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 2px; font: inherit; font-weight: 600; color: var(--text); cursor: pointer; }
+.help-list button:hover { text-decoration: underline; }
+.help-article > h2 { font-size: 1.35em; line-height: 1.25; margin: 4px 0 12px; }
+.help-article .rich { line-height: 1.55; }
+.help-article .rich p { margin: 0 0 10px; }
+.help-article .rich h2 { font-size: 1.1em; margin: 18px 0 6px; }
+.help-article .rich h3, .help-article .rich h4 { font-size: 1em; margin: 14px 0 6px; }
+.help-article .rich ul, .help-article .rich ol { margin: 0 0 10px; padding-inline-start: 20px; }
+.help-article .callout p:last-child { margin-bottom: 0; }
+.help-article .callout { margin: 12px 0; padding: 10px 12px; border-radius: 8px; border-inline-start: 4px solid #3a7bd5; background: rgba(58, 123, 213, 0.12); }
+.help-article .callout-warning { border-color: #c98a00; background: rgba(201, 138, 0, 0.14); }
+.help-article .callout-success { border-color: #1f8a5b; background: rgba(31, 138, 91, 0.14); }
+.help-article .table { overflow-x: auto; }
+.help-article table { border-collapse: collapse; }
+.help-article th, .help-article td { border: 1px solid var(--border); padding: 4px 8px; text-align: start; vertical-align: top; }
+.help-article pre { overflow: auto; background: var(--surface); padding: 10px; border-radius: 8px; }
+.help-feedback { margin-top: 18px; padding: 12px; border-radius: 12px; background: var(--surface); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.help-feedback label { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.help-feedback textarea { font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+.help-feedback-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.help-feedback p { margin: 0; }

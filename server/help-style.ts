@@ -59,6 +59,24 @@ h2{font-size:22px;margin:32px 0 10px}
 .table td>p:first-child,.table th>p:first-child{margin-top:0}.table td>p:last-child,.table th>p:last-child{margin-bottom:0}
 footer{border-top:1px solid var(--line);color:var(--muted);font-size:14px}
 footer div{max-width:1040px;margin:0 auto;padding:18px 16px}
+.search{display:flex;gap:6px;flex:1 1 220px;max-width:420px}
+.search input{flex:1;min-width:0;font:inherit;font-size:15px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+.search button,.feedback button{font:inherit;font-size:15px;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.search button:focus-visible,.feedback button:focus-visible,.search input:focus-visible,.feedback textarea:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.top .search input{border-color:transparent}
+.search-block .search{max-width:620px}
+.search-block{margin-bottom:28px}
+main>.search{max-width:620px;margin-bottom:12px}
+.results{list-style:none;margin:16px 0 0;padding:0}
+.results li{padding:14px 0;border-bottom:1px solid var(--line)}
+.results a{font-size:18px;font-weight:600}
+.results p{margin:4px 0 0;color:var(--muted);font-size:15px}
+.feedback{margin-top:36px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.feedback .vote{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.feedback label{display:flex;flex-direction:column;gap:6px}
+.feedback textarea{font:inherit;font-size:15px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+.feedback .buttons{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 0}
+.feedback p{margin:0}
 @media (max-width:600px){body{font-size:16px}.hero h1,h1{font-size:26px}}
 `;
 

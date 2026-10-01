@@ -1,5 +1,6 @@
 import { assert, DomainError, type Sql } from "./db";
 import { SLUG, SLUG_MAX, slugify } from "../lib/help-paths";
+import { feedbackSummary, indexRecord } from "./help-search";
 import { authorize, can } from "./policy";
 import {
   normalizeDoc,
@@ -378,6 +379,8 @@ export async function readKnowledge(
           by: v.name,
         }))
       : [],
+    // Phase 07 B2: what readers said, for the people who write it.
+    feedback: manage ? await feedbackSummary(db, w, r.id) : null,
     canManage: manage,
   };
 }
@@ -628,6 +631,8 @@ export async function changeKnowledge(
         // A live slug replaces any old redirect with the same address.
         await moveSlug(db, w, "article", "", locale, null, slug, r.id);
       }
+      // Searchable from now (phase 07, B2). TODO(phase 07 C2): chunk and embed here too.
+      await indexRecord(db, w, r.id);
       await touch(db, w, r.id);
       return { id: r.id, locale, revision };
     }
@@ -638,6 +643,7 @@ export async function changeKnowledge(
         "UPDATE knowledge_locales SET status=$4 WHERE workspace_id=$1 AND record_id=$2 AND locale=$3",
         [w, r.id, locale, p.op === "archive" ? "archived" : "draft"],
       );
+      await indexRecord(db, w, r.id);
       await touch(db, w, r.id);
       return {
         id: r.id,

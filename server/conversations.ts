@@ -99,7 +99,18 @@ export interface Command {
   mapping?: Record<string, string>;
   token?: string;
   trackerId?: string;
+  /**
+   * Set only by the server, never taken from a client (the API layer replaces whatever was sent):
+   * what the customer did in the help center before starting (phase 07, B2). A verified search
+   * receipt's query, and/or the article that didn't help.
+   */
+  helpContext?: HelpContext | null;
 }
+export type HelpContext = {
+  searched?: string;
+  article?: { id: string; title: string };
+  feedback?: "not_helpful";
+};
 export function agentConversation(c: Conversation, personalData: boolean) {
   const {
     id,
@@ -506,8 +517,10 @@ export async function command(
         "Sign in to your account to start a conversation.",
         403,
       );
+      // "Search before contacting": a verified search (or an article read) is the proof.
+      const help = p.helpContext ?? null;
       assert(
-        !brand.settings.requireSearch,
+        !brand.settings.requireSearch || !!(help?.searched || help?.article),
         "HELP_SEARCH_REQUIRED",
         "Search the help center before starting a conversation.",
         409,
@@ -558,6 +571,23 @@ export async function command(
         "customer_message",
         p.text.trim(),
       );
+      // For the teammate only: what the customer searched or read first (never delivered to them).
+      if (help?.searched || help?.article)
+        await append(
+          db,
+          w,
+          c,
+          { type: "system", id: "relay" },
+          "system_event",
+          "",
+          {
+            event: "help_context",
+            ...(help.searched ? { searched: help.searched } : {}),
+            ...(help.article ? { article: help.article } : {}),
+            ...(help.feedback ? { feedback: help.feedback } : {}),
+          },
+          "internal",
+        );
       await db.query(
         "UPDATE conversations SET last_contact_reply_at=updated_at WHERE workspace_id=$1 AND id=$2",
         [w, id],

@@ -4,6 +4,7 @@ import {
   scheduleInboxProjection,
 } from "../server/inbox-views";
 import { purgeDrafts } from "../server/drafts";
+import { purgeHelpSearches } from "../server/help-search";
 import { purgeInlineImages } from "../server/attachments";
 import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
@@ -340,6 +341,7 @@ const relayWorker = {
             hyperdriveConnection(env.HYPERDRIVE),
             env.PUBLIC_ORIGIN,
             (x) => env.ASSETS.fetch(x),
+            (w, id) => environment(env, ctx).notify?.(w, id),
           ),
         ),
       env.R2_ACCOUNT_ID
@@ -417,6 +419,8 @@ const relayWorker = {
           // Daily draft retention: during 03:00 UTC each sweep removes up to 500 expired drafts.
           if (new Date().getUTCHours() === 3) {
             await purgeDrafts(runtime.connect, work.workspace);
+            // Help center searches are kept for 180 days (phase 07, B2).
+            await purgeHelpSearches(runtime.connect, work.workspace);
             await purgeInlineImages(
               runtime.connect,
               runtime.attachments,

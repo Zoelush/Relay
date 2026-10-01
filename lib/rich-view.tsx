@@ -60,11 +60,14 @@ export function ArticleText({
   fallback,
   link,
   image = altOnly,
+  videos = "embed",
 }: {
   doc: unknown;
   fallback: string;
   link: ArticleLinker;
   image?: ImageRenderer;
+  /** "link" where frames are not allowed (the messenger): a link that opens the video. */
+  videos?: "embed" | "link";
 }) {
   let safe: RichDoc;
   try {
@@ -72,11 +75,20 @@ export function ArticleText({
   } catch {
     return <p>{fallback}</p>;
   }
-  const block = (n: RichBlock, i: number) => renderBlock(n, i, { image, link });
+  const block = (n: RichBlock, i: number) =>
+    renderBlock(n, i, { image, link, videos });
   return <div className="rich article">{safe.content.map(block)}</div>;
 }
 
-type Context = { image: ImageRenderer; link?: ArticleLinker };
+type Context = {
+  image: ImageRenderer;
+  link?: ArticleLinker;
+  videos?: "embed" | "link";
+};
+const VIDEO_PAGE = {
+  youtube: (id: string) => `https://www.youtube.com/watch?v=${id}`,
+  vimeo: (id: string) => `https://vimeo.com/${id}`,
+};
 
 function inline(nodes: RichInline[] = [], link?: ArticleLinker): ReactNode[] {
   return nodes.map((n, i) => {
@@ -166,6 +178,19 @@ function renderBlock(n: RichBlock, i: number, context: Context): ReactNode {
         </aside>
       );
     case "video":
+      if (context.videos === "link")
+        return (
+          <p key={i} className="video-link">
+            <a
+              href={VIDEO_PAGE[n.attrs.provider](n.attrs.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              ▶{" "}
+              {n.attrs.provider === "youtube" ? "YouTube video" : "Vimeo video"}
+            </a>
+          </p>
+        );
       return (
         <div key={i} className="video">
           <iframe
