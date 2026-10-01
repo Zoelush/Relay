@@ -1,8 +1,10 @@
 import { assert, DomainError, type Sql } from "./db";
 import { SLUG, SLUG_MAX, slugify } from "../lib/help-paths";
-import { feedbackSummary, indexRecord } from "./help-search";
+import { feedbackSummary, indexRecord, normalize } from "./help-search";
 import { authorize, can } from "./policy";
+import { fileSummary, readyImages } from "./knowledge-files";
 import {
+  imageIds,
   normalizeDoc,
   plainText,
   RichDocError,
@@ -17,7 +19,9 @@ import {
  * Audience and availability are independent switches, with one rule enforced here and in the
  * database: content whose audience is `internal` is never available to the help center or the
  * AI agent (which answers customers), so internal knowledge cannot reach a customer.
- * TODO(phase 07 C1): uploaded files and synced external pages create records of those sources.
+ * Uploaded files create `file` records (phase 07, C1a, in knowledge-files.ts): their content is
+ * the text extracted from the file, so they are not edited here.
+ * TODO(phase 07 C1b): synced external pages create `external_page` records the same way.
  * TODO(phase 07 C2): publishing (re)chunks and (re)embeds the published version.
  */
 export const SOURCES = [
@@ -267,11 +271,16 @@ export async function listKnowledge(
     if (!SOURCES.includes(source as Source)) invalid("Unknown source.");
     where.push("r.source=" + bind(source));
   }
-  const text = (q.get("q") ?? "").trim();
-  if (text)
+  const text = (q.get("q") ?? "").trim().slice(0, 200);
+  // A title match, or the published content (so an uploaded file is found by what is inside it).
+  if (text) {
+    const like = bind("%" + text.replace(/[%_\\]/g, "\\$&") + "%"),
+      words = bind(normalize(text));
     where.push(
-      `EXISTS(SELECT 1 FROM knowledge_locales x WHERE x.workspace_id=r.workspace_id AND x.record_id=r.id AND x.draft_title ILIKE ${bind("%" + text.replace(/[%_\\]/g, "\\$&") + "%")})`,
+      `(EXISTS(SELECT 1 FROM knowledge_locales x WHERE x.workspace_id=r.workspace_id AND x.record_id=r.id AND x.draft_title ILIKE ${like})
+      OR EXISTS(SELECT 1 FROM knowledge_search k WHERE k.workspace_id=r.workspace_id AND k.record_id=r.id AND k.document @@ websearch_to_tsquery(k.config,${words})))`,
     );
+  }
   const rows = (
     await db.query<{
       id: string;
@@ -381,6 +390,8 @@ export async function readKnowledge(
       : [],
     // Phase 07 B2: what readers said, for the people who write it.
     feedback: manage ? await feedbackSummary(db, w, r.id) : null,
+    // Phase 07 C1a: the uploaded file behind a file record.
+    file: r.source === "file" ? await fileSummary(db, w, r.id) : null,
     canManage: manage,
   };
 }
@@ -402,7 +413,7 @@ export async function changeKnowledge(
     case "create": {
       const source = p.source as Source;
       if (!SOURCES.includes(source)) invalid("Choose a kind of content.");
-      // TODO(phase 07 C1): files and synced pages are created by upload and sync, not by hand.
+      // Files are created by upload (C1a) and synced pages by sync (TODO(phase 07 C1b)), not by hand.
       assert(
         EDITABLE.includes(source),
         "KNOWLEDGE_SOURCE",
@@ -492,6 +503,14 @@ export async function changeKnowledge(
   // Locale operations.
   const r = await record(db, w, p.id, true);
   const locale = validLocale(p.locale);
+  // A file's content is its extracted text: replacing the file changes it, not editing.
+  assert(
+    EDITABLE.includes(r.source) ||
+      ["publish", "unpublish", "archive"].includes(String(p.op)),
+    "KNOWLEDGE_SOURCE",
+    "This content comes from a file or a synced page. Replace the source to change it.",
+    409,
+  );
   if (p.op === "add_locale") {
     const from = p.fromLocale === undefined ? null : validLocale(p.fromLocale);
     const copy = from
@@ -545,6 +564,22 @@ export async function changeKnowledge(
       "This draft changed in another tab or by another teammate. Reload to see the latest.",
       409,
     );
+  // Publishing a file record again (after unpublishing) brings back its latest extracted text.
+  if (p.op === "publish" && !EDITABLE.includes(r.source)) {
+    assert(
+      l.published_revision !== null,
+      "KNOWLEDGE_SOURCE",
+      "This file has no text yet. Wait for it to finish processing, or replace it.",
+      409,
+    );
+    await db.query(
+      "UPDATE knowledge_locales SET status='published' WHERE workspace_id=$1 AND record_id=$2 AND locale=$3",
+      [w, r.id, locale],
+    );
+    await indexRecord(db, w, r.id);
+    await touch(db, w, r.id);
+    return { id: r.id, locale, revision: l.published_revision };
+  }
   switch (p.op) {
     case "slug": {
       // A new public address; the old one keeps working as a redirect.
@@ -604,6 +639,15 @@ export async function changeKnowledge(
       const revision = (l.published_revision ?? 0) + 1;
       // The draft was validated when saved; it is checked again in case the rules have changed.
       const body = articleBody(l.draft_body)!;
+      // Images must be uploaded and scanned before they can go live.
+      const images = imageIds(body);
+      const ready = await readyImages(db, w, r.id, images);
+      assert(
+        images.every((id) => ready.has(id)),
+        "IMAGE_NOT_READY",
+        "An image is still uploading or was rejected. Wait for it, or remove it, then publish.",
+        409,
+      );
       await db.query(
         "INSERT INTO knowledge_revisions(workspace_id,record_id,locale,revision,title,body,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)",
         [w, r.id, locale, revision, l.draft_title, JSON.stringify(body), t.id],

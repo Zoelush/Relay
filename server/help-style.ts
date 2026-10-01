@@ -43,7 +43,8 @@ h2{font-size:22px;margin:32px 0 10px}
 .contact h2{margin-top:0}
 .article{max-width:740px}
 .rich h2{font-size:24px}.rich h3{font-size:20px}.rich h4{font-size:18px}
-.rich img{max-width:100%}
+.rich img{max-width:100%;height:auto}.rich figure{margin:16px 0}
+.brand img{display:block;max-height:40px;max-width:220px}
 .rich pre{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;font-size:14px}
 .rich code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em}
 .rich blockquote{margin:16px 0;padding:2px 16px;border-inline-start:4px solid var(--line);color:var(--muted)}

@@ -15,7 +15,7 @@ import { resolve, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WebSocketServer } from "ws";
 import { SignJWT, jwtVerify } from "jose";
-import { bridgeAgentRequest } from "../server/agent-bridge";
+import { bodyLimit, bridgeAgentRequest } from "../server/agent-bridge";
 import {
   attachmentScan,
   purgeInlineImages,
@@ -42,6 +42,7 @@ import { checkDueSlas, reevaluateJob } from "../server/sla";
 import { drainAll } from "../server/routing";
 import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
+import { processKnowledgeFile } from "../server/knowledge-files";
 import { runJob, type JobHandler } from "../server/jobs";
 import { reindexSearch } from "../server/search";
 import { rebuildCustomerUnread } from "../server/unread";
@@ -406,6 +407,11 @@ export async function startLocalRelay(
         [w, options.helpCenter !== false],
       );
       await seedKnowledge(sql, w);
+      await seedKnowledgeFile(
+        sql,
+        w,
+        options.attachments ?? localFiles.storage,
+      );
       // Seeded articles bypass publishing, so they are indexed for search here.
       await reindexKnowledge(sql, w);
       if (options.tickets === false)
@@ -519,6 +525,9 @@ export async function startLocalRelay(
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
       attachmentScan(db.connect, env.attachments!, job);
+  if (env.attachments)
+    handlers["knowledge.file.process"] = (job) =>
+      processKnowledgeFile(db.connect, env.attachments!, job);
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
     stopped = false;
@@ -680,10 +689,17 @@ export async function startLocalRelay(
     createServer(
       tracked(async (req: IncomingMessage, res: ServerResponse) => {
         try {
-          // Raw bytes: uploads to local storage are binary and up to 10 MB; everything else 24 KB.
+          // Raw bytes: uploads to local storage are binary and up to 20 MB. Agent routes use the
+          // same per-route limits as the server (knowledge saves up to 1 MB, bulk 256 KB);
+          // everything else 24 KB.
+          const agentRoute = req.url?.match(
+            /^\/(?:api\/agent|v1\/agent)\/([^?]*)/,
+          );
           const limit = req.url?.startsWith(LOCAL_STORAGE_PATH)
             ? LOCAL_UPLOAD_LIMIT
-            : 24000;
+            : agentRoute
+              ? Math.max(24000, bodyLimit(agentRoute[1]) + 4096)
+              : 24000;
           const chunks: Buffer[] = [];
           let size = 0;
           for await (const chunk of req) {
@@ -717,7 +733,14 @@ export async function startLocalRelay(
         ? handleApi(req, env)
         : messengerAsset(req, db.connect, (r) =>
             portalAsset(r, db.connect, (x) =>
-              helpSite(x, db.connect, apiOrigin, staticResponse, env.notify),
+              helpSite(
+                x,
+                db.connect,
+                apiOrigin,
+                staticResponse,
+                env.notify,
+                env.attachments,
+              ),
             ),
           ),
     );
@@ -916,6 +939,49 @@ if (
 }
 
 /** Two sample knowledge records per workspace, with fixed ids so a restart adds nothing. */
+/**
+ * A file record (phase 07, C1a): a Markdown file already read, for the inbox. Local storage is in
+ * memory, so its bytes are put back on every start.
+ */
+async function seedKnowledgeFile(
+  sql: Sql,
+  w: string,
+  storage: AttachmentStorage,
+) {
+  const recordId = "00000000-0000-4000-8000-00000000a003",
+    fileId = "00000000-0000-4000-8000-00000000f001",
+    name = "Shipping and returns.md";
+  const text =
+    "# Shipping and returns\n\nOrders ship within two working days. Customers can return unused items within 30 days for a full refund; the return label is in their order email.";
+  const bytes = new TextEncoder().encode(text);
+  const key = `${w}/knowledge/${fileId}/seed/clean`;
+  await storage.putClean(key, bytes, "text/markdown", name);
+  const added = await sql.query(
+    `INSERT INTO knowledge_records(workspace_id,id,source,owner_id,audience,for_ai,for_help_center,for_inbox) VALUES($1,$2,'file','owner','internal',false,false,true) ON CONFLICT DO NOTHING RETURNING id`,
+    [w, recordId],
+  );
+  if (!added.rows.length) return;
+  await sql.query(
+    `INSERT INTO knowledge_locales(workspace_id,record_id,locale,status,draft_title,draft_updated_by,published_title,published_text,published_revision,published_at,published_by)
+    VALUES($1,$2,'en','published','Shipping and returns','owner','Shipping and returns',$3,1,now(),'owner')`,
+    [w, recordId, text],
+  );
+  await sql.query(
+    `INSERT INTO knowledge_files(workspace_id,id,purpose,record_id,locale,version,name,size,mime,object_key,clean_key,checksum,status,chars,uploaded_by,ready_at)
+    VALUES($1,$2,'source',$3,'en',1,$4,$5,'text/markdown',$6,$7,'seed','ready',$8,'owner',now())`,
+    [
+      w,
+      fileId,
+      recordId,
+      name,
+      bytes.length,
+      `${w}/knowledge/${fileId}/quarantine`,
+      key,
+      text.length,
+    ],
+  );
+}
+
 async function seedKnowledge(sql: Sql, w: string) {
   const article: RichDoc = normalizeDoc(
     {

@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, InboxError } from "./api";
 import { ArticleEditor } from "./article-editor";
 import { HelpCenters } from "./help-centers";
+import {
+  DOCUMENT_ACCEPT,
+  FileButton,
+  FilePanel,
+  uploadKnowledgeFile,
+  type FileSummary,
+} from "./knowledge-files";
 import { preferredLocale, teammateLanguages } from "./locales";
 import { SLUG, slugify } from "../lib/help-paths";
 import type { RichDoc } from "../lib/rich-doc";
@@ -10,6 +17,7 @@ import type { RichDoc } from "../lib/rich-doc";
  * The Knowledge section (phase 07, step A1): articles, internal articles and snippets, each with
  * one draft and one published version per language, autosave, publishing, and version history.
  * Teammates without `knowledge.manage` read what is published and available to the inbox.
+ * Uploaded files (step C1a) are records too: their content is the text read from the file.
  */
 type Source =
   "article" | "internal_article" | "snippet" | "file" | "external_page";
@@ -69,6 +77,8 @@ type Detail = {
     unhelpful: number;
     comments: { comment: string; locale: string; createdAt: string }[];
   } | null;
+  /** Phase 07 C1a: the file behind a file record. */
+  file: FileSummary | null;
   canManage: boolean;
 };
 
@@ -106,6 +116,10 @@ export function Knowledge({
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [uploading, setUploading] = useState("");
+  const [fileLocale, setFileLocale] = useState(
+    () => teammateLanguages()[0]?.split("-")[0] || "en",
+  );
   useEffect(() => {
     let live = true;
     const q = new URLSearchParams();
@@ -142,6 +156,30 @@ export function Knowledge({
       setError(message(e, "It could not be created."));
     }
   }
+  async function upload(file: File) {
+    setError("");
+    try {
+      const r = await uploadKnowledgeFile(
+        file,
+        { purpose: "source", locale: fileLocale },
+        (state) =>
+          setUploading(
+            state === "uploading"
+              ? `Uploading ${file.name}…`
+              : `Checking and reading ${file.name}…`,
+          ),
+      );
+      setSelected(r.recordId);
+    } catch (e) {
+      // A refused file still has a record, which says why; open it.
+      const recordId = (e as { recordId?: string }).recordId;
+      if (recordId) setSelected(recordId);
+      setError(message(e, "The file could not be uploaded."));
+    } finally {
+      setUploading("");
+      setReload((n) => n + 1);
+    }
+  }
   return (
     <section className="pg-workspace pg-knowledge" aria-label="Knowledge">
       <header className="pg-top">
@@ -175,9 +213,34 @@ export function Knowledge({
               New internal article
             </button>
             <button onClick={() => create("snippet")}>New snippet</button>
+            <span className="pg-knowledge-upload">
+              <FileButton
+                label="Upload file"
+                inputLabel="File to upload"
+                accept={DOCUMENT_ACCEPT}
+                disabled={!!uploading}
+                onFile={(file) => void upload(file)}
+              />
+              <label className="pg-muted" htmlFor="pg-file-language">
+                in
+              </label>
+              <input
+                id="pg-file-language"
+                aria-label="File language"
+                title="The language the file is written in"
+                value={fileLocale}
+                size={5}
+                onChange={(e) => setFileLocale(e.target.value.trim())}
+              />
+            </span>
           </div>
         )}
       </header>
+      {uploading && (
+        <div className="pg-knowledge-notice" role="status">
+          {uploading}
+        </div>
+      )}
       {error && (
         <div className="pg-error" role="alert">
           {error}
@@ -191,7 +254,7 @@ export function Knowledge({
             <div className="pg-knowledge-filters">
               <input
                 aria-label="Search knowledge"
-                placeholder="Search titles"
+                placeholder="Search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
@@ -446,11 +509,26 @@ function RecordView({
 
   if (!detail) return <div className="pg-muted">{notice || "Loading…"}</div>;
   const current = detail.locales.find((l) => l.locale === locale);
+  // A file's content is the text read from it: no editor, no languages to add, no revisions.
+  const isFile = detail.source === "file";
+  const filePanel = isFile && (
+    <FilePanel
+      recordId={id}
+      file={detail.file}
+      canManage={detail.canManage}
+      onChanged={async (done) => {
+        await load(locale);
+        if (done) setNotice(done);
+        onChanged();
+      }}
+    />
+  );
   if (!detail.canManage)
     return (
       <article className="pg-knowledge-read">
         <h2>{current?.published?.title}</h2>
-        {current?.published && (
+        {filePanel}
+        {!isFile && current?.published && (
           <ArticleEditor
             value={{
               key: `${id}:${locale}:${loaded}`,
@@ -462,6 +540,50 @@ function RecordView({
           />
         )}
       </article>
+    );
+  if (isFile)
+    return (
+      <div className="pg-knowledge-edit">
+        <h2 className="pg-knowledge-file-title">
+          {current?.published?.title ?? current?.draft?.title}
+        </h2>
+        <div className="pg-knowledge-actions">
+          <span role="status" className="pg-muted">
+            {current ? STATUS_NAMES[current.status] : ""}
+          </span>
+          {current?.status !== "published" && current?.published && (
+            <button onClick={() => run({ op: "publish" }, "Published.")}>
+              Publish
+            </button>
+          )}
+          {current?.status === "published" && (
+            <button onClick={() => run({ op: "unpublish" }, "Unpublished.")}>
+              Unpublish
+            </button>
+          )}
+          {current?.status !== "archived" && (
+            <button onClick={() => run({ op: "archive" }, "Archived.")}>
+              Archive
+            </button>
+          )}
+        </div>
+        {notice && (
+          <div className="pg-knowledge-notice" role="alert">
+            {notice}
+          </div>
+        )}
+        {filePanel}
+        <Settings
+          key={`${detail.version}:${detail.lastReviewedAt}`}
+          detail={detail}
+          teammates={teammates}
+          onSaved={async (done) => {
+            await load(locale);
+            setNotice(done);
+            onChanged();
+          }}
+        />
+      </div>
     );
   return (
     <div className="pg-knowledge-edit">
@@ -578,6 +700,8 @@ function RecordView({
         }}
         editable={save !== "conflict"}
         records={records}
+        // Images go in articles (internal ones too), not snippets.
+        recordId={detail.source === "snippet" ? undefined : id}
         onChange={(doc, error) => {
           if (error) {
             setInvalid(error);

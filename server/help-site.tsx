@@ -9,6 +9,8 @@ import { DEFAULT_THEME, resolvePath, type Theme } from "./help-centers";
 import { helpPath, resolveLocale } from "../lib/help-paths";
 import { plainText, type RichBlock, type RichDoc } from "../lib/rich-doc";
 import { ArticleText } from "../lib/rich-view";
+import type { AttachmentStorage } from "./attachments";
+import { fileResponse, publicFile } from "./knowledge-files";
 import { DomainError } from "./db";
 import { command } from "./conversations";
 import {
@@ -51,7 +53,8 @@ import {
  * without a session gets a sign-in page that names nothing on the page.
  *
  * TODO(phase 07 B2): search, article feedback and the messenger's Help space.
- * TODO(phase 07 C1): article images, once knowledge files have storage of their own.
+ * Files (phase 07, C1a): `{center}/files/{id}` serves the theme's images, and images inside an
+ * article the visitor may read (only those its published version uses).
  * TODO(phase 17): the hosted help subdomain and certificates for custom domains.
  */
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
@@ -92,6 +95,8 @@ export async function helpSite(
   load: (request: Request) => Promise<Response>,
   /** Tells the inbox about a conversation started from "Talk to us" (phase 07, B2). */
   notify?: (workspace: string, conversationId: string) => unknown,
+  /** Where article and theme images are stored (phase 07, C1a). */
+  storage?: AttachmentStorage,
 ): Promise<Response> {
   const url = new URL(request.url);
   let site: Site | null = null;
@@ -113,7 +118,16 @@ export async function helpSite(
         return load(request);
       site = customSite(mapped.workspace_id, url.origin);
       rest = url.pathname;
-      return serve(request, connect, site, rest, mapped.brand_id, load, notify);
+      return serve(
+        request,
+        connect,
+        site,
+        rest,
+        mapped.brand_id,
+        load,
+        notify,
+        storage,
+      );
     }
   }
   const hosted = url.pathname.match(/^\/help\/([^/]+)(\/.*)?$/);
@@ -121,7 +135,7 @@ export async function helpSite(
   if (!ID.test(hosted[1])) return plainNotFound();
   site = hostedSite(hosted[1], url.origin);
   rest = hosted[2] ?? "/";
-  return serve(request, connect, site, rest, null, load, notify);
+  return serve(request, connect, site, rest, null, load, notify, storage);
 }
 
 async function serve(
@@ -132,6 +146,7 @@ async function serve(
   brand: string | null,
   load: (request: Request) => Promise<Response>,
   notify?: (workspace: string, conversationId: string) => unknown,
+  storage?: AttachmentStorage,
 ): Promise<Response> {
   const feedbackPost =
     request.method === "POST" && /\/feedback$/.test(rest.replace(/\/+$/, ""));
@@ -169,6 +184,37 @@ async function serve(
           "cache-control": "no-store",
         },
       });
+    // Files: {center}/files/{id}, the theme's images and images in readable articles.
+    if (center && segments[1] === "files" && segments.length === 3) {
+      if (!storage || !ID.test(segments[2])) return plainNotFound();
+      const session = await currentSession(
+        db,
+        { workspace: site.workspace, brand: center.brand_id },
+        request.headers.get("cookie"),
+      );
+      const data = await loadCenter(db, site.workspace, center);
+      const readable = (recordId: string) => {
+        const a = data.articles.get(recordId);
+        return (
+          !!a &&
+          (center.access === "public" || !!session) &&
+          (a.audience === "public" || !!session)
+        );
+      };
+      const file = await publicFile(
+        db,
+        site.workspace,
+        center.id,
+        segments[2],
+        readable,
+      );
+      if (!file) return plainNotFound();
+      const open = center.access === "public" && !session;
+      return fileResponse(storage, file, {
+        download: false,
+        cache: open ? "public, max-age=300" : "private, max-age=300",
+      });
+    }
     // Search: {center}/{locale}/search?q=…, and …/search/open?r=…&a=… when a result is opened.
     if (center && segments[2] === "search" && segments.length <= 4) {
       const { locale, chain } = resolveLocale(segments[1], {
@@ -341,6 +387,9 @@ class Page {
   }
   private theme = (): Theme => ({ ...DEFAULT_THEME, ...this.center.theme });
   private abs = (path: string) => this.site.origin + path;
+  /** An uploaded image of this help center (theme or article image). */
+  private fileUrl = (id: string) =>
+    this.site.url(`${this.center.slug}/files/${id}`);
 
   /** An article as shown in a language: its version there, or the next one along. */
   private shown(id: string, chain: string[]) {
@@ -663,6 +712,15 @@ class Page {
             doc={body.published_body}
             fallback={body.published_text}
             link={(recordId) => this.articleUrl(recordId, locale, chain)}
+            image={(image) => (
+              // Server-rendered static markup, not a Next.js page.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={this.fileUrl(image.attachmentId)}
+                alt={image.alt ?? ""}
+                loading="lazy"
+              />
+            )}
           />
           {this.feedbackForm(
             locale,
@@ -1010,7 +1068,8 @@ class Page {
   }) {
     const t: HelpStrings = helpStrings(p.locale);
     const noindex = this.center.noindex || p.restricted || p.status !== 200;
-    const theme = themeCss(this.theme());
+    const theme_ = this.theme();
+    const theme = themeCss(theme_);
     const defaultAlternate =
       p.alternates.find((a) => a.locale === this.center.default_locale) ??
       p.alternates[0];
@@ -1083,7 +1142,21 @@ class Page {
             {p.canonical && (
               <meta property="og:url" content={this.abs(p.canonical)} />
             )}
-            <meta name="twitter:card" content="summary" />
+            {theme_.socialImageFileId && (
+              <meta
+                property="og:image"
+                content={this.abs(this.fileUrl(theme_.socialImageFileId))}
+              />
+            )}
+            <meta
+              name="twitter:card"
+              content={
+                theme_.socialImageFileId ? "summary_large_image" : "summary"
+              }
+            />
+            {theme_.faviconFileId && (
+              <link rel="icon" href={this.fileUrl(theme_.faviconFileId)} />
+            )}
             <style dangerouslySetInnerHTML={{ __html: HELP_CSS }} />
             <style dangerouslySetInnerHTML={{ __html: theme }} />
             {jsonLd && (
@@ -1100,7 +1173,15 @@ class Page {
             <header className="top">
               <div className="top-inner">
                 <a className="brand" href={this.homeUrl(p.locale)}>
-                  {this.center.name}
+                  {theme_.logoFileId ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={this.fileUrl(theme_.logoFileId)}
+                      alt={this.center.name}
+                    />
+                  ) : (
+                    this.center.name
+                  )}
                 </a>
                 <nav aria-label={this.center.name}>
                   {!p.searchPage &&

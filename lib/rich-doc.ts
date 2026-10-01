@@ -543,7 +543,10 @@ export function imageIds(doc: RichDoc): string[] {
   const walk = (blocks: RichBlock[]) => {
     for (const b of blocks) {
       if (b.type === "image") ids.push(b.attrs.attachmentId);
-      else if (b.type === "blockquote") walk(b.content);
+      else if (b.type === "blockquote" || b.type === "callout") walk(b.content);
+      else if (b.type === "table")
+        for (const row of b.content)
+          for (const cell of row.content) walk(cell.content);
       else if (b.type === "bulletList" || b.type === "orderedList")
         for (const item of b.content) walk(item.content);
     }

@@ -72,6 +72,16 @@ import {
 } from "./routing";
 import { changeKnowledge, listKnowledge, readKnowledge } from "./knowledge";
 import {
+  articleImage,
+  completeKnowledgeFile,
+  deleteKnowledgeObjects,
+  fileResponse,
+  prepareKnowledgeFile,
+  removeKnowledgeFile,
+  teammateFile,
+  verifyFileUrl,
+} from "./knowledge-files";
+import {
   changeHelpCenter,
   listHelpCenters,
   readHelpCenter,
@@ -1029,6 +1039,7 @@ export async function handleApi(
             "/v1/agent/workload",
             "/v1/agent/knowledge",
             "/v1/agent/knowledge-record",
+            "/v1/agent/knowledge-file",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1051,6 +1062,7 @@ export async function handleApi(
               "/v1/agent/presence",
               "/v1/agent/next",
               "/v1/agent/knowledge",
+              "/v1/agent/knowledge-files",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1186,6 +1198,48 @@ export async function handleApi(
               ),
             ),
           );
+        if (url.pathname === "/v1/agent/knowledge-files") {
+          // Phase 07 C1a: uploads for file records, article images and help center images.
+          assert(
+            env.attachments,
+            "ATTACHMENTS_UNAVAILABLE",
+            "File uploads are unavailable.",
+            503,
+          );
+          const storage = env.attachments;
+          const key = req.headers.get("idempotency-key") ?? "";
+          const result = await tenant(env.connect, workspace, (db) =>
+            once(
+              db,
+              workspace,
+              "knowledge-files:" + principal,
+              key,
+              p,
+              (): Promise<Record<string, unknown>> =>
+                p.op === "prepare"
+                  ? prepareKnowledgeFile(db, workspace, principal, storage, p)
+                  : p.op === "complete"
+                    ? completeKnowledgeFile(db, workspace, principal, p)
+                    : p.op === "remove"
+                      ? removeKnowledgeFile(db, workspace, principal, p)
+                      : Promise.reject(
+                          new DomainError(
+                            "INVALID_FILE",
+                            "Choose prepare, complete or remove.",
+                            400,
+                          ),
+                        ),
+            ),
+          );
+          if (Array.isArray(result.keys)) {
+            // Stored objects go only after the removal committed; storage keys stay server-side.
+            const keys = result.keys as string[];
+            await deleteKnowledgeObjects(storage, keys);
+            return json({ recordId: result.recordId, removed: keys.length });
+          }
+          if (p.op === "complete") await env.dispatchJobs?.(workspace);
+          return json(result, p.op === "complete" ? 202 : 200);
+        }
         if (
           url.pathname === "/v1/agent/presence" ||
           url.pathname === "/v1/agent/next"
@@ -1471,6 +1525,26 @@ export async function handleApi(
         "Request signature does not match.",
         401,
       );
+      if (url.pathname === "/v1/agent/knowledge-file") {
+        assert(
+          env.attachments?.readClean,
+          "ATTACHMENTS_UNAVAILABLE",
+          "File downloads are unavailable.",
+          503,
+        );
+        const file = await tenant(env.connect, workspace, (db) =>
+          teammateFile(
+            db,
+            workspace,
+            principal,
+            url.searchParams.get("id") ?? "",
+          ),
+        );
+        return fileResponse(env.attachments, file, {
+          download: !file.image || url.searchParams.get("download") === "1",
+          cache: "private, max-age=300",
+        });
+      }
       if (url.pathname === "/v1/agent/attachment/content") {
         assert(
           env.attachments?.readClean,
@@ -1883,6 +1957,21 @@ export async function handleApi(
       );
       return json(result);
     }
+    if (url.pathname === "/v1/messenger/help/file" && req.method === "GET") {
+      // An image in a help article. An <img> cannot send the session token, so the article
+      // response hands out short-lived signed addresses instead (phase 07 C1a).
+      const signed = await verifyFileUrl(env.sessionSecret, url.searchParams);
+      if (!signed || !env.attachments?.readClean)
+        return new Response("Not found", { status: 404 });
+      const file = await tenant(env.connect, signed.workspace, (db) =>
+        articleImage(db, signed.workspace, signed.id),
+      );
+      if (!file) return new Response("Not found", { status: 404 });
+      return fileResponse(env.attachments, file, {
+        download: false,
+        cache: "private, max-age=3600",
+      });
+    }
     const s = await requireSession(req, env);
     await tenant(env.connect, s.workspace, async (db) => {
       const b = await brand(db, s.workspace, s.brandId);
@@ -1943,6 +2032,7 @@ export async function handleApi(
               scope,
               url.searchParams.get("id") ?? "",
               url.searchParams.get("query"),
+              env.sessionSecret,
             );
           if (route === "/search")
             return messengerSearch(

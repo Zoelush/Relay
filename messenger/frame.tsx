@@ -926,6 +926,7 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
             {boot.capabilities.help ? (
               <HelpSpace
                 request={request}
+                api={api}
                 t={t}
                 onSearched={setReceipt}
                 onTalk={({ comment, ...context }) => {
