@@ -51,6 +51,9 @@ teammate.
 - Background work: Cloudflare Queues for jobs, Cron Triggers for
   schedules, Durable Object alarms for per-entity timers (snooze
   wake-ups, SLA clocks). Implemented in `workers/relay.ts`, not deployed.
+- The agent app's colours are named tokens at the top of `agent/inbox.css`, with light and dark
+  values (`docs/AGENT_DARK_MODE.md`). Use a token for any new colour; `tests/agent-theme.test.ts`
+  fails on a written-in colour or a text pairing below WCAG AA.
 - The local relay uses in-memory loopback attachment storage
   (`scripts/local-storage.ts`); its scanner flags the EICAR test file.
 - Frontend is React 19 + TypeScript on Vinext/Vite. Tests:

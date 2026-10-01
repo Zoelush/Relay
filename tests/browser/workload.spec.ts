@@ -78,7 +78,13 @@ test("away, a queue builds, a paced return takes three, and Next conversation pu
 }) => {
   await open(page);
   await expect(workload(page)).toHaveText("Workload 0 / 5");
-  await page.getByLabel("Your status").selectOption("away");
+  // Status is set in the account menu.
+  await page.getByRole("button", { name: /^Account:/ }).click();
+  await page
+    .getByRole("dialog", { name: "Account" })
+    .getByRole("switch", { name: "Away" })
+    .click();
+  await page.keyboard.press("Escape");
   await expect
     .poll(
       async () =>
@@ -114,7 +120,12 @@ test("away, a queue builds, a paced return takes three, and Next conversation pu
   await panel.getByRole("button", { name: "Close" }).click();
 
   // Back: at most three arrive at once, not the whole queue.
-  await page.getByLabel("Your status").selectOption("active");
+  await page.getByRole("button", { name: /^Account:/ }).click();
+  await page
+    .getByRole("dialog", { name: "Account" })
+    .getByRole("switch", { name: "Away" })
+    .click();
+  await page.keyboard.press("Escape");
   await expect(workload(page)).toHaveText("Workload 3 / 5");
   expect(await assignedToOwner()).toBe(3);
 

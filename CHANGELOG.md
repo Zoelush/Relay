@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased: dark mode and the account menu for the agent app
+
+- **An account menu** in the sidebar's lower corner:
+  - your initials, name, role and status (and your email where the sign-in provides it)
+  - **Away** and **Reassign replies** switches (moved from the top bar's status dropdown)
+  - the workspace, a read-only **Your profile** panel, the theme, and **Sign out** where the hosting sign-in supports it
+
+  A refused status change springs back with the reason.
+
+- **A theme switch** (in the account menu): System, Light or Dark. It covers the whole agent app: the inbox, conversations, composer, sidebar, dialogs, bulk actions, Knowledge and help center settings. Light stays the default; System follows the device live, and the choice is remembered in the browser. Dark is neutral near-black, with green only for accents.
+- **Readable in both themes:** every text and background pairing meets WCAG AA. A test checks this from the stylesheet, and a browser test measures every visible piece of text as rendered.
+- **Light theme accessibility fixes:** muted text, form field borders, note text on the pressed note tab, and the empty-inbox icon now meet AA (they were below it). The mention list now uses the app's font.
+- **Tests:** `tests/agent-theme.test.ts`, `tests/browser/dark-mode.spec.ts` and `tests/browser/account-menu.spec.ts`. Details: `docs/AGENT_DARK_MODE.md`.
+
 ## Unreleased: knowledge step C1a (files and images)
 
 - **Upload files to Knowledge:** PDF, Word (.docx), HTML, Markdown and text, up to 20 MB. Each becomes a file record whose content is the text read from it, published and searchable once the file passes a type check and a virus scan.
