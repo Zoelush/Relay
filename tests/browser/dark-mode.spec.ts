@@ -159,7 +159,7 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
 
   await switcher.getByRole("button", { name: "Dark" }).click();
   expect(await theme(page)).toBe("dark");
-  expect(await background(page)).toBe("rgb(15, 22, 19)");
+  expect(await background(page)).toBe("rgb(10, 10, 11)");
   expect(
     await page.evaluate(
       () => getComputedStyle(document.documentElement).colorScheme,
@@ -185,7 +185,7 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
       const s = getComputedStyle(el);
       return [s.backgroundColor, s.color];
     }),
-  ).toEqual(["rgb(24, 34, 30)", "rgb(221, 232, 226)"]);
+  ).toEqual(["rgb(22, 22, 24)", "rgb(236, 236, 238)"]);
   expect(await lowContrast(page)).toEqual([]);
   await page.keyboard.press("Escape");
   // A dialog over the dimmed inbox.
@@ -194,7 +194,7 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
   await expect(shortcuts).toBeVisible();
   expect(
     await shortcuts.evaluate((el) => getComputedStyle(el).backgroundColor),
-  ).toBe("rgb(24, 34, 30)");
+  ).toBe("rgb(22, 22, 24)");
   await page.keyboard.press("Escape");
 
   // Knowledge: the article editor, and help center settings.
@@ -253,7 +253,7 @@ test("dark mode with browser storage blocked: the switch still works for the vis
     .getByRole("button", { name: "Dark" })
     .click();
   expect(await theme(page)).toBe("dark");
-  expect(await background(page)).toBe("rgb(15, 22, 19)");
+  expect(await background(page)).toBe("rgb(10, 10, 11)");
   // Not kept: the next visit starts in Light, and nothing broke.
   await open(page);
   expect(await theme(page)).toBe("light");

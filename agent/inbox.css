@@ -1,7 +1,9 @@
 /*
  * Colours (agent dark mode): every colour in the agent app is one of these. The light values are
- * the default; `data-agent-theme="dark"` on the root element (set by agent/theme.ts from the
- * teammate's choice) switches to the dark ones. Popups attached to <body> use them too.
+ * the default. The dark theme is neutral near-black, with green kept for accents (links, focus,
+ * the selected row's marker, primary buttons). `data-agent-theme="dark"` on the root element
+ * (set by agent/theme.ts from the teammate's choice) switches to the dark values. Popups
+ * attached to <body> use them too.
  * tests/agent-theme.test.ts checks text contrast in both themes and that no colour is written
  * anywhere else in this file.
  */
@@ -18,13 +20,13 @@
 }
 :root[data-agent-theme="dark"] {
   color-scheme: dark;
-  --pg-bg:#0f1613; --pg-canvas:#121a17; --pg-surface:#18221e; --pg-sunken:#1d2925; --pg-nav:#131c18; --pg-hover:#213229; --pg-selected:#1c3a2e; --pg-active:#24473a; --pg-chip:#26352e;
-  --pg-text:#dde8e2; --pg-text-2:#b7c7bf; --pg-text-3:#a0b3a9; --pg-muted:#8fa298;
-  --pg-border:#2c3b34; --pg-border-subtle:#222f29; --pg-border-strong:#36483f; --pg-input-border:#5f756a;
-  --pg-accent:#4cc79d; --pg-accent-fill:#4cc79d; --pg-on-accent:#06201a; --pg-accent-strong:#a4e6ca; --pg-focus:#63d8b0; --pg-focus-soft:#4cc79d40; --pg-accent-border:#2f7a60; --pg-icon-soft:#6fae8d;
+  --pg-bg:#0a0a0b; --pg-canvas:#0f0f10; --pg-surface:#161618; --pg-sunken:#1c1c1f; --pg-nav:#111113; --pg-hover:#232326; --pg-selected:#222225; --pg-active:#2d2d31; --pg-chip:#27272a;
+  --pg-text:#ececee; --pg-text-2:#c6c6ca; --pg-text-3:#a9a9ae; --pg-muted:#96969b;
+  --pg-border:#2a2a2e; --pg-border-subtle:#1f1f22; --pg-border-strong:#38383d; --pg-input-border:#68686e;
+  --pg-accent:#4cc79d; --pg-accent-fill:#4cc79d; --pg-on-accent:#06201a; --pg-accent-strong:#a4e6ca; --pg-focus:#63d8b0; --pg-focus-soft:#4cc79d40; --pg-accent-border:#2f7a60; --pg-icon-soft:#8a8a90;
   --pg-note-bg:#2d2713; --pg-note-bg-2:#272211; --pg-note-border:#5f5020; --pg-note-text:#ebc97b; --pg-note-active:#4b3f18; --pg-note-fill:#e2bd66; --pg-on-note:#2a1f04; --pg-warn-line:#e19b2e; --pg-warn-text:#f2b45c;
   --pg-danger-text:#ff9f96; --pg-danger-bg:#3b1b18; --pg-danger-border:#75332d; --pg-danger-line:#ef5c51; --pg-badge:#c2410c; --pg-on-badge:#fff;
-  --pg-info-bg:#172639; --pg-info-line:#5f9ff2; --pg-variable-bg:#252851; --pg-variable-text:#c6c9ff; --pg-neutral-bg:#2d3230; --pg-neutral-text:#d0d6d3; --pg-paused-line:#73817a;
+  --pg-info-bg:#172639; --pg-info-line:#5f9ff2; --pg-variable-bg:#252851; --pg-variable-text:#c6c9ff; --pg-neutral-bg:#2a2a2e; --pg-neutral-text:#d4d4d8; --pg-paused-line:#76767c;
   --pg-shadow:#000000a0; --pg-shadow-soft:#00000066; --pg-shadow-faint:#0000; --pg-backdrop:#000000a8;
 }
 .pg-inbox {

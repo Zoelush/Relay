@@ -21,6 +21,8 @@ Branch `phase-04/dark-mode`, a follow-up to phase 04 (the agent inbox). Not a st
 
 The public help center, the messenger and the portal keep their own theming.
 
+**The dark palette is neutral near-black** (backgrounds from `#0a0a0b` to `#2d2d31`, text from `#ececee` down to `#96969b`). Green is kept for accents only: links, the Live dot, focus rings, the selected conversation's marker and primary buttons. A first version used green-tinted backgrounds, which were found distracting in review.
+
 **How the colours work** (`agent/inbox.css`):
 - **Named colours:** every colour is one of 51 named colours (`--pg-…`) with a light and a dark value, defined once at the top of the stylesheet.
 - **Applying the theme:** `agent/theme.ts` sets `data-agent-theme` on the root element before the first render, so a dark choice never flashes light. Popups attached outside the app, like the mention list, are themed too.
@@ -66,6 +68,7 @@ The light theme looks as it did, apart from these:
   - **Following the teammate across devices** (saving the choice on their profile) needs a migration and an API change.
   - **Narrow phones:** below 600px the sidebar is hidden (as before), so the switch isn't reachable there. A teammate on a phone gets the choice saved on that browser, or Light.
   - **The legacy D1 inbox** (`components/relay/inbox.tsx`, shown when `RELAY_AGENT_INBOX_V1` is off) isn't themed. It is being retired.
+- **Found while checking, not fixed here:** the @-mention list stays open after Escape, because the composer's own Escape handler takes the key first. It was already there before dark mode, so it's flagged as its own task.
 - **The browser's own buttons:** in light mode the app keeps using them. Restyling them for consistency would be a visible light-theme change, so it's left for a design pass.
 
 ## Checks
