@@ -202,6 +202,17 @@ function FilterEditor({
     </div>
   );
 }
+/** The view to show: the teammate's own choice, else "All open", else the first view. */
+function pickView(old: string, views: View[], chosen: boolean) {
+  const open = views.find((v) => v.builtin === "open")?.id;
+  if (
+    old &&
+    views.some((v) => v.id === old) &&
+    (chosen || !open || old === open)
+  )
+    return old;
+  return open ?? views[0]?.id ?? "";
+}
 export function InboxViews({
   selected,
   revision,
@@ -227,6 +238,10 @@ export function InboxViews({
   const [views, setViews] = useState<View[]>([]),
     [folders, setFolders] = useState<Folder[]>([]),
     [viewId, setViewId] = useState("");
+  // Whether the teammate picked the current view. An automatic pick moves to "All open" once it
+  // exists: on a first visit the default views are created after the first list of views, and
+  // the shared views that already existed must not stay selected (they looked like an empty inbox).
+  const chosen = useRef(false);
   const [rows, setRows] = useState<Row[]>([]),
     [cursor, setCursor] = useState<string | null>(null),
     [query, setQuery] = useState(""),
@@ -282,13 +297,8 @@ export function InboxViews({
     const data = await api<{ views: View[]; folders: Folder[] }>("views");
     setViews(withPending(data.views));
     setFolders(data.folders);
-    setViewId((old) =>
-      data.views.some((v) => v.id === old)
-        ? old
-        : (data.views.find((v) => v.builtin === "open")?.id ??
-          data.views[0]?.id ??
-          ""),
-    );
+    const keep = chosen.current;
+    setViewId((old) => pickView(old, data.views, keep));
   }, []);
   useEffect(() => {
     let live = true;
@@ -297,13 +307,8 @@ export function InboxViews({
         if (!live) return;
         setViews(withPending(data.views));
         setFolders(data.folders);
-        setViewId((old) =>
-          data.views.some((v) => v.id === old)
-            ? old
-            : (data.views.find((v) => v.builtin === "open")?.id ??
-              data.views[0]?.id ??
-              ""),
-        );
+        const keep = chosen.current;
+        setViewId((old) => pickView(old, data.views, keep));
       })
       .catch((e) => {
         if (live) setError(e.message);
@@ -453,6 +458,7 @@ export function InboxViews({
     const switchView = (e: Event) => {
       const v = views.find((x) => x.id === (e as CustomEvent<string>).detail);
       if (!v) return;
+      chosen.current = true;
       setViewId(v.id);
       setSort(v.sort);
     };
@@ -500,8 +506,10 @@ export function InboxViews({
       if (optimistic) pending.current.delete(optimistic.id);
       if (result.jobId) onJob(result.jobId);
       await refresh();
-      if (result.id && p.action !== "folder" && p.action !== "archive")
+      if (result.id && p.action !== "folder" && p.action !== "archive") {
+        chosen.current = true;
         setViewId(result.id);
+      }
       setEditing(null);
     } catch (e) {
       if (optimistic) pending.current.delete(optimistic.id);
@@ -593,6 +601,7 @@ export function InboxViews({
                     key={v.id}
                     aria-pressed={viewId === v.id}
                     onClick={() => {
+                      chosen.current = true;
                       setViewId(v.id);
                       setSort(v.sort);
                     }}

@@ -184,10 +184,8 @@ test("failures are reported per conversation, and undo after the window is refus
 }) => {
   // Grace's role cannot assign conversations: each one fails and is reported.
   await open(page, "?as=grace");
-  // Grace's views are built on her first visit; the list is loaded again once they are ready
-  // (a known gap from step B: the first page is not refetched when a view becomes ready).
-  await expect(page.locator(".pg-views nav")).not.toContainText("Updating…");
-  await page.reload();
+  // Grace's views are built on this first visit; her list fills in when they are ready, with
+  // no reload (fixed in maintenance/open-items).
   await check(page, "Bulk two").click();
   await check(page, "Bulk three").click();
   await bar(page).getByLabel("Assign").selectOption({ label: "Support teammate" });
