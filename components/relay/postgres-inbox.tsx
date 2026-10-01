@@ -281,6 +281,10 @@ export default function PostgresInbox() {
   // Without this, any live update (even a replay with nothing new) pulled a teammate reading
   // older history back to the bottom.
   const following = useRef(true);
+  // The timeline's height after the last update. Scroll events arrive a frame late, so an update
+  // landing just after the reader scrolled up still sees `following` as true; comparing the
+  // current position with this height catches that (a rare flake in the scroll-back test).
+  const laidOut = useRef(0);
   const shown = useRef({ id: "", pending: 0 });
   const fatal = useRef(false);
   const loadVersion = useRef(0);
@@ -509,10 +513,16 @@ export default function PostgresInbox() {
       el.scrollTop =
         anchor.current.top + el.scrollHeight - anchor.current.height;
       anchor.current = null;
-    } else if (opened || sent || following.current) {
-      bottom.current?.scrollIntoView({ block: "nearest" });
-      following.current = true;
+    } else {
+      // Where the reader is now, against the content as it was before this update.
+      const stillAtBottom =
+        !el || laidOut.current - el.scrollTop - el.clientHeight < 80;
+      if (opened || sent || (following.current && stillAtBottom)) {
+        bottom.current?.scrollIntoView({ block: "nearest" });
+        following.current = true;
+      } else following.current = false;
     }
+    if (el) laidOut.current = el.scrollHeight;
     const m = measuring.current;
     if (m && m.id === selectedRef.current && parts.length) {
       measuring.current = null;

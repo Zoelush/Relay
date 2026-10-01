@@ -33,6 +33,7 @@ import { normalizeDoc, plainText, type RichDoc } from "../lib/rich-doc";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
+import { helpSite } from "../server/help-site";
 import { identityIssuer, unwrapIdentityKey } from "../server/identity";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
@@ -70,6 +71,7 @@ export async function startLocalRelay(
     /** Routing and workload, likewise. */
     routing?: boolean;
     knowledge?: boolean;
+    helpCenter?: boolean;
     longTimeline?: boolean;
   } = {},
 ) {
@@ -397,6 +399,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_v1'",
         [w, options.knowledge !== false],
       );
+      // The public help center (phase 07, B1): /help/{workspace}/relay-help.
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='help_center_v1'",
+        [w, options.helpCenter !== false],
+      );
       await seedKnowledge(sql, w);
       if (options.tickets === false)
         await sql.query(
@@ -648,45 +655,66 @@ export async function startLocalRelay(
       return new Response("Not found", { status: 404 });
     }
   };
-  const serve = (origin: string, handler: (r: Request) => Promise<Response>) =>
-    createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      try {
-        // Raw bytes: uploads to local storage are binary and up to 10 MB; everything else 24 KB.
-        const limit = req.url?.startsWith(LOCAL_STORAGE_PATH)
-          ? LOCAL_UPLOAD_LIMIT
-          : 24000;
-        const chunks: Buffer[] = [];
-        let size = 0;
-        for await (const chunk of req) {
-          size += (chunk as Buffer).length;
-          if (size > limit) {
-            res.writeHead(413);
-            res.end();
-            return;
-          }
-          chunks.push(chunk as Buffer);
-        }
-        const body = Buffer.concat(chunks);
-        const request = new Request(origin + req.url, {
-          method: req.method,
-          headers: req.headers as HeadersInit,
-          ...(body.length ? { body } : {}),
-        });
-        const r =
-          (await localFiles.handle(request)) ?? (await handler(request));
-        res.writeHead(r.status, Object.fromEntries(r.headers));
-        res.end(Buffer.from(await r.arrayBuffer()));
-      } catch {
-        res.writeHead(500);
-        res.end("Local fixture failed");
+  // Requests still being handled. Closing waits for them before the database closes, so one
+  // that arrives during shutdown never reaches a closed database (the one-off "Relay API failed"
+  // in the browser suite, from scripts/local-db.ts at teardown).
+  const requests = new Set<Promise<void>>();
+  const tracked =
+    (handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>) =>
+    (req: IncomingMessage, res: ServerResponse) => {
+      if (stopped) {
+        res.writeHead(503);
+        res.end();
+        return;
       }
-    });
+      const task: Promise<void> = handle(req, res).finally(() =>
+        requests.delete(task),
+      );
+      requests.add(task);
+    };
+  const serve = (origin: string, handler: (r: Request) => Promise<Response>) =>
+    createServer(
+      tracked(async (req: IncomingMessage, res: ServerResponse) => {
+        try {
+          // Raw bytes: uploads to local storage are binary and up to 10 MB; everything else 24 KB.
+          const limit = req.url?.startsWith(LOCAL_STORAGE_PATH)
+            ? LOCAL_UPLOAD_LIMIT
+            : 24000;
+          const chunks: Buffer[] = [];
+          let size = 0;
+          for await (const chunk of req) {
+            size += (chunk as Buffer).length;
+            if (size > limit) {
+              res.writeHead(413);
+              res.end();
+              return;
+            }
+            chunks.push(chunk as Buffer);
+          }
+          const body = Buffer.concat(chunks);
+          const request = new Request(origin + req.url, {
+            method: req.method,
+            headers: req.headers as HeadersInit,
+            ...(body.length ? { body } : {}),
+          });
+          const r =
+            (await localFiles.handle(request)) ?? (await handler(request));
+          res.writeHead(r.status, Object.fromEntries(r.headers));
+          res.end(Buffer.from(await r.arrayBuffer()));
+        } catch {
+          res.writeHead(500);
+          res.end("Local fixture failed");
+        }
+      }),
+    );
   const api = serve(apiOrigin, async (req) => {
     const { value: response, timing } = await db.measure(() =>
       new URL(req.url).pathname.startsWith("/v1/")
         ? handleApi(req, env)
         : messengerAsset(req, db.connect, (r) =>
-            portalAsset(r, db.connect, staticResponse),
+            portalAsset(r, db.connect, (x) =>
+              helpSite(x, db.connect, apiOrigin, staticResponse),
+            ),
           ),
     );
     response.headers.append(
@@ -855,7 +883,8 @@ export async function startLocalRelay(
           host.closeAllConnections();
         }),
       ]);
-      while (background.size) await Promise.allSettled([...background]);
+      while (requests.size || background.size)
+        await Promise.allSettled([...requests, ...background]);
       await db.close();
     },
   };

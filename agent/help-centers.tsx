@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { preferredLocale, teammateLanguages } from "./locales";
 
 /**
  * Help center structure (phase 07, step A2), in the Knowledge section for `knowledge.manage`:
@@ -23,6 +24,7 @@ type Center = {
   theme: Theme;
   layout: Block[];
   noindex: boolean;
+  access: "public" | "signed_in";
   version: string;
 };
 type NodeView = {
@@ -220,7 +222,9 @@ function CenterEditor({
   const [tree, setTree] = useState<Tree | null>(null);
   const [locale, setLocale] = useState("");
   const [notice, setNotice] = useState("");
-  const [articles, setArticles] = useState<{ id: string; title: string }[]>([]);
+  const [records, setRecords] = useState<
+    { id: string; locales: { locale: string; title: string }[] }[]
+  >([]);
   const fetchTree = useCallback(
     () => api<Tree>("help-center?id=" + encodeURIComponent(id)),
     [id],
@@ -240,18 +244,13 @@ function CenterEditor({
           live &&
           setNotice(message(e, "This help center could not be loaded.")),
       );
-    api<{ records: { id: string; locales: { title: string }[] }[] }>(
-      "knowledge?source=article",
-    )
+    api<{
+      records: { id: string; locales: { locale: string; title: string }[] }[];
+    }>("knowledge?source=article")
       .then(
         (d) =>
           live &&
-          setArticles(
-            d.records.map((r) => ({
-              id: r.id,
-              title: r.locales[0]?.title || "Untitled",
-            })),
-          ),
+          setRecords(d.records.map((r) => ({ id: r.id, locales: r.locales }))),
       )
       .catch(() => {});
     return () => {
@@ -275,6 +274,13 @@ function CenterEditor({
   };
   if (!tree) return <p className="pg-muted">{notice || "Loading…"}</p>;
   const { center } = tree;
+  // Titles in the help center's default language, else the teammate's.
+  const articles = records.map((r) => ({
+    id: r.id,
+    title:
+      preferredLocale(r.locales, [center.defaultLocale, ...teammateLanguages()])
+        ?.title || "Untitled",
+  }));
   const collections = tree.nodes.filter((n) => n.kind === "collection");
   const redirectsTo = (id: string) =>
     tree.redirects.filter(
@@ -651,6 +657,7 @@ function CenterSettings({
     defaultLocale: center.defaultLocale,
     theme: center.theme,
     noindex: center.noindex,
+    access: center.access,
     // The featured block is kept as it is; the others can be turned on and reordered here.
     layout: center.layout,
   });
@@ -812,6 +819,23 @@ function CenterSettings({
         />
         Hide from search engines
       </label>
+      <label>
+        Who can read it
+        <select
+          aria-label="Who can read it"
+          value={form.access}
+          onChange={(e) => set({ access: e.target.value as Center["access"] })}
+        >
+          <option value="public">Everyone</option>
+          <option value="signed_in">Signed-in customers only</option>
+        </select>
+      </label>
+      {form.access === "signed_in" && (
+        <p className="pg-muted">
+          Customers sign in with the link from your site or app, or from the
+          chat. Signed-in pages are never shown to search engines.
+        </p>
+      )}
       <button
         onClick={() =>
           onSave({
@@ -822,6 +846,7 @@ function CenterSettings({
             theme: form.theme,
             layout: form.layout,
             noindex: form.noindex,
+            access: form.access,
           })
         }
       >

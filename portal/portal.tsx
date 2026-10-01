@@ -82,6 +82,7 @@ function Portal() {
     locale: string;
   } | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [helpCenter, setHelpCenter] = useState<string | null>(null);
   const [requests, setRequests] = useState<Request[] | null>(null);
   const [open, setOpen] = useState<string | null>(() =>
     new URLSearchParams(location.search).get("request"),
@@ -122,9 +123,18 @@ function Portal() {
         const context = await api<{
           brand: { name: string; color: string; locale: string };
           signedIn: boolean;
+          helpCenter: { slug: string } | null;
         }>("context");
         if (!live) return;
         setBrand(context.brand);
+        // A section of the public help center: link back to it (phase 07, B1).
+        setHelpCenter(
+          context.helpCenter
+            ? match
+              ? `/help/${encodeURIComponent(match[1])}/${encodeURIComponent(context.helpCenter.slug)}`
+              : "/"
+            : null,
+        );
         setSignedIn(context.signedIn);
         document.title = context.brand.name;
         document.documentElement.style.setProperty(
@@ -217,6 +227,7 @@ function Portal() {
     <div className="portal">
       <header>
         <strong>{brand?.name ?? ""}</strong>
+        {helpCenter && <a href={helpCenter}>{t.portalHelpCenter}</a>}
         {signedIn && (
           <button type="button" className="link" onClick={() => void signOut()}>
             {t.portalSignOut}

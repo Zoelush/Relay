@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased: knowledge step B1 (the public help center)
+
+- **Public pages:** home, collection, section, article, a 404 page and a sign-in page, rendered on the server with no client script. Behind a new `help_center_v1` flag, off by default. Addresses are `/help/{workspace}/{center}/{language}/…`, or the root of a custom domain already mapped for the portal.
+- **SEO:**
+  - language-aware canonical and `hreflang` (only languages a page really exists in, plus `x-default`)
+  - meta description, Open Graph and Twitter tags
+  - JSON-LD for articles, breadcrumbs and FAQs, the FAQ markup only for articles switched on as FAQs
+  - a sitemap with language alternates, and `robots.txt` on custom domains
+  - "Hide from search engines" adds `noindex` everywhere and empties the sitemap
+- **Redirects:** old addresses and unsupported languages give a `301`, and the help center root sends visitors to their language.
+- **Access:** a help center can be for signed-in customers only, and articles can be too. Signed in means the portal's verified customer session. Visitors without one get a sign-in page that names nothing, and restricted pages are never cached publicly or indexed.
+- **Articles show the full format:**
+  - callouts, tables, code, headings
+  - privacy-respecting YouTube and Vimeo players
+  - internal links that follow renamed addresses
+- **Look:** a strict CSP with no scripts, styles allowed by hash, and pages cacheable with an ETag. The theme colour is applied with readable contrast in light and dark mode.
+- **The portal** takes the help center's colour and links back to it, and "Your requests" appears in the help center.
+- **Fixed:**
+  - "Settings saved." and "Address saved." vanished when the article reloaded after saving
+  - lists showed an article's alphabetically first language (now the teammate's language, or the help center's default)
+- **Migration** 0031 with rollback. **Tests:** `tests/help-site.test.ts` and `tests/browser/help-site.spec.ts`. Details: `docs/KNOWLEDGE_STEP3.md`.
+
 ## Unreleased: knowledge step A2 (help center structure)
 
 - **Help centers:** at most one per brand, each with languages, a theme (colour, header, font), a homepage layout (search, collections, featured articles, contact, in any order) and a "hide from search engines" switch. Behind `knowledge_v1`.

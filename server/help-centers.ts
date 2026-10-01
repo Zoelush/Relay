@@ -154,10 +154,11 @@ type CenterRow = {
   theme: Theme;
   layout: LayoutBlock[];
   noindex: boolean;
+  access: "public" | "signed_in";
   version: string;
 };
 const CENTER =
-  "SELECT id,brand_id,name,slug,default_locale,locales,theme,layout,noindex,version::text AS version FROM help_centers";
+  "SELECT id,brand_id,name,slug,default_locale,locales,theme,layout,noindex,access,version::text AS version FROM help_centers";
 async function center(db: Sql, w: string, id: unknown, lock = false) {
   const c = (
     await db.query<CenterRow>(
@@ -199,6 +200,7 @@ const centerView = (c: CenterRow) => ({
   theme: { ...DEFAULT_THEME, ...c.theme },
   layout: c.layout,
   noindex: c.noindex,
+  access: c.access,
   version: c.version,
 });
 const freeCenterSlug = (db: Sql, w: string, base: string) =>
@@ -441,8 +443,11 @@ export async function changeHelpCenter(
       const slug = p.slug === undefined ? c.slug : validSlug(p.slug);
       if (slug !== c.slug) await centerSlugFree(db, w, slug, c.id);
       const layout = (await validLayout(db, w, p.layout)) ?? c.layout;
+      const access = p.access === undefined ? c.access : String(p.access);
+      if (access !== "public" && access !== "signed_in")
+        invalid("Choose everyone or signed-in customers.");
       await db.query(
-        `UPDATE help_centers SET name=$3,slug=$4,default_locale=$5,locales=$6,theme=$7,layout=$8,noindex=$9,version=version+1,updated_at=now()
+        `UPDATE help_centers SET name=$3,slug=$4,default_locale=$5,locales=$6,theme=$7,layout=$8,noindex=$9,access=$10,version=version+1,updated_at=now()
         WHERE workspace_id=$1 AND id=$2`,
         [
           w,
@@ -454,6 +459,7 @@ export async function changeHelpCenter(
           JSON.stringify(validTheme(p.theme, { ...DEFAULT_THEME, ...c.theme })),
           JSON.stringify(layout),
           p.noindex === undefined ? c.noindex : p.noindex === true,
+          access,
         ],
       );
       if (slug !== c.slug)
@@ -740,6 +746,9 @@ export async function resolvePath(
       path: [c.slug, requested, kind, slug].filter(Boolean).join("/"),
     };
   }
+  // Only a language tag can follow the help center (anything else is not a page).
+  if (requested && !/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(requested))
+    return { type: "not_found" };
   const { locale, chain } = resolveLocale(requested || c.default_locale, {
     defaultLocale: c.default_locale,
     locales: c.locales,

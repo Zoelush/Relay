@@ -157,6 +157,8 @@ test("portal: verified sign-in only, own requests only, nothing internal, same-o
     assert.deepEqual(context.body, {
       brand: { name: "Relay", color: "#087a57", locale: "en" },
       signedIn: false,
+      // No public help center for this brand (phase 07, B1).
+      helpCenter: null,
     });
 
     // Jo: a verified messenger customer with two conversations; Sam: another customer.

@@ -42,6 +42,7 @@ const en = {
   portalSignIn:
     "Sign in through our website or messenger to see your requests.",
   portalSignOut: "Sign out",
+  portalHelpCenter: "Help center",
   portalBack: "All requests",
   portalReply: "Write a reply",
   portalSend: "Send reply",
@@ -112,6 +113,7 @@ const ar: typeof en = {
   portalEmpty: "ليس لديك طلبات بعد.",
   portalSignIn: "سجّل الدخول عبر موقعنا أو نافذة المراسلة لرؤية طلباتك.",
   portalSignOut: "تسجيل الخروج",
+  portalHelpCenter: "مركز المساعدة",
   portalBack: "كل الطلبات",
   portalReply: "اكتب ردًا",
   portalSend: "إرسال الرد",
