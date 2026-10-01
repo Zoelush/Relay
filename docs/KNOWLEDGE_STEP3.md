@@ -120,9 +120,17 @@ Empty collections and sections are left out. Page furniture is translated into E
 
 The full browser run logged "Relay API failed" three times, and the error diagnostics added in October pointed at `scripts/local-db.ts:91` (`SET ROLE`). All three came between one spec file's last test and the next file's first test. A request still being handled when the local relay shut down reached the embedded database after it closed. The local relay now refuses new requests once closing (`503`) and waits for in-flight ones before closing the database. Production isn't affected. Two full runs after the fix logged none.
 
-## Open item
+## The scroll-back flake (phase 04 test)
 
-One of the two runs after the fix failed once in phase 04's scroll-back test (`agent-timeline.spec.ts`: "a failed older page shows an error…"). The older page wasn't requested after the test scrolled to the top. Ten repeats of that spec then passed 30 out of 30. It's unrelated to this step, but it's the same symptom the October maintenance fixed, so a rarer race may remain between the open-time "follow newest" scroll and the test's scroll to the top. Not yet investigated.
+One run after the teardown fix failed once in phase 04's scroll-back test (`agent-timeline.spec.ts`: "a failed older page shows an error…"): the older page wasn't requested after the test scrolled to the top.
+
+**A real race, fixed.** The inbox decided whether to follow the newest message from a flag that changes only on scroll events, and browsers deliver those a frame late. A live update landing in that frame pulled a teammate who had just scrolled up back to the bottom. The timeline now also checks the reader's actual position against the content's previous height before following (`components/relay/postgres-inbox.tsx`).
+
+**Not fully explained.**
+- Stress runs after the fix: 119 of 120, then 60 of 60 for the test alone, then 120 of 120 with diagnostics that record the scroll position and older-history requests on failure.
+- The rare remaining failure didn't happen while the diagnostics were in place, so its cause is unknown.
+- The next full run passed 47/47.
+- It's left open, with the diagnostic approach noted here.
 
 ## Checks
 
@@ -134,3 +142,4 @@ Results on 1 October 2026:
   - 47/47 before the teardown fix
   - 47/47 with no "Relay API failed" after it
   - then 46/47, with the scroll-back flake above
+  - 47/47 again after the timeline fix, with no "Relay API failed"
