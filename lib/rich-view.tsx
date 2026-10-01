@@ -64,6 +64,8 @@ function inline(nodes: RichInline[] = []): ReactNode[] {
       if (m.type === "bold") node = <strong>{node}</strong>;
       else if (m.type === "italic") node = <em>{node}</em>;
       else if (m.type === "code") node = <code>{node}</code>;
+      else if (m.type === "articleLink")
+        node = <span data-article-link={m.attrs.recordId}>{node}</span>;
       else
         node = (
           <a

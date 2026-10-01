@@ -22,6 +22,7 @@ import {
   Keyboard,
   Bell,
   PanelRight,
+  BookOpen,
 } from "lucide-react";
 import "../../agent/inbox.css";
 import { api, InboxError } from "../../agent/api";
@@ -101,11 +102,16 @@ type Snapshot = Directory & {
     manage?: boolean;
     macros?: boolean;
     views?: boolean;
+    knowledge?: boolean;
   };
 };
 /** The rich editor is its own chunk (about 130 KB gzip), so the list and timeline load first. */
 const Composer = lazy(() =>
   import("../../agent/composer").then((m) => ({ default: m.Composer })),
+);
+/** Knowledge (phase 07) loads with its own article editor, only when opened. */
+const Knowledge = lazy(() =>
+  import("../../agent/knowledge").then((m) => ({ default: m.Knowledge })),
 );
 /** The teammate's own IANA zone: snooze presets are resolved in it on the server. */
 const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -198,6 +204,8 @@ export default function PostgresInbox() {
   const [overrides, setOverrides] = useState<
     Record<string, Partial<Conversation>>
   >({});
+  /** The section on screen. The inbox stays mounted underneath Knowledge, keeping its place. */
+  const [area, setArea] = useState<"inbox" | "knowledge">("inbox");
   const [overlay, setOverlay] = useState<
     | "palette"
     | "shortcuts"
@@ -1160,9 +1168,22 @@ export default function PostgresInbox() {
           ◈ <strong>relay</strong>
         </div>
         <p>WORKSPACE</p>
-        <div className="pg-nav-active">
+        <button
+          className={area === "inbox" ? "pg-nav-active" : "pg-nav-item"}
+          aria-current={area === "inbox" ? "page" : undefined}
+          onClick={() => setArea("inbox")}
+        >
           <Inbox size={18} /> Inbox
-        </div>
+        </button>
+        {snapshot?.capabilities.knowledge && (
+          <button
+            className={area === "knowledge" ? "pg-nav-active" : "pg-nav-item"}
+            aria-current={area === "knowledge" ? "page" : undefined}
+            onClick={() => setArea("knowledge")}
+          >
+            <BookOpen size={18} /> Knowledge
+          </button>
+        )}
         <button
           className="pg-nav-bell"
           aria-label={`Notifications, ${notificationCount} unread`}
@@ -1183,7 +1204,17 @@ export default function PostgresInbox() {
           <span>{snapshot?.teammate.name ?? "Authenticated inbox"}</span>
         </div>
       </aside>
-      <section className="pg-workspace">
+      {area === "knowledge" && snapshot?.capabilities.knowledge && (
+        <Suspense
+          fallback={<section className="pg-workspace" aria-busy="true" />}
+        >
+          <Knowledge teammates={snapshot.teammates} />
+        </Suspense>
+      )}
+      <section
+        className="pg-workspace"
+        hidden={area === "knowledge" && !!snapshot?.capabilities.knowledge}
+      >
         <header className="pg-top">
           <h1>Inbox</h1>
           <span

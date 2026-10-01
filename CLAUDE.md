@@ -10,13 +10,13 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
 
-Current position: phase 06 (routing, teams and workload) is complete locally, planned in
+Current position: phase 07 (help center and knowledge store, `docs/KNOWLEDGE_PLAN.md`) step A1
+is done locally (`docs/KNOWLEDGE_STEP1.md`); next is step A2. Phase 06 (routing, teams and workload) is complete locally, planned in
 `docs/ROUTING_PLAN.md`; its step docs are `docs/ROUTING_STEP1.md` to `STEP3.md`. Phase 05
 (tickets and SLAs; `docs/TICKETS_PLAN.md`, `TICKETS_STEP1.md` to `STEP5.md`) and phase 04
-(agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete locally. Next is phase 07
-(help center and knowledge store). Open items from phases 04–06 were cleared in
-`docs/MAINTENANCE_2026-10.md`. Flags `tickets_v1`, `sla_v1`, `portal_v1` and
-`routing_v1` default off; the local relay turns them all on.
+(agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete locally. Open items from phases 04–06 were cleared in
+`docs/MAINTENANCE_2026-10.md`. Flags `tickets_v1`, `sla_v1`, `portal_v1`,
+`routing_v1` and `knowledge_v1` default off; the local relay turns them all on.
 Phases 01–03 are implemented locally but not complete
 or hosted; see `docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second
 teammate.

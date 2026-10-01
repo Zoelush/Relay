@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — knowledge step A1 (knowledge store core and the article editor)
+
+- One knowledge store for everything the help center, the inbox and the AI agent will read: public articles, internal articles, snippets, files and synced pages, each with an owner, an audience, a last-reviewed date and three independent switches (AI agent, help center, inbox). Behind `knowledge_v1`, off by default.
+- Internal content can never be offered to the AI agent or the help center (refused by the server and by a database check). Only public articles can be in the help center.
+- Each language is drafted and published on its own. Drafts autosave and are protected against overwriting a newer save from another tab or teammate. Every publish is kept as an unchangeable version that can be restored into the draft.
+- A Knowledge section in the inbox with an article editor: headings, lists, quotes, code blocks with a language, callouts, tables, YouTube and Vimeo videos, links, and links to other records by id. The server checks every save against the same article format.
+- Writing and publishing need the new `knowledge.manage` capability (roles that manage the workspace). Other teammates read published content available to the inbox.
+- Migration 0029 with rollback. New routes: `/v1/agent/knowledge` and `/v1/agent/knowledge-record`. The local relay turns knowledge on, with two sample records.
+- Deferred: image upload and file and synced-page creation (step C1); chunking and embedding (step C2).
+- Tests: `tests/knowledge.test.ts` and `tests/browser/knowledge.spec.ts`. Details: `docs/KNOWLEDGE_STEP1.md`.
+
 ## Unreleased — maintenance: open items from phases 04–06
 
 - Fixed: a new teammate's first inbox list looked empty until a reload. The first-visit view list was selecting a shared view before the teammate's own "All open" existed, and keeping it. An automatic selection now moves to "All open"; a teammate's own choice is kept.
