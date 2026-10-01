@@ -71,6 +71,11 @@ import {
   setPresence,
 } from "./routing";
 import { changeKnowledge, listKnowledge, readKnowledge } from "./knowledge";
+import {
+  changeHelpCenter,
+  listHelpCenters,
+  readHelpCenter,
+} from "./help-centers";
 import { bodyLimit } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
@@ -1012,6 +1017,8 @@ export async function handleApi(
             "/v1/agent/workload",
             "/v1/agent/knowledge",
             "/v1/agent/knowledge-record",
+            "/v1/agent/help-centers",
+            "/v1/agent/help-center",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -1031,6 +1038,7 @@ export async function handleApi(
               "/v1/agent/presence",
               "/v1/agent/next",
               "/v1/agent/knowledge",
+              "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -1093,6 +1101,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/presence" ||
           url.pathname === "/v1/agent/next" ||
           url.pathname.startsWith("/v1/agent/knowledge") ||
+          url.pathname.startsWith("/v1/agent/help-center") ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -1136,6 +1145,19 @@ export async function handleApi(
             ),
           });
         }
+        if (url.pathname === "/v1/agent/help-centers")
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              once(
+                db,
+                workspace,
+                "help-centers:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () => changeHelpCenter(db, workspace, principal, p),
+              ),
+            ),
+          );
         if (url.pathname === "/v1/agent/knowledge")
           return json(
             await tenant(env.connect, workspace, (db) =>
@@ -1502,6 +1524,23 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listKnowledge(db, workspace, principal, url.searchParams),
+          ),
+        );
+      if (url.pathname === "/v1/agent/help-centers")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listHelpCenters(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/help-center")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readHelpCenter(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("id") ?? "",
+            ),
           ),
         );
       if (url.pathname === "/v1/agent/knowledge-record")

@@ -50,6 +50,8 @@ const routes = {
     "workload",
     "knowledge",
     "knowledge-record",
+    "help-centers",
+    "help-center",
   ]),
   POST: new Set([
     "command",
@@ -68,6 +70,7 @@ const routes = {
     "presence",
     "next",
     "knowledge",
+    "help-centers",
     "realtime-ticket",
     "attachment/prepare",
     "attachment/complete",
