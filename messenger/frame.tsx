@@ -45,9 +45,37 @@ type Boot = {
     }[];
   };
   capabilities: Record<string, boolean>;
-  availability?: { open: boolean; nextOpenLabel?: string };
+  /** From the calendar that applies; null when none does (then no hours line is shown). */
+  availability?: { open: boolean; nextOpenLabel?: string } | null;
+  replyTime?: { band: string } | { text: string } | null;
   realtime?: { url: string; ticket: string };
 };
+type Strings = ReturnType<typeof language>["strings"];
+/** The expected reply time in words: a measured band, or the brand's own phrase. */
+function replyTime(t: Strings, r: Boot["replyTime"]) {
+  if (!r) return "";
+  if ("text" in r) return r.text;
+  return (
+    (
+      {
+        few_minutes: t.replyFewMinutes,
+        under_an_hour: t.replyUnderHour,
+        few_hours: t.replyFewHours,
+        about_a_day: t.replyDay,
+      } as Record<string, string>
+    )[r.band] ?? ""
+  );
+}
+/** "You're 3rd in line" (English ordinals), or the locale's own wording with the number. */
+function inLine(t: Strings, locale: string, n: number) {
+  if (!locale.startsWith("en"))
+    return t.queue.replace("{n}", n.toLocaleString(locale));
+  const suffix = { one: "st", two: "nd", few: "rd", other: "th" }[
+    new Intl.PluralRules("en", { type: "ordinal" }).select(n) as
+      "one" | "two" | "few" | "other"
+  ];
+  return t.queue.replace("{n}", `${n}${suffix}`);
+}
 type Init = { boot: Boot; api: string; open: boolean };
 const query = new URLSearchParams(location.search),
   parentOrigin = query.get("parent") ?? "",
@@ -164,6 +192,16 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       tab?.close();
     }
   }
+  /** Waiting details per conversation, from each timeline frame (pushed when the line moves). */
+  const [waiting, setWaiting] = useState<
+    Record<
+      string,
+      {
+        queue: { position: number } | null;
+        availability: { open: boolean; nextOpenLabel?: string } | null;
+      }
+    >
+  >({});
   const refreshList = useCallback(async () => {
     const data = await request<{ conversations: Conversation[] }>(
       "conversations",
@@ -333,6 +371,11 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
           }
           if (data.type === "unread") void refreshList().catch(() => {});
           if (data.type === "timeline") {
+            if (data.waiting)
+              setWaiting((w) => ({
+                ...w,
+                [data.conversationId]: data.waiting,
+              }));
             const previous = histories.current.get(data.conversationId),
               base = data.reset ? [] : (previous?.parts ?? []);
             const ids = new Set(base.map((p) => p.id));
@@ -552,14 +595,25 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
             <div className="intro">
               <span className="eyebrow">{boot.brand.teamIntroduction}</span>
               <h1>{t.welcome}</h1>
-              <p>
-                {boot.availability?.open
-                  ? t.open
-                  : boot.brand.outOfHours || t.away}
-              </p>
-              {boot.availability?.nextOpenLabel && (
-                <small>{boot.availability.nextOpenLabel}</small>
+              {boot.availability && (
+                <p>
+                  {boot.availability.open
+                    ? t.open
+                    : boot.brand.outOfHours || t.away}
+                </p>
               )}
+              {boot.availability?.open && replyTime(t, boot.replyTime) && (
+                <small data-testid="reply-time">
+                  {replyTime(t, boot.replyTime)}
+                </small>
+              )}
+              {boot.availability &&
+                !boot.availability.open &&
+                boot.availability.nextOpenLabel && (
+                  <small data-testid="next-open">
+                    {t.replyFrom} {boot.availability.nextOpenLabel}
+                  </small>
+                )}
             </div>
             {boot.capabilities.tickets && (
               <section>
@@ -653,6 +707,20 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
                   </small>
                 </div>
               </div>
+              {selected && waiting[selected]?.queue && (
+                <p className="queue" role="status" data-testid="queue-position">
+                  {inLine(t, locale, waiting[selected]!.queue!.position)}
+                </p>
+              )}
+              {selected &&
+                waiting[selected]?.availability &&
+                !waiting[selected]!.availability!.open &&
+                waiting[selected]!.availability!.nextOpenLabel && (
+                  <p className="queue" data-testid="team-next-open">
+                    {t.replyFrom}{" "}
+                    {waiting[selected]!.availability!.nextOpenLabel}
+                  </p>
+                )}
               <div
                 className="timeline"
                 ref={list}

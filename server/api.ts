@@ -62,6 +62,7 @@ import {
   startSession,
 } from "./portal";
 import {
+  queuePosition,
   listTeams,
   myWorkload,
   nextConversation,
@@ -81,7 +82,7 @@ import {
   customerUnreadSnapshots,
   customerAudience,
 } from "./unread";
-import { officeAvailability } from "./availability";
+import { availabilityFor, expectedReply } from "./office-hours";
 import {
   prepareAttachment,
   completeAttachment,
@@ -594,8 +595,8 @@ export async function historyPage(
     );
     after = payload.after as typeof after;
   }
-  const data = await tenant(env.connect, session.workspace, (db) =>
-    timeline(
+  const data = await tenant(env.connect, session.workspace, async (db) => {
+    const page = await timeline(
       db,
       session.workspace,
       id,
@@ -606,8 +607,25 @@ export async function historyPage(
         verified: session.verified,
       },
       after,
-    ),
-  );
+    );
+    // While waiting: the customer's place in line, and when their team is next open.
+    const c = page.conversation;
+    return {
+      ...page,
+      waiting: {
+        queue: await queuePosition(db, session.workspace, c.id),
+        availability:
+          c.status === "open" && c.team_id
+            ? await availabilityFor(
+                db,
+                session.workspace,
+                { brandId: c.brand_id, teamId: c.team_id },
+                session.locale ?? "en",
+              )
+            : null,
+      },
+    };
+  });
   const {
     id: canonicalId,
     title,
@@ -633,6 +651,7 @@ export async function historyPage(
       brand_id,
       timeline_revision,
     },
+    waiting: data.waiting,
     positions: undefined,
     cursor: await sign(
       {
@@ -890,7 +909,14 @@ export async function handleApi(
               expires,
               brand: { id: b.id, name: b.name, ...b.settings },
               locale,
-              availability: officeAvailability(b.settings.officeHours, locale),
+              // One source for office hours: the calendar that applies (phase 06, step C).
+              availability: await availabilityFor(
+                db,
+                p.workspaceId,
+                { brandId: b.id },
+                locale,
+              ),
+              replyTime: await expectedReply(db, p.workspaceId, b.id),
               capabilities: {
                 help: false,
                 // The portal is for verified customers; the messenger links to it for them.
@@ -902,7 +928,7 @@ export async function handleApi(
                       [p.workspaceId],
                     )
                   ).rows.length > 0,
-                queue: false,
+                queue: true,
                 attachments: !!env.attachments,
                 realtime: !!env.realtimeUrl,
               },

@@ -140,3 +140,7 @@ https://support.example.com/portal/{workspaceId}/{brandId}#token={identity JWT}&
 ```
 
 On a domain mapped to a brand (`/v1/agent/portal-settings`), use `https://help.example.com/portal#token=…`. The token and code travel in the fragment, which is never sent to a server or in a referrer; the portal removes it from the address bar at once and holds its session in an HttpOnly cookie. Anonymous visitors cannot use the portal.
+
+## Office hours, reply time and queue position (phase 06)
+
+The messenger's "online / away" line and next opening come from the business calendar that applies (team, then brand, then workspace; `/v1/agent/calendars`), so holidays and special days count. With no calendar, no hours line is shown. While open, it shows the expected reply time: the brand's measured median first response (last 14 days, at least 20 conversations) as a band, or the brand's own phrase in `settings.replyTime` (up to 80 characters). A customer waiting in a team inbox that assigns automatically sees their place in line ("You're 2nd in line"), updated live; set `settings.showQueuePosition` to `false` on a brand to hide it.

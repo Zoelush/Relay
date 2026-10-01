@@ -485,3 +485,5 @@ footer strong {
 .rich-image { margin: 6px 0; }
 .rich-image img { display: block; max-width: 100%; max-height: 280px; border-radius: 8px; }
 .rich-image-loading { display: block; width: 160px; height: 90px; border-radius: 8px; background: rgba(0,0,0,.06); }
+/* Phase 06 step C: place in line and when the team is next open. */
+.queue { margin: 6px 16px 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent, #087a57) 10%, transparent); font-size: 13px; }
