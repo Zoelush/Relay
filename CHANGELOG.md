@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased: agent inbox follow-up (mention picker)
+
+- **Fixed:** Escape in a note didn't close the @-mention list. The composer's own Escape handling (leave the editor) ran first, so the list stayed on screen. Escape now closes an open list and keeps the cursor in the note; a second Escape leaves the editor as before.
+- **Fixed:** an open @-mention list stayed on screen after switching to Knowledge. The list now closes whenever the editor loses focus, and when the editor is removed.
+- **Tests:** `tests/browser/mentions.spec.ts`.
+
 ## Unreleased: knowledge step C1a (files and images)
 
 - **Upload files to Knowledge:** PDF, Word (.docx), HTML, Markdown and text, up to 20 MB. Each becomes a file record whose content is the text read from it, published and searchable once the file passes a type check and a virus scan.

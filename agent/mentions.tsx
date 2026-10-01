@@ -1,9 +1,11 @@
 import { forwardRef, useImperativeHandle, useState } from "react";
 import Mention from "@tiptap/extension-mention";
 import { ReactRenderer } from "@tiptap/react";
-import type {
-  SuggestionKeyDownProps,
-  SuggestionProps,
+import { PluginKey, type EditorState } from "@tiptap/pm/state";
+import {
+  exitSuggestion,
+  type SuggestionKeyDownProps,
+  type SuggestionProps,
 } from "@tiptap/suggestion";
 
 export type Mentionable = {
@@ -11,6 +13,13 @@ export type Mentionable = {
   id: string;
   label: string;
 };
+const MentionPluginKey = new PluginKey("mention");
+
+/** True while the @-picker is open, so the composer leaves Escape to it. */
+export function mentionOpen(state: EditorState) {
+  return Boolean(MentionPluginKey.getState(state)?.active);
+}
+
 type ListHandle = { onKeyDown: (event: KeyboardEvent) => boolean };
 type ListProps = SuggestionProps<Mentionable, Mentionable>;
 
@@ -70,12 +79,18 @@ const MentionList = forwardRef<ListHandle, ListProps>(function MentionList(
 /**
  * TipTap's mention node with a `kind` attribute (teammate or team), matching Relay's document
  * format. `list` is the directory when the editor was created (it is recreated per conversation
- * and mode); the server re-checks every mention at send.
+ * and mode); the server re-checks every mention at send. The picker lives on `document.body`, so
+ * it closes when the editor loses focus: the inbox stays mounted (hidden) under Knowledge, and its
+ * editor is not destroyed there.
  */
 export function mentionExtension(list: Mentionable[]) {
   return Mention.extend({
     addAttributes() {
       return { ...this.parent?.(), kind: { default: "teammate" } };
+    },
+    onBlur() {
+      if (mentionOpen(this.editor.state))
+        exitSuggestion(this.editor.view, MentionPluginKey);
     },
   }).configure({
     HTMLAttributes: { class: "rich-mention" },
@@ -87,6 +102,7 @@ export function mentionExtension(list: Mentionable[]) {
     ],
     suggestion: {
       char: "@",
+      pluginKey: MentionPluginKey,
       items: ({ query }) =>
         list
           .filter((m) => m.label.toLowerCase().includes(query.toLowerCase()))
@@ -115,16 +131,14 @@ export function mentionExtension(list: Mentionable[]) {
             component?.updateProps(props);
             place(props);
           },
-          onKeyDown: (props: SuggestionKeyDownProps) => {
-            if (props.event.key === "Escape") {
-              (component?.element as HTMLElement | undefined)?.remove();
-              return true;
-            }
-            return component?.ref?.onKeyDown(props.event) ?? false;
-          },
+          // Escape is handled by the suggestion plugin, which exits and so calls onExit.
+          onKeyDown: (props: SuggestionKeyDownProps) =>
+            component?.ref?.onKeyDown(props.event) ?? false,
+          // Also called when the editor is destroyed with the picker open.
           onExit: () => {
             (component?.element as HTMLElement | undefined)?.remove();
             component?.destroy();
+            component = undefined;
           },
         };
       },
