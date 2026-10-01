@@ -41,6 +41,14 @@ async function open(page: Page) {
     "● Live",
   );
 }
+/** The theme buttons, in the account menu (opened if it is not). */
+async function themes(page: Page) {
+  const menu = page.getByRole("dialog", { name: "Account" });
+  if (!(await menu.isVisible()))
+    await page.getByRole("button", { name: /^Account:/ }).click();
+  return menu.getByRole("group", { name: "Theme" });
+}
+const closeMenu = (page: Page) => page.keyboard.press("Escape");
 const theme = (page: Page) =>
   page.evaluate(() => document.documentElement.dataset.agentTheme);
 const background = (page: Page) =>
@@ -138,12 +146,12 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
   await open(page);
   // Light until the teammate chooses otherwise, even on a dark device.
   expect(await theme(page)).toBe("light");
-  const switcher = page.getByRole("group", { name: "Theme" });
-  await expect(switcher.getByRole("button", { name: "Light" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(
+    (await themes(page)).getByRole("button", { name: "Light" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  // The open account menu is checked for contrast too, in both themes.
   expect(await lowContrast(page)).toEqual([]);
+  await closeMenu(page);
   // The check itself catches poor contrast, including text over a translucent layer.
   await page.evaluate(() => {
     const p = document.createElement("p");
@@ -157,9 +165,11 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
   ]);
   await page.evaluate(() => document.getElementById("probe")!.remove());
 
-  await switcher.getByRole("button", { name: "Dark" }).click();
+  await (await themes(page)).getByRole("button", { name: "Dark" }).click();
   expect(await theme(page)).toBe("dark");
   expect(await background(page)).toBe("rgb(10, 10, 11)");
+  expect(await lowContrast(page)).toEqual([]);
+  await closeMenu(page);
   expect(
     await page.evaluate(
       () => getComputedStyle(document.documentElement).colorScheme,
@@ -215,14 +225,13 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
   // Remembered in this browser.
   await open(page);
   expect(await theme(page)).toBe("dark");
-  await expect(switcher.getByRole("button", { name: "Dark" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(
+    (await themes(page)).getByRole("button", { name: "Dark" }),
+  ).toHaveAttribute("aria-pressed", "true");
 
   // System follows the device, live.
   await page.emulateMedia({ colorScheme: "light" });
-  await switcher.getByRole("button", { name: "System" }).click();
+  await (await themes(page)).getByRole("button", { name: "System" }).click();
   expect(await theme(page)).toBe("light");
   await page.emulateMedia({ colorScheme: "dark" });
   await expect.poll(() => theme(page)).toBe("dark");
@@ -248,10 +257,7 @@ test("dark mode with browser storage blocked: the switch still works for the vis
   page.on("pageerror", (e) => errors.push(e.message));
   await open(page);
   expect(await theme(page)).toBe("light");
-  await page
-    .getByRole("group", { name: "Theme" })
-    .getByRole("button", { name: "Dark" })
-    .click();
+  await (await themes(page)).getByRole("button", { name: "Dark" }).click();
   expect(await theme(page)).toBe("dark");
   expect(await background(page)).toBe("rgb(10, 10, 11)");
   // Not kept: the next visit starts in Light, and nothing broke.

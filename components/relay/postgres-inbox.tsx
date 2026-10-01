@@ -23,12 +23,10 @@ import {
   Bell,
   PanelRight,
   BookOpen,
-  Monitor,
-  Sun,
-  Moon,
 } from "lucide-react";
 import "../../agent/inbox.css";
-import { useAgentTheme, type ThemeChoice } from "../../agent/theme";
+import { useAgentTheme } from "../../agent/theme";
+import { AccountMenu } from "../../agent/account-menu";
 import { api, InboxError } from "../../agent/api";
 import { InboxViews, type ViewCount } from "../../agent/views";
 import { Timeline, type Directory } from "../../agent/timeline";
@@ -99,6 +97,8 @@ type Part = {
 type Snapshot = Directory & {
   conversations: Conversation[];
   teammate: { id: string; name: string; role_id?: string };
+  /** The account menu: the teammate's role and the workspace's name. */
+  account?: { role: string; workspace: { id: string; name: string } };
   storage: { engine: string; transport: string; workspaceId: string };
   capabilities: {
     reply: boolean;
@@ -149,7 +149,15 @@ type Pending = {
  * Authenticated core inbox. A conversation opens on its newest parts (from cache when warm),
  * older history loads on scroll, and live replay resumes from the cached cursor.
  */
-export default function PostgresInbox() {
+/**
+ * `hosting`: what the hosting sign-in knows that Relay does not keep: the teammate's email, and
+ * where signing out goes. The local relay has neither.
+ */
+export default function PostgresInbox({
+  hosting = {},
+}: {
+  hosting?: { email?: string; signOutHref?: string };
+}) {
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [selected, setSelected] = useState("");
   const [parts, setParts] = useState<Part[]>([]);
@@ -1214,30 +1222,27 @@ export default function PostgresInbox() {
         <button className="pg-nav-help" onClick={() => setOverlay("shortcuts")}>
           <Keyboard size={15} /> Shortcuts <kbd>?</kbd>
         </button>
-        <div className="pg-theme" role="group" aria-label="Theme">
-          {(
-            [
-              ["system", "System", Monitor],
-              ["light", "Light", Sun],
-              ["dark", "Dark", Moon],
-            ] as const
-          ).map(([value, label, Icon]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={theme === value}
-              title={label}
-              onClick={() => setTheme(value as ThemeChoice)}
-            >
-              <Icon size={14} aria-hidden="true" />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-        <div className="pg-nav-foot">
-          <LockKeyhole size={15} />
-          <span>{snapshot?.teammate.name ?? "Authenticated inbox"}</span>
-        </div>
+        {snapshot ? (
+          <AccountMenu
+            account={{
+              name: snapshot.teammate.name,
+              role: snapshot.account?.role ?? "",
+              workspace: snapshot.account?.workspace ?? {
+                id: snapshot.storage.workspaceId,
+                name: snapshot.storage.workspaceId,
+              },
+              email: hosting.email,
+              signOutHref: hosting.signOutHref,
+            }}
+            theme={theme}
+            onTheme={setTheme}
+          />
+        ) : (
+          <div className="pg-nav-foot">
+            <LockKeyhole size={15} />
+            <span>Authenticated inbox</span>
+          </div>
+        )}
       </aside>
       {area === "knowledge" && snapshot?.capabilities.knowledge && (
         <Suspense

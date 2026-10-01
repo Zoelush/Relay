@@ -1836,10 +1836,27 @@ export async function handleApi(
                 [workspace],
               )
             ).rows;
+          // The account menu: the teammate's role and the workspace's name.
+          const account = (
+            await db.query<{ role: string; workspace_name: string }>(
+              `SELECT r.name AS role,w.brand AS workspace_name FROM teammates t
+              JOIN roles r ON r.workspace_id=t.workspace_id AND r.id=t.role_id
+              JOIN workspace w ON w.id=t.workspace_id
+              WHERE t.workspace_id=$1 AND t.id=$2`,
+              [workspace, t.id],
+            )
+          ).rows[0];
           return {
             conversations,
             counters,
             teammate: t,
+            account: {
+              role: account?.role ?? t.role_id,
+              workspace: {
+                id: workspace,
+                name: account?.workspace_name ?? workspace,
+              },
+            },
             teammates: await directory("teammates"),
             teams: await directory("teams"),
             tags: await directory("tags"),
