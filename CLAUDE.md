@@ -14,7 +14,8 @@ Current position: phase 06 (routing, teams and workload) is complete locally, pl
 `docs/ROUTING_PLAN.md`; its step docs are `docs/ROUTING_STEP1.md` to `STEP3.md`. Phase 05
 (tickets and SLAs; `docs/TICKETS_PLAN.md`, `TICKETS_STEP1.md` to `STEP5.md`) and phase 04
 (agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete locally. Next is phase 07
-(help center and knowledge store). Flags `tickets_v1`, `sla_v1`, `portal_v1` and
+(help center and knowledge store). Open items from phases 04–06 were cleared in
+`docs/MAINTENANCE_2026-10.md`. Flags `tickets_v1`, `sla_v1`, `portal_v1` and
 `routing_v1` default off; the local relay turns them all on.
 Phases 01–03 are implemented locally but not complete
 or hosted; see `docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second
@@ -51,7 +52,9 @@ teammate.
 - Frontend is React 19 + TypeScript on Vinext/Vite. Tests:
   `npm test` (Node), `npm run test:e2e` (Playwright; builds the messenger, agent
   and portal bundles first, so do not call `npx playwright test` directly),
-  `npm run typecheck`.
+  `npm run typecheck`, and `npm run test:postgres` (assignment under real
+  concurrency on a throwaway PostgreSQL 17; about a minute, so not part of
+  `npm test`).
 
 ## Rules
 
