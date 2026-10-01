@@ -9,6 +9,8 @@ the prompt for each phase is in `docs/BUILD_PHASES.md`. Read the relevant
 phase before starting work. Phase 04 has its own detailed plan in
 `docs/AGENT_INBOX_PLAN.md` (steps A–D); step A's handoff is
 `docs/AGENT_INBOX_STEP1.md`. Verified progress is in `docs/STATUS.md`.
+`docs/INTERCOM_GAP_AUDIT.md` compares Intercom with Relay (October 2026); its
+additions are marked inside each phase of `docs/BUILD_PHASES.md`.
 
 Current position: phase 07 (help center and knowledge store, `docs/KNOWLEDGE_PLAN.md`) steps A1,
 A2, B1 and B2 are done locally (`docs/KNOWLEDGE_STEP1.md` to `STEP4.md`); next is step C1. The public
