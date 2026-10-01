@@ -232,6 +232,24 @@ Entities and behaviour:
   out of independently, plus a global unsubscribe. Every outbound
   message will later be required to declare one.
 
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+- Attribute write sources: every contact, company and conversation
+  attribute declares whether the API, the messenger and the inbox may
+  write it. Company membership and company attributes must be
+  lockable against messenger writes, because company-wide visibility
+  (the phase 5 portal) depends on it.
+- A teammate reference attribute type (for example the owner of a lead
+  or user).
+- An event-name registry: each name has a description and recent
+  usage, can be archived, and the number of enabled names per
+  workspace is capped explicitly.
+- Company filters on people: state and test the rule that a person
+  matches when any one of their companies matches.
+- Tags apply to articles and outbound messages as well, in the same
+  namespace.
+- Blocked contacts: a blocked person cannot send messages; the block
+  is audited and reversible.
+
 Acceptance criteria:
 - Seed a workspace with 50,000 contacts, 5,000 companies, 20 custom
   attributes and 2 million events, then show me the query plan and
@@ -452,6 +470,31 @@ Bulk actions on selected conversations: assign, tag, snooze, close,
 reopen, change priority, set ticket state, with a confirmation showing
 the count and an undo window.
 
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md). This
+phase was built before the audit: deliver these as follow-up steps.
+
+- A table layout for any view, with attributes as columns, beside the
+  list layout.
+- A spam folder as its own destination, and a "created by you" view
+  for conversations a teammate started.
+- Macro folders; macro availability limited to chosen teams or
+  teammates; availability per context (starting a conversation,
+  replying, adding a note), several per macro; usage counts per macro
+  and export of usage and content.
+- Snooze until the customer replies (no wake time), and workspace
+  settings for which internal events wake a snoozed conversation
+  (notes, assignments, back-office ticket state changes).
+- Bulk reply and bulk note, with the same confirmation and audit as
+  other bulk actions.
+- Per-teammate sidebar layout: each teammate chooses which attributes,
+  events and app cards are pinned.
+- Conversation attributes visible only to chosen teams, and
+  conditional attributes shown only when another attribute has a
+  given value.
+- Teammate aliases: a workspace default alias and a per-teammate alias
+  that customers see instead of real names.
+- A workspace setting to hide CSAT scores from agents.
+
 Acceptance criteria:
 - Opening a conversation from the list renders the first screen of the
   timeline in under 150ms on a warm cache; show me the measurement.
@@ -522,6 +565,17 @@ SLAs:
 - Expose time remaining on the conversation and as a sortable field in
   views.
 
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md). This
+phase was built before the audit: deliver these as follow-up steps.
+
+- Customer-submitted tickets: a ticket form sent in the messenger or by
+  a workflow, so customers (or the AI agent on their behalf) create
+  tickets. Ticket attributes gain flags: required to create, required
+  for customers, visible on create, and visible to customers. Add a
+  file attribute type.
+- A customer notification switch per ticket state: whether entering
+  this state notifies the customer.
+
 Acceptance criteria: a test matrix covering SLA clocks across office
 hours boundaries, holidays, timezone changes, snooze, reopen after
 close, and daylight saving transitions. This is where competitors have
@@ -590,6 +644,26 @@ Correctness requirements:
   appears. Test that it is picked up, because this is the failure
   everyone ships.
 
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md). This
+phase was built before the audit: deliver these as follow-up steps.
+
+- Inbox limit semantics: decide and document what an inbox limit
+  means before extending it. It can be a total for the team inbox (as
+  built), a cap per teammate within that inbox, or both, each named so
+  the difference is obvious in the UI.
+- Primary inboxes: teammates can have inboxes they work first.
+- Skills-based routing: a teammate skills attribute that routing can
+  match against conversation attributes.
+- A default assignee for new conversations that nothing else assigns,
+  and a workspace choice of whether replying to an unassigned or
+  team-assigned conversation assigns it to the replier.
+- Automatic away after a configurable period of inactivity, optionally
+  pausing the teammate's assigned conversations and tickets.
+- Away reasons: workspace-defined reasons chosen when going away,
+  optionally required, recorded on each presence change for reporting.
+- When a snoozed conversation wakes and its assignee is at capacity or
+  away, return it to the team inbox (configurable).
+
 Acceptance criteria: a simulation of 20 teammates, mixed limits, random
 away transitions, and 2,000 arriving conversations. Report the
 distribution per teammate and prove nothing was lost, double-assigned,
@@ -650,6 +724,22 @@ Help center (the public surface):
 - Access control: fully public, or restricted to signed-in customers
   via the same identity mechanism as the messenger.
 - The tickets portal from phase 5 mounted as a section.
+
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+Steps A1–B2 were built before the audit; these belong to C1, C2 or
+follow-up steps.
+
+- Website sync: exclusion URL globs, CSS selectors to strip, and
+  JavaScript rendering for sites that need it.
+- Manually managed redirects per help center, and a redirect map
+  generated when articles are imported, so links from a previous help
+  desk keep working.
+- A connector interface for third-party knowledge sources, with
+  Zendesk (public articles), Notion, Confluence and Guru (internal) as
+  the first candidates.
+- Decide whether collections nest beyond two levels, and provide
+  privacy-preserving built-in help center analytics instead of
+  third-party tracking scripts.
 
 Acceptance criteria: publish an article in three locales, verify each
 renders server-side with correct metadata; verify a slug change leaves
@@ -740,6 +830,29 @@ Evaluation (build this in the same phase):
   answers, rates them, and sends bad answers straight into a content
   gap list.
 
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+- Escalation rules (deterministic data conditions on people, company
+  or conversation; when one matches the agent does not answer and
+  hands over) kept separate from escalation guidance (natural
+  language).
+- An AI conversation state alongside open, snoozed and closed:
+  resolved, needs teammate input, escalated, pending. Inbox views by
+  this state.
+- Several agents with different purposes (for example service and
+  sales), each with its own content availability, guidance and
+  connectors.
+- Human-in-the-loop email replies: the agent drafts, a teammate
+  approves or edits before anything is sent; reported separately.
+- Formality (formal or informal address, per language) and answer
+  length settings.
+- An explicit decision on memory across a customer's conversations,
+  behind a workspace switch, with what was remembered recorded on the
+  conversation.
+- Simulated-customer tests for multi-step behaviour, alongside the
+  golden set.
+- Monitors that alert when the agent's behaviour or performance
+  changes sharply (an incident view).
+
 Acceptance criteria: show me the eval scores before and after a
 deliberate prompt change, and show me the agent correctly refusing a
 question that the knowledge store cannot answer.
@@ -799,6 +912,11 @@ Runtime:
 - A per-workspace kill switch that disables all write actions
   immediately.
 
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+- A customer verification rule table per channel and audience, with a
+  fallback rule, evaluated before any connector runs (not only for
+  write procedures).
+
 Acceptance criteria:
 - Recorded fixtures for every connector so tests run offline.
 - A test proving a write action is refused for an unverified contact.
@@ -850,6 +968,12 @@ Controls:
   than to a surprise invoice.
 - Latency budget: suggestions stream, and the composer is never blocked
   waiting for a model.
+
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+- Translation tone (for example friendly, neutral, professional) and a
+  workspace glossary of terms that must translate a fixed way.
+- Copilot access set per teammate, exposed to phase 16 as a billable
+  seat dimension.
 
 Acceptance criteria: copilot works with the knowledge store empty
 (it should degrade to general assistance and say so, not hallucinate
@@ -919,6 +1043,22 @@ Runtime:
 - Failure isolation: one failing node fails that run, never the queue.
   Retries with backoff for transient failures, dead-letter for the
   rest, and a visible alert when a workflow is failing repeatedly.
+
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+- More triggers: a customer visits a page, clicks a page element,
+  calls, or has been unresponsive; a teammate adds a note; a quality
+  score is received; a set time before an SLA breaches.
+- More steps: collect a customer reply, send a ticket form, reply
+  buttons built from custom-object records, show the expected reply
+  time, and pass to a reusable sub-workflow.
+- More actions: notify a Slack channel; turn off customer replies.
+- Decide explicitly whether several customer-facing workflows may run
+  on one trigger or only the highest-priority match, and show the
+  choice in the UI.
+- Refuse to publish conditions that cannot be evaluated (for example
+  too complex) instead of letting them fall through to "else" at run
+  time. Automated changes (bulk actions, the AI agent) must either
+  fire triggers or be documented, per trigger, as not firing them.
 
 Acceptance criteria: publish a workflow that tags, routes by language,
 waits for office hours, hands to the AI agent, and escalates on
@@ -1064,6 +1204,16 @@ Series:
 - A per-contact view showing where they are and why they took each
   branch.
 
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+- Dynamic audiences (everyone who matches now and later) and fixed
+  audiences (only those who match at send), and audiences from a CSV
+  upload.
+- Broadcasts over WhatsApp, Discord and Telegram once phase 12
+  provides those channels.
+- Collecting subscription consent inside a conversation.
+- Identifying a lead who clicks through from an email link, so the
+  site can greet them.
+
 Acceptance criteria: an opted-out contact receives nothing through any
 type; frequency caps hold under a burst of ten simultaneously matching
 messages; a tour whose anchor element disappears fails quietly and is
@@ -1137,6 +1287,21 @@ Export and sharing: CSV download, scheduled email delivery, a shareable
 external link with an expiry and optional password, and a warehouse
 export (object storage or a direct connector) of conversations,
 tickets, contacts and events with a documented schema.
+
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+- Custom metrics: percentage, ratio or absolute, with separate filters
+  on numerator and denominator, reusable across reports. Saved filter
+  sets reusable across reports.
+- A report timezone chosen per report or viewer.
+- METRICS.md also defines first-contact resolution, repeat contact,
+  adjusted handling time and reassignment count.
+- Pre-built effectiveness, calls, email deliverability and
+  human-in-the-loop reports.
+- Conversation quality review: a review queue in the inbox, reviewers
+  assigned to teammates' conversations, scorecards and issues, and
+  optionally an AI quality score on every closed conversation with
+  reasons, able to trigger workflows. This is large enough to become
+  its own phase; decide before starting phase 14.
 
 Acceptance criteria:
 - Build a dataset of 10 million conversation parts across 5,000
@@ -1288,6 +1453,27 @@ Billing:
   the customer controls.
 - Trials, upgrades, downgrades with a defined behaviour for data that
   exceeds the lower plan's limits, dunning, and invoices.
+
+Added after the Intercom gap audit (docs/INTERCOM_GAP_AUDIT.md):
+- Link safety: warnings on untrusted links, malicious-link detection
+  teammates must acknowledge, and workspace policies of trusted and
+  blocked domains.
+- Content redaction rules (built in and custom) applied to
+  conversation text.
+- Separate IP allowlists for the app and for the API.
+- A session length policy (already listed under identity and access).
+- A security health check summarising the workspace's settings.
+- Workspace switches for risky merges: merging conversations across
+  different people, and merging unverified leads into users by email.
+- A test workspace paired with a production workspace (also serves
+  phase 15's sandbox).
+- Granting the vendor's support team temporary account access, time
+  limited and audited.
+- Metering covers every billable unit (AI outcomes, SMS segments, bulk
+  email, bulk WhatsApp, phone segments, outbound messages by type),
+  each with alerts (notify only) and limits (pause the feature).
+- Limited seats: their capability limits are written into the seat
+  policy (for example no inbox search).
 
 Acceptance criteria: a deletion test proving no trace of a contact
 remains in any store including the search index and the embeddings;
