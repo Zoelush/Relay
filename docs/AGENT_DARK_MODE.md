@@ -111,7 +111,7 @@ The light theme looks as it did, apart from these:
   - **Narrow phones:** below 600px the sidebar is hidden (as before), so the account menu isn't reachable there. A teammate on a phone gets the theme saved on that browser, or Light.
   - **Narrow sidebar labels:** at 850px and below, the sidebar's "Knowledge" label is cut off. This was already the case before this branch, and it's left for a later pass.
   - **The legacy D1 inbox** (`components/relay/inbox.tsx`, shown when `RELAY_AGENT_INBOX_V1` is off) isn't themed. It is being retired.
-- **Found while checking, not fixed here:** the @-mention list stays open after Escape, because the composer's own Escape handler takes the key first. It was already there before dark mode, so it's flagged as its own task.
+- **Found while checking, fixed separately:** the @-mention list stayed open after Escape, because the composer's own Escape handler took the key first. It was already there before dark mode, so it was fixed in its own change (see the CHANGELOG's "mention picker" entry).
 - **The browser's own buttons:** in light mode the app keeps using them. Restyling them for consistency would be a visible light-theme change, so it's left for a design pass.
 
 ## Checks

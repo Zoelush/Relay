@@ -162,3 +162,43 @@ test("a mention of someone removed before sending is refused and the note is kep
     ),
   ).toHaveLength(0);
 });
+
+test("Escape closes the @-picker and keeps the note focused; the picker does not follow the teammate into Knowledge", async ({
+  page,
+}) => {
+  await start("Picker escape fixture");
+  await signIn(page);
+  await page.getByRole("button", { name: /Picker escape fixture/ }).click();
+  await page
+    .getByRole("button", { name: "Internal note", exact: true })
+    .click();
+  const editor = noteEditor(page);
+  await editor.click();
+  await page.keyboard.type("Ask @");
+  const picker = page.getByRole("listbox", {
+    name: "Mention a teammate or team",
+  });
+  await expect(picker).toBeVisible();
+
+  // The first Escape closes only the picker; the second leaves the editor, as before.
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await expect(page.locator(".pg-mention-popup")).toHaveCount(0);
+  await expect(editor).toBeFocused();
+  await page.keyboard.type("gra");
+  await expect(picker).toHaveCount(0);
+  await expect(editor).toHaveText("Ask @gra");
+  await page.keyboard.press("Escape");
+  await expect(editor).not.toBeFocused();
+
+  // An open picker closes when the teammate switches to Knowledge (the inbox stays mounted).
+  await editor.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" @");
+  await expect(picker).toBeVisible();
+  await page.getByRole("button", { name: "Knowledge", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Knowledge", level: 1 }),
+  ).toBeVisible();
+  await expect(page.locator(".pg-mention-popup")).toHaveCount(0);
+});

@@ -12,7 +12,7 @@ import {
   SquareCode,
   ImagePlus,
 } from "lucide-react";
-import { mentionExtension, type Mentionable } from "./mentions";
+import { mentionExtension, mentionOpen, type Mentionable } from "./mentions";
 import { VariableNode } from "./variables";
 import {
   InlineImage,
@@ -159,6 +159,8 @@ export function Composer({
             return true;
           }
           if (event.key === "Escape") {
+            // An open @-picker closes first; the editor's own props run before plugin props.
+            if (mentionOpen(view.state)) return false;
             (view.dom as HTMLElement).blur();
             return true;
           }
