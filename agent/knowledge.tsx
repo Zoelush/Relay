@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, InboxError } from "./api";
 import { ArticleEditor } from "./article-editor";
 import { HelpCenters } from "./help-centers";
+import { PagePanel, Websites } from "./knowledge-sources";
 import {
   DOCUMENT_ACCEPT,
   FileButton,
@@ -79,6 +80,8 @@ type Detail = {
   } | null;
   /** Phase 07 C1a: the file behind a file record. */
   file: FileSummary | null;
+  /** Phase 07 C1b: the website a synced page comes from. */
+  page: Parameters<typeof PagePanel>[0]["page"];
   canManage: boolean;
 };
 
@@ -109,8 +112,9 @@ export function Knowledge({
   teammates: { id: string; name: string; deleted?: boolean }[];
 }) {
   const [records, setRecords] = useState<Summary[]>([]);
-  const [tab, setTab] = useState<"content" | "help">("content");
+  const [tab, setTab] = useState<"content" | "help" | "websites">("content");
   const [canManage, setCanManage] = useState(false);
+  const [syncOn, setSyncOn] = useState(false);
   const [source, setSource] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -126,11 +130,14 @@ export function Knowledge({
     if (source) q.set("source", source);
     if (query.trim()) q.set("q", query.trim());
     const timer = setTimeout(() => {
-      api<{ records: Summary[]; canManage: boolean }>("knowledge?" + q)
+      api<{ records: Summary[]; canManage: boolean; sync: boolean }>(
+        "knowledge?" + q,
+      )
         .then((d) => {
           if (!live) return;
           setRecords(d.records);
           setCanManage(d.canManage);
+          setSyncOn(d.sync);
           setError("");
         })
         .catch(
@@ -204,6 +211,15 @@ export function Knowledge({
             >
               Help centers
             </button>
+            {syncOn && (
+              <button
+                role="tab"
+                aria-selected={tab === "websites"}
+                onClick={() => setTab("websites")}
+              >
+                Websites
+              </button>
+            )}
           </div>
         )}
         {canManage && tab === "content" && (
@@ -248,6 +264,8 @@ export function Knowledge({
       )}
       {tab === "help" && canManage ? (
         <HelpCenters />
+      ) : tab === "websites" && syncOn ? (
+        <Websites />
       ) : (
         <div className="pg-columns">
           <section className="pg-list" aria-label="Knowledge records">
@@ -509,19 +527,24 @@ function RecordView({
 
   if (!detail) return <div className="pg-muted">{notice || "Loading…"}</div>;
   const current = detail.locales.find((l) => l.locale === locale);
-  // A file's content is the text read from it: no editor, no languages to add, no revisions.
-  const isFile = detail.source === "file";
-  const filePanel = isFile && (
-    <FilePanel
-      recordId={id}
-      file={detail.file}
-      canManage={detail.canManage}
-      onChanged={async (done) => {
-        await load(locale);
-        if (done) setNotice(done);
-        onChanged();
-      }}
-    />
+  // A file's or synced page's content comes from its source: no editor, languages or revisions.
+  const isPage = detail.source === "external_page";
+  const isFile = detail.source === "file" || isPage;
+  const filePanel = isPage ? (
+    <PagePanel page={detail.page} />
+  ) : (
+    isFile && (
+      <FilePanel
+        recordId={id}
+        file={detail.file}
+        canManage={detail.canManage}
+        onChanged={async (done) => {
+          await load(locale);
+          if (done) setNotice(done);
+          onChanged();
+        }}
+      />
+    )
   );
   if (!detail.canManage)
     return (
@@ -573,16 +596,19 @@ function RecordView({
           </div>
         )}
         {filePanel}
-        <Settings
-          key={`${detail.version}:${detail.lastReviewedAt}`}
-          detail={detail}
-          teammates={teammates}
-          onSaved={async (done) => {
-            await load(locale);
-            setNotice(done);
-            onChanged();
-          }}
-        />
+        {/* A synced page's settings are its website's (one place for all its pages). */}
+        {!isPage && (
+          <Settings
+            key={`${detail.version}:${detail.lastReviewedAt}`}
+            detail={detail}
+            teammates={teammates}
+            onSaved={async (done) => {
+              await load(locale);
+              setNotice(done);
+              onChanged();
+            }}
+          />
+        )}
       </div>
     );
   return (

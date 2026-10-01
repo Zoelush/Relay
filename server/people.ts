@@ -122,6 +122,7 @@ export async function seedFoundation(
     "routing_v1",
     "knowledge_v1",
     "help_center_v1",
+    "knowledge_sync_v1",
   ])
     await db.query(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,false) ON CONFLICT DO NOTHING",
