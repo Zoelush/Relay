@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, InboxError } from "./api";
 import { ArticleEditor } from "./article-editor";
 import { HelpCenters } from "./help-centers";
+import { preferredLocale, teammateLanguages } from "./locales";
 import { SLUG, slugify } from "../lib/help-paths";
 import type { RichDoc } from "../lib/rich-doc";
 
@@ -51,6 +52,7 @@ type Detail = {
   forAi: boolean;
   forHelpCenter: boolean;
   forInbox: boolean;
+  faq: boolean;
   lastReviewedAt: string | null;
   version: string;
   locales: Locale[];
@@ -207,7 +209,10 @@ export function Knowledge({
                     aria-current={selected === r.id}
                     onClick={() => setSelected(r.id)}
                   >
-                    <strong>{r.locales[0]?.title || "Untitled"}</strong>
+                    <strong>
+                      {preferredLocale(r.locales, teammateLanguages())?.title ||
+                        "Untitled"}
+                    </strong>
                     <span className="pg-muted">
                       {SOURCE_NAMES[r.source]} ·{" "}
                       {r.locales
@@ -236,7 +241,12 @@ export function Knowledge({
                 teammates={teammates}
                 records={records
                   .filter((r) => r.id !== selected)
-                  .map((r) => ({ id: r.id, title: r.locales[0]?.title ?? "" }))}
+                  .map((r) => ({
+                    id: r.id,
+                    title:
+                      preferredLocale(r.locales, teammateLanguages())?.title ??
+                      "",
+                  }))}
                 onChanged={() => setReload((n) => n + 1)}
               />
             ) : (
@@ -302,7 +312,9 @@ function RecordView({
 
   const show = useCallback((d: Detail, pick?: string) => {
     setDetail(d);
-    const l = d.locales.find((x) => x.locale === pick) ?? d.locales[0];
+    const l =
+      d.locales.find((x) => x.locale === pick) ??
+      preferredLocale(d.locales, teammateLanguages());
     setLocale(l?.locale ?? "");
     draft.current = {
       title: l?.draft?.title ?? "",
@@ -576,7 +588,12 @@ function RecordView({
           id={id}
           locale={locale}
           slug={current.slug}
-          onSaved={() => load(locale).then(onChanged)}
+          onSaved={async (done) => {
+            // Saved changes reload the record, which redraws these panels: the notice lives here.
+            await load(locale);
+            setNotice(done);
+            onChanged();
+          }}
         />
       )}
       <Settings
@@ -584,7 +601,12 @@ function RecordView({
         key={`${detail.version}:${detail.lastReviewedAt}`}
         detail={detail}
         teammates={teammates}
-        onSaved={() => load(locale).then(onChanged)}
+        onSaved={async (done) => {
+          // Saved changes reload the record, which redraws these panels: the notice lives here.
+          await load(locale);
+          setNotice(done);
+          onChanged();
+        }}
       />
       <section className="pg-knowledge-history" aria-label="Version history">
         <h3>Published versions</h3>
@@ -626,7 +648,7 @@ function Settings({
 }: {
   detail: Detail;
   teammates: { id: string; name: string; deleted?: boolean }[];
-  onSaved: () => void;
+  onSaved: (done: string) => void;
 }) {
   const [form, setForm] = useState({
     audience: detail.audience,
@@ -634,6 +656,7 @@ function Settings({
     forHelpCenter: detail.forHelpCenter,
     forInbox: detail.forInbox,
     ownerId: detail.ownerId,
+    faq: detail.faq,
   });
   const [notice, setNotice] = useState("");
   const internal = form.audience === "internal";
@@ -641,8 +664,7 @@ function Settings({
     setNotice("");
     try {
       await api("knowledge", { id: detail.id, ...body });
-      setNotice(done);
-      onSaved();
+      onSaved(done);
     } catch (e) {
       setNotice(message(e, "The settings could not be saved."));
     }
@@ -693,6 +715,17 @@ function Settings({
             }
           />
           Show in the help center
+        </label>
+      )}
+      {detail.source === "article" && (
+        <label>
+          <input
+            type="checkbox"
+            checked={form.faq}
+            onChange={(e) => setForm((f) => ({ ...f, faq: e.target.checked }))}
+          />
+          FAQ article (each H2 ending in &ldquo;?&rdquo; becomes a question
+          for search engines)
         </label>
       )}
       <label>
@@ -761,7 +794,7 @@ function PublicAddress({
   id: string;
   locale: string;
   slug: string | null;
-  onSaved: () => void;
+  onSaved: (done: string) => void;
 }) {
   const [value, setValue] = useState(slug ?? "");
   const [notice, setNotice] = useState("");
@@ -785,8 +818,7 @@ function PublicAddress({
           setNotice("");
           try {
             await api("knowledge", { op: "slug", id, locale, slug: typed });
-            setNotice("Address saved.");
-            onSaved();
+            onSaved("Address saved. The old address redirects here.");
           } catch (err) {
             setNotice(message(err, "The address could not be saved."));
           }

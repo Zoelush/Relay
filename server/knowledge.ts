@@ -168,8 +168,9 @@ export async function record(db: Sql, w: string, id: unknown, lock = false) {
       for_inbox: boolean;
       last_reviewed_at: string | null;
       version: string;
+      faq: boolean;
     }>(
-      `SELECT id,source,owner_id,audience,for_ai,for_help_center,for_inbox,last_reviewed_at,version::text AS version
+      `SELECT id,source,owner_id,audience,for_ai,for_help_center,for_inbox,last_reviewed_at,version::text AS version,faq
       FROM knowledge_records WHERE workspace_id=$1 AND id=$2${lock ? " FOR UPDATE" : ""}`,
       [w, String(id ?? "")],
     )
@@ -356,6 +357,8 @@ export async function readKnowledge(
     forAi: r.for_ai,
     forHelpCenter: r.for_help_center,
     forInbox: r.for_inbox,
+    // Phase 07 B1: FAQ structured data on the help center page.
+    faq: r.faq,
     lastReviewedAt: r.last_reviewed_at
       ? new Date(r.last_reviewed_at).toISOString()
       : null,
@@ -453,6 +456,10 @@ export async function changeKnowledge(
       );
       const a = access(r.source, p, r);
       const owner = p.ownerId === undefined ? r.owner_id : String(p.ownerId);
+      // An FAQ article's question headings become FAQ structured data in the help center.
+      const faq = p.faq === undefined ? r.faq : p.faq === true;
+      if (faq && r.source !== "article")
+        invalid("Only articles can be marked as FAQs.");
       assert(
         (
           await db.query(
@@ -464,9 +471,9 @@ export async function changeKnowledge(
         "Choose an owner from this workspace.",
       );
       await db.query(
-        `UPDATE knowledge_records SET audience=$3,for_ai=$4,for_help_center=$5,for_inbox=$6,owner_id=$7,version=version+1,updated_at=now()
+        `UPDATE knowledge_records SET audience=$3,for_ai=$4,for_help_center=$5,for_inbox=$6,owner_id=$7,faq=$8,version=version+1,updated_at=now()
         WHERE workspace_id=$1 AND id=$2`,
-        [w, r.id, a.audience, a.forAi, a.forHelpCenter, a.forInbox, owner],
+        [w, r.id, a.audience, a.forAi, a.forHelpCenter, a.forInbox, owner, faq],
       );
       return { id: r.id, version: String(Number(r.version) + 1) };
     }

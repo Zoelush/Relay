@@ -102,9 +102,21 @@ export async function portalContext(
       [scope.workspace, scope.brand],
     )
   ).rows[0];
-  const color =
-    typeof b.settings.color === "string" &&
-    /^#[0-9a-fA-F]{6}$/.test(b.settings.color)
+  // Mounted as a section of the brand's public help center (phase 07, B1), the portal takes
+  // the help center's colour and links back to it.
+  const help = (
+    await db.query<{ color: string | null; slug: string }>(
+      `SELECT c.theme->>'primaryColor' AS color,c.slug FROM help_centers c
+      WHERE c.workspace_id=$1 AND c.brand_id=$2 AND (SELECT count(*) FROM workspace_features f
+        WHERE f.workspace_id=c.workspace_id AND f.name IN ('knowledge_v1','help_center_v1') AND f.enabled)=2`,
+      [scope.workspace, scope.brand],
+    )
+  ).rows[0];
+  const valid = (c: unknown): c is string =>
+    typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c);
+  const color = valid(help?.color)
+    ? help.color
+    : valid(b.settings.color)
       ? b.settings.color
       : "#087a57";
   return {
@@ -114,6 +126,7 @@ export async function portalContext(
       locale: typeof b.settings.locale === "string" ? b.settings.locale : "en",
     },
     signedIn: !!session,
+    helpCenter: help ? { slug: help.slug } : null,
   };
 }
 

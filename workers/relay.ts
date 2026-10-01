@@ -10,6 +10,7 @@ import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
 import { hyperdriveConnection } from "../server/postgres";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
+import { helpSite } from "../server/help-site";
 import {
   drainConversationOutbox,
   drainJobStatusOutbox,
@@ -333,7 +334,13 @@ const relayWorker = {
       hyperdriveConnection(env.HYPERDRIVE),
       (req) =>
         portalAsset(req, hyperdriveConnection(env.HYPERDRIVE), (r) =>
-          env.ASSETS.fetch(r),
+          // The public help center: /help/… here, or a mapped custom domain (phase 07, B1).
+          helpSite(
+            r,
+            hyperdriveConnection(env.HYPERDRIVE),
+            env.PUBLIC_ORIGIN,
+            (x) => env.ASSETS.fetch(x),
+          ),
         ),
       env.R2_ACCOUNT_ID
         ? [`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`]

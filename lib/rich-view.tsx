@@ -1,3 +1,6 @@
+/** @jsxImportSource react */
+// The help center renders on the server; this pins React's JSX runtime even where a test runner
+// compiles .tsx with its own (Playwright does, for component tests).
 import type { ReactNode } from "react";
 import {
   normalizeDoc,
@@ -35,11 +38,47 @@ export function RichText({
   } catch {
     return <p>{fallback}</p>;
   }
-  const block = (n: RichBlock, i: number) => renderBlock(n, i, image);
+  const block = (n: RichBlock, i: number) => renderBlock(n, i, { image });
   return <div className="rich">{safe.content.map(block)}</div>;
 }
 
-function inline(nodes: RichInline[] = []): ReactNode[] {
+/** Where an internal article link goes: the record's current page, or null to show plain text. */
+export type ArticleLinker = (recordId: string) => string | null;
+const VIDEO_SRC = {
+  // Privacy-respecting players: no tracking cookies before play (YouTube), do-not-track (Vimeo).
+  youtube: (id: string) => `https://www.youtube-nocookie.com/embed/${id}`,
+  vimeo: (id: string) => `https://player.vimeo.com/video/${id}?dnt=1`,
+};
+
+/**
+ * A knowledge article (phase 07): the article profile (headings, callouts, tables, videos, code
+ * with a language, links to other records). Validated again with the article rules; anything
+ * rejected falls back to the plain text. Used by the server-rendered help center.
+ */
+export function ArticleText({
+  doc,
+  fallback,
+  link,
+  image = altOnly,
+}: {
+  doc: unknown;
+  fallback: string;
+  link: ArticleLinker;
+  image?: ImageRenderer;
+}) {
+  let safe: RichDoc;
+  try {
+    safe = normalizeDoc(doc, { article: true });
+  } catch {
+    return <p>{fallback}</p>;
+  }
+  const block = (n: RichBlock, i: number) => renderBlock(n, i, { image, link });
+  return <div className="rich article">{safe.content.map(block)}</div>;
+}
+
+type Context = { image: ImageRenderer; link?: ArticleLinker };
+
+function inline(nodes: RichInline[] = [], link?: ArticleLinker): ReactNode[] {
   return nodes.map((n, i) => {
     if (n.type === "hardBreak") return <br key={i} />;
     if (n.type === "mention")
@@ -64,9 +103,16 @@ function inline(nodes: RichInline[] = []): ReactNode[] {
       if (m.type === "bold") node = <strong>{node}</strong>;
       else if (m.type === "italic") node = <em>{node}</em>;
       else if (m.type === "code") node = <code>{node}</code>;
-      else if (m.type === "articleLink")
-        node = <span data-article-link={m.attrs.recordId}>{node}</span>;
-      else
+      else if (m.type === "articleLink") {
+        const href = link?.(m.attrs.recordId);
+        node = href ? (
+          <a href={href} className="rich-article-link">
+            {node}
+          </a>
+        ) : (
+          <span data-article-link={m.attrs.recordId}>{node}</span>
+        );
+      } else
         node = (
           <a
             href={m.attrs.href}
@@ -81,8 +127,9 @@ function inline(nodes: RichInline[] = []): ReactNode[] {
   });
 }
 
-function renderBlock(n: RichBlock, i: number, image: ImageRenderer): ReactNode {
-  const block = (b: RichBlock, j: number) => renderBlock(b, j, image);
+function renderBlock(n: RichBlock, i: number, context: Context): ReactNode {
+  const { image, link } = context;
+  const block = (b: RichBlock, j: number) => renderBlock(b, j, context);
   switch (n.type) {
     case "image":
       return (
@@ -91,12 +138,79 @@ function renderBlock(n: RichBlock, i: number, image: ImageRenderer): ReactNode {
         </figure>
       );
     case "paragraph":
-      return <p key={i}>{inline(n.content)}</p>;
+      return <p key={i}>{inline(n.content, link)}</p>;
     case "codeBlock":
       return (
         <pre key={i}>
-          <code>{(n.content ?? []).map((t) => t.text).join("")}</code>
+          <code
+            className={
+              n.attrs?.language ? "language-" + n.attrs.language : undefined
+            }
+          >
+            {(n.content ?? []).map((t) => t.text).join("")}
+          </code>
         </pre>
+      );
+    case "heading": {
+      const Tag = (["h2", "h3", "h4"] as const)[n.attrs.level - 2];
+      return <Tag key={i}>{inline(n.content, link)}</Tag>;
+    }
+    case "callout":
+      return (
+        <aside
+          key={i}
+          className={"callout callout-" + n.attrs.tone}
+          role="note"
+        >
+          {n.content.map(block)}
+        </aside>
+      );
+    case "video":
+      return (
+        <div key={i} className="video">
+          <iframe
+            src={VIDEO_SRC[n.attrs.provider](n.attrs.id)}
+            title={
+              n.attrs.provider === "youtube" ? "YouTube video" : "Vimeo video"
+            }
+            loading="lazy"
+            allow="fullscreen; picture-in-picture"
+            allowFullScreen
+          />
+        </div>
+      );
+    case "table":
+      return (
+        <div key={i} className="table">
+          <table>
+            <tbody>
+              {n.content.map((row, r) => (
+                <tr key={r}>
+                  {row.content.map((cell, c) => {
+                    const Cell = cell.type === "tableHeader" ? "th" : "td";
+                    return (
+                      <Cell
+                        key={c}
+                        colSpan={
+                          cell.attrs.colspan > 1
+                            ? cell.attrs.colspan
+                            : undefined
+                        }
+                        rowSpan={
+                          cell.attrs.rowspan > 1
+                            ? cell.attrs.rowspan
+                            : undefined
+                        }
+                      >
+                        {cell.content.map(block)}
+                      </Cell>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       );
     case "blockquote":
       return <blockquote key={i}>{n.content.map(block)}</blockquote>;
