@@ -21,3 +21,10 @@ Acceptance criteria: three locales rendered by the server with correct metadata 
 3. **Help center hosting:** like the portal: server-rendered by the Relay Worker at `/help/{workspace}/{center}`, custom domains through the domain table, certificates deferred to phase 17. React-rendered HTML with small scripts for search and feedback, working without JavaScript.
 4. **Article editor:** the existing TipTap and `rich-doc` format with an article profile (headings, images with alt text, YouTube and Vimeo videos, callouts, code blocks with a language, tables, links to other records by id so they survive slug changes), validated on the server. No second format.
 5. **Step C1** (approved on 1 October 2026, "Yes to all"): split into C1a (files and images) and C1b (website sync). Text extraction uses `unpdf` (pdf.js, which runs in Workers and Node) and `htmlparser2`. C1b renders pages through a `PageRenderer` interface (Cloudflare Browser Rendering when deployed, a fake in tests) and defines only the source-adapter interface; each outside tool is its own later step.
+6. **Step C1b** (approved on 1 October 2026, "Yes, go ahead with all four"):
+   - public https fetching only, with redirects re-checked; limits of 5 MB, 15 seconds and 2,000 pages, on the start host only
+   - our own small selector syntax for stripping page parts
+   - who can use the pages set per source
+   - JavaScript rendering and outside tools as interfaces only (`PageRenderer`, `SourceAdapter`)
+
+   Handoff: `docs/KNOWLEDGE_STEP6.md`.

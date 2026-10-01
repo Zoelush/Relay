@@ -3,6 +3,7 @@ import { SLUG, SLUG_MAX, slugify } from "../lib/help-paths";
 import { feedbackSummary, indexRecord, normalize } from "./help-search";
 import { authorize, can } from "./policy";
 import { fileSummary, readyImages } from "./knowledge-files";
+import { pageSummary, syncAvailable } from "./knowledge-sync";
 import {
   imageIds,
   normalizeDoc,
@@ -21,7 +22,7 @@ import {
  * AI agent (which answers customers), so internal knowledge cannot reach a customer.
  * Uploaded files create `file` records (phase 07, C1a, in knowledge-files.ts): their content is
  * the text extracted from the file, so they are not edited here.
- * TODO(phase 07 C1b): synced external pages create `external_page` records the same way.
+ * Synced websites create `external_page` records the same way (C1b, in knowledge-sync.ts).
  * TODO(phase 07 C2): publishing (re)chunks and (re)embeds the published version.
  */
 export const SOURCES = [
@@ -319,6 +320,8 @@ export async function listKnowledge(
       locales: r.locales,
     })),
     canManage: manage,
+    // Phase 07 C1b: whether to offer the Websites tab.
+    sync: manage && (await syncAvailable(db, w, principal)),
   };
 }
 
@@ -392,6 +395,8 @@ export async function readKnowledge(
     feedback: manage ? await feedbackSummary(db, w, r.id) : null,
     // Phase 07 C1a: the uploaded file behind a file record.
     file: r.source === "file" ? await fileSummary(db, w, r.id) : null,
+    // Phase 07 C1b: the website a synced page comes from.
+    page: r.source === "external_page" ? await pageSummary(db, w, r.id) : null,
     canManage: manage,
   };
 }
@@ -413,7 +418,7 @@ export async function changeKnowledge(
     case "create": {
       const source = p.source as Source;
       if (!SOURCES.includes(source)) invalid("Choose a kind of content.");
-      // Files are created by upload (C1a) and synced pages by sync (TODO(phase 07 C1b)), not by hand.
+      // Files are created by upload (C1a) and synced pages by website sync (C1b), not by hand.
       assert(
         EDITABLE.includes(source),
         "KNOWLEDGE_SOURCE",

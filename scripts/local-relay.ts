@@ -43,6 +43,11 @@ import { drainAll } from "../server/routing";
 import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
 import { processKnowledgeFile } from "../server/knowledge-files";
+import {
+  runSync,
+  scheduleDueSyncs,
+  type SyncEnvironment,
+} from "../server/knowledge-sync";
 import { runJob, type JobHandler } from "../server/jobs";
 import { reindexSearch } from "../server/search";
 import { rebuildCustomerUnread } from "../server/unread";
@@ -74,6 +79,10 @@ export async function startLocalRelay(
     routing?: boolean;
     knowledge?: boolean;
     helpCenter?: boolean;
+    /** Website sync, likewise. */
+    knowledgeSync?: boolean;
+    /** Website sync's fetch policy and renderer (tests reach a local test site this way). */
+    sync?: SyncEnvironment;
     longTimeline?: boolean;
   } = {},
 ) {
@@ -163,6 +172,7 @@ export async function startLocalRelay(
     bridgeSecret: keys.bridge,
     realtimeUrl: apiOrigin.replace("http", "ws") + "/realtime",
     notify: publish,
+    sync: options.sync ?? {},
   };
   for (const w of ["demo", "other"])
     await tenant(db.connect, w, (sql) =>
@@ -406,6 +416,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='help_center_v1'",
         [w, options.helpCenter !== false],
       );
+      // Website sync (phase 07, C1b).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_sync_v1'",
+        [w, options.knowledgeSync !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -528,6 +543,9 @@ export async function startLocalRelay(
   if (env.attachments)
     handlers["knowledge.file.process"] = (job) =>
       processKnowledgeFile(db.connect, env.attachments!, job);
+  handlers["knowledge.sync.run"] = (job) =>
+    runSync(db.connect, env.sync ?? {}, job);
+  const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
     stopped = false;
@@ -576,6 +594,11 @@ export async function startLocalRelay(
             w,
             routed.map((r) => r.conversationId),
           );
+        // Websites due a sync (phase 07, C1b), checked once a minute.
+        if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
+          lastSyncCheck.set(w, Date.now());
+          await scheduleDueSyncs(db.connect, w);
+        }
         // Draft retention, at most once a day per workspace (the Worker runs it at 03:00 UTC).
         if (Date.now() - (lastPurge.get(w) ?? 0) > 86_400_000) {
           lastPurge.set(w, Date.now());

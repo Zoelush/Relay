@@ -72,6 +72,12 @@ import {
 } from "./routing";
 import { changeKnowledge, listKnowledge, readKnowledge } from "./knowledge";
 import {
+  changeSource,
+  listSources,
+  readSource,
+  type SyncEnvironment,
+} from "./knowledge-sync";
+import {
   articleImage,
   completeKnowledgeFile,
   deleteKnowledgeObjects,
@@ -136,6 +142,8 @@ export interface ApiEnvironment {
   realtimeUrl?: string;
   attachments?: AttachmentStorage;
   dispatchJobs?: (workspace: string) => Promise<void>;
+  /** Website sync (phase 07 C1b): fetch policy and page renderer. */
+  sync?: SyncEnvironment;
 }
 export type Session = {
   workspace: string;
@@ -1040,6 +1048,8 @@ export async function handleApi(
             "/v1/agent/knowledge",
             "/v1/agent/knowledge-record",
             "/v1/agent/knowledge-file",
+            "/v1/agent/knowledge-sources",
+            "/v1/agent/knowledge-source",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1063,6 +1073,7 @@ export async function handleApi(
               "/v1/agent/next",
               "/v1/agent/knowledge",
               "/v1/agent/knowledge-files",
+              "/v1/agent/knowledge-sources",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1198,6 +1209,21 @@ export async function handleApi(
               ),
             ),
           );
+        if (url.pathname === "/v1/agent/knowledge-sources") {
+          // Phase 07 C1b: websites synced into knowledge.
+          const result = await tenant(env.connect, workspace, (db) =>
+            once(
+              db,
+              workspace,
+              "knowledge-sources:" + principal,
+              req.headers.get("idempotency-key") ?? "",
+              p,
+              () => changeSource(db, workspace, principal, env.sync ?? {}, p),
+            ),
+          );
+          if ("jobId" in result) await env.dispatchJobs?.(workspace);
+          return json(result, "jobId" in result ? 202 : 200);
+        }
         if (url.pathname === "/v1/agent/knowledge-files") {
           // Phase 07 C1a: uploads for file records, article images and help center images.
           assert(
@@ -1636,6 +1662,23 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             readHelpCenter(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("id") ?? "",
+            ),
+          ),
+        );
+      if (url.pathname === "/v1/agent/knowledge-sources")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listSources(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/knowledge-source")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readSource(
               db,
               workspace,
               principal,

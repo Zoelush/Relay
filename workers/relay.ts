@@ -4,6 +4,7 @@ import {
   scheduleInboxProjection,
 } from "../server/inbox-views";
 import { processKnowledgeFile } from "../server/knowledge-files";
+import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import { purgeDrafts } from "../server/drafts";
 import { purgeHelpSearches } from "../server/help-search";
 import { purgeInlineImages } from "../server/attachments";
@@ -375,6 +376,8 @@ const relayWorker = {
     if (runtime.attachments)
       handlers["knowledge.file.process"] = (job) =>
         processKnowledgeFile(runtime.connect, runtime.attachments!, job);
+    // Website sync (phase 07, C1b). TODO(phase 17): a Browser Rendering renderer for JavaScript sites.
+    handlers["knowledge.sync.run"] = (job) => runSync(runtime.connect, {}, job);
     for (const message of batch.messages) {
       const work = message.body;
       try {
@@ -416,6 +419,8 @@ const relayWorker = {
           );
           for (const c of overdue)
             await scheduleClock(env, work.workspace, c.id);
+          // Websites due a sync (phase 07, C1b).
+          await scheduleDueSyncs(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(

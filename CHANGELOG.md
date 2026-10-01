@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: knowledge step C1b (website sync)
+
+- **Sync a website into Knowledge:** add a site by its address or sitemap in the new Websites tab. Its pages become synced-page records, found by their content in Knowledge search, and are re-read weekly (every 14 days for large sites) or on demand. Behind a new `knowledge_sync_v1` flag, off by default.
+- **Polite and careful:**
+  - follows `robots.txt` and `noindex` and stays on the site
+  - only asks for pages that changed, and only republishes pages whose text changed
+  - archives pages that are gone or no longer linked (after two syncs), never deletes them
+- **Your rules:** addresses to leave out (`/blog/*`), page parts to leave out (`nav`, `.cookie-banner`), and who can use the pages (set once for the whole site). Each page shows why it wasn't synced when it wasn't.
+- **Safe fetching:** public `https://` addresses only. Private, local and IP addresses are refused, including through redirects, with size and time limits.
+- **Interfaces** for JavaScript rendering (Cloudflare Browser Rendering, later) and for outside sources (Zendesk, Notion, Confluence and Guru, later).
+- **Migration** 0034 (four tables and the flag) with rollback. **Tests:** `tests/knowledge-sync.test.ts` and `tests/browser/knowledge-sync.spec.ts`. Details: `docs/KNOWLEDGE_STEP6.md`.
+
 ## Unreleased: agent inbox follow-up (mention picker)
 
 - **Fixed:** Escape in a note didn't close the @-mention list. The composer's own Escape handling (leave the editor) ran first, so the list stayed on screen. Escape now closes an open list and keeps the cursor in the note; a second Escape leaves the editor as before.
