@@ -28,7 +28,8 @@ import {
   LOCAL_UPLOAD_LIMIT,
 } from "./local-storage";
 import { getIdentity, seedFoundation } from "../server/people";
-import { tenant, digest } from "../server/db";
+import { tenant, digest, type Sql } from "../server/db";
+import { normalizeDoc, plainText, type RichDoc } from "../lib/rich-doc";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
@@ -68,6 +69,7 @@ export async function startLocalRelay(
     portal?: boolean;
     /** Routing and workload, likewise. */
     routing?: boolean;
+    knowledge?: boolean;
     longTimeline?: boolean;
   } = {},
 ) {
@@ -390,6 +392,12 @@ export async function startLocalRelay(
           }),
         ],
       );
+      // Knowledge (phase 07): a published public article and an internal draft to try editing.
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_v1'",
+        [w, options.knowledge !== false],
+      );
+      await seedKnowledge(sql, w);
       if (options.tickets === false)
         await sql.query(
           "UPDATE workspace_features SET enabled=false WHERE workspace_id=$1 AND name='tickets_v1'",
@@ -872,4 +880,130 @@ if (
   );
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => void app.close().then(() => process.exit()));
+}
+
+/** Two sample knowledge records per workspace, with fixed ids so a restart adds nothing. */
+async function seedKnowledge(sql: Sql, w: string) {
+  const article: RichDoc = normalizeDoc(
+    {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Relay brings every customer conversation into one inbox.",
+            },
+          ],
+        },
+        {
+          type: "heading",
+          attrs: { level: 2 },
+          content: [{ type: "text", text: "Start a conversation" }],
+        },
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Open the messenger on your site and say hello.",
+            },
+          ],
+        },
+        {
+          type: "callout",
+          attrs: { tone: "info" },
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  text: "Replies usually arrive within an hour during office hours.",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    { article: true },
+  );
+  const internal: RichDoc = normalizeDoc(
+    {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Refunds over 200 need a team lead's approval.",
+            },
+          ],
+        },
+      ],
+    },
+    { article: true },
+  );
+  const records = [
+    [
+      "00000000-0000-4000-8000-00000000a001",
+      "article",
+      "public",
+      true,
+      true,
+      "Getting started with Relay",
+      article,
+      true,
+    ],
+    [
+      "00000000-0000-4000-8000-00000000a002",
+      "internal_article",
+      "internal",
+      false,
+      false,
+      "Refund approvals",
+      internal,
+      false,
+    ],
+  ] as const;
+  for (const [
+    id,
+    source,
+    audience,
+    ai,
+    helpCenter,
+    title,
+    body,
+    published,
+  ] of records) {
+    const added = await sql.query(
+      `INSERT INTO knowledge_records(workspace_id,id,source,owner_id,audience,for_ai,for_help_center) VALUES($1,$2,$3,'owner',$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id`,
+      [w, id, source, audience, ai, helpCenter],
+    );
+    if (!added.rows.length) continue;
+    await sql.query(
+      `INSERT INTO knowledge_locales(workspace_id,record_id,locale,status,draft_title,draft_body,draft_updated_by,published_title,published_body,published_text,published_revision,published_at,published_by)
+      VALUES($1,$2,'en',$3,$4,$5,'owner',$6,$7,$8,$9,CASE WHEN $9::int IS NULL THEN NULL ELSE now() END,$10)`,
+      [
+        w,
+        id,
+        published ? "published" : "draft",
+        title,
+        JSON.stringify(body),
+        published ? title : null,
+        published ? JSON.stringify(body) : null,
+        published ? plainText(body) : null,
+        published ? 1 : null,
+        published ? "owner" : null,
+      ],
+    );
+    if (published)
+      await sql.query(
+        "INSERT INTO knowledge_revisions(workspace_id,record_id,locale,revision,title,body,created_by) VALUES($1,$2,'en',1,$3,$4,'owner')",
+        [w, id, title, JSON.stringify(body)],
+      );
+  }
 }

@@ -70,7 +70,8 @@ import {
   saveTeammateLimits,
   setPresence,
 } from "./routing";
-import { BULK_BODY_LIMIT } from "./agent-bridge";
+import { changeKnowledge, listKnowledge, readKnowledge } from "./knowledge";
+import { bodyLimit } from "./agent-bridge";
 import { conversationContext } from "./context";
 import {
   listNotifications,
@@ -1009,6 +1010,8 @@ export async function handleApi(
             "/v1/agent/portal-settings",
             "/v1/agent/teams",
             "/v1/agent/workload",
+            "/v1/agent/knowledge",
+            "/v1/agent/knowledge-record",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -1027,6 +1030,7 @@ export async function handleApi(
               "/v1/agent/teammate-limits",
               "/v1/agent/presence",
               "/v1/agent/next",
+              "/v1/agent/knowledge",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
               "/v1/agent/unread/rebuild",
@@ -1088,6 +1092,7 @@ export async function handleApi(
           url.pathname === "/v1/agent/workload" ||
           url.pathname === "/v1/agent/presence" ||
           url.pathname === "/v1/agent/next" ||
+          url.pathname.startsWith("/v1/agent/knowledge") ||
           ["/v1/agent/views", "/v1/agent/view-page"].includes(url.pathname)
         )
           await inboxEnabled(db, workspace);
@@ -1106,7 +1111,7 @@ export async function handleApi(
       if (req.method === "POST") {
         const p = await readBody(
           req,
-          url.pathname === "/v1/agent/bulk" ? BULK_BODY_LIMIT : undefined,
+          bodyLimit(url.pathname.replace("/v1/agent/", "")),
         );
         assert(
           c.digest === (await digest(p)) &&
@@ -1131,6 +1136,20 @@ export async function handleApi(
             ),
           });
         }
+        if (url.pathname === "/v1/agent/knowledge")
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              // A retried create or publish returns the first result instead of repeating it.
+              once(
+                db,
+                workspace,
+                "knowledge:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () => changeKnowledge(db, workspace, principal, p),
+              ),
+            ),
+          );
         if (
           url.pathname === "/v1/agent/presence" ||
           url.pathname === "/v1/agent/next"
@@ -1479,6 +1498,23 @@ export async function handleApi(
             listTeams(db, workspace, principal),
           ),
         );
+      if (url.pathname === "/v1/agent/knowledge")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listKnowledge(db, workspace, principal, url.searchParams),
+          ),
+        );
+      if (url.pathname === "/v1/agent/knowledge-record")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readKnowledge(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("id") ?? "",
+            ),
+          ),
+        );
       if (url.pathname === "/v1/agent/workload")
         return json(
           await tenant(env.connect, workspace, (db) =>
@@ -1689,6 +1725,13 @@ export async function handleApi(
                 "conversations.manage",
               ),
               macros: await can(db, workspace, principal, "macros.use"),
+              // Phase 07: the Knowledge section, when the workspace has it.
+              knowledge: !!(
+                await db.query(
+                  "SELECT name FROM workspace_features WHERE workspace_id=$1 AND name='knowledge_v1' AND enabled",
+                  [workspace],
+                )
+              ).rows.length,
               attachments: !!env.attachments,
             },
           };

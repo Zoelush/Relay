@@ -10,6 +10,15 @@ export interface AgentBridgeConfig {
 }
 /** Bulk selections carry up to 5,000 conversation ids, so that route alone allows 256 KB. */
 export const BULK_BODY_LIMIT = 256_000;
+/** Knowledge articles run to 200,000 characters; their JSON documents fit in 1 MB. */
+export const KNOWLEDGE_BODY_LIMIT = 1_000_000;
+/** Request size per bridged route: larger only where the content needs it. */
+export const bodyLimit = (path: string) =>
+  path === "bulk"
+    ? BULK_BODY_LIMIT
+    : path === "knowledge"
+      ? KNOWLEDGE_BODY_LIMIT
+      : 20000;
 export const postgresInboxEnabled = (config: AgentBridgeConfig) =>
   config.RELAY_AGENT_INBOX_V1 === "true";
 export const legacyWritesEnabled = (config: AgentBridgeConfig) =>
@@ -39,6 +48,8 @@ const routes = {
     "portal-settings",
     "teams",
     "workload",
+    "knowledge",
+    "knowledge-record",
   ]),
   POST: new Set([
     "command",
@@ -56,6 +67,7 @@ const routes = {
     "teammate-limits",
     "presence",
     "next",
+    "knowledge",
     "realtime-ticket",
     "attachment/prepare",
     "attachment/complete",
@@ -139,7 +151,7 @@ export async function bridgeAgentRequest(
           const { value, done } = await reader.read();
           if (done) break;
           size += value.length;
-          if (size > (path === "bulk" ? BULK_BODY_LIMIT : 20000)) {
+          if (size > bodyLimit(path)) {
             await reader.cancel();
             throw new DomainError(
               "BODY_TOO_LARGE",

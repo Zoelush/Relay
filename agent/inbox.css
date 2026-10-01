@@ -607,3 +607,53 @@ kbd { font:11px ui-monospace, monospace; border:1px solid #cfdad4; border-bottom
 .pg-team-settings fieldset label { display:flex; gap:8px; align-items:flex-start; font-size:13px; }
 .pg-team-settings > label { display:flex; flex-direction:column; gap:4px; font-size:13px; }
 .pg-team-settings footer { display:flex; justify-content:flex-end; gap:8px; }
+
+/* Knowledge (phase 07, step A1) */
+.pg-workspace[hidden] { display:none; }
+.pg-nav-item { display:flex; gap:10px; align-items:center; padding:11px 13px; border-radius:9px; background:none; border:0; color:inherit; font:inherit; cursor:pointer; text-align:left; }
+.pg-nav-item:hover { background:#e4efe8; }
+button.pg-nav-active { border:0; color:inherit; font:inherit; cursor:pointer; text-align:left; }
+.pg-knowledge-new { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
+.pg-knowledge-filters { display:flex; gap:8px; padding:12px; border-bottom:1px solid #dfe8e2; }
+.pg-knowledge-filters input { flex:1; min-width:0; }
+.pg-knowledge-list { list-style:none; margin:0; padding:0; overflow:auto; }
+.pg-knowledge-list li > button { display:flex; flex-direction:column; gap:3px; width:100%; text-align:left; padding:12px; background:none; border:0; border-bottom:1px solid #eef3f0; cursor:pointer; font:inherit; color:inherit; }
+.pg-knowledge-list li > button[aria-current="true"] { background:#e4efe8; }
+.pg-knowledge-list li.pg-muted { padding:12px; }
+.pg-knowledge-record { overflow:auto; padding:16px 22px; }
+.pg-knowledge-edit { display:flex; flex-direction:column; gap:12px; max-width:860px; }
+.pg-knowledge-locales { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.pg-knowledge-locales [role="tab"] { border:1px solid #cfdcd4; background:#fff; border-radius:7px; padding:5px 10px; cursor:pointer; }
+.pg-knowledge-locales [role="tab"][aria-selected="true"] { background:#dcebe2; font-weight:600; }
+.pg-knowledge-add-locale { display:flex; gap:6px; margin-left:auto; }
+.pg-knowledge-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.pg-knowledge-actions [role="status"] { margin-right:auto; font-size:12px; }
+.pg-knowledge-warn { color:#8c1d18; }
+.pg-knowledge-notice { background:#f0f5f2; border-radius:7px; padding:6px 10px; font-size:13px; }
+.pg-knowledge-title { font-size:22px; font-weight:600; border:0; border-bottom:1px solid #dfe8e2; padding:6px 0; background:none; }
+.pg-article-editor { border:1px solid #dfe8e2; border-radius:9px; background:#fff; }
+.pg-article-toolbar { display:flex; gap:4px; flex-wrap:wrap; padding:6px; border-bottom:1px solid #eef3f0; }
+.pg-article-toolbar button { font-size:12px; padding:3px 7px; border:1px solid transparent; background:none; border-radius:5px; cursor:pointer; }
+.pg-article-toolbar button[aria-pressed="true"] { background:#dcebe2; border-color:#cfdcd4; }
+.pg-article-prompt { display:flex; gap:6px; align-items:center; padding:6px; border-bottom:1px solid #eef3f0; }
+.pg-article-prompt input, .pg-article-prompt select { flex:1; min-width:0; }
+.pg-article-body { min-height:220px; padding:12px 16px; outline:none; }
+.pg-article-body h2 { font-size:20px; } .pg-article-body h3 { font-size:17px; } .pg-article-body h4 { font-size:15px; }
+.pg-callout { border-left:4px solid #3a7bd5; background:#eef4fc; padding:6px 12px; border-radius:5px; margin:8px 0; }
+.pg-callout-warning { border-color:#c98a00; background:#fdf6e3; }
+.pg-callout-success { border-color:#087a57; background:#e8f5ef; }
+.pg-video, .pg-article-image { border:1px dashed #b6c8bd; border-radius:7px; padding:12px; color:#577366; margin:8px 0; }
+.pg-table { border-collapse:collapse; margin:8px 0; width:100%; }
+.pg-table td, .pg-table th { border:1px solid #cfdcd4; padding:4px 8px; vertical-align:top; }
+.pg-table th { background:#f0f5f2; }
+.pg-table .selectedCell { background:#dcebe2; }
+.pg-article-link { color:#087a57; text-decoration:underline dotted; }
+.pg-knowledge-settings, .pg-knowledge-history { border-top:1px solid #dfe8e2; padding-top:10px; display:flex; flex-direction:column; gap:8px; }
+.pg-knowledge-settings label { display:flex; gap:8px; align-items:center; }
+.pg-knowledge-settings-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.pg-knowledge-history ul { list-style:none; margin:0; padding:0; }
+.pg-knowledge-history li { display:flex; justify-content:space-between; gap:8px; padding:5px 0; border-bottom:1px solid #eef3f0; }
+@media (max-width: 760px) {
+  .pg-knowledge-add-locale { margin-left:0; }
+  .pg-knowledge-record { padding:12px 16px; }
+}

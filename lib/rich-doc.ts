@@ -7,7 +7,9 @@ export type RichMark =
   | { type: "bold" }
   | { type: "italic" }
   | { type: "code" }
-  | { type: "link"; attrs: { href: string } };
+  | { type: "link"; attrs: { href: string } }
+  /** Articles only: a link to another knowledge record by id, so it survives slug changes. */
+  | { type: "articleLink"; attrs: { recordId: string } };
 export type RichInline =
   | { type: "text"; text: string; marks?: RichMark[] }
   | { type: "hardBreak" }
@@ -35,7 +37,12 @@ export type RichMention = {
 };
 export type RichBlock =
   | { type: "paragraph"; content?: RichInline[] }
-  | { type: "codeBlock"; content?: { type: "text"; text: string }[] }
+  | {
+      type: "codeBlock";
+      attrs?: { language: string };
+      content?: { type: "text"; text: string }[];
+    }
+  | ArticleBlock
   | { type: "blockquote"; content: RichBlock[] }
   | { type: "bulletList"; content: RichListItem[] }
   | { type: "orderedList"; attrs?: { start: number }; content: RichListItem[] }
@@ -46,6 +53,22 @@ export type RichImage = {
   attrs: { attachmentId: string; alt?: string };
 };
 export type RichListItem = { type: "listItem"; content: RichBlock[] };
+/** Blocks only knowledge articles may contain (`normalizeDoc(…, { article: true })`). */
+export type ArticleBlock =
+  | { type: "heading"; attrs: { level: 2 | 3 | 4 }; content?: RichInline[] }
+  | {
+      type: "callout";
+      attrs: { tone: "info" | "warning" | "success" };
+      content: RichBlock[];
+    }
+  | { type: "video"; attrs: { provider: "youtube" | "vimeo"; id: string } }
+  | { type: "table"; content: RichTableRow[] };
+export type RichTableRow = { type: "tableRow"; content: RichTableCell[] };
+export type RichTableCell = {
+  type: "tableCell" | "tableHeader";
+  attrs: { colspan: number; rowspan: number; colwidth: number[] | null };
+  content: RichBlock[];
+};
 export type RichDoc = { type: "doc"; content: RichBlock[] };
 
 export const RICH_LIMITS = {
@@ -58,7 +81,21 @@ export const RICH_LIMITS = {
   mentions: 20,
   label: 100,
 };
+/** Larger limits for knowledge articles, which are documents rather than messages. */
+export const ARTICLE_LIMITS = {
+  text: 200_000,
+  depth: 6,
+  nodes: 50_000,
+  images: 100,
+  videos: 20,
+  tables: 50,
+};
 const DIRECTORY_ID = /^[A-Za-z0-9_-]{1,100}$/;
+const VIDEO_ID = {
+  youtube: /^[A-Za-z0-9_-]{11}$/,
+  vimeo: /^\d{1,12}$/,
+} as const;
+const LANGUAGE = /^[a-z0-9+#-]{1,30}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROTOCOLS = ["https:", "http:", "mailto:"];
 
@@ -105,21 +142,37 @@ export function safeHref(href: unknown): string {
 /** Validates any input and returns a rebuilt document containing only allowed content. */
 export function normalizeDoc(
   input: unknown,
-  options: { variables?: boolean } = {},
+  options: { variables?: boolean; article?: boolean } = {},
 ): RichDoc {
-  const budget = { nodes: 0, text: 0, images: 0, mentions: 0 };
+  const article = options.article === true;
+  const limits = article
+    ? { ...RICH_LIMITS, ...ARTICLE_LIMITS }
+    : { ...RICH_LIMITS, videos: 0, tables: 0 };
+  const budget = {
+    nodes: 0,
+    text: 0,
+    images: 0,
+    mentions: 0,
+    videos: 0,
+    tables: 0,
+  };
   const count = () => {
-    if (++budget.nodes > RICH_LIMITS.nodes)
-      throw new RichDocError("DOCUMENT_TOO_LARGE", "This message is too long.");
+    if (++budget.nodes > limits.nodes)
+      throw new RichDocError(
+        "DOCUMENT_TOO_LARGE",
+        article ? "This article is too long." : "This message is too long.",
+      );
   };
   const text = (value: unknown) => {
     if (typeof value !== "string" || !value.length)
       fail("Text must not be empty.");
     budget.text += (value as string).length;
-    if (budget.text > RICH_LIMITS.text)
+    if (budget.text > limits.text)
       throw new RichDocError(
         "DOCUMENT_TOO_LARGE",
-        "Write a message of up to 5,000 characters.",
+        article
+          ? "Write an article of up to 200,000 characters."
+          : "Write a message of up to 5,000 characters.",
       );
     return value as string;
   };
@@ -136,7 +189,15 @@ export function normalizeDoc(
             href: safeHref(isObject(m.attrs) ? m.attrs.href : undefined),
           },
         });
-      else fail("Unsupported formatting.");
+      else if (m.type === "articleLink" && article) {
+        const id = isObject(m.attrs) ? m.attrs.recordId : undefined;
+        if (typeof id !== "string" || !UUID.test(id))
+          fail("Link to an article in this workspace.");
+        out.push({
+          type: "articleLink",
+          attrs: { recordId: (id as string).toLowerCase() },
+        });
+      } else fail("Unsupported formatting.");
     }
     if (out.length > RICH_LIMITS.marks)
       fail("Too much formatting on one piece of text.");
@@ -199,8 +260,12 @@ export function normalizeDoc(
   };
   const block = (n: unknown, depth: number): RichBlock => {
     count();
-    if (depth > RICH_LIMITS.depth)
-      fail("Lists and quotes can nest four levels deep.");
+    if (depth > limits.depth)
+      fail(
+        article
+          ? "Lists, quotes, callouts and tables can nest six levels deep."
+          : "Lists and quotes can nest four levels deep.",
+      );
     if (!isObject(n)) fail("Unsupported content.");
     const node = n as Record<string, unknown>;
     switch (node.type) {
@@ -218,9 +283,113 @@ export function normalizeDoc(
             text: text((t as { text: unknown }).text),
           };
         });
-        return content.length
-          ? { type: "codeBlock", content }
-          : { type: "codeBlock" };
+        // Articles may name the code's language (for display only).
+        const language =
+          article &&
+          isObject(node.attrs) &&
+          typeof node.attrs.language === "string"
+            ? node.attrs.language.trim().toLowerCase()
+            : "";
+        if (language && !LANGUAGE.test(language))
+          fail("Name the code's language in a word.");
+        return {
+          type: "codeBlock",
+          ...(language ? { attrs: { language } } : {}),
+          ...(content.length ? { content } : {}),
+        };
+      }
+      case "heading": {
+        if (!article) return fail("Unsupported content.");
+        const level = isObject(node.attrs) ? node.attrs.level : undefined;
+        if (level !== 2 && level !== 3 && level !== 4)
+          fail("Headings are levels 2 to 4 (the title is level 1).");
+        const content = inline(node.content);
+        return {
+          type: "heading",
+          attrs: { level: level as 2 | 3 | 4 },
+          ...(content ? { content } : {}),
+        };
+      }
+      case "callout": {
+        if (!article) return fail("Unsupported content.");
+        const tone = isObject(node.attrs) ? node.attrs.tone : undefined;
+        if (tone !== "info" && tone !== "warning" && tone !== "success")
+          fail("A callout is info, warning or success.");
+        return {
+          type: "callout",
+          attrs: { tone: tone as "info" | "warning" | "success" },
+          content: blocks(node.content, depth + 1),
+        };
+      }
+      case "video": {
+        if (!article) return fail("Unsupported content.");
+        const attrs = isObject(node.attrs) ? node.attrs : {};
+        const provider = attrs.provider as "youtube" | "vimeo";
+        if (provider !== "youtube" && provider !== "vimeo")
+          fail("Embed videos from YouTube or Vimeo.");
+        if (typeof attrs.id !== "string" || !VIDEO_ID[provider].test(attrs.id))
+          fail("That video address is not recognised.");
+        if (++budget.videos > limits.videos)
+          throw new RichDocError(
+            "DOCUMENT_TOO_LARGE",
+            "Embed up to 20 videos in an article.",
+          );
+        return { type: "video", attrs: { provider, id: attrs.id as string } };
+      }
+      case "table": {
+        if (!article) return fail("Unsupported content.");
+        if (++budget.tables > limits.tables)
+          throw new RichDocError(
+            "DOCUMENT_TOO_LARGE",
+            "Use up to 50 tables in an article.",
+          );
+        const rows = list(node.content).map((row): RichTableRow => {
+          count();
+          if (!isObject(row) || row.type !== "tableRow")
+            fail("Tables hold rows.");
+          const cells = list((row as { content: unknown }).content).map(
+            (cell): RichTableCell => {
+              count();
+              if (
+                !isObject(cell) ||
+                (cell.type !== "tableCell" && cell.type !== "tableHeader")
+              )
+                fail("Table rows hold cells.");
+              const a = isObject(cell.attrs) ? cell.attrs : {};
+              const span = (v: unknown) =>
+                Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 20
+                  ? (v as number)
+                  : 1;
+              const widths =
+                Array.isArray(a.colwidth) &&
+                a.colwidth.length <= 20 &&
+                a.colwidth.every(
+                  (x: unknown) =>
+                    Number.isInteger(x) &&
+                    (x as number) > 0 &&
+                    (x as number) <= 2000,
+                )
+                  ? (a.colwidth as number[])
+                  : null;
+              return {
+                type: cell.type as "tableCell" | "tableHeader",
+                attrs: {
+                  colspan: span(a.colspan),
+                  rowspan: span(a.rowspan),
+                  colwidth: widths,
+                },
+                content: blocks(
+                  (cell as { content: unknown }).content,
+                  depth + 1,
+                ),
+              };
+            },
+          );
+          if (!cells.length) fail("A table row needs a cell.");
+          return { type: "tableRow", content: cells };
+        });
+        if (!rows.length) fail("A table needs a row.");
+        return { type: "table", content: rows };
       }
       case "blockquote":
         return { type: "blockquote", content: blocks(node.content, depth + 1) };
@@ -231,15 +400,19 @@ export function normalizeDoc(
           !UUID.test(attrs.attachmentId)
         )
           fail("Images must refer to an uploaded file.");
-        if (++budget.images > RICH_LIMITS.images)
+        if (++budget.images > limits.images)
           throw new RichDocError(
             "DOCUMENT_TOO_LARGE",
-            "Add up to 10 images to a message.",
+            article
+              ? "Add up to 100 images to an article."
+              : "Add up to 10 images to a message.",
           );
         const alt =
           typeof attrs.alt === "string"
             ? attrs.alt.trim().slice(0, RICH_LIMITS.alt)
             : "";
+        // Help center readers may rely on screen readers: article images need a description.
+        if (article && !alt) fail("Describe each image (alt text).");
         return {
           type: "image",
           attrs: {
@@ -344,6 +517,20 @@ export function plainText(doc: RichDoc): string {
           .map((item, i) => indent(blocks(item.content), `${start + i}. `))
           .join("\n");
       }
+      case "heading":
+        return inline(n.content);
+      case "callout":
+        return blocks(n.content);
+      case "video":
+        return `[Video: ${n.attrs.provider === "youtube" ? "https://www.youtube.com/watch?v=" : "https://vimeo.com/"}${n.attrs.id}]`;
+      case "table":
+        return n.content
+          .map((row) =>
+            row.content
+              .map((cell) => blocks(cell.content).replace(/\n+/g, " "))
+              .join(" | "),
+          )
+          .join("\n");
     }
   };
   const blocks = (content: RichBlock[]) => content.map(block).join("\n\n");
