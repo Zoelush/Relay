@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: knowledge step A2 (help center structure)
+
+- **Help centers:** at most one per brand, each with languages, a theme (colour, header, font), a homepage layout (search, collections, featured articles, contact, in any order) and a "hide from search engines" switch. Behind `knowledge_v1`.
+- **Structure:** collections with optional sections. An article can sit directly in a collection or in a section, and in several places. Only articles with "Show in the help center" on can be placed; turning it off hides the article but keeps where it was placed.
+- **Clean addresses:** for articles (per language, set on first publish and editable), collections and sections (per language) and help centers. Every old address redirects to its current one: chains of renames work, renaming back never loops, and a live address wins over an old one.
+- **Missing translations:** these fall back along the language chain (fr-CA → fr → default), with the shown language's page as canonical. `resolvePath` turns a public path into the page to show or a redirect, for step B1 to render.
+- **The Knowledge section** gains a Help centers tab: settings, the collection tree with names per language, reordering, archiving, and adding and removing articles. The article editor gains a "Public address" field.
+- **Migration 0030** with rollback. New routes: `/v1/agent/help-centers` and `/v1/agent/help-center`. The local relay seeds a help center.
+- **Tests:** `tests/help-centers.test.ts` and `tests/browser/help-centers.spec.ts`. Details: `docs/KNOWLEDGE_STEP2.md`.
+
 ## Unreleased — knowledge step A1 (knowledge store core and the article editor)
 
 - One knowledge store for everything the help center, the inbox and the AI agent will read: public articles, internal articles, snippets, files and synced pages, each with an owner, an audience, a last-reviewed date and three independent switches (AI agent, help center, inbox). Behind `knowledge_v1`, off by default.

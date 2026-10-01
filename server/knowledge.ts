@@ -1,4 +1,5 @@
 import { assert, DomainError, type Sql } from "./db";
+import { SLUG, SLUG_MAX, slugify } from "../lib/help-paths";
 import { authorize, can } from "./policy";
 import {
   normalizeDoc,
@@ -33,7 +34,7 @@ type Audience = (typeof AUDIENCES)[number];
 const invalid = (message: string): never => {
   throw new DomainError("INVALID_KNOWLEDGE", message, 400);
 };
-async function requireKnowledge(db: Sql, w: string) {
+export async function requireKnowledge(db: Sql, w: string) {
   assert(
     (
       await db.query(
@@ -46,7 +47,7 @@ async function requireKnowledge(db: Sql, w: string) {
     404,
   );
 }
-async function manager(db: Sql, w: string, principal: string) {
+export async function manager(db: Sql, w: string, principal: string) {
   const t = await authorize(db, w, principal, "knowledge.manage");
   await requireKnowledge(db, w);
   return t;
@@ -127,10 +128,12 @@ type LocaleRow = {
   published_body: RichDoc | null;
   published_revision: number | null;
   published_at: string | null;
+  slug: string | null;
 };
 const localeView = (l: LocaleRow) => ({
   locale: l.locale,
   status: l.status,
+  slug: l.slug,
   draft: {
     title: l.draft_title,
     body: l.draft_body,
@@ -153,7 +156,7 @@ const localeView = (l: LocaleRow) => ({
     JSON.stringify(l.draft_body) !== JSON.stringify(l.published_body),
 });
 
-async function record(db: Sql, w: string, id: unknown, lock = false) {
+export async function record(db: Sql, w: string, id: unknown, lock = false) {
   const r = (
     await db.query<{
       id: string;
@@ -173,6 +176,68 @@ async function record(db: Sql, w: string, id: unknown, lock = false) {
   ).rows[0];
   assert(r, "KNOWLEDGE_NOT_FOUND", "Knowledge record unavailable.", 404);
   return r;
+}
+
+/** A slug typed by a teammate. */
+export function validSlug(value: unknown) {
+  const slug = typeof value === "string" ? value.trim() : "";
+  if (!SLUG.test(slug) || slug.length > SLUG_MAX)
+    invalid(
+      "Use lower-case letters, digits and single hyphens, at most 80 characters.",
+    );
+  return slug;
+}
+/** The first free slug from a title: the slug itself, then -2, -3… */
+export async function freeSlug(
+  base: string,
+  fallback: string,
+  taken: (slug: string) => Promise<boolean>,
+) {
+  const root = base || fallback;
+  for (let n = 1; n < 100; n++) {
+    const suffix = n === 1 ? "" : "-" + n;
+    const slug =
+      root.slice(0, SLUG_MAX - suffix.length).replace(/-+$/, "") + suffix;
+    if (!(await taken(slug))) return slug;
+  }
+  return `${root.slice(0, 60)}-${crypto.randomUUID().slice(0, 8)}`;
+}
+const freeArticleSlug = (db: Sql, w: string, locale: string, title: string) =>
+  freeSlug(
+    slugify(title),
+    "article-" + crypto.randomUUID().slice(0, 6),
+    async (slug) =>
+      (
+        await db.query(
+          "SELECT 1 FROM knowledge_locales WHERE workspace_id=$1 AND locale=$2 AND slug=$3",
+          [w, locale, slug],
+        )
+      ).rows.length > 0,
+  );
+/**
+ * Records a slug change: the old slug redirects to the object, and the new one, now live, stops
+ * being a redirect (a live slug always wins, so renaming back and forth never loops).
+ */
+export async function moveSlug(
+  db: Sql,
+  w: string,
+  kind: "center" | "collection" | "section" | "article",
+  scope: string,
+  locale: string,
+  from: string | null,
+  to: string,
+  target: string,
+) {
+  await db.query(
+    "DELETE FROM help_redirects WHERE workspace_id=$1 AND kind=$2 AND scope=$3 AND locale=$4 AND slug=$5",
+    [w, kind, scope, locale, to],
+  );
+  if (from && from !== to)
+    await db.query(
+      `INSERT INTO help_redirects(workspace_id,kind,scope,locale,slug,target_id) VALUES($1,$2,$3,$4,$5,$6)
+      ON CONFLICT(workspace_id,kind,scope,locale,slug) DO UPDATE SET target_id=$6,created_at=now()`,
+      [w, kind, scope, locale, from, target],
+    );
 }
 
 /**
@@ -265,7 +330,7 @@ export async function readKnowledge(
   );
   const locales = (
     await db.query<LocaleRow>(
-      `SELECT locale,status,draft_title,draft_body,draft_version::text AS draft_version,draft_updated_at,published_title,published_body,published_revision,published_at
+      `SELECT locale,status,draft_title,draft_body,draft_version::text AS draft_version,draft_updated_at,published_title,published_body,published_revision,published_at,slug
       FROM knowledge_locales WHERE workspace_id=$1 AND record_id=$2 ORDER BY locale`,
       [w, r.id],
     )
@@ -457,7 +522,7 @@ export async function changeKnowledge(
   }
   const l = (
     await db.query<LocaleRow>(
-      `SELECT locale,status,draft_title,draft_body,draft_version::text AS draft_version,draft_updated_at,published_title,published_body,published_revision,published_at
+      `SELECT locale,status,draft_title,draft_body,draft_version::text AS draft_version,draft_updated_at,published_title,published_body,published_revision,published_at,slug
       FROM knowledge_locales WHERE workspace_id=$1 AND record_id=$2 AND locale=$3 FOR UPDATE`,
       [w, r.id, locale],
     )
@@ -471,6 +536,35 @@ export async function changeKnowledge(
       409,
     );
   switch (p.op) {
+    case "slug": {
+      // A new public address; the old one keeps working as a redirect.
+      assert(
+        r.source === "article",
+        "INVALID_KNOWLEDGE",
+        "Only articles have a public address.",
+      );
+      const slug = validSlug(p.slug);
+      if (slug === l.slug) return { id: r.id, locale, slug };
+      const taken = (
+        await db.query(
+          "SELECT 1 FROM knowledge_locales WHERE workspace_id=$1 AND locale=$2 AND slug=$3",
+          [w, locale, slug],
+        )
+      ).rows.length;
+      assert(
+        !taken,
+        "SLUG_TAKEN",
+        "Another article in this language already uses that address.",
+        409,
+      );
+      await db.query(
+        "UPDATE knowledge_locales SET slug=$4 WHERE workspace_id=$1 AND record_id=$2 AND locale=$3",
+        [w, r.id, locale, slug],
+      );
+      await moveSlug(db, w, "article", "", locale, l.slug, slug, r.id);
+      await touch(db, w, r.id);
+      return { id: r.id, locale, slug };
+    }
     case "save": {
       // Autosave: the draft only; the published version is untouched until the next publish.
       expectDraft();
@@ -517,6 +611,16 @@ export async function changeKnowledge(
           t.id,
         ],
       );
+      // An article gets its public slug on first publish; it then stays put unless edited.
+      if (r.source === "article" && !l.slug) {
+        const slug = await freeArticleSlug(db, w, locale, l.draft_title);
+        await db.query(
+          "UPDATE knowledge_locales SET slug=$4 WHERE workspace_id=$1 AND record_id=$2 AND locale=$3",
+          [w, r.id, locale, slug],
+        );
+        // A live slug replaces any old redirect with the same address.
+        await moveSlug(db, w, "article", "", locale, null, slug, r.id);
+      }
       await touch(db, w, r.id);
       return { id: r.id, locale, revision };
     }

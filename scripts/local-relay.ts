@@ -1006,4 +1006,65 @@ async function seedKnowledge(sql: Sql, w: string) {
         [w, id, title, JSON.stringify(body)],
       );
   }
+  // Published articles have a public address (phase 07, step A2).
+  await sql.query(
+    "UPDATE knowledge_locales SET slug='getting-started-with-relay' WHERE workspace_id=$1 AND record_id=$2 AND locale='en' AND slug IS NULL",
+    [w, records[0][0]],
+  );
+  // A help center for the default brand: two collections, one with a section holding the article.
+  const center = "00000000-0000-4000-8000-00000000c001";
+  const added = await sql.query(
+    `INSERT INTO help_centers(workspace_id,id,brand_id,name,slug,default_locale,locales,layout)
+    VALUES($1,$2,'default','Relay Help','relay-help','en',ARRAY['en','fr'],$3) ON CONFLICT DO NOTHING RETURNING id`,
+    [
+      w,
+      center,
+      JSON.stringify([
+        { type: "search" },
+        { type: "collections" },
+        { type: "contact" },
+      ]),
+    ],
+  );
+  if (!added.rows.length) return;
+  const nodes = [
+    [
+      "00000000-0000-4000-8000-00000000c101",
+      "collection",
+      null,
+      0,
+      "Getting started",
+      "getting-started",
+    ],
+    [
+      "00000000-0000-4000-8000-00000000c102",
+      "collection",
+      null,
+      1,
+      "Billing",
+      "billing",
+    ],
+    [
+      "00000000-0000-4000-8000-00000000c103",
+      "section",
+      "00000000-0000-4000-8000-00000000c101",
+      0,
+      "Your first conversation",
+      "your-first-conversation",
+    ],
+  ] as const;
+  for (const [id, kind, parent, position, name, slug] of nodes) {
+    await sql.query(
+      "INSERT INTO help_nodes(workspace_id,id,center_id,kind,parent_id,position) VALUES($1,$2,$3,$4,$5,$6)",
+      [w, id, center, kind, parent, position],
+    );
+    await sql.query(
+      "INSERT INTO help_node_locales(workspace_id,node_id,center_id,kind,locale,name,slug) VALUES($1,$2,$3,$4,'en',$5,$6)",
+      [w, id, center, kind, name, slug],
+    );
+  }
+  await sql.query(
+    "INSERT INTO help_placements(workspace_id,node_id,record_id,position) VALUES($1,$2,$3,0)",
+    [w, nodes[2][0], records[0][0]],
+  );
 }

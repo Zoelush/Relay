@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, InboxError } from "./api";
 import { ArticleEditor } from "./article-editor";
+import { HelpCenters } from "./help-centers";
+import { SLUG, slugify } from "../lib/help-paths";
 import type { RichDoc } from "../lib/rich-doc";
 
 /**
@@ -25,6 +27,7 @@ type Summary = {
 };
 type Locale = {
   locale: string;
+  slug: string | null;
   status: "draft" | "published" | "archived";
   draft: {
     title: string;
@@ -88,6 +91,7 @@ export function Knowledge({
   teammates: { id: string; name: string; deleted?: boolean }[];
 }) {
   const [records, setRecords] = useState<Summary[]>([]);
+  const [tab, setTab] = useState<"content" | "help">("content");
   const [canManage, setCanManage] = useState(false);
   const [source, setSource] = useState("");
   const [query, setQuery] = useState("");
@@ -135,6 +139,28 @@ export function Knowledge({
       <header className="pg-top">
         <h1>Knowledge</h1>
         {canManage && (
+          <div
+            role="tablist"
+            aria-label="Knowledge areas"
+            className="pg-knowledge-tabs"
+          >
+            <button
+              role="tab"
+              aria-selected={tab === "content"}
+              onClick={() => setTab("content")}
+            >
+              Content
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "help"}
+              onClick={() => setTab("help")}
+            >
+              Help centers
+            </button>
+          </div>
+        )}
+        {canManage && tab === "content" && (
           <div className="pg-knowledge-new">
             <button onClick={() => create("article")}>New article</button>
             <button onClick={() => create("internal_article")}>
@@ -149,74 +175,78 @@ export function Knowledge({
           {error}
         </div>
       )}
-      <div className="pg-columns">
-        <section className="pg-list" aria-label="Knowledge records">
-          <div className="pg-knowledge-filters">
-            <input
-              aria-label="Search knowledge"
-              placeholder="Search titles"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <select
-              aria-label="Kind"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-            >
-              <option value="">All kinds</option>
-              {Object.entries(SOURCE_NAMES).map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <ul className="pg-knowledge-list">
-            {records.map((r) => (
-              <li key={r.id}>
-                <button
-                  aria-current={selected === r.id}
-                  onClick={() => setSelected(r.id)}
-                >
-                  <strong>{r.locales[0]?.title || "Untitled"}</strong>
-                  <span className="pg-muted">
-                    {SOURCE_NAMES[r.source]} ·{" "}
-                    {r.locales
-                      .map(
-                        (l) =>
-                          `${l.locale} ${STATUS_NAMES[l.status as Locale["status"]] ?? l.status}`,
-                      )
-                      .join(", ")}
-                  </span>
-                </button>
-              </li>
-            ))}
-            {records.length === 0 && (
-              <li className="pg-muted">Nothing here yet.</li>
-            )}
-          </ul>
-        </section>
-        <section
-          className="pg-thread pg-knowledge-record"
-          aria-label="Knowledge record"
-        >
-          {selected ? (
-            <RecordView
-              key={selected}
-              id={selected}
-              teammates={teammates}
-              records={records
-                .filter((r) => r.id !== selected)
-                .map((r) => ({ id: r.id, title: r.locales[0]?.title ?? "" }))}
-              onChanged={() => setReload((n) => n + 1)}
-            />
-          ) : (
-            <div className="pg-welcome">
-              <h2>Choose something to read or edit</h2>
+      {tab === "help" && canManage ? (
+        <HelpCenters />
+      ) : (
+        <div className="pg-columns">
+          <section className="pg-list" aria-label="Knowledge records">
+            <div className="pg-knowledge-filters">
+              <input
+                aria-label="Search knowledge"
+                placeholder="Search titles"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <select
+                aria-label="Kind"
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+              >
+                <option value="">All kinds</option>
+                {Object.entries(SOURCE_NAMES).map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
-        </section>
-      </div>
+            <ul className="pg-knowledge-list">
+              {records.map((r) => (
+                <li key={r.id}>
+                  <button
+                    aria-current={selected === r.id}
+                    onClick={() => setSelected(r.id)}
+                  >
+                    <strong>{r.locales[0]?.title || "Untitled"}</strong>
+                    <span className="pg-muted">
+                      {SOURCE_NAMES[r.source]} ·{" "}
+                      {r.locales
+                        .map(
+                          (l) =>
+                            `${l.locale} ${STATUS_NAMES[l.status as Locale["status"]] ?? l.status}`,
+                        )
+                        .join(", ")}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {records.length === 0 && (
+                <li className="pg-muted">Nothing here yet.</li>
+              )}
+            </ul>
+          </section>
+          <section
+            className="pg-thread pg-knowledge-record"
+            aria-label="Knowledge record"
+          >
+            {selected ? (
+              <RecordView
+                key={selected}
+                id={selected}
+                teammates={teammates}
+                records={records
+                  .filter((r) => r.id !== selected)
+                  .map((r) => ({ id: r.id, title: r.locales[0]?.title ?? "" }))}
+                onChanged={() => setReload((n) => n + 1)}
+              />
+            ) : (
+              <div className="pg-welcome">
+                <h2>Choose something to read or edit</h2>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </section>
   );
 }
@@ -540,6 +570,15 @@ function RecordView({
           edited();
         }}
       />
+      {detail.source === "article" && current && (
+        <PublicAddress
+          key={`${locale}:${current.slug}`}
+          id={id}
+          locale={locale}
+          slug={current.slug}
+          onSaved={() => load(locale).then(onChanged)}
+        />
+      )}
       <Settings
         // A fresh form whenever the saved settings change.
         key={`${detail.version}:${detail.lastReviewedAt}`}
@@ -707,6 +746,68 @@ function Settings({
             : "Never reviewed"}
         </span>
       </div>
+      {notice && <p role="status">{notice}</p>}
+    </section>
+  );
+}
+
+/** An article's address in the help center, per language. Old addresses keep redirecting. */
+function PublicAddress({
+  id,
+  locale,
+  slug,
+  onSaved,
+}: {
+  id: string;
+  locale: string;
+  slug: string | null;
+  onSaved: () => void;
+}) {
+  const [value, setValue] = useState(slug ?? "");
+  const [notice, setNotice] = useState("");
+  const typed = value.trim();
+  return (
+    <section className="pg-knowledge-address" aria-label="Public address">
+      <h3>Public address</h3>
+      {slug === null ? (
+        <p className="pg-muted">
+          Set from the title when this language is first published. You can
+          choose one now.
+        </p>
+      ) : (
+        <p className="pg-muted">
+          If you change it, the old address keeps working and redirects here.
+        </p>
+      )}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setNotice("");
+          try {
+            await api("knowledge", { op: "slug", id, locale, slug: typed });
+            setNotice("Address saved.");
+            onSaved();
+          } catch (err) {
+            setNotice(message(err, "The address could not be saved."));
+          }
+        }}
+      >
+        <span className="pg-muted">…/{locale}/articles/</span>
+        <input
+          aria-label="Address"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <button type="submit" disabled={!typed || typed === slug}>
+          Save address
+        </button>
+      </form>
+      {!SLUG.test(typed) && typed && (
+        <p className="pg-muted">
+          Use lower-case letters, digits and single hyphens, for example{" "}
+          {slugify(typed) || "reset-your-password"}.
+        </p>
+      )}
       {notice && <p role="status">{notice}</p>}
     </section>
   );
