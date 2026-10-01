@@ -673,6 +673,31 @@ export async function historyPage(
   };
 }
 
+/**
+ * What an unexpected error log may say: the error class, a PostgreSQL SQLSTATE code if there is
+ * one (for example 40P01, a deadlock), and the source file and line where it was thrown. Never
+ * the message or any request data, which can contain customer details.
+ */
+export function errorFingerprint(error: unknown) {
+  const type = error instanceof Error ? error.name : typeof error;
+  const raw = (error as { code?: unknown } | null)?.code;
+  const code =
+    typeof raw === "string" && /^[0-9A-Z]{5}$/.test(raw) ? raw : undefined;
+  const frame = (error instanceof Error ? (error.stack ?? "") : "")
+    .split("\n")
+    .slice(1)
+    .map((line) =>
+      line.match(
+        /((?:server|scripts|workers|app|lib)\/[\w./-]+\.[jt]sx?):(\d+)/,
+      ),
+    )
+    .find((m) => m);
+  return {
+    type,
+    ...(code ? { code } : {}),
+    ...(frame ? { at: `${frame[1]}:${frame[2]}` } : {}),
+  };
+}
 export async function handleApi(
   req: Request,
   env: ApiEnvironment,
@@ -1912,9 +1937,7 @@ export async function handleApi(
         },
         error.status,
       );
-    console.error("Relay API failed", {
-      type: error instanceof Error ? error.name : "unknown",
-    });
+    console.error("Relay API failed", errorFingerprint(error));
     return json(
       {
         error: {

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — maintenance: open items from phases 04–06
+
+- Fixed: a new teammate's first inbox list looked empty until a reload. The first-visit view list was selecting a shared view before the teammate's own "All open" existed, and keeping it. An automatic selection now moves to "All open"; a teammate's own choice is kept.
+- Measured: first-screen speed with SLAs and routing on is unchanged (warm p95 16.6 ms against a 150 ms budget). Commands take 3–12 ms more at p95 (worst 18.2 ms), far below the 200 ms background-job threshold. New `scripts/measure-commands.ts`.
+- Tested on real PostgreSQL 17 (`npm run test:postgres`, `embedded-postgres` dev dependency): racing claims never both win, a last slot is never overfilled, and teams sharing members drain in parallel without deadlock.
+- Unexpected-error logs now include the error class, the PostgreSQL SQLSTATE code and the source location, never the message or request data. Five full browser runs didn't reproduce the one-off "Relay API failed".
+- Fixed: reading older messages, a live update pulled the teammate back to the newest message (and sometimes stopped older history from loading, which made a phase 04 test fail intermittently). The timeline now keeps the reader's place unless they were at the bottom, opened the conversation, or sent something.
+- Details: `docs/MAINTENANCE_2026-10.md`.
+
 ## Unreleased — routing step C (queue position and one office-hours source)
 
 - One office-hours source: the messenger's availability and next opening now come from the business calendar that applies (team, then brand, then workspace), so holidays and special days count. The old `officeHours` brand setting is no longer read, and its minute-by-minute checker is removed. `openNow` is the helper for phase 11's automations and phase 14's reporting.

@@ -1,6 +1,6 @@
 # Status
 
-Verified 29 September 2026 against commit `0bfdeb2`; phase 04 and 05 rows and checks updated through phase 06 step C by reading the code and
+Verified 29 September 2026 against commit `0bfdeb2`; phase 04 and 05 rows and checks updated through the October 2026 maintenance step (`docs/MAINTENANCE_2026-10.md`) by reading the code and
 running the checks below. Claims copied from earlier docs but not
 re-verified are marked as such.
 
@@ -46,17 +46,18 @@ Migration tooling (intended to stay until cutover): `db/d1-cutover/*`, `server/m
 
 ## Checks run
 
-On `phase-06/step-c`:
+On `maintenance/open-items`:
 
 ```text
 npm test
-ℹ tests 63
-ℹ pass 63
+ℹ tests 64
+ℹ pass 64
 ℹ fail 0
 ```
 
+- `npm run test:postgres` (real PostgreSQL 17 concurrency): passes.
 - `npm run typecheck`: passes.
-- `npm run test:e2e` (Playwright, Chromium): 40/40 pass.
+- `npm run test:e2e` (Playwright, Chromium): 41/41 pass.
   - Office hours and queue position: 2/2 pass.
   - Workload and away mode: 2/2 pass.
   - Customer portal: 2/2 pass.
@@ -66,7 +67,7 @@ npm test
   - Bulk actions: 3/3 pass.
   - Agent inbox: 2/2 pass.
   - Views: 2/2 pass.
-  - Timeline: 2/2 pass.
+  - Timeline: 3/3 pass.
   - Triage (keyboard and snooze): 2/2 pass.
   - Composer (rich text and drafts): 2/2 pass.
   - Inline images: 2/2 pass.

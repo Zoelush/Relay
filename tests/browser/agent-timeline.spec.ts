@@ -129,3 +129,46 @@ test("a failed older page shows an error, and retrying loads it without duplicat
   expect(after.length).toBeGreaterThan(before.length);
   expect(after.slice(-before.length)).toEqual(before);
 });
+
+test("reading older messages, a new message does not pull you down; at the newest it is followed", async ({
+  page,
+}) => {
+  await longConversation("Reader");
+  await page.goto(relay.hostOrigin + "/agent");
+  await expect(page.getByRole("status")).toHaveText("● Live");
+  await page.getByRole("button", { name: /Reader fixture/ }).click();
+  await expect(part(page, `Reader ${PARTS - 1}`)).toBeVisible();
+  const reply = (text: string) =>
+    tenant(relay.db.connect, "demo", async (db) => {
+      const [{ id }] = (
+        await db.query<{ id: string }>(
+          "SELECT id FROM conversations WHERE title='Reader fixture'",
+        )
+      ).rows;
+      await command(
+        db,
+        "demo",
+        { type: "teammate", principal: "local-grace" },
+        "reader-" + text,
+        { action: "reply", conversationId: id, text },
+      );
+    });
+  const distanceFromBottom = () =>
+    timeline(page).evaluate(
+      (el) => el.scrollHeight - el.scrollTop - el.clientHeight,
+    );
+  // Scroll up a little (not far enough to load older history) and let a new reply arrive.
+  await timeline(page).evaluate((el) =>
+    el.scrollTo(0, el.scrollHeight - el.clientHeight - 600),
+  );
+  await expect.poll(distanceFromBottom).toBeGreaterThan(500);
+  await reply("A reply while you read");
+  await expect(part(page, "A reply while you read")).toHaveCount(1);
+  expect(await distanceFromBottom(), "your place is kept").toBeGreaterThan(500);
+  // Back at the newest message, the next reply is followed.
+  await timeline(page).evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect.poll(distanceFromBottom).toBeLessThan(80);
+  await reply("A reply you see arrive");
+  await expect(part(page, "A reply you see arrive")).toBeVisible();
+  await expect.poll(distanceFromBottom).toBeLessThan(80);
+});
