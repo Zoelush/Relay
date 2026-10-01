@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased: dark mode for the agent app
+
+- **A theme switch in the sidebar:** System, Light or Dark. It covers the whole agent app: the inbox, conversations, composer, sidebar, dialogs, bulk actions, Knowledge and help center settings. Light stays the default; System follows the device live, and the choice is remembered in the browser.
+- **Readable in both themes:** every text and background pairing meets WCAG AA. A test checks this from the stylesheet, and a browser test measures every visible piece of text as rendered.
+- **Light theme accessibility fixes:** muted text, form field borders, note text on the pressed note tab, and the empty-inbox icon now meet AA (they were below it). The mention list now uses the app's font.
+- **Tests:** `tests/agent-theme.test.ts` and `tests/browser/dark-mode.spec.ts`. Details: `docs/AGENT_DARK_MODE.md`.
+
 ## Unreleased: knowledge step C1a (files and images)
 
 - **Upload files to Knowledge:** PDF, Word (.docx), HTML, Markdown and text, up to 20 MB. Each becomes a file record whose content is the text read from it, published and searchable once the file passes a type check and a virus scan.

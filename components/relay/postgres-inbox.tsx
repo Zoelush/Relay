@@ -23,8 +23,12 @@ import {
   Bell,
   PanelRight,
   BookOpen,
+  Monitor,
+  Sun,
+  Moon,
 } from "lucide-react";
 import "../../agent/inbox.css";
+import { useAgentTheme, type ThemeChoice } from "../../agent/theme";
 import { api, InboxError } from "../../agent/api";
 import { InboxViews, type ViewCount } from "../../agent/views";
 import { Timeline, type Directory } from "../../agent/timeline";
@@ -206,6 +210,7 @@ export default function PostgresInbox() {
   >({});
   /** The section on screen. The inbox stays mounted underneath Knowledge, keeping its place. */
   const [area, setArea] = useState<"inbox" | "knowledge">("inbox");
+  const [theme, setTheme] = useAgentTheme();
   const [overlay, setOverlay] = useState<
     | "palette"
     | "shortcuts"
@@ -1209,6 +1214,26 @@ export default function PostgresInbox() {
         <button className="pg-nav-help" onClick={() => setOverlay("shortcuts")}>
           <Keyboard size={15} /> Shortcuts <kbd>?</kbd>
         </button>
+        <div className="pg-theme" role="group" aria-label="Theme">
+          {(
+            [
+              ["system", "System", Monitor],
+              ["light", "Light", Sun],
+              ["dark", "Dark", Moon],
+            ] as const
+          ).map(([value, label, Icon]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={theme === value}
+              title={label}
+              onClick={() => setTheme(value as ThemeChoice)}
+            >
+              <Icon size={14} aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
         <div className="pg-nav-foot">
           <LockKeyhole size={15} />
           <span>{snapshot?.teammate.name ?? "Authenticated inbox"}</span>
