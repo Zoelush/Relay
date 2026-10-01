@@ -269,6 +269,11 @@ export default function PostgresInbox() {
   );
   const failed = useRef(new Map<string, Pending>());
   const bottom = useRef<HTMLDivElement>(null);
+  // Whether the reader is at the newest message, so updates only follow it when they were.
+  // Without this, any live update (even a replay with nothing new) pulled a teammate reading
+  // older history back to the bottom.
+  const following = useRef(true);
+  const shown = useRef({ id: "", pending: 0 });
   const fatal = useRef(false);
   const loadVersion = useRef(0);
   const invalidateLoads = useCallback(() => {
@@ -487,11 +492,19 @@ export default function PostgresInbox() {
 
   useLayoutEffect(() => {
     const el = timelineRef.current;
+    // Follow the newest message when opening a conversation, after sending, or when the reader
+    // was already there; otherwise keep their place.
+    const opened = shown.current.id !== selectedRef.current,
+      sent = pending.length > shown.current.pending;
+    shown.current = { id: selectedRef.current, pending: pending.length };
     if (anchor.current && el) {
       el.scrollTop =
         anchor.current.top + el.scrollHeight - anchor.current.height;
       anchor.current = null;
-    } else bottom.current?.scrollIntoView({ block: "nearest" });
+    } else if (opened || sent || following.current) {
+      bottom.current?.scrollIntoView({ block: "nearest" });
+      following.current = true;
+    }
     const m = measuring.current;
     if (m && m.id === selectedRef.current && parts.length) {
       measuring.current = null;
@@ -1364,10 +1377,10 @@ export default function PostgresInbox() {
                   aria-label="Messages"
                   ref={timelineRef}
                   onScroll={(e) => {
-                    if (
-                      e.currentTarget.scrollTop < 200 &&
-                      olderState === "idle"
-                    )
+                    const el = e.currentTarget;
+                    following.current =
+                      el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                    if (el.scrollTop < 200 && olderState === "idle")
                       void loadOlder();
                   }}
                 >
