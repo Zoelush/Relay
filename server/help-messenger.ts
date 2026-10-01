@@ -17,7 +17,8 @@ import {
   recordFeedback,
   searchHelp,
 } from "./help-search";
-import type { RichDoc } from "../lib/rich-doc";
+import { imageIds, type RichDoc } from "../lib/rich-doc";
+import { readyImages, signFileUrl } from "./knowledge-files";
 
 /**
  * The messenger's Help space (phase 07, step B2): the brand's help center inside the messenger.
@@ -137,7 +138,8 @@ export async function messengerArticle(
   db: Sql,
   s: MessengerScope,
   id: string,
-  queryId?: string | null,
+  queryId: string | null | undefined,
+  fileSecret: string,
 ) {
   const o = await open(db, s);
   const v = o && !restricted(o, s) ? shown(o, s, id) : null;
@@ -149,11 +151,19 @@ export async function messengerArticle(
     )
   ).rows[0];
   if (queryId) await openedResult(db, s.workspace, queryId, id);
+  // Images: short-lived signed addresses, for ready images of this article only (phase 07 C1a).
+  const ids = row.published_body ? imageIds(row.published_body) : [];
+  const ready = await readyImages(db, s.workspace, id, ids);
+  const images: Record<string, string> = {};
+  for (const image of ids)
+    if (ready.has(image))
+      images[image] = await signFileUrl(fileSecret, s.workspace, image);
   return {
     id,
     locale: v.locale,
     title: v.value.title,
     doc: row.published_body,
+    images,
     text: row.published_text,
     updatedAt: v.value.publishedAt,
   };

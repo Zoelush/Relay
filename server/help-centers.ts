@@ -1,4 +1,5 @@
 import { assert, DomainError, type Sql } from "./db";
+import { themeImage } from "./knowledge-files";
 import {
   freeSlug,
   manager,
@@ -17,7 +18,7 @@ import { helpPath, resolveLocale, slugify } from "../lib/help-paths";
  * Nothing is public yet: `resolvePath` turns a public path into the object to show, or a
  * redirect, for the server-rendered pages of step B1.
  * TODO(phase 07 B1): render the pages, domains, signed-in access and the portal mount.
- * TODO(phase 07 C1): a logo in the theme, once knowledge files have storage of their own.
+ * The theme's logo, favicon and social image are knowledge files (phase 07, C1a).
  */
 const invalid = (message: string): never => {
   throw new DomainError("INVALID_HELP_CENTER", message, 400);
@@ -45,7 +46,16 @@ export type Theme = {
   primaryColor: string;
   headerStyle: "solid" | "light";
   font: "system" | "serif" | "rounded";
+  /** Uploaded, scanned images of this help center (knowledge files), or none. */
+  logoFileId?: string | null;
+  faviconFileId?: string | null;
+  socialImageFileId?: string | null;
 };
+const THEME_IMAGES = [
+  ["logoFileId", "theme_logo"],
+  ["faviconFileId", "theme_favicon"],
+  ["socialImageFileId", "social_image"],
+] as const;
 export type LayoutBlock =
   | { type: "search" }
   | { type: "collections" }
@@ -76,7 +86,31 @@ function validTheme(input: unknown, current: Theme = DEFAULT_THEME): Theme {
     primaryColor: theme.primaryColor.toLowerCase(),
     headerStyle: theme.headerStyle,
     font: theme.font,
+    // Images are checked against the help center's files (`themeImages`); kept as they were here.
+    ...Object.fromEntries(
+      THEME_IMAGES.filter(([field]) => current[field]).map(([field]) => [
+        field,
+        current[field],
+      ]),
+    ),
   };
+}
+/** The theme's images, each a ready upload of this help center for that purpose, or none. */
+async function themeImages(
+  db: Sql,
+  w: string,
+  centerId: string,
+  input: unknown,
+  theme: Theme,
+) {
+  const t = (input ?? {}) as Record<string, unknown>;
+  for (const [field, purpose] of THEME_IMAGES)
+    if (t[field] !== undefined) {
+      const id = await themeImage(db, w, centerId, purpose, t[field]);
+      if (id) theme[field] = id;
+      else delete theme[field];
+    }
+  return theme;
 }
 async function validLayout(
   db: Sql,
@@ -456,7 +490,15 @@ export async function changeHelpCenter(
           slug,
           defaultLocale,
           locales,
-          JSON.stringify(validTheme(p.theme, { ...DEFAULT_THEME, ...c.theme })),
+          JSON.stringify(
+            await themeImages(
+              db,
+              w,
+              c.id,
+              p.theme,
+              validTheme(p.theme, { ...DEFAULT_THEME, ...c.theme }),
+            ),
+          ),
           JSON.stringify(layout),
           p.noindex === undefined ? c.noindex : p.noindex === true,
           access,

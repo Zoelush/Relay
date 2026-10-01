@@ -3,6 +3,7 @@ import {
   projectionJob,
   scheduleInboxProjection,
 } from "../server/inbox-views";
+import { processKnowledgeFile } from "../server/knowledge-files";
 import { purgeDrafts } from "../server/drafts";
 import { purgeHelpSearches } from "../server/help-search";
 import { purgeInlineImages } from "../server/attachments";
@@ -342,6 +343,7 @@ const relayWorker = {
             env.PUBLIC_ORIGIN,
             (x) => env.ASSETS.fetch(x),
             (w, id) => environment(env, ctx).notify?.(w, id),
+            environment(env, ctx).attachments,
           ),
         ),
       env.R2_ACCOUNT_ID
@@ -370,6 +372,9 @@ const relayWorker = {
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>
         attachmentScan(runtime.connect, runtime.attachments!, job);
+    if (runtime.attachments)
+      handlers["knowledge.file.process"] = (job) =>
+        processKnowledgeFile(runtime.connect, runtime.attachments!, job);
     for (const message of batch.messages) {
       const work = message.body;
       try {

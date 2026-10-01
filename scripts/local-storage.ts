@@ -12,7 +12,8 @@ import type { AttachmentStorage } from "../server/attachments";
 const EICAR =
   "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
 export const LOCAL_STORAGE_PATH = "/__local-storage/";
-export const LOCAL_UPLOAD_LIMIT = 10 * 1024 * 1024;
+// Knowledge files go up to 20 MB (phase 07, C1a); message attachments keep their own 10 MB check.
+export const LOCAL_UPLOAD_LIMIT = 20 * 1024 * 1024;
 
 export function localAttachmentStorage() {
   const quarantine = new Map<string, { bytes: Uint8Array; type: string }>();

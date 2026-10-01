@@ -17,12 +17,14 @@ import {
   safeHref,
   type RichDoc,
 } from "../lib/rich-doc";
+import { IMAGE_ACCEPT, uploadKnowledgeFile } from "./knowledge-files";
 
 /**
  * The knowledge article editor: Relay's article profile (lib/rich-doc.ts) as a TipTap editor.
  * Headings (levels 2–4), callouts, code blocks with a language, tables, YouTube and Vimeo videos,
  * links, and links to other knowledge records by id. The server validates every save again.
- * TODO(phase 07 C1): image upload, once knowledge files have storage of their own.
+ * Images (step C1a) are uploaded as knowledge files and scanned before they are placed; each one
+ * needs a description (alt text).
  */
 const Callout = Node.create({
   name: "callout",
@@ -61,19 +63,29 @@ const Video = Node.create({
     `${node.attrs.provider === "youtube" ? "YouTube" : "Vimeo"} video · ${node.attrs.id}`,
   ],
 });
-/** Images already in an article (upload arrives with knowledge files in step C1). */
+/** An uploaded, scanned image, shown through the authenticated file route. */
 const ArticleImage = Node.create({
   name: "image",
   group: "block",
   atom: true,
+  draggable: true,
   addAttributes: () => ({
     attachmentId: { default: "" },
     alt: { default: "" },
   }),
   renderHTML: ({ node }) => [
-    "div",
+    "figure",
     { class: "pg-article-image" },
-    `Image: ${node.attrs.alt}`,
+    [
+      "img",
+      {
+        src:
+          "/api/agent/knowledge-file?" +
+          new URLSearchParams({ id: String(node.attrs.attachmentId) }),
+        alt: node.attrs.alt,
+        draggable: "false",
+      },
+    ],
   ],
 });
 const cellAttributes = () => ({
@@ -212,6 +224,7 @@ export function ArticleEditor({
   value,
   editable,
   records,
+  recordId,
   onChange,
 }: {
   /** Content loaded when `key` changes (another record or language, or a restore). */
@@ -219,17 +232,21 @@ export function ArticleEditor({
   editable: boolean;
   /** Other records, for internal links. */
   records: { id: string; title: string }[];
+  /** The record being edited, which uploaded images belong to. */
+  recordId?: string;
   onChange: (doc: RichDoc | null, error: string) => void;
 }) {
   const change = useRef(onChange);
   useEffect(() => {
     change.current = onChange;
   });
-  const [prompt, setPrompt] = useState<null | "link" | "video" | "article">(
-    null,
-  );
+  const [prompt, setPrompt] = useState<
+    null | "link" | "video" | "article" | "image"
+  >(null);
   const [input, setInput] = useState("");
   const [problem, setProblem] = useState("");
+  const [image, setImage] = useState<File | null>(null);
+  const [uploading, setUploading] = useState("");
   const editor = useEditor(
     {
       immediatelyRender: false,
@@ -305,8 +322,39 @@ export function ArticleEditor({
       {label}
     </button>
   );
+  /** Uploads the chosen image, waits for the scan, then places it with its description. */
+  const placeImage = async () => {
+    const alt = input.trim();
+    if (!image) return setProblem("Choose an image.");
+    if (!alt)
+      return setProblem("Describe the image for people who cannot see it.");
+    try {
+      const { fileId } = await uploadKnowledgeFile(
+        image,
+        { purpose: "article_image", recordId: recordId! },
+        (state) =>
+          setUploading(
+            state === "uploading" ? "Uploading image…" : "Checking image…",
+          ),
+      );
+      chain()
+        .insertContent([
+          { type: "image", attrs: { attachmentId: fileId, alt } },
+          { type: "paragraph" },
+        ])
+        .run();
+      setPrompt(null);
+      setInput("");
+      setImage(null);
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : "The image was not added.");
+    } finally {
+      setUploading("");
+    }
+  };
   const apply = () => {
     setProblem("");
+    if (prompt === "image") return void placeImage();
     if (prompt === "link") {
       try {
         chain()
@@ -391,6 +439,13 @@ export function ArticleEditor({
             setPrompt("video");
             setInput("");
           })}
+          {recordId &&
+            button("Image", false, () => {
+              setPrompt("image");
+              setInput("");
+              setImage(null);
+              setProblem("");
+            })}
           {editor.isActive("callout") && (
             <select
               aria-label="Callout tone"
@@ -431,10 +486,29 @@ export function ArticleEditor({
               ? "Link to article"
               : prompt === "video"
                 ? "Add video"
-                : "Add link"
+                : prompt === "image"
+                  ? "Add image"
+                  : "Add link"
           }
         >
-          {prompt === "article" ? (
+          {prompt === "image" ? (
+            <>
+              <input
+                type="file"
+                aria-label="Image file"
+                accept={IMAGE_ACCEPT}
+                disabled={!!uploading}
+                onChange={(e) => setImage(e.target.files?.[0] ?? null)}
+              />
+              <input
+                aria-label="Image description"
+                placeholder="Describe the image (alt text)"
+                value={input}
+                disabled={!!uploading}
+                onChange={(e) => setInput(e.target.value)}
+              />
+            </>
+          ) : prompt === "article" ? (
             <select
               aria-label="Article"
               value={input}
@@ -461,12 +535,17 @@ export function ArticleEditor({
               }}
             />
           )}
-          <button type="button" onClick={apply}>
-            Apply
+          <button type="button" onClick={apply} disabled={!!uploading}>
+            {prompt === "image" ? "Add image" : "Apply"}
           </button>
-          <button type="button" onClick={() => setPrompt(null)}>
+          <button
+            type="button"
+            onClick={() => setPrompt(null)}
+            disabled={!!uploading}
+          >
             Cancel
           </button>
+          {uploading && <span role="status">{uploading}</span>}
           {problem && <span role="alert">{problem}</span>}
         </div>
       )}

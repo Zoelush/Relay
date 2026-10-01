@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { ThemeImage } from "./knowledge-files";
 import { preferredLocale, teammateLanguages } from "./locales";
 
 /**
@@ -12,6 +13,10 @@ type Theme = {
   primaryColor: string;
   headerStyle: "solid" | "light";
   font: "system" | "serif" | "rounded";
+  /** Phase 07 C1a: uploaded images, saved with the other settings. */
+  logoFileId?: string | null;
+  faviconFileId?: string | null;
+  socialImageFileId?: string | null;
 };
 type Block = { type: string; recordIds?: string[] };
 type Center = {
@@ -765,6 +770,35 @@ function CenterSettings({
             <option value="rounded">Rounded</option>
           </select>
         </label>
+        <ThemeImage
+          label="Logo"
+          purpose="theme_logo"
+          centerId={center.id}
+          value={form.theme.logoFileId ?? null}
+          onChange={(id) => set({ theme: { ...form.theme, logoFileId: id } })}
+        />
+        <ThemeImage
+          label="Favicon"
+          purpose="theme_favicon"
+          centerId={center.id}
+          value={form.theme.faviconFileId ?? null}
+          onChange={(id) =>
+            set({ theme: { ...form.theme, faviconFileId: id } })
+          }
+        />
+        <ThemeImage
+          label="Social image"
+          purpose="social_image"
+          centerId={center.id}
+          value={form.theme.socialImageFileId ?? null}
+          onChange={(id) =>
+            set({ theme: { ...form.theme, socialImageFileId: id } })
+          }
+        />
+        <p className="pg-muted">
+          Images are saved with the other settings. The social image is shown
+          when a page is shared.
+        </p>
       </fieldset>
       <fieldset>
         <legend>Homepage</legend>

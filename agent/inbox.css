@@ -642,7 +642,19 @@ button.pg-nav-active { border:0; color:inherit; font:inherit; cursor:pointer; te
 .pg-callout { border-left:4px solid #3a7bd5; background:#eef4fc; padding:6px 12px; border-radius:5px; margin:8px 0; }
 .pg-callout-warning { border-color:#c98a00; background:#fdf6e3; }
 .pg-callout-success { border-color:#087a57; background:#e8f5ef; }
-.pg-video, .pg-article-image { border:1px dashed #b6c8bd; border-radius:7px; padding:12px; color:#577366; margin:8px 0; }
+.pg-video { border:1px dashed #b6c8bd; border-radius:7px; padding:12px; color:#577366; margin:8px 0; }
+/* Phase 07 C1a: article images, file records and theme images. */
+.pg-article-image { margin:10px 0; }
+.pg-article-image img { display:block; max-width:100%; height:auto; border-radius:6px; }
+.pg-article-image.ProseMirror-selectednode img { outline:2px solid #087a57; outline-offset:2px; }
+.pg-knowledge-upload { display:inline-flex; gap:6px; align-items:center; }
+.pg-knowledge-upload input { width:4em; }
+.pg-knowledge-file { border-top:1px solid #dfe8e2; padding-top:10px; display:flex; flex-direction:column; gap:6px; }
+.pg-knowledge-file p { margin:0; }
+.pg-knowledge-excerpt { margin:0; padding:8px 12px; border-inline-start:3px solid #dfe8e2; color:#3d5248; white-space:pre-wrap; max-height:220px; overflow:auto; font-size:13px; }
+.pg-theme-image { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.pg-theme-image > span:first-child { min-width:7em; }
+.pg-theme-image img { max-height:32px; max-width:120px; border:1px solid #dfe8e2; border-radius:4px; }
 .pg-table { border-collapse:collapse; margin:8px 0; width:100%; }
 .pg-table td, .pg-table th { border:1px solid #cfdcd4; padding:4px 8px; vertical-align:top; }
 .pg-table th { background:#f0f5f2; }

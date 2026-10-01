@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: knowledge step C1a (files and images)
+
+- **Upload files to Knowledge:** PDF, Word (.docx), HTML, Markdown and text, up to 20 MB. Each becomes a file record whose content is the text read from it, published and searchable once the file passes a type check and a virus scan.
+- **Clear reasons when a file can't be used:** blocked by the scanner, the contents don't match the type, a password-protected PDF, a scan with no text, or a damaged file.
+- **Managing files:** replace a file with a new version (the old one stays live until the new one is read), download it, or remove it. Knowledge search now finds content as well as titles.
+- **Images in articles:** PNG, JPEG, GIF and WebP up to 5 MB.
+  - Each is scanned and needs a description, and an article can't be published while an image is still being checked.
+  - The help center shows only images of articles the visitor may read; the messenger uses one-hour signed addresses.
+- **Help center theme:** a logo, a favicon and a social image for shared links.
+- **Fixed:** the local relay refused agent requests over 24 KB, so long articles couldn't be saved locally. Images inside callouts and tables escaped the publish check.
+- **Migration** 0033 (`knowledge_files`) with rollback. **Tests:** `tests/knowledge-files.test.ts` and `tests/browser/knowledge-files.spec.ts`. Details: `docs/KNOWLEDGE_STEP5.md`.
+
 ## Unreleased: knowledge step B2 (search and feedback)
 
 - **Help center search:** language-aware stemming, accents ignored and typo tolerance ("pasword" finds "password"), ranked by title, then text, then closeness, showing only what the visitor may read in their language. It's in every help center header and the homepage, and works without JavaScript.

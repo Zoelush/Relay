@@ -40,6 +40,8 @@ type Article = {
   title: string;
   doc: unknown;
   text: string;
+  /** Short-lived signed addresses of the article's images, by file id (phase 07 C1a). */
+  images: Record<string, string>;
 };
 type View =
   | { kind: "home" }
@@ -49,11 +51,14 @@ type View =
 
 export function HelpSpace({
   request,
+  api,
   t,
   onSearched,
   onTalk,
 }: {
   request: Request;
+  /** The Relay API origin, which serves article images. */
+  api: string;
   t: Strings;
   /** A search happened: its signed receipt (for "search before contacting"). */
   onSearched: (receipt: string) => void;
@@ -184,6 +189,7 @@ export function HelpSpace({
           id={view.id}
           queryId={view.queryId}
           request={request}
+          api={api}
           t={t}
           onTalk={onTalk}
         />
@@ -232,12 +238,14 @@ function ArticleView({
   id,
   queryId,
   request,
+  api,
   t,
   onTalk,
 }: {
   id: string;
   queryId?: string | null;
   request: Request;
+  api: string;
   t: Strings;
   onTalk: (context: {
     articleId: string;
@@ -309,6 +317,17 @@ function ArticleView({
         // they read as plain text inside the messenger.
         link={() => null}
         videos="link"
+        image={(image) =>
+          article.images?.[image.attachmentId] ? (
+            <img
+              src={api + article.images[image.attachmentId]}
+              alt={image.alt ?? ""}
+              loading="lazy"
+            />
+          ) : (
+            <span className="muted">{image.alt}</span>
+          )
+        }
       />
       <section className="help-feedback" aria-label={t.helpfulQuestion}>
         {feedback.state === "ask" && (
