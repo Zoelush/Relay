@@ -63,7 +63,7 @@ const of = (used: number, limit: number | null) =>
 const message = (e: unknown, fallback: string) =>
   e instanceof Error ? e.message : fallback;
 
-/** The inbox header's workload controls: your status, your load against your limit, and Next. */
+/** The inbox header's workload controls: your load against your limit, and Next. */
 export function WorkloadBar({
   revision,
   onOpen,
@@ -95,15 +95,12 @@ export function WorkloadBar({
       setNotice(message(e, "Nothing to take right now."));
     }
   };
-  const presence = async (value: Presence) => {
-    setNotice("");
-    try {
-      await api("presence", { presence: value });
-      setReload((n) => n + 1);
-    } catch (e) {
-      setNotice(message(e, "Your status could not be changed."));
-    }
-  };
+  // Your status is set in the account menu; going away can change your workload.
+  useEffect(() => {
+    const changed = () => setReload((n) => n + 1);
+    window.addEventListener("relay:presence", changed);
+    return () => window.removeEventListener("relay:presence", changed);
+  }, []);
   // Shift+N from anywhere outside a text field (the palette dispatches the same event).
   useEffect(() => {
     const onNext = () => void next();
@@ -113,20 +110,6 @@ export function WorkloadBar({
   if (!data) return null;
   return (
     <div className="pg-workload">
-      <label>
-        <span className="pg-visually-hidden">Your status</span>
-        <select
-          aria-label="Your status"
-          value={data.presence}
-          onChange={(e) => void presence(e.target.value as Presence)}
-        >
-          {Object.entries(PRESENCE).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
-      </label>
       <button
         type="button"
         aria-label={`Your workload: ${data.used.conversations} of ${data.conversationLimit ?? "no limit"}`}
