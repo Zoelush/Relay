@@ -37,7 +37,7 @@ import { api } from "./api";
 import { Menu } from "./menu";
 import { ListHeader, SideMenu, type SideMenuState } from "./shell";
 import { BulkBar, type Directory } from "./bulk";
-import { SlaBadge } from "./sla";
+import { CARD_HEIGHT, ConversationCard, type CardRow } from "./card";
 import type { ViewFilter } from "../server/inbox-views";
 export type ViewCount = {
   id: string;
@@ -62,17 +62,7 @@ type ViewsResponse = {
   folders: Folder[];
   teams?: { id: string; name: string }[];
 };
-type Row = {
-  id: string;
-  title: string;
-  status: string;
-  channel: string;
-  assigned: string;
-  name?: string;
-  unread?: boolean;
-  sla_next_due_at?: string | null;
-  sla_overdue?: boolean;
-};
+type Row = CardRow;
 const initial: ViewFilter = { field: "state", op: "eq", value: "open" };
 /** A new view starts with every status: the list's status picker narrows it. */
 const ANY_STATUS: ViewFilter = {
@@ -346,6 +336,7 @@ export function InboxViews({
   menu,
   headerExtras,
   onInboxCount,
+  me,
 }: {
   dir: Directory;
   /** The inbox menu's hidden and peek state (agent/shell.tsx). */
@@ -354,6 +345,8 @@ export function InboxViews({
   headerExtras?: ReactNode;
   /** The open count in your inbox, for the badge on Inbox in the icon strip. */
   onInboxCount?: (label: string | null) => void;
+  /** The signed-in teammate, whose own replies read "You" in previews. */
+  me?: string;
   selected: string;
   revision: number;
   counts: ViewCount[];
@@ -609,10 +602,10 @@ export function InboxViews({
       const el = viewport.current;
       const index = rows.indexOf(next);
       if (el) {
-        const top = index * 86;
+        const top = index * CARD_HEIGHT;
         if (top < el.scrollTop) el.scrollTop = top;
-        else if (top + 86 > el.scrollTop + el.clientHeight)
-          el.scrollTop = top + 86 - el.clientHeight;
+        else if (top + CARD_HEIGHT > el.scrollTop + el.clientHeight)
+          el.scrollTop = top + CARD_HEIGHT - el.clientHeight;
       }
     };
     const switchView = (e: Event) => {
@@ -640,6 +633,7 @@ export function InboxViews({
     window.addEventListener("relay:bulk-toggle", onToggle);
     return () => window.removeEventListener("relay:bulk-toggle", onToggle);
   }, []);
+  const teammateNames = new Map(dir.teammates.map((t) => [t.id, t.name]));
   const current = views.find((v) => v.id === viewId),
     countMap = new Map(counts.map((c) => [c.id, c]));
   const mineView = views.find((v) => v.builtin === "mine");
@@ -726,7 +720,7 @@ export function InboxViews({
   }, [rows, cursor, pageLoading, loadPage]);
   const statusName = STATUSES.find((x) => x[0] === status)![1];
   const sortName = SORTS.find((x) => x[0] === sort)![1];
-  const rowHeight = 86,
+  const rowHeight = CARD_HEIGHT,
     start = Math.max(0, Math.floor(scroll / rowHeight) - 5),
     end = Math.min(rows.length, start + Math.ceil(height / rowHeight) + 10);
   const builtins = BUILTINS.map((b) =>
@@ -1063,27 +1057,14 @@ export function InboxViews({
                     else toggle(c.id, e.shiftKey);
                   }}
                 />
-                <button
-                  className={c.id === selected ? "pg-row selected" : "pg-row"}
-                  onClick={() => onSelect(c)}
-                  onMouseEnter={() => onPrefetch?.(c.id)}
-                  onFocus={() => onPrefetch?.(c.id)}
-                >
-                  <span className="pg-avatar">
-                    {c.unread ? "●" : (c.name || "C").slice(0, 1)}
-                  </span>
-                  <span>
-                    <strong>{c.name || "Customer"}</strong>
-                    <span className="pg-row-title">{c.title}</span>
-                    <small>
-                      {c.status} · {c.channel}
-                      <SlaBadge
-                        dueAt={c.sla_next_due_at ?? null}
-                        overdue={!!c.sla_overdue}
-                      />
-                    </small>
-                  </span>
-                </button>
+                <ConversationCard
+                  row={c}
+                  selected={c.id === selected}
+                  assignee={teammateNames.get(c.assigned)}
+                  me={me}
+                  onOpen={() => onSelect(c)}
+                  onPrefetch={() => onPrefetch?.(c.id)}
+                />
               </div>
             ))}
           </div>

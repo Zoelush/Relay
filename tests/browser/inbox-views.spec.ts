@@ -67,7 +67,7 @@ test("default views load with live counts, a new view saves and pages through ev
   await viewButton(page, "Everything open").click();
   const list = page.getByTestId("virtual-conversations");
   await expect(list.getByRole("button").first()).toBeVisible();
-  // Rows are virtualised; the list's full height is rows loaded × 86px row height.
+  // Rows are virtualised; the list's full height is rows loaded × 112px card height.
   const more = list.getByRole("button", { name: "Load more conversations" });
   await expect
     .poll(
@@ -79,7 +79,7 @@ test("default views load with live counts, a new view saves and pages through ev
     )
     .toBe(0);
   const loaded = await list.evaluate(
-    (el) => (el.firstElementChild as HTMLElement).offsetHeight / 86,
+    (el) => (el.firstElementChild as HTMLElement).offsetHeight / 112,
   );
   expect(loaded).toBe(expected);
   expect(await list.getByRole("button").count()).toBeLessThan(40);

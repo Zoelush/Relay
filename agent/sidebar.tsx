@@ -3,6 +3,7 @@ import { api } from "./api";
 import type { AppCard } from "../lib/app-slots";
 import { TicketPanel, type TicketContext } from "./tickets";
 import { SlaSection, type SlaContext } from "./sla";
+import { initials } from "./card";
 
 export type Attribute = {
   id: string;
@@ -259,56 +260,68 @@ export function ContextSidebar({
         {!customer ? (
           <p className="pg-empty">No customer record.</p>
         ) : (
-          <dl>
-            {c.personalData ? (
-              <>
-                <dt>Name</dt>
-                <dd>{customer.name || "Unknown"}</dd>
-                {customer.emails?.map((e) => (
-                  <div key={e.value} className="pg-ctx-row">
-                    <dt>Email</dt>
-                    <dd>
-                      {e.value}
-                      {e.verified ? " · verified" : ""}
-                    </dd>
-                  </div>
-                ))}
-                {customer.phones?.map((p) => (
-                  <div key={p.value} className="pg-ctx-row">
-                    <dt>Phone</dt>
-                    <dd>{p.value}</dd>
-                  </div>
-                ))}
-                {customer.externalId && (
-                  <>
-                    <dt>External ID</dt>
-                    <dd>{customer.externalId}</dd>
-                  </>
-                )}
-              </>
-            ) : (
-              <p className="pg-empty">Your role cannot see personal details.</p>
-            )}
-            <dt>Type</dt>
-            <dd>{ROLE[customer.role] ?? customer.role}</dd>
-            {customer.timezone && (
-              <>
-                <dt>Local time</dt>
-                <LocalTime timezone={customer.timezone} />
-              </>
-            )}
-            <dt>First seen</dt>
-            <dd>{when(customer.firstSeenAt)}</dd>
-            <dt>Last seen</dt>
-            <dd>{when(customer.lastSeenAt)}</dd>
-            {customer.signedUpAt && (
-              <>
-                <dt>Signed up</dt>
-                <dd>{when(customer.signedUpAt)}</dd>
-              </>
-            )}
-            {customer.unsubscribed && <dd>Unsubscribed from messages</dd>}
-          </dl>
+          <>
+            <div className="pg-ctx-card">
+              <span className="pg-avatar" aria-hidden="true">
+                {initials((c.personalData && customer.name) || "?")}
+              </span>
+              <strong>
+                {c.personalData ? customer.name || "Unknown" : "Customer"}
+              </strong>
+              <span className="pg-ctx-role">
+                <span className="pg-visually-hidden">Type: </span>
+                {ROLE[customer.role] ?? customer.role}
+              </span>
+            </div>
+            <dl>
+              {c.personalData ? (
+                <>
+                  {customer.emails?.map((e) => (
+                    <div key={e.value} className="pg-ctx-row">
+                      <dt>Email</dt>
+                      <dd>
+                        {e.value}
+                        {e.verified ? " · verified" : ""}
+                      </dd>
+                    </div>
+                  ))}
+                  {customer.phones?.map((p) => (
+                    <div key={p.value} className="pg-ctx-row">
+                      <dt>Phone</dt>
+                      <dd>{p.value}</dd>
+                    </div>
+                  ))}
+                  {customer.externalId && (
+                    <>
+                      <dt>External ID</dt>
+                      <dd>{customer.externalId}</dd>
+                    </>
+                  )}
+                </>
+              ) : (
+                <p className="pg-empty">
+                  Your role cannot see personal details.
+                </p>
+              )}
+              {customer.timezone && (
+                <>
+                  <dt>Local time</dt>
+                  <LocalTime timezone={customer.timezone} />
+                </>
+              )}
+              <dt>First seen</dt>
+              <dd>{when(customer.firstSeenAt)}</dd>
+              <dt>Last seen</dt>
+              <dd>{when(customer.lastSeenAt)}</dd>
+              {customer.signedUpAt && (
+                <>
+                  <dt>Signed up</dt>
+                  <dd>{when(customer.signedUpAt)}</dd>
+                </>
+              )}
+              {customer.unsubscribed && <dd>Unsubscribed from messages</dd>}
+            </dl>
+          </>
         )}
       </section>
       {c.sla && data && <SlaSection sla={c.sla} receivedAt={data.receivedAt} />}

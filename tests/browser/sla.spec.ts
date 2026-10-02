@@ -94,7 +94,7 @@ test("a first-response countdown shows in the sidebar and a reply meets it", asy
   );
   await expect(
     page.getByRole("button", { name: /Where is my parcel\?/ }).first(),
-  ).toContainText(/SLA (1h 5\dm|2h 0m)/);
+  ).toContainText(/SLA due in (1h 5\dm|2h 0m)/);
 
   await page.getByRole("button", { name: "Reply", exact: true }).click();
   await page

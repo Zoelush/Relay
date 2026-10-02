@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Timer } from "lucide-react";
 
 export type SlaClock = {
   metric: string;
@@ -48,11 +49,42 @@ const time = (iso: string) =>
 export function SlaBadge({
   dueAt,
   overdue,
+  chip,
 }: {
   dueAt: string | null;
   overdue: boolean;
+  /** As a chip with a timer icon (the list cards and the conversation header). */
+  chip?: boolean;
 }) {
   const now = useNow(30_000);
+  if (chip) {
+    if (!overdue && !dueAt) return null;
+    const left = overdue ? 0 : new Date(dueAt!).getTime() - now;
+    const text = overdue
+      ? "SLA overdue"
+      : left <= 0
+        ? "SLA due now"
+        : duration(left);
+    return (
+      <span
+        className={
+          "pg-sla-chip" +
+          (overdue
+            ? " pg-sla-overdue"
+            : left < 15 * 60_000
+              ? " pg-sla-soon"
+              : "")
+        }
+        title={overdue ? "SLA overdue" : `Next SLA target in ${duration(left)}`}
+      >
+        <Timer size={12} aria-hidden="true" />
+        {!overdue && left > 0 && (
+          <span className="pg-visually-hidden">SLA due in </span>
+        )}
+        {text}
+      </span>
+    );
+  }
   if (overdue)
     return <span className="pg-sla-badge pg-sla-overdue"> · SLA overdue</span>;
   if (!dueAt) return null;

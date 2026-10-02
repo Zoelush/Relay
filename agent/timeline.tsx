@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { LockKeyhole, Paperclip } from "lucide-react";
 import { RichText } from "../lib/rich-view";
+import { initials } from "./card";
 
 export type TimelinePart = {
   id: string;
@@ -170,49 +171,76 @@ const agentImage = (image: { attachmentId: string; alt?: string }) => (
     loading="lazy"
   />
 );
-function Message({ p, edited }: { p: TimelinePart; edited: boolean }) {
+/**
+ * A message as a chat bubble, after Intercom's: the customer's on the left in a neutral colour,
+ * the team's (replies, AI replies and internal notes) on the right, replies in olive and notes
+ * in yellow, each with the writer's initials beside it.
+ */
+function Message({
+  p,
+  edited,
+  customer,
+}: {
+  p: TimelinePart;
+  edited: boolean;
+  customer?: string;
+}) {
   const internal = p.audience === "internal" || p.kind === "internal_note";
+  const fromCustomer = p.author_type === "contact";
+  const who = fromCustomer
+    ? customer || "Customer"
+    : p.author_type === "ai"
+      ? "AI"
+      : (p.data.authorName ?? "Teammate");
   return (
-    <article
-      data-part-id={p.id}
-      className={internal ? "pg-message pg-note" : "pg-message"}
-    >
-      <header>
-        {internal && <LockKeyhole size={13} />}
-        <strong>
-          {internal
-            ? "Internal note · Team only"
-            : p.author_type === "contact"
-              ? "Customer"
-              : (p.data.authorName ??
-                (p.author_type === "ai" ? "AI agent" : "Teammate"))}
-        </strong>
-        {edited && !p.data.deleted && (
-          <small className="pg-edited">Edited</small>
+    <div className={"pg-bubble-row " + (fromCustomer ? "customer" : "team")}>
+      <span className="pg-avatar pg-bubble-avatar" aria-hidden="true">
+        {initials(who)}
+      </span>
+      <article
+        data-part-id={p.id}
+        className={
+          "pg-message " +
+          (internal ? "pg-note" : fromCustomer ? "from-customer" : "from-team")
+        }
+      >
+        <header>
+          {internal && <LockKeyhole size={13} />}
+          <strong>
+            {internal
+              ? "Internal note · Team only"
+              : p.author_type === "contact"
+                ? "Customer"
+                : (p.data.authorName ??
+                  (p.author_type === "ai" ? "AI agent" : "Teammate"))}
+          </strong>
+          {edited && !p.data.deleted && (
+            <small className="pg-edited">Edited</small>
+          )}
+        </header>
+        {p.data.deleted ? (
+          <p>This part was deleted.</p>
+        ) : p.data.doc ? (
+          <RichText doc={p.data.doc} fallback={p.body} image={agentImage} />
+        ) : (
+          <p>{p.body}</p>
         )}
-      </header>
-      {p.data.deleted ? (
-        <p>This part was deleted.</p>
-      ) : p.data.doc ? (
-        <RichText doc={p.data.doc} fallback={p.body} image={agentImage} />
-      ) : (
-        <p>{p.body}</p>
-      )}
-      {p.kind === "attachment" && p.data.attachmentId && (
-        <a
-          href={
-            "/api/agent/attachment/content?id=" +
-            encodeURIComponent(p.data.attachmentId)
-          }
-          target="_blank"
-          rel="noreferrer"
-        >
-          <Paperclip size={14} />
-          {p.data.name ?? "Attachment"}
-          {internal ? " · Team only" : ""}
-        </a>
-      )}
-    </article>
+        {p.kind === "attachment" && p.data.attachmentId && (
+          <a
+            href={
+              "/api/agent/attachment/content?id=" +
+              encodeURIComponent(p.data.attachmentId)
+            }
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Paperclip size={14} />
+            {p.data.name ?? "Attachment"}
+            {internal ? " · Team only" : ""}
+          </a>
+        )}
+      </article>
+    </div>
   );
 }
 
@@ -250,9 +278,12 @@ function EventRun({ parts, dir }: { parts: TimelinePart[]; dir: Directory }) {
 export function Timeline({
   parts,
   dir,
+  customer,
 }: {
   parts: TimelinePart[];
   dir: Directory;
+  /** The customer's name, for their bubbles' initials. */
+  customer?: string;
 }) {
   const superseded = new Set(parts.map((p) => p.supersedes_id).filter(Boolean));
   const visible = parts.filter((p) => !superseded.has(p.id));
@@ -269,7 +300,12 @@ export function Timeline({
         Array.isArray(g) ? (
           <EventRun key={g[0].id} parts={g} dir={dir} />
         ) : (
-          <Message key={g.id} p={g} edited={!!g.supersedes_id} />
+          <Message
+            key={g.id}
+            p={g}
+            edited={!!g.supersedes_id}
+            customer={customer}
+          />
         ),
       )}
     </>

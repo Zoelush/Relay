@@ -63,6 +63,9 @@ teammate.
   slides out on hover and can be pinned, and per-area side menus (`SideMenu`) that hide and peek
   back. New areas join the strip; their navigation goes in their own side menu. Team inboxes are
   built-in views named `team:<team id>`, kept in step with membership by initialize.
+- List rows are cards (`agent/card.tsx`, fixed `CARD_HEIGHT` for the virtual list). Their preview
+  line comes from `listPreviews` in `server/conversations.ts`, read after the page is chosen; never
+  join it into a page query (`docs/AGENT_CARDS_AND_COMPOSER.md` has the measurements).
 - The local relay uses in-memory loopback attachment storage
   (`scripts/local-storage.ts`); its scanner flags the EICAR test file.
 - Frontend is React 19 + TypeScript on Vinext/Vite. Tests:

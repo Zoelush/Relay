@@ -22,6 +22,7 @@ import {
   conversation,
   access,
   agentConversation,
+  listPreviews,
   type Actor,
   type Command,
   type Conversation,
@@ -1859,12 +1860,23 @@ export async function handleApi(
               conversation: agentConversation(data.conversation, personalData),
             };
           }
-          const conversations = (
-            await db.query<Conversation>(
-              "SELECT * FROM conversations WHERE workspace_id=$1 AND merged_into_id IS NULL ORDER BY updated_at DESC,id LIMIT 100",
+          const listed = (
+            await db.query<Conversation & { activity_at: string }>(
+              `SELECT c.*,COALESCE(GREATEST(c.last_contact_reply_at,c.last_teammate_reply_at),c.created_at) AS activity_at
+               FROM conversations c WHERE c.workspace_id=$1 AND c.merged_into_id IS NULL ORDER BY c.updated_at DESC,c.id LIMIT 100`,
               [workspace],
             )
-          ).rows.map((c) => agentConversation(c, personalData));
+          ).rows;
+          const previews = await listPreviews(
+            db,
+            workspace,
+            listed.map((c) => c.id),
+          );
+          const conversations = listed.map((c) => ({
+            ...agentConversation(c, personalData),
+            activity_at: c.activity_at,
+            preview: previews.get(c.id) ?? null,
+          }));
           const counters = (
             await db.query(
               "SELECT view,count::int,version FROM inbox_counters WHERE workspace_id=$1 AND teammate_id=$2",

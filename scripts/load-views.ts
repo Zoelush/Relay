@@ -54,6 +54,17 @@ await tenant(db.connect, w, async (sql) => {
     "INSERT INTO conversations(workspace_id,id,brand_id,token_hash,name,email,title,status,assigned,created_at,updated_at,last_contact_reply_at) SELECT $1,'c-'||lpad(i::text,6,'0'),'default','','C','','T'||i,(ARRAY['open','open','snoozed','closed'])[1+i%4],CASE WHEN i%3=0 THEN '' ELSE 'agent-'||(1+i%$3::int) END,now()-(i||' minutes')::interval,now(),now()-(i||' seconds')::interval FROM generate_series(1,$2::int) i",
     [w, convs, agents],
   );
+  // Twenty messages each (replies, internal notes; every other conversation ends with a system
+  // event), so view pages pay for their preview line as they would on a live inbox.
+  await sql.query(
+    `INSERT INTO conversation_parts(workspace_id,id,conversation_id,seq,kind,author_type,author_id,audience,channel,body)
+     SELECT $1,'p-'||c.i||'-'||s,'c-'||lpad(c.i::text,6,'0'),s,
+       CASE WHEN s=20 AND c.i%2=0 THEN 'state_change' WHEN s%5=0 THEN 'internal_note' WHEN s%2=0 THEN 'teammate_reply' ELSE 'customer_message' END,
+       CASE WHEN s=20 AND c.i%2=0 THEN 'system' WHEN s%2=0 THEN 'teammate' ELSE 'contact' END,'x',
+       CASE WHEN s%5=0 THEN 'internal' ELSE 'public' END,'messenger','Message '||s||' in conversation '||c.i
+     FROM generate_series(1,$2::int) c(i),generate_series(1,20) s`,
+    [w, convs],
+  );
   await sql.query("DELETE FROM inbox_projection_dirty WHERE workspace_id=$1", [
     w,
   ]);
@@ -144,13 +155,14 @@ const open = await tenant(
   async (sql) =>
     (
       await sql.query<any>(
-        "SELECT id FROM inbox_views WHERE owner_id='owner' AND builtin='open'",
+        "SELECT id FROM inbox_views WHERE owner_id='owner' AND builtin='all'",
       )
     ).rows[0],
 );
-for (const sort of ["newest", "oldest", "waiting"]) {
+// The "All" view's open conversations (the status picker's default), with their previews.
+for (const sort of ["activity", "created", "waiting", "priority"]) {
   const times = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 20; i++) {
     const s = performance.now();
     await tenant(db.connect, w, (sql) =>
       viewPage(
@@ -163,7 +175,18 @@ for (const sort of ["newest", "oldest", "waiting"]) {
     );
     times.push(performance.now() - s);
   }
-  console.log("viewPage", sort, times.map((x) => x.toFixed(0)).join(","), "ms");
+  times.sort((a, b) => a - b);
+  console.log(
+    "viewPage",
+    sort,
+    "p50",
+    times[10].toFixed(1),
+    "p95",
+    times[18].toFixed(1),
+    "max",
+    times[19].toFixed(1),
+    "ms",
+  );
 }
 const check = await tenant(
   db.connect,
@@ -171,7 +194,7 @@ const check = await tenant(
   async (sql) =>
     (
       await sql.query<any>(
-        "SELECT s.match_count::int AS stored,(SELECT count(*)::int FROM inbox_filter_members m WHERE m.set_id=s.id) AS actual,(SELECT count(*)::int FROM conversations c WHERE c.status='open') AS expected FROM inbox_filter_sets s WHERE s.filter->>'value'='open' AND s.filter ? 'field'",
+        "SELECT s.open_count::int AS stored,(SELECT count(*)::int FROM inbox_filter_members m WHERE m.set_id=s.id AND m.status='open') AS actual,(SELECT count(*)::int FROM conversations c WHERE c.status='open') AS expected FROM inbox_filter_sets s JOIN inbox_views v ON v.set_id=s.id WHERE v.owner_id='owner' AND v.builtin='all'",
       )
     ).rows[0],
 );

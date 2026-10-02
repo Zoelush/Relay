@@ -17,6 +17,7 @@
   --pg-danger-text:#9b2c2c; --pg-danger-bg:#fdecea; --pg-danger-border:#e4a3a3; --pg-danger-line:#b3261e; --pg-badge:#c2410c; --pg-on-badge:#fff;
   --pg-info-bg:#eef4fc; --pg-info-line:#3a7bd5; --pg-variable-bg:#eef0ff; --pg-variable-text:#3b3f9a; --pg-neutral-bg:#e6e6e6; --pg-neutral-text:#444; --pg-paused-line:#9aa5a0;
   --pg-shadow:#132c3355; --pg-shadow-soft:#132c3322; --pg-shadow-faint:#163d2503; --pg-backdrop:#102c2866;
+  --pg-team-bg:#edf1da; --pg-team-border:#d4dcb2; --pg-customer-bg:#f3f3f2; --pg-customer-border:#e2e2df; --pg-customer-text:#141414;
 }
 :root[data-agent-theme="dark"] {
   color-scheme: dark;
@@ -28,6 +29,7 @@
   --pg-danger-text:#ff9f96; --pg-danger-bg:#3b1b18; --pg-danger-border:#75332d; --pg-danger-line:#ef5c51; --pg-badge:#c2410c; --pg-on-badge:#fff;
   --pg-info-bg:#172639; --pg-info-line:#5f9ff2; --pg-variable-bg:#252851; --pg-variable-text:#c6c9ff; --pg-neutral-bg:#2a2a2e; --pg-neutral-text:#d4d4d8; --pg-paused-line:#76767c;
   --pg-shadow:#000000a0; --pg-shadow-soft:#00000066; --pg-shadow-faint:#0000; --pg-backdrop:#000000a8;
+  --pg-team-bg:#2a301c; --pg-team-border:#434c2b; --pg-customer-bg:#242426; --pg-customer-border:#333336; --pg-customer-text:#f4f4f5;
 }
 .pg-inbox {
   display: flex;
@@ -860,3 +862,79 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 @media (max-width: 600px) {
   .pg-sidemenu-slot:not(.hidden) { position:absolute; top:0; bottom:0; left:60px; }
 }
+
+/*
+ * Conversation cards, the conversation header and the composer (docs/AGENT_CARDS_AND_COMPOSER.md),
+ * after Intercom's. A card's height is CARD_HEIGHT in agent/card.tsx; keep the two in step.
+ */
+.pg-card { height:112px; gap:10px; padding:12px 14px 10px; align-items:flex-start; }
+.pg-row-wrap .pg-card { height:100%; }
+.pg-card.selected { padding-left:11px; }
+.pg-card:hover { background:var(--pg-hover); }
+.pg-card.selected:hover { background:var(--pg-selected); }
+.pg-card .pg-avatar { min-width:32px; height:32px; font-size:11px; font-weight:700; letter-spacing:.3px; }
+.pg-card-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; height:100%; }
+.pg-card-top { display:flex; align-items:center; gap:6px; min-width:0; }
+.pg-card-top strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13.5px; font-weight:500; }
+.pg-card.unread .pg-card-top strong { font-weight:700; }
+.pg-card-unread { flex:none; width:8px; height:8px; border-radius:50%; background:var(--pg-accent); }
+.pg-card-top time { flex:none; color:var(--pg-muted); font-size:12px; font-variant-numeric:tabular-nums; }
+.pg-card-line { display:flex; align-items:center; gap:6px; min-width:0; }
+.pg-card-line .pg-row-title { flex:1; min-width:0; margin:0; font-size:12.5px; }
+.pg-card-channel { flex:none; color:var(--pg-text-3); }
+.pg-card-preview { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--pg-muted); font-size:12.5px; }
+.pg-card-from { font-weight:600; color:var(--pg-text-2); }
+.pg-card-preview.note .pg-card-from { color:var(--pg-note-text); }
+.pg-card-empty { font-style:italic; }
+.pg-card-meta { display:flex; align-items:center; gap:6px; margin-top:auto; min-height:22px; }
+.pg-card-priority { display:inline-grid; place-items:center; color:var(--pg-warn-text); }
+.pg-card-assignee { margin-left:auto; display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%; background:var(--pg-chip); color:var(--pg-text); font-size:9px; font-weight:700; }
+.pg-sla-chip { display:inline-flex; align-items:center; gap:4px; padding:1px 7px; border:1px solid var(--pg-border-strong); border-radius:999px; background:var(--pg-surface); color:var(--pg-text-2); font-size:11px; font-weight:500; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.pg-sla-chip.pg-sla-soon { border-color:var(--pg-note-border); background:var(--pg-surface); color:var(--pg-warn-text); }
+.pg-sla-chip.pg-sla-overdue { border-color:var(--pg-danger-border); background:var(--pg-danger-bg); color:var(--pg-danger-text); }
+
+.pg-thread-title { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:12px 20px; }
+.pg-thread-who { display:flex; align-items:center; gap:10px; flex:1 1 260px; min-width:0; }
+.pg-thread-who > div { min-width:0; }
+.pg-thread-who .pg-avatar { min-width:36px; height:36px; font-size:12px; font-weight:700; }
+.pg-thread-title .pg-thread-name { margin:0; color:var(--pg-text); font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pg-thread-name span { color:var(--pg-muted); font-size:12px; }
+.pg-thread-title h2 { margin:1px 0 0; color:var(--pg-text-2); font-size:12.5px; font-weight:400; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pg-thread-title .pg-thread-actions { margin-top:0; flex:0 1 auto; }
+.pg-thread-title .pg-activity, .pg-thread-title .pg-collision { order:3; flex-basis:100%; margin:0; }
+
+/* The composer: tabs and Macros on top, the message, then formatting beside Send. */
+.pg-composer { display:grid; grid-template-columns:minmax(0,auto) minmax(0,1fr); margin:0 20px 18px; }
+.pg-composer > *, .pg-composer .pg-editor-shell > * { grid-column:1 / -1; }
+.pg-composer .pg-editor-shell { display:contents; }
+.pg-composer:focus-within { border-color:var(--pg-accent); box-shadow:0 0 0 2px var(--pg-focus-soft); }
+.pg-composer.note:focus-within { border-color:var(--pg-note-fill); }
+.pg-composer .pg-modes { border-bottom:0; padding:8px 10px 0; }
+.pg-composer .pg-editor { min-height:64px; border:0; border-radius:0; background:transparent; padding:8px 14px; box-shadow:none; }
+.pg-composer .pg-editor:focus { box-shadow:none; }
+.pg-composer .pg-toolbar { grid-column:1; order:10; align-self:center; padding:6px 0 6px 10px; }
+.pg-composer > footer { grid-column:2; order:10; justify-content:flex-end; gap:10px; flex-wrap:wrap; padding:8px 12px 8px 4px; }
+.pg-composer > footer > span:first-child { margin-right:auto; }
+.pg-macros-button { margin-left:6px; }
+.pg-modes .pg-macros-button kbd { font-size:10px; padding:0 4px; }
+.pg-ctx-card { display:flex; flex-direction:column; align-items:center; gap:4px; padding:6px 0 14px; text-align:center; }
+.pg-ctx-card .pg-avatar { min-width:56px; height:56px; font-size:18px; font-weight:700; margin-bottom:4px; }
+.pg-ctx-card strong { font-size:16px; overflow-wrap:anywhere; }
+.pg-ctx-role { padding:1px 9px; border:1px solid var(--pg-border-strong); border-radius:999px; color:var(--pg-text-2); font-size:11px; }
+
+/*
+ * Chat bubbles: the customer's on the left in a neutral colour (near black on light grey, or near
+ * white on dark grey), the team's on the right, replies in a light olive and internal notes in
+ * their yellow, each with the writer's initials beside it. System events stay centred.
+ */
+.pg-bubble-row { display:flex; align-items:flex-end; gap:8px; max-width:min(78%, 760px); }
+.pg-bubble-row.customer { align-self:flex-start; }
+.pg-bubble-row.team { align-self:flex-end; flex-direction:row-reverse; }
+.pg-bubble-row .pg-message { min-width:0; max-width:100%; padding:11px 15px; box-shadow:none; }
+.pg-bubble-row .pg-message p { margin-top:5px; }
+.pg-bubble-avatar { min-width:28px; height:28px; font-size:10px; font-weight:700; }
+.pg-message.from-customer { background:var(--pg-customer-bg); border-color:var(--pg-customer-border); border-bottom-left-radius:4px; }
+.pg-message.from-customer p { color:var(--pg-customer-text); }
+.pg-message.from-team { background:var(--pg-team-bg); border-color:var(--pg-team-border); border-bottom-right-radius:4px; }
+.pg-bubble-row.team .pg-note { border-bottom-right-radius:4px; }
+@media (max-width: 850px) { .pg-bubble-row { max-width:92%; } }

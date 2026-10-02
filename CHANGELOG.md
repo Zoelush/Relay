@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased: conversation cards, header, composer and details card
+
+- **Conversation cards** in the list:
+  - the customer's initials, name and time since the last activity
+  - the channel and title
+  - a one-line preview of the latest message ("Note:", "You:", a teammate's name, or the customer's words; "No messages yet" when there are none)
+  - the SLA timer, a priority flag and the assignee's initials
+  - unread conversations are marked
+- **Chat bubbles:**
+  - the customer's messages on the left in a neutral grey (dark grey in the dark theme)
+  - the team's replies on the right in a light olive green (a darker olive in the dark theme)
+  - internal notes on the right in yellow
+  - each bubble shows its writer's initials
+- **Conversation header:** the customer's avatar, name and email, with the title beneath and an SLA chip.
+- **Composer:** Reply and Internal note with a Macros button on top. The formatting buttons sit beside Send below the message.
+- **Details panel:** opens with a contact card (avatar, name, type).
+- **Previews** are read after a page of conversations is chosen. They skip deleted messages, old versions and system events, and are scoped to the workspace. This adds about 1 ms per page (`scripts/load-views.ts` now seeds messages and measures the current sorts).
+- **No migration.** **Tests:**
+  - unit: `tests/conversation-preview.test.ts`
+  - browser: `tests/browser/cards-composer.spec.ts`
+
+  Details: `docs/AGENT_CARDS_AND_COMPOSER.md`.
+
 ## Unreleased: the agent app shell (icon strip and side menus)
 
 - **An icon strip** replaces the labelled sidebar: Inbox (with your open count), Knowledge, Notifications, Shortcuts and your account. It slides out with labels on hover or keyboard focus, lying over the page, and can be pinned open.
