@@ -158,7 +158,7 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
     p.id = "probe";
     p.textContent = "Hard to read";
     p.style.cssText = "color:#8a8a8a;background:#9a9a9a";
-    document.querySelector(".pg-top")!.appendChild(p);
+    document.querySelector(".pg-list-head")!.appendChild(p);
   });
   expect(await lowContrast(page)).toEqual([
     expect.stringContaining('"Hard to read"'),
@@ -216,7 +216,10 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
     "Getting started with Relay",
   );
   expect(await lowContrast(page)).toEqual([]);
-  await page.getByRole("tab", { name: "Help centers" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Help centers" })
+    .click();
   await expect(
     page.getByRole("region", { name: "Help center settings" }),
   ).toBeVisible();

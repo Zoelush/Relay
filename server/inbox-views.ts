@@ -293,6 +293,48 @@ export async function seedInboxViews(db: Sql, w: string, t: Teammate) {
       ],
     );
   }
+  await seedTeamInboxes(db, w, t);
+}
+/** Team inboxes are built-in views named `team:<team id>`, one for each team the teammate is on. */
+export const TEAM_INBOX = "team:";
+/** The teams a teammate is on, by name: the team inboxes they should have. */
+export async function myTeams(db: Sql, w: string, teammateId: string) {
+  return (
+    await db.query<{ id: string; name: string }>(
+      "SELECT t.id,t.name FROM teams t JOIN teammate_teams m ON m.workspace_id=t.workspace_id AND m.team_id=t.id WHERE t.workspace_id=$1 AND m.teammate_id=$2 ORDER BY lower(t.name),t.id",
+      [w, teammateId],
+    )
+  ).rows;
+}
+/**
+ * One team inbox per team the teammate is on, listing that team's conversations (the status
+ * picker narrows them). Leaving a team archives its inbox; rejoining brings the same view back;
+ * a renamed team renames it. Each change detaches the view so initialize attaches its set again.
+ */
+async function seedTeamInboxes(db: Sql, w: string, t: Teammate) {
+  const teams = await myTeams(db, w, t.id);
+  await db.query(
+    "UPDATE inbox_views SET archived=true,set_id=NULL,revision=revision+1 WHERE workspace_id=$1 AND owner_id=$2 AND starts_with(builtin,$3) AND NOT builtin=ANY($4::text[]) AND NOT archived",
+    [w, t.id, TEAM_INBOX, teams.map((x) => TEAM_INBOX + x.id)],
+  );
+  for (const [i, team] of teams.entries()) {
+    const filter = JSON.stringify({ field: "team", op: "eq", value: team.id });
+    await db.query(
+      `INSERT INTO inbox_views(workspace_id,id,owner_id,name,filter,builtin,position,sort) VALUES($1,$2,$3,$4,$5,$6,$7,'activity')
+       ON CONFLICT(workspace_id,owner_id,builtin) WHERE builtin IS NOT NULL DO UPDATE SET archived=false,name=EXCLUDED.name,filter=EXCLUDED.filter,position=EXCLUDED.position,
+         set_id=CASE WHEN inbox_views.archived OR inbox_views.filter<>EXCLUDED.filter THEN NULL ELSE inbox_views.set_id END,revision=inbox_views.revision+1
+       WHERE inbox_views.archived OR inbox_views.name<>EXCLUDED.name OR inbox_views.filter<>EXCLUDED.filter OR inbox_views.position<>EXCLUDED.position`,
+      [
+        w,
+        crypto.randomUUID(),
+        t.id,
+        team.name.slice(0, 80),
+        filter,
+        TEAM_INBOX + team.id,
+        BUILTIN_VIEWS.length + i,
+      ],
+    );
+  }
 }
 const viewColumns =
   "v.id,v.owner_id,v.name,v.shared,v.folder_id,v.position,v.filter,v.sort,v.builtin,v.revision,v.set_id";
@@ -331,7 +373,8 @@ export async function viewSnapshot(db: Sql, w: string, t: Teammate) {
       [w, t.id],
     )
   ).rows;
-  return { views, folders };
+  // The client compares these with its team inboxes and runs initialize when they differ.
+  return { views, folders, teams: await myTeams(db, w, t.id) };
 }
 export async function mutateView(
   db: Sql,
@@ -556,9 +599,15 @@ async function moveView(
     "You cannot edit this view.",
     403,
   );
+  // Default views and team inboxes keep their own order; the rest move among themselves.
+  assert(
+    !current.builtin,
+    "INVALID_VIEW",
+    "Default views and team inboxes keep their place.",
+  );
   const ids = (
     await db.query<{ id: string }>(
-      "SELECT id FROM inbox_views WHERE workspace_id=$1 AND NOT archived AND folder_id IS NOT DISTINCT FROM $2::text AND (owner_id=$3 OR (shared AND $4::boolean)) ORDER BY position,created_at,id FOR UPDATE",
+      "SELECT id FROM inbox_views WHERE workspace_id=$1 AND NOT archived AND builtin IS NULL AND folder_id IS NOT DISTINCT FROM $2::text AND (owner_id=$3 OR (shared AND $4::boolean)) ORDER BY position,created_at,id FOR UPDATE",
       [w, current.folder_id, t.id, manage],
     )
   ).rows.map((r) => r.id);

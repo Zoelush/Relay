@@ -189,7 +189,10 @@ test("with “search before contacting” on, the customer can't start until the
 
   // The content team's report: the search that found nothing.
   await page.getByRole("button", { name: "Knowledge" }).click();
-  await page.getByRole("tab", { name: "Help centers" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Help centers" })
+    .click();
   const report = page.getByRole("region", { name: "Search and feedback" });
   await expect(
     report.getByRole("table", { name: "Searches with no results" }),

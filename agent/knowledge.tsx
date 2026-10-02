@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FileText, Globe, LifeBuoy } from "lucide-react";
 import { api, InboxError } from "./api";
+import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
 import { ArticleEditor } from "./article-editor";
 import { HelpCenters } from "./help-centers";
 import { PagePanel, Websites } from "./knowledge-sources";
@@ -106,6 +108,13 @@ const message = (e: unknown, fallback: string) =>
   e instanceof Error ? e.message : fallback;
 const when = (iso: string) => new Date(iso).toLocaleString();
 
+/** The knowledge side menu: content for everyone; help centers and websites for managers. */
+const AREAS = [
+  ["content", "Content", FileText],
+  ["help", "Help centers", LifeBuoy],
+  ["websites", "Websites", Globe],
+] as const;
+
 export function Knowledge({
   teammates,
 }: {
@@ -113,6 +122,7 @@ export function Knowledge({
 }) {
   const [records, setRecords] = useState<Summary[]>([]);
   const [tab, setTab] = useState<"content" | "help" | "websites">("content");
+  const menu = useSideMenu("knowledge");
   const [canManage, setCanManage] = useState(false);
   const [syncOn, setSyncOn] = useState(false);
   const [source, setSource] = useState("");
@@ -189,161 +199,157 @@ export function Knowledge({
   }
   return (
     <section className="pg-workspace pg-knowledge" aria-label="Knowledge">
-      <header className="pg-top">
-        <h1>Knowledge</h1>
-        {canManage && (
-          <div
-            role="tablist"
-            aria-label="Knowledge areas"
-            className="pg-knowledge-tabs"
-          >
-            <button
-              role="tab"
-              aria-selected={tab === "content"}
-              onClick={() => setTab("content")}
-            >
-              Content
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "help"}
-              onClick={() => setTab("help")}
-            >
-              Help centers
-            </button>
-            {syncOn && (
-              <button
-                role="tab"
-                aria-selected={tab === "websites"}
-                onClick={() => setTab("websites")}
-              >
-                Websites
-              </button>
-            )}
-          </div>
-        )}
-        {canManage && tab === "content" && (
-          <div className="pg-knowledge-new">
-            <button onClick={() => create("article")}>New article</button>
-            <button onClick={() => create("internal_article")}>
-              New internal article
-            </button>
-            <button onClick={() => create("snippet")}>New snippet</button>
-            <span className="pg-knowledge-upload">
-              <FileButton
-                label="Upload file"
-                inputLabel="File to upload"
-                accept={DOCUMENT_ACCEPT}
-                disabled={!!uploading}
-                onFile={(file) => void upload(file)}
-              />
-              <label className="pg-muted" htmlFor="pg-file-language">
-                in
-              </label>
-              <input
-                id="pg-file-language"
-                aria-label="File language"
-                title="The language the file is written in"
-                value={fileLocale}
-                size={5}
-                onChange={(e) => setFileLocale(e.target.value.trim())}
-              />
-            </span>
-          </div>
-        )}
-      </header>
-      {uploading && (
-        <div className="pg-knowledge-notice" role="status">
-          {uploading}
-        </div>
-      )}
-      {error && (
-        <div className="pg-error" role="alert">
-          {error}
-        </div>
-      )}
-      {tab === "help" && canManage ? (
-        <HelpCenters />
-      ) : tab === "websites" && syncOn ? (
-        <Websites />
-      ) : (
-        <div className="pg-columns">
-          <section className="pg-list" aria-label="Knowledge records">
-            <div className="pg-knowledge-filters">
-              <input
-                aria-label="Search knowledge"
-                placeholder="Search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <select
-                aria-label="Kind"
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-              >
-                <option value="">All kinds</option>
-                {Object.entries(SOURCE_NAMES).map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <ul className="pg-knowledge-list">
-              {records.map((r) => (
-                <li key={r.id}>
+      <div className="pg-area">
+        <SideMenu state={menu} title="Knowledge" label="Knowledge menu">
+          <nav aria-label="Knowledge areas">
+            <ul className="pg-menu-entries">
+              {AREAS.filter(
+                ([id]) =>
+                  id === "content" || (canManage && (id === "help" || syncOn)),
+              ).map(([id, label, Icon]) => (
+                <li key={id}>
                   <button
-                    aria-current={selected === r.id}
-                    onClick={() => setSelected(r.id)}
+                    aria-current={tab === id ? "page" : undefined}
+                    onClick={() => setTab(id)}
                   >
-                    <strong>
-                      {preferredLocale(r.locales, teammateLanguages())?.title ||
-                        "Untitled"}
-                    </strong>
-                    <span className="pg-muted">
-                      {SOURCE_NAMES[r.source]} ·{" "}
-                      {r.locales
-                        .map(
-                          (l) =>
-                            `${l.locale} ${STATUS_NAMES[l.status as Locale["status"]] ?? l.status}`,
-                        )
-                        .join(", ")}
+                    <span className="pg-menu-entry-icon" aria-hidden="true">
+                      <Icon size={16} />
                     </span>
+                    <span className="pg-menu-entry-name">{label}</span>
                   </button>
                 </li>
               ))}
-              {records.length === 0 && (
-                <li className="pg-muted">Nothing here yet.</li>
-              )}
             </ul>
-          </section>
-          <section
-            className="pg-thread pg-knowledge-record"
-            aria-label="Knowledge record"
-          >
-            {selected ? (
-              <RecordView
-                key={selected}
-                id={selected}
-                teammates={teammates}
-                records={records
-                  .filter((r) => r.id !== selected)
-                  .map((r) => ({
-                    id: r.id,
-                    title:
-                      preferredLocale(r.locales, teammateLanguages())?.title ??
-                      "",
-                  }))}
-                onChanged={() => setReload((n) => n + 1)}
-              />
-            ) : (
-              <div className="pg-welcome">
-                <h2>Choose something to read or edit</h2>
+          </nav>
+        </SideMenu>
+        <div className="pg-area-main">
+          <header className="pg-top">
+            <ShowMenuButton state={menu} />
+            <h2>{AREAS.find(([id]) => id === tab)![1]}</h2>
+            {canManage && tab === "content" && (
+              <div className="pg-knowledge-new">
+                <button onClick={() => create("article")}>New article</button>
+                <button onClick={() => create("internal_article")}>
+                  New internal article
+                </button>
+                <button onClick={() => create("snippet")}>New snippet</button>
+                <span className="pg-knowledge-upload">
+                  <FileButton
+                    label="Upload file"
+                    inputLabel="File to upload"
+                    accept={DOCUMENT_ACCEPT}
+                    disabled={!!uploading}
+                    onFile={(file) => void upload(file)}
+                  />
+                  <label className="pg-muted" htmlFor="pg-file-language">
+                    in
+                  </label>
+                  <input
+                    id="pg-file-language"
+                    aria-label="File language"
+                    title="The language the file is written in"
+                    value={fileLocale}
+                    size={5}
+                    onChange={(e) => setFileLocale(e.target.value.trim())}
+                  />
+                </span>
               </div>
             )}
-          </section>
+          </header>
+          {uploading && (
+            <div className="pg-knowledge-notice" role="status">
+              {uploading}
+            </div>
+          )}
+          {error && (
+            <div className="pg-error" role="alert">
+              {error}
+            </div>
+          )}
+          {tab === "help" && canManage ? (
+            <HelpCenters />
+          ) : tab === "websites" && syncOn ? (
+            <Websites />
+          ) : (
+            <div className="pg-columns">
+              <section className="pg-list" aria-label="Knowledge records">
+                <div className="pg-knowledge-filters">
+                  <input
+                    aria-label="Search knowledge"
+                    placeholder="Search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  <select
+                    aria-label="Kind"
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                  >
+                    <option value="">All kinds</option>
+                    {Object.entries(SOURCE_NAMES).map(([id, name]) => (
+                      <option key={id} value={id}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <ul className="pg-knowledge-list">
+                  {records.map((r) => (
+                    <li key={r.id}>
+                      <button
+                        aria-current={selected === r.id}
+                        onClick={() => setSelected(r.id)}
+                      >
+                        <strong>
+                          {preferredLocale(r.locales, teammateLanguages())
+                            ?.title || "Untitled"}
+                        </strong>
+                        <span className="pg-muted">
+                          {SOURCE_NAMES[r.source]} ·{" "}
+                          {r.locales
+                            .map(
+                              (l) =>
+                                `${l.locale} ${STATUS_NAMES[l.status as Locale["status"]] ?? l.status}`,
+                            )
+                            .join(", ")}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {records.length === 0 && (
+                    <li className="pg-muted">Nothing here yet.</li>
+                  )}
+                </ul>
+              </section>
+              <section
+                className="pg-thread pg-knowledge-record"
+                aria-label="Knowledge record"
+              >
+                {selected ? (
+                  <RecordView
+                    key={selected}
+                    id={selected}
+                    teammates={teammates}
+                    records={records
+                      .filter((r) => r.id !== selected)
+                      .map((r) => ({
+                        id: r.id,
+                        title:
+                          preferredLocale(r.locales, teammateLanguages())
+                            ?.title ?? "",
+                      }))}
+                    onChanged={() => setReload((n) => n + 1)}
+                  />
+                ) : (
+                  <div className="pg-welcome">
+                    <h2>Choose something to read or edit</h2>
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }

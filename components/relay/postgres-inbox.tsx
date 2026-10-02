@@ -41,6 +41,7 @@ import { CreateInternal, requestConvert } from "../../agent/tickets";
 import { Menu } from "../../agent/menu";
 import { exportConversation } from "../../agent/export";
 import { WorkloadBar } from "../../agent/workload";
+import { ListHeader, Rail, useSideMenu } from "../../agent/shell";
 import { ContextSidebar } from "../../agent/sidebar";
 import {
   MacroManager,
@@ -224,6 +225,8 @@ export default function PostgresInbox({
   >({});
   /** The section on screen. The inbox stays mounted underneath Knowledge, keeping its place. */
   const [area, setArea] = useState<"inbox" | "knowledge">("inbox");
+  const inboxMenu = useSideMenu("inbox");
+  const [inboxCount, setInboxCount] = useState<string | null>(null);
   const [theme, setTheme] = useAgentTheme();
   const [overlay, setOverlay] = useState<
     | "palette"
@@ -1190,66 +1193,96 @@ export default function PostgresInbox({
     }
   }
   const canSend = snapshot?.capabilities[mode === "note" ? "note" : "reply"];
+  const storage = snapshot
+    ? `PostgreSQL · ${snapshot.storage.transport === "local-pglite" ? "local" : "Hyperdrive"}`
+    : "Connecting to PostgreSQL";
+  // After the list's title: the connection (its store as a tooltip) and the workload controls.
+  const listExtras = (
+    <>
+      <span
+        className={connection === "Live" ? "pg-live" : "pg-muted"}
+        role="status"
+        title={storage}
+      >
+        ● {connection}
+      </span>
+      <span className="pg-visually-hidden" data-testid="storage-source">
+        {storage}
+      </span>
+      <WorkloadBar revision={viewRevision} onOpen={(id) => pick(id)} />
+    </>
+  );
   return (
     <main className="pg-inbox">
-      <aside className="pg-nav">
-        <div className="pg-brand">
-          ◈ <strong>Relay</strong>
-        </div>
-        <p>WORKSPACE</p>
-        <button
-          className={area === "inbox" ? "pg-nav-active" : "pg-nav-item"}
-          aria-current={area === "inbox" ? "page" : undefined}
-          onClick={() => setArea("inbox")}
-        >
-          <Inbox size={18} /> Inbox
-        </button>
-        {snapshot?.capabilities.knowledge && (
-          <button
-            className={area === "knowledge" ? "pg-nav-active" : "pg-nav-item"}
-            aria-current={area === "knowledge" ? "page" : undefined}
-            onClick={() => setArea("knowledge")}
-          >
-            <BookOpen size={18} /> Knowledge
-          </button>
-        )}
-        <button
-          className="pg-nav-bell"
-          aria-label={`Notifications, ${notificationCount} unread`}
-          onClick={() => setOverlay("notifications")}
-        >
-          <Bell size={15} /> Notifications
-          {notificationCount > 0 && (
-            <span className="pg-badge" aria-hidden="true">
-              {notificationCount > 99 ? "99+" : notificationCount}
-            </span>
-          )}
-        </button>
-        <button className="pg-nav-help" onClick={() => setOverlay("shortcuts")}>
-          <Keyboard size={15} /> Shortcuts <kbd>?</kbd>
-        </button>
-        {snapshot ? (
-          <AccountMenu
-            account={{
-              name: snapshot.teammate.name,
-              role: snapshot.account?.role ?? "",
-              workspace: snapshot.account?.workspace ?? {
-                id: snapshot.storage.workspaceId,
-                name: snapshot.storage.workspaceId,
-              },
-              email: hosting.email,
-              signOutHref: hosting.signOutHref,
-            }}
-            theme={theme}
-            onTheme={setTheme}
-          />
-        ) : (
-          <div className="pg-nav-foot">
-            <LockKeyhole size={15} />
-            <span>Authenticated inbox</span>
-          </div>
-        )}
-      </aside>
+      <Rail
+        items={[
+          {
+            id: "inbox",
+            label: "Inbox",
+            icon: <Inbox size={19} />,
+            badge: inboxCount ?? undefined,
+            current: area === "inbox",
+            onClick: () => setArea("inbox"),
+          },
+          ...(snapshot?.capabilities.knowledge
+            ? [
+                {
+                  id: "knowledge",
+                  label: "Knowledge",
+                  icon: <BookOpen size={19} />,
+                  current: area === "knowledge",
+                  onClick: () => setArea("knowledge"),
+                },
+              ]
+            : []),
+          // TODO(phase 13): Outbound. TODO(phase 14): Reports. TODO(phase 01): Contacts (the people model has no screen yet).
+          // TODO(phase 08): the AI agent. Each joins the strip when its area exists.
+        ]}
+        tools={[
+          {
+            id: "notifications",
+            label: "Notifications",
+            ariaLabel: `Notifications, ${notificationCount} unread`,
+            icon: <Bell size={19} />,
+            badge:
+              notificationCount > 0
+                ? notificationCount > 99
+                  ? "99+"
+                  : String(notificationCount)
+                : undefined,
+            onClick: () => setOverlay("notifications"),
+          },
+          {
+            id: "shortcuts",
+            label: "Shortcuts",
+            icon: <Keyboard size={19} />,
+            onClick: () => setOverlay("shortcuts"),
+          },
+        ]}
+        account={
+          snapshot ? (
+            <AccountMenu
+              account={{
+                name: snapshot.teammate.name,
+                role: snapshot.account?.role ?? "",
+                workspace: snapshot.account?.workspace ?? {
+                  id: snapshot.storage.workspaceId,
+                  name: snapshot.storage.workspaceId,
+                },
+                email: hosting.email,
+                signOutHref: hosting.signOutHref,
+              }}
+              theme={theme}
+              onTheme={setTheme}
+            />
+          ) : (
+            <div className="pg-nav-foot" title="Authenticated inbox">
+              <LockKeyhole size={16} aria-hidden="true" />
+              <span className="pg-rail-label">Authenticated inbox</span>
+            </div>
+          )
+        }
+      />
       {area === "knowledge" && snapshot?.capabilities.knowledge && (
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}
@@ -1261,21 +1294,6 @@ export default function PostgresInbox({
         className="pg-workspace"
         hidden={area === "knowledge" && !!snapshot?.capabilities.knowledge}
       >
-        <header className="pg-top">
-          <h1>Inbox</h1>
-          <span
-            className={connection === "Live" ? "pg-live" : "pg-muted"}
-            role="status"
-          >
-            ● {connection}
-          </span>
-          <span className="pg-storage" data-testid="storage-source">
-            {snapshot
-              ? `PostgreSQL · ${snapshot.storage.transport === "local-pglite" ? "local" : "Hyperdrive"}`
-              : "Connecting to PostgreSQL"}
-          </span>
-          <WorkloadBar revision={viewRevision} onOpen={(id) => pick(id)} />
-        </header>
         {error && (
           <div className="pg-error" role="alert">
             {error}
@@ -1285,66 +1303,70 @@ export default function PostgresInbox({
           </div>
         )}
         <div className="pg-columns">
-          <section className="pg-list" aria-label="Conversations">
-            {snapshot?.capabilities.views ? (
-              <InboxViews
-                dir={{
-                  teammates: snapshot?.teammates ?? [],
-                  teams: snapshot?.teams ?? [],
-                  tags: snapshot?.tags ?? [],
-                  ticketStates,
-                  trackers,
-                }}
-                selected={selected}
-                revision={viewRevision}
-                counts={viewCounts}
-                onError={report}
-                onSelect={(c) => {
-                  setPickedConversation(c);
-                  pick(c.id);
-                }}
-                onPrefetch={prefetch}
-                onViews={setViewList}
-                onJob={(id) => {
-                  if (ready.current)
-                    socket.current?.send(
-                      JSON.stringify({ type: "subscribe_job", jobId: id }),
-                    );
-                }}
-              />
-            ) : (
-              <>
-                <h2>Recent conversations</h2>
-                {snapshot?.conversations.map((c) => (
-                  <button
-                    key={c.id}
-                    className={c.id === selected ? "pg-row selected" : "pg-row"}
-                    onClick={() => pick(c.id)}
-                    onMouseEnter={() => prefetch(c.id)}
-                    onFocus={() => prefetch(c.id)}
-                  >
-                    <span className="pg-avatar">
-                      {(c.name || "C").slice(0, 1)}
+          {snapshot?.capabilities.views ? (
+            <InboxViews
+              menu={inboxMenu}
+              headerExtras={listExtras}
+              onInboxCount={setInboxCount}
+              dir={{
+                teammates: snapshot?.teammates ?? [],
+                teams: snapshot?.teams ?? [],
+                tags: snapshot?.tags ?? [],
+                ticketStates,
+                trackers,
+              }}
+              selected={selected}
+              revision={viewRevision}
+              counts={viewCounts}
+              onError={report}
+              onSelect={(c) => {
+                setPickedConversation(c);
+                pick(c.id);
+              }}
+              onPrefetch={prefetch}
+              onViews={setViewList}
+              onJob={(id) => {
+                if (ready.current)
+                  socket.current?.send(
+                    JSON.stringify({ type: "subscribe_job", jobId: id }),
+                  );
+              }}
+            />
+          ) : (
+            <section className="pg-list" aria-label="Conversations">
+              <ListHeader title="Inbox" level={1}>
+                {listExtras}
+              </ListHeader>
+              <h2 className="pg-list-sub">Recent conversations</h2>
+              {snapshot?.conversations.map((c) => (
+                <button
+                  key={c.id}
+                  className={c.id === selected ? "pg-row selected" : "pg-row"}
+                  onClick={() => pick(c.id)}
+                  onMouseEnter={() => prefetch(c.id)}
+                  onFocus={() => prefetch(c.id)}
+                >
+                  <span className="pg-avatar">
+                    {(c.name || "C").slice(0, 1)}
+                  </span>
+                  <span>
+                    <strong>{c.name || "Customer"}</strong>
+                    <span className="pg-row-title">
+                      {c.title || "Conversation"}
                     </span>
-                    <span>
-                      <strong>{c.name || "Customer"}</strong>
-                      <span className="pg-row-title">
-                        {c.title || "Conversation"}
-                      </span>
-                      <small>
-                        {c.status} · {c.channel}
-                      </small>
-                    </span>
-                  </button>
-                ))}
-                {snapshot?.conversations.length === 0 && (
-                  <p className="pg-empty">
-                    New conversations will appear here automatically.
-                  </p>
-                )}
-              </>
-            )}
-          </section>
+                    <small>
+                      {c.status} · {c.channel}
+                    </small>
+                  </span>
+                </button>
+              ))}
+              {snapshot?.conversations.length === 0 && (
+                <p className="pg-empty">
+                  New conversations will appear here automatically.
+                </p>
+              )}
+            </section>
+          )}
           <section className="pg-thread" aria-label="Conversation timeline">
             {selected ? (
               <>

@@ -50,7 +50,7 @@ test("default views load with live counts, a new view saves and pages through ev
   await expect(viewButton(page, "All")).toContainText(String(expected), {
     timeout: 15000,
   });
-  for (const name of ["Mine", "Unassigned", "Mentions"])
+  for (const name of ["Your inbox", "Unassigned", "Mentions"])
     await expect(viewButton(page, name)).toBeVisible();
 
   // A new view starts with every status, like "All": it reuses that list, ready at once.
@@ -88,10 +88,9 @@ test("default views load with live counts, a new view saves and pages through ev
   await sql(
     "UPDATE conversations SET status='closed' WHERE workspace_id='demo' AND id='views-e2e-001'",
   );
-  await expect(viewButton(page, "All")).toContainText(
-    String(expected - 1),
-    { timeout: 15000 },
-  );
+  await expect(viewButton(page, "All")).toContainText(String(expected - 1), {
+    timeout: 15000,
+  });
   await expect(viewButton(page, "Everything open")).toContainText(
     String(expected - 1),
   );

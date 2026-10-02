@@ -59,6 +59,10 @@ teammate.
 - Saved views (`agent_inbox_views_v1`) are on for the local dev relay; built-in views are Mine,
   Mentions, Unassigned and All, and the list's status picker chooses the status
   (`docs/AGENT_LIST_AND_HEADER.md`). Tests opt in with `inboxViews: true`.
+- The agent app's frame is `agent/shell.tsx` (`docs/AGENT_APP_SHELL.md`): an icon strip that
+  slides out on hover and can be pinned, and per-area side menus (`SideMenu`) that hide and peek
+  back. New areas join the strip; their navigation goes in their own side menu. Team inboxes are
+  built-in views named `team:<team id>`, kept in step with membership by initialize.
 - The local relay uses in-memory loopback attachment storage
   (`scripts/local-storage.ts`); its scanner flags the EICAR test file.
 - Frontend is React 19 + TypeScript on Vinext/Vite. Tests:

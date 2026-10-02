@@ -485,17 +485,33 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
       ["a-c-0021"],
     );
 
-    // Move renumbers the teammate's editable views so positions never collide.
-    const before = (await views()).filter((v) => v.folder_id === null);
-    const target = before[2];
+    // Move renumbers the teammate's own views so positions never collide. Default views and
+    // team inboxes keep their place, and moves skip over them.
+    const movable = async () =>
+      (await views()).filter((v) => v.folder_id === null && !v.builtin);
+    for (const name of ["First to move", "Second to move"])
+      assert.equal(
+        (await agent("views", { action: "save", name, filter: ALL })).status,
+        200,
+      );
+    const before = await movable();
+    assert(before.length >= 2, "at least two of the owner's own views");
+    const target = before[before.length - 1];
     const moved = await agent("views", {
       action: "move",
       id: target.id,
       direction: "up",
     });
     assert.equal(moved.status, 200);
-    const after = (await views()).filter((v) => v.folder_id === null);
-    assert.equal(after[1].id, target.id);
+    const after = await movable();
+    assert.equal(after[after.length - 2].id, target.id);
+    const builtinMove = await agent("views", {
+      action: "move",
+      id: (await byBuiltin("all")).id,
+      direction: "up",
+    });
+    assert.equal(builtinMove.status, 400);
+    assert.equal(builtinMove.body.error.code, "INVALID_VIEW");
     assert.equal(
       new Set(after.map((v) => v.position)).size,
       after.length,
