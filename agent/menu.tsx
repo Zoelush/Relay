@@ -45,6 +45,8 @@ export function Menu({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // Placed against the window, so a scrolling or narrow column never clips it.
+  const [place, setPlace] = useState<React.CSSProperties>({});
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -56,6 +58,24 @@ export function Menu({
       "[role^=menuitem]:not(:disabled)",
     ) ?? []),
   ];
+  const show = () => {
+    const r = trigger.current?.getBoundingClientRect();
+    if (r) {
+      const end = className?.includes("align-end");
+      const below = window.innerHeight - r.bottom;
+      setPlace({
+        position: "fixed",
+        ...(end
+          ? { right: Math.max(8, window.innerWidth - r.right) }
+          : { left: Math.max(8, r.left) }),
+        // Opens upwards when there's little room below.
+        ...(below < 260 && r.top > below
+          ? { bottom: window.innerHeight - r.top + 4, top: "auto" }
+          : { top: r.bottom + 4 }),
+      });
+    }
+    setOpen(true);
+  };
   const close = (focus = true) => {
     setOpen(false);
     setQuery("");
@@ -109,11 +129,11 @@ export function Menu({
         aria-controls={open ? id : undefined}
         aria-label={buttonLabel}
         title={title}
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => (open ? close() : show())}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" && !open) {
             e.preventDefault();
-            setOpen(true);
+            show();
           }
         }}
       >
@@ -127,6 +147,7 @@ export function Menu({
           role="menu"
           aria-label={menuLabel}
           className="pg-menu-panel"
+          style={place}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();

@@ -23,6 +23,10 @@ import {
   Bell,
   PanelRight,
   BookOpen,
+  MoreHorizontal,
+  FileText,
+  Command,
+  Ticket,
 } from "lucide-react";
 import "../../agent/inbox.css";
 import { useAgentTheme } from "../../agent/theme";
@@ -33,7 +37,9 @@ import { Timeline, type Directory } from "../../agent/timeline";
 import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
 import { NotificationsPanel } from "../../agent/notifications";
-import { CreateInternal } from "../../agent/tickets";
+import { CreateInternal, requestConvert } from "../../agent/tickets";
+import { Menu } from "../../agent/menu";
+import { exportConversation } from "../../agent/export";
 import { WorkloadBar } from "../../agent/workload";
 import { ContextSidebar } from "../../agent/sidebar";
 import {
@@ -1380,31 +1386,6 @@ export default function PostgresInbox({
                               )?.name ?? "assigned"))
                         : ""}
                     </span>
-                    {conversation?.status === "open" ? (
-                      <button
-                        title="Close (E)"
-                        onClick={() =>
-                          void act({ action: "close" }, { status: "closed" })
-                        }
-                      >
-                        <CheckCircle size={14} /> Close
-                      </button>
-                    ) : (
-                      <button
-                        title="Reopen (Shift E)"
-                        onClick={() =>
-                          void act({ action: "reopen" }, { status: "open" })
-                        }
-                      >
-                        <RotateCcw size={14} /> Reopen
-                      </button>
-                    )}
-                    <button
-                      title="Snooze (S)"
-                      onClick={() => setOverlay("snooze")}
-                    >
-                      <Clock size={14} /> Snooze
-                    </button>
                     {conversation?.assigned !== me && (
                       <button
                         title="Assign to me (A)"
@@ -1418,27 +1399,132 @@ export default function PostgresInbox({
                         <UserPlus size={14} /> Assign to me
                       </button>
                     )}
-                    <button
-                      title="Toggle priority (P)"
-                      aria-pressed={!!conversation?.priority}
-                      onClick={() =>
-                        void act(
+                    <span className="pg-header-icons">
+                      <button
+                        className="pg-icon-action"
+                        aria-label="Priority"
+                        title={
+                          conversation?.priority
+                            ? "Remove priority (P)"
+                            : "Mark as priority (P)"
+                        }
+                        aria-pressed={!!conversation?.priority}
+                        onClick={() =>
+                          void act(
+                            {
+                              action: "priority",
+                              value: !conversation?.priority,
+                            },
+                            { priority: !conversation?.priority },
+                          )
+                        }
+                      >
+                        <Flag
+                          size={16}
+                          aria-hidden="true"
+                          fill={
+                            conversation?.priority ? "currentColor" : "none"
+                          }
+                        />
+                      </button>
+                      <Menu
+                        iconOnly
+                        className="align-end"
+                        buttonLabel="More actions"
+                        title="More actions"
+                        button={<MoreHorizontal size={16} aria-hidden="true" />}
+                        menuLabel="More actions"
+                        items={[
                           {
-                            action: "priority",
-                            value: !conversation?.priority,
+                            value: "details",
+                            label: sidebarOpen
+                              ? "Hide conversation details"
+                              : "Show conversation details",
+                            icon: <PanelRight size={15} />,
                           },
-                          { priority: !conversation?.priority },
-                        )
-                      }
-                    >
-                      <Flag size={14} /> Priority
-                    </button>
+                          {
+                            value: "export",
+                            label: "Export conversation as text",
+                            icon: <FileText size={15} />,
+                          },
+                          {
+                            value: "palette",
+                            label: "Command palette",
+                            icon: <Command size={15} />,
+                            divider: true,
+                          },
+                          {
+                            value: "shortcuts",
+                            label: "Keyboard shortcuts",
+                            icon: <Keyboard size={15} />,
+                          },
+                        ]}
+                        onSelect={(value) => {
+                          if (value === "details") toggleSidebar();
+                          else if (value === "shortcuts")
+                            setOverlay("shortcuts");
+                          else if (value === "palette") setOverlay("palette");
+                          else if (value === "export" && selected)
+                            void exportConversation(
+                              selected,
+                              conversation?.title ?? "",
+                              parts,
+                              cache.current.get(selected)?.older,
+                            ).catch(report);
+                        }}
+                      />
+                      {ticketsOn && (
+                        <button
+                          className="pg-icon-action"
+                          aria-label="Convert to ticket"
+                          title="Convert to ticket"
+                          onClick={() => {
+                            if (!selected) return;
+                            if (!sidebarOpen) toggleSidebar();
+                            requestConvert(selected);
+                          }}
+                        >
+                          <Ticket size={16} aria-hidden="true" />
+                        </button>
+                      )}
+                      <button
+                        className="pg-icon-action"
+                        aria-label="Snooze"
+                        title="Snooze (S)"
+                        onClick={() => setOverlay("snooze")}
+                      >
+                        <Clock size={16} aria-hidden="true" />
+                      </button>
+                    </span>
+                    {conversation?.status === "open" ? (
+                      <button
+                        className="pg-close-action"
+                        title="Close (E)"
+                        onClick={() =>
+                          void act({ action: "close" }, { status: "closed" })
+                        }
+                      >
+                        <CheckCircle size={14} /> Close
+                      </button>
+                    ) : (
+                      <button
+                        className="pg-close-action"
+                        title="Reopen (Shift E)"
+                        onClick={() =>
+                          void act({ action: "reopen" }, { status: "open" })
+                        }
+                      >
+                        <RotateCcw size={14} /> Reopen
+                      </button>
+                    )}
                     <button
+                      className="pg-icon-action"
+                      aria-label="Details"
                       title="Conversation details (I)"
                       aria-pressed={sidebarOpen}
                       onClick={toggleSidebar}
                     >
-                      <PanelRight size={14} /> Details
+                      <PanelRight size={16} aria-hidden="true" />
                     </button>
                   </div>
                 </header>

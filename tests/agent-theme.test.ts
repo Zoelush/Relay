@@ -111,6 +111,8 @@ test("agent colours: both themes define the same colours, and nothing outside th
     rest.match(/#[0-9a-f]{3,8}\b|:\s*(white|black)\b|rgba?\(|hsla?\(/gi),
     null,
   );
+  // A token never lands inside a property name (replacing "white" once broke white-space).
+  assert.deepEqual(css.match(/var\(--pg-[a-z0-9-]+\)-|-var\(--pg-/g), null);
   // And every token used is defined.
   for (const [, name] of rest.matchAll(/var\(--pg-([a-z0-9-]+)\)/g))
     assert(name in light, name);

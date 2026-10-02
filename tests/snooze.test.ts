@@ -56,6 +56,21 @@ test("snooze presets resolve to local wall-clock times, across daylight-saving c
     wake("later_today", "Asia/Tokyo", "2026-09-30T10:00:00Z"),
     "2026-09-30T13:00:00.000Z",
   );
+  // One week is exactly seven days on; one month is the same day next month at 09:00 local,
+  // or that month's last day.
+  assert.equal(
+    wake("one_week", "Europe/London", "2026-10-02T00:08:00Z"),
+    "2026-10-09T00:08:00.000Z",
+  );
+  assert.equal(
+    wake("one_month", "America/New_York", "2026-10-02T04:00:00Z"),
+    "2026-11-02T14:00:00.000Z",
+    "9:00 in New York after clocks go back (EST)",
+  );
+  assert.equal(
+    wake("one_month", "Europe/London", "2026-01-31T15:00:00Z"),
+    "2026-02-28T09:00:00.000Z",
+  );
   for (const [input, code] of [
     [{ preset: "someday", timezone: "UTC" }, "INVALID_WAKE_TIME"],
     [{ preset: "tomorrow" }, "TIMEZONE_INVALID"],

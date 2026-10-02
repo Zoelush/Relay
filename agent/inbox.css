@@ -184,7 +184,7 @@
 .pg-row-title {
   display: block;
   color: var(--pg-text-2);
-  var(--pg-surface)-space: nowrap;
+  white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
   font-size: 12px;
@@ -241,7 +241,7 @@
   gap: 6px;
 }
 .pg-message p {
-  var(--pg-surface)-space: pre-wrap;
+  white-space: pre-wrap;
   margin: 9px 0 0;
   color: var(--pg-text);
 }
@@ -510,7 +510,7 @@ kbd { font:11px ui-monospace, monospace; border:1px solid var(--pg-border-strong
 .rich > :last-child, .pg-editor > :last-child { margin-bottom:0; }
 .rich ul, .rich ol, .pg-editor ul, .pg-editor ol { margin:4px 0 6px; padding-inline-start:22px; }
 .rich blockquote, .pg-editor blockquote { margin:4px 0; padding-inline-start:10px; border-inline-start:3px solid var(--pg-border-strong); color:var(--pg-text-2); }
-.rich pre, .pg-editor pre { margin:4px 0; padding:8px; border-radius:6px; background:var(--pg-sunken); var(--pg-surface)-space:pre-wrap; overflow-x:auto; }
+.rich pre, .pg-editor pre { margin:4px 0; padding:8px; border-radius:6px; background:var(--pg-sunken); white-space:pre-wrap; overflow-x:auto; }
 .rich code, .pg-editor code { font-family:ui-monospace, monospace; font-size:.92em; }
 .rich a, .pg-editor a { color:var(--pg-accent); }
 /* Step C2b: inline images. */
@@ -627,7 +627,7 @@ kbd { font:11px ui-monospace, monospace; border:1px solid var(--pg-border-strong
 .pg-workload { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; }
 .pg-workload select, .pg-workload button { font-size:12px; }
 .pg-workload-notice { color:var(--pg-danger-text); background:var(--pg-danger-bg); border-radius:6px; padding:3px 8px; }
-.pg-visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); var(--pg-surface)-space:nowrap; }
+.pg-visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 .pg-workload-panel { width:min(680px,95vw); }
 .pg-workload-panel header { display:flex; justify-content:space-between; align-items:center; }
 .pg-team { border:1px solid var(--pg-border-strong); border-radius:10px; padding:12px 14px; margin:12px 0; }
@@ -684,7 +684,7 @@ button.pg-nav-active { border:0; color:inherit; font:inherit; cursor:pointer; te
 .pg-knowledge-upload input { width:4em; }
 .pg-knowledge-file { border-top:1px solid var(--pg-border); padding-top:10px; display:flex; flex-direction:column; gap:6px; }
 .pg-knowledge-file p { margin:0; }
-.pg-knowledge-excerpt { margin:0; padding:8px 12px; border-inline-start:3px solid var(--pg-border); color:var(--pg-text-2); var(--pg-surface)-space:pre-wrap; max-height:220px; overflow:auto; font-size:13px; }
+.pg-knowledge-excerpt { margin:0; padding:8px 12px; border-inline-start:3px solid var(--pg-border); color:var(--pg-text-2); white-space:pre-wrap; max-height:220px; overflow:auto; font-size:13px; }
 .pg-theme-image { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .pg-theme-image > span:first-child { min-width:7em; }
 .pg-theme-image img { max-height:32px; max-width:120px; border:1px solid var(--pg-border); border-radius:4px; }
@@ -821,16 +821,24 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-status-count { font-weight:700; }
 .pg-sort-direction { display:inline-grid; place-items:center; width:30px; height:28px; border:1px solid var(--pg-border-strong); border-radius:8px; background:var(--pg-surface); color:var(--pg-text-2); cursor:pointer; }
 .pg-sort-direction:hover { background:var(--pg-hover); }
-.pg-menu-panel { position:absolute; left:0; top:calc(100% + 4px); z-index:35; min-width:230px; max-height:min(420px,70vh); overflow:auto; padding:5px; background:var(--pg-surface); color:var(--pg-text); border:1px solid var(--pg-border-strong); border-radius:10px; box-shadow:0 10px 30px var(--pg-shadow); }
+.pg-menu-panel { position:absolute; left:0; top:calc(100% + 4px); z-index:45; min-width:230px; max-height:min(420px,70vh); overflow:auto; padding:5px; background:var(--pg-surface); color:var(--pg-text); border:1px solid var(--pg-border-strong); border-radius:10px; box-shadow:0 10px 30px var(--pg-shadow); }
 .pg-menu.align-end .pg-menu-panel { left:auto; right:0; }
 .pg-menu-search { display:flex; align-items:center; gap:6px; margin:2px 2px 6px; padding:4px 8px; border:1px solid var(--pg-input-border); border-radius:7px; color:var(--pg-muted); }
 .pg-inbox .pg-menu-search input { border:0; padding:3px 0; background:none; flex:1; outline:none; }
 .pg-menu-divider { border:0; border-top:1px solid var(--pg-border); margin:5px 2px; }
-.pg-menu-item { display:flex; align-items:center; gap:9px; width:100%; padding:7px 9px; border:0; border-radius:7px; background:none; color:inherit; font-size:13px; text-align:left; cursor:pointer; }
-.pg-menu-item:hover, .pg-menu-item:focus-visible { background:var(--pg-hover); outline:none; }
-.pg-menu-item[aria-checked="true"] { font-weight:600; }
+/* Higher than toolbar button styles, since a menu can open inside a toolbar. */
+.pg-menu-panel button.pg-menu-item { display:flex; align-items:center; gap:9px; width:100%; padding:7px 9px; border:0; border-radius:7px; background:none; color:inherit; font-size:13px; text-align:left; cursor:pointer; }
+.pg-menu-panel button.pg-menu-item:hover, .pg-menu-panel button.pg-menu-item:focus-visible { background:var(--pg-hover); outline:none; }
+.pg-menu-panel button.pg-menu-item[aria-checked="true"] { font-weight:600; }
 .pg-menu-icon { display:inline-grid; color:var(--pg-text-3); }
 .pg-menu-label { flex:1; }
 .pg-menu-detail { color:var(--pg-muted); font-size:12px; font-variant-numeric:tabular-nums; }
 .pg-menu-check { color:var(--pg-accent); }
 .pg-menu-empty { margin:6px 9px; color:var(--pg-muted); font-size:12px; }
+
+/* The conversation header: icon actions with tooltips, then Close (Intercom-style). */
+.pg-header-icons { display:inline-flex; align-items:center; gap:4px; }
+.pg-thread-actions .pg-icon-action, .pg-thread-actions .pg-menu-button.icon { display:inline-grid; place-items:center; width:32px; height:30px; padding:0; border:1px solid var(--pg-border-strong); border-radius:8px; background:var(--pg-surface); color:var(--pg-text-2); }
+.pg-thread-actions .pg-icon-action:hover, .pg-thread-actions .pg-menu-button.icon:hover { background:var(--pg-hover); color:var(--pg-text); }
+.pg-thread-actions .pg-icon-action[aria-pressed="true"] { background:var(--pg-note-bg); border-color:var(--pg-note-border); color:var(--pg-note-text); }
+.pg-thread-actions .pg-close-action { font-weight:600; }

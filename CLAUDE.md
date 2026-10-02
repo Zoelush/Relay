@@ -56,6 +56,9 @@ teammate.
 - The agent app's colours are named tokens at the top of `agent/inbox.css`, with light and dark
   values (`docs/AGENT_DARK_MODE.md`). Use a token for any new colour; `tests/agent-theme.test.ts`
   fails on a written-in colour or a text pairing below WCAG AA.
+- Saved views (`agent_inbox_views_v1`) are on for the local dev relay; built-in views are Mine,
+  Mentions, Unassigned and All, and the list's status picker chooses the status
+  (`docs/AGENT_LIST_AND_HEADER.md`). Tests opt in with `inboxViews: true`.
 - The local relay uses in-memory loopback attachment storage
   (`scripts/local-storage.ts`); its scanner flags the EICAR test file.
 - Frontend is React 19 + TypeScript on Vinext/Vite. Tests:

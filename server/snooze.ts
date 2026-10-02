@@ -1,6 +1,12 @@
 import { assert } from "./db";
 
-export const SNOOZE_PRESETS = ["later_today", "tomorrow", "next_week"] as const;
+export const SNOOZE_PRESETS = [
+  "later_today",
+  "tomorrow",
+  "next_week",
+  "one_week",
+  "one_month",
+] as const;
 export type SnoozePreset = (typeof SNOOZE_PRESETS)[number];
 
 /** Offset of `timeZone` from UTC at `instant`, in milliseconds. */
@@ -71,7 +77,8 @@ export function validTimeZone(value: unknown): string {
 /**
  * Resolves a snooze request to a UTC wake instant on the server. Presets are wall-clock times
  * in the teammate's own timezone: later today is three hours from now, tomorrow and next week
- * are 09:00 local (next week is the coming Monday). A custom time must carry its offset.
+ * are 09:00 local (next week is the coming Monday), one week is seven days from now, and one
+ * month is the same day next month (or its last day) at 09:00. A custom time carries its offset.
  */
 export function resolveWake(
   input: { preset?: unknown; wakeAt?: unknown; timezone?: unknown },
@@ -81,12 +88,32 @@ export function resolveWake(
     assert(
       SNOOZE_PRESETS.includes(input.preset as SnoozePreset),
       "INVALID_WAKE_TIME",
-      "Choose later today, tomorrow or next week.",
+      "Choose later today, tomorrow, next week, one week or one month.",
     );
     const timeZone = validTimeZone(input.timezone);
     if (input.preset === "later_today")
       return { wakeAt: new Date(now + 3 * 3600_000), timeZone };
+    if (input.preset === "one_week")
+      return { wakeAt: new Date(now + 7 * 86_400_000), timeZone };
     const today = wallClock(now, timeZone);
+    if (input.preset === "one_month") {
+      // Day 0 of the month after next is the last day of next month.
+      const last = new Date(
+        Date.UTC(today.year, today.month + 2, 0),
+      ).getUTCDate();
+      return {
+        wakeAt: new Date(
+          atLocal(
+            today.year,
+            today.month + 1,
+            Math.min(today.day, last),
+            9,
+            timeZone,
+          ),
+        ),
+        timeZone,
+      };
+    }
     const days = input.preset === "tomorrow" ? 1 : (8 - today.weekday) % 7 || 7;
     return {
       wakeAt: new Date(

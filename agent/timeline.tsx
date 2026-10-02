@@ -31,7 +31,7 @@ export type Directory = {
   /** Ticket states across types, named "Type: State"; empty when tickets are off. */
   ticketStates?: { id: string; name: string }[];
 };
-const MESSAGES = new Set([
+export const MESSAGES = new Set([
   "customer_message",
   "teammate_reply",
   "internal_note",
