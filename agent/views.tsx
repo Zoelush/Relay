@@ -1,5 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AlarmClock,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  CalendarPlus,
+  CheckCircle2,
+  Clock,
+  Flag,
+  Hourglass,
+  Inbox,
+  Loader,
+  MoonStar,
+  Send,
+  Timer,
+  Zap,
+} from "lucide-react";
 import { api } from "./api";
+import { Menu } from "./menu";
 import { BulkBar, type Directory } from "./bulk";
 import { SlaBadge } from "./sla";
 import type { ViewFilter } from "../server/inbox-views";
@@ -33,15 +50,51 @@ type Row = {
   sla_overdue?: boolean;
 };
 const initial: ViewFilter = { field: "state", op: "eq", value: "open" };
+/** A new view starts with every status: the list's status picker narrows it. */
+const ANY_STATUS: ViewFilter = {
+  field: "state",
+  op: "in",
+  value: ["open", "snoozed", "closed"],
+};
 /** Default views every teammate has; keep in step with BUILTIN_VIEWS on the server. */
-const BUILTINS = [
-  "mine",
-  "mentions",
-  "unassigned",
-  "open",
-  "snoozed",
-  "closed",
-];
+const BUILTINS = ["mine", "mentions", "unassigned", "all"];
+
+/** The status picker: conversation states, then ticket states (LIST_STATUSES on the server). */
+const STATUSES = [
+  ["open", "Open", Inbox],
+  ["snoozed", "Snoozed", MoonStar],
+  ["closed", "Closed", CheckCircle2],
+  ["submitted", "Submitted", Send],
+  ["in_progress", "In progress", Loader],
+  ["waiting_on_customer", "Waiting on customer", Hourglass],
+  ["resolved", "Resolved", CheckCircle2],
+] as const;
+type Status = (typeof STATUSES)[number][0];
+/** The sort menu (LIST_SORTS on the server), each with the direction it starts in. */
+const SORTS = [
+  ["activity", "Last activity", Zap, "desc"],
+  ["created", "Date started", CalendarPlus, "desc"],
+  ["waiting", "Waiting since", Clock, "asc"],
+  ["sla", "Next SLA", Timer, "asc"],
+  ["priority", "Priority", Flag, "desc"],
+  ["snoozed", "Snoozed until", AlarmClock, "asc"],
+] as const;
+type Sort = (typeof SORTS)[number][0];
+/** Sorts saved on views before the sort menu. */
+const LEGACY: Record<string, [Sort, "asc" | "desc"]> = {
+  newest: ["created", "desc"],
+  oldest: ["created", "asc"],
+  waiting: ["waiting", "asc"],
+  sla: ["sla", "asc"],
+};
+const savedSort = (value: string): { sort: Sort; dir: "asc" | "desc" } => {
+  const legacy = LEGACY[value];
+  if (legacy) return { sort: legacy[0], dir: legacy[1] };
+  const known = SORTS.find((s) => s[0] === value) ?? SORTS[0];
+  return { sort: known[0], dir: known[3] };
+};
+const countLabel = (n: number | undefined) =>
+  n === undefined ? "…" : n >= 1000 ? "999+" : n.toLocaleString();
 function FilterEditor({
   value,
   onChange,
@@ -180,9 +233,16 @@ function FilterEditor({
       ) : value.field === "state" ? (
         <select
           aria-label="State value"
-          value={String(value.value)}
-          onChange={(e) => onChange({ ...value, value: e.target.value })}
+          value={Array.isArray(value.value) ? "any" : String(value.value)}
+          onChange={(e) =>
+            onChange(
+              e.target.value === "any"
+                ? ANY_STATUS
+                : { ...value, op: "eq", value: e.target.value },
+            )
+          }
         >
+          <option value="any">any status</option>
           {["open", "snoozed", "closed"].map((s) => (
             <option key={s}>{s}</option>
           ))}
@@ -202,9 +262,9 @@ function FilterEditor({
     </div>
   );
 }
-/** The view to show: the teammate's own choice, else "All open", else the first view. */
+/** The view to show: the teammate's own choice, else "All", else the first view. */
 function pickView(old: string, views: View[], chosen: boolean) {
-  const open = views.find((v) => v.builtin === "open")?.id;
+  const open = views.find((v) => v.builtin === "all")?.id;
   if (
     old &&
     views.some((v) => v.id === old) &&
@@ -238,14 +298,25 @@ export function InboxViews({
   const [views, setViews] = useState<View[]>([]),
     [folders, setFolders] = useState<Folder[]>([]),
     [viewId, setViewId] = useState("");
-  // Whether the teammate picked the current view. An automatic pick moves to "All open" once it
+  // Whether the teammate picked the current view. An automatic pick moves to "All" once it
   // exists: on a first visit the default views are created after the first list of views, and
   // the shared views that already existed must not stay selected (they looked like an empty inbox).
   const chosen = useRef(false);
   const [rows, setRows] = useState<Row[]>([]),
     [cursor, setCursor] = useState<string | null>(null),
     [query, setQuery] = useState(""),
-    [sort, setSort] = useState("newest");
+    [sort, setSort] = useState<Sort>("activity"),
+    [order, setOrder] = useState<"asc" | "desc">("desc"),
+    [status, setStatus] = useState<Status>("open"),
+    [statusCounts, setStatusCounts] = useState<Partial<
+      Record<Status, number>
+    > | null>(null);
+  /** A view's own sort, as the sort menu shows it. */
+  const applySaved = (value: string) => {
+    const s = savedSort(value);
+    setSort(s.sort);
+    setOrder(s.dir);
+  };
   const [pageLoading, setPageLoading] = useState(false);
   const [scroll, setScroll] = useState(0),
     [busy, setBusy] = useState(false),
@@ -264,7 +335,7 @@ export function InboxViews({
     queryRef = useRef("");
   const [height, setHeight] = useState(500);
   // Bulk selection belongs to one list (view, sort and search); changing the list drops it.
-  const listKey = `${viewId}|${sort}|${query}`;
+  const listKey = `${viewId}|${status}|${sort}|${order}|${query}`;
   const [picked, setPicked] = useState<{
     key: string;
     ids: string[];
@@ -336,6 +407,8 @@ export function InboxViews({
       const q = new URLSearchParams({
         view: viewId,
         sort,
+        dir: order,
+        status,
         q: queryRef.current,
       });
       if (next) q.set("cursor", next);
@@ -343,8 +416,10 @@ export function InboxViews({
         const data = await api<{
           conversations: Row[];
           nextCursor: string | null;
+          counts: Record<Status, number> | null;
         }>("view-page?" + q);
         if (version !== generation.current) return;
+        if (data.counts) setStatusCounts(data.counts);
         setRows((old) => {
           if (!next) return data.conversations;
           const seen = new Set(old.map((x) => x.id));
@@ -363,7 +438,7 @@ export function InboxViews({
         }
       }
     },
-    [viewId, sort, onError],
+    [viewId, sort, order, status, onError],
   );
   useEffect(() => {
     const version = ++generation.current;
@@ -376,7 +451,7 @@ export function InboxViews({
       clearTimeout(timer);
       ++generation.current;
     };
-  }, [viewId, sort, query, loadPage]);
+  }, [viewId, sort, order, status, query, loadPage]);
   // Workspace activity (`revision`) refreshes only the first page, merged in front of the
   // deeper rows already loaded, so a teammate scrolled deep keeps their place and cursor.
   // Resetting here instead reloaded from page one on every notification in the workspace.
@@ -391,14 +466,18 @@ export function InboxViews({
       const q = new URLSearchParams({
         view: viewId,
         sort,
+        dir: order,
+        status,
         q: queryRef.current,
       });
       try {
         const data = await api<{
           conversations: Row[];
           nextCursor: string | null;
+          counts: Record<Status, number> | null;
         }>("view-page?" + q);
         if (version !== generation.current) return;
+        if (data.counts) setStatusCounts(data.counts);
         const deep = rowsLoaded.current > data.conversations.length;
         setRows((old) => {
           const top = new Set(data.conversations.map((c) => c.id));
@@ -415,11 +494,11 @@ export function InboxViews({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [revision, viewId, sort]);
+  }, [revision, viewId, sort, order, status]);
   useEffect(() => {
     setScroll(0);
     if (viewport.current) viewport.current.scrollTop = 0;
-  }, [viewId, sort, query]);
+  }, [viewId, sort, order, status, query]);
   useEffect(() => {
     onViews?.(views.map((v) => ({ id: v.id, name: v.name })));
   }, [views, onViews]);
@@ -460,7 +539,7 @@ export function InboxViews({
       if (!v) return;
       chosen.current = true;
       setViewId(v.id);
-      setSort(v.sort);
+      applySaved(v.sort);
     };
     window.addEventListener("relay:navigate", navigate);
     window.addEventListener("relay:view", switchView);
@@ -557,6 +636,8 @@ export function InboxViews({
     )
       void loadPage(cursor, generation.current);
   }, [rows, cursor, pageLoading, loadPage]);
+  const statusName = STATUSES.find((x) => x[0] === status)![1];
+  const sortName = SORTS.find((x) => x[0] === sort)![1];
   const rowHeight = 86,
     start = Math.max(0, Math.floor(scroll / rowHeight) - 5),
     end = Math.min(rows.length, start + Math.ceil(height / rowHeight) + 10);
@@ -569,8 +650,8 @@ export function InboxViews({
           onClick={() =>
             setEditing({
               name: "",
-              filter: { and: [initial] },
-              sort: "newest",
+              filter: ANY_STATUS,
+              sort: "activity",
               shared: false,
             })
           }
@@ -603,7 +684,8 @@ export function InboxViews({
                     onClick={() => {
                       chosen.current = true;
                       setViewId(v.id);
-                      setSort(v.sort);
+                      applySaved(v.sort);
+                      setStatusCounts(null);
                     }}
                   >
                     {v.name}
@@ -655,6 +737,70 @@ export function InboxViews({
           </button>
         </div>
       )}
+      <div className="pg-list-controls">
+        <Menu
+          className="pg-status-menu"
+          buttonLabel={`Status: ${statusName}, ${current?.ready === false ? "updating" : countLabel(statusCounts?.[status]) + " conversations"}`}
+          button={
+            <>
+              <span className="pg-status-count">
+                {current?.ready === false
+                  ? "…"
+                  : countLabel(statusCounts?.[status])}
+              </span>{" "}
+              {statusName}
+            </>
+          }
+          menuLabel="Status"
+          items={STATUSES.map(([value, label, Icon], i) => ({
+            value,
+            label,
+            icon: <Icon size={15} aria-hidden="true" />,
+            detail:
+              current?.ready === false
+                ? "…"
+                : countLabel(statusCounts?.[value]),
+            checked: status === value,
+            divider: i === 3,
+          }))}
+          onSelect={(value) => setStatus(value as Status)}
+        />
+        <Menu
+          className="pg-sort-menu"
+          buttonLabel={`Sort: ${sortName}`}
+          button={sortName}
+          menuLabel="Sort by"
+          searchable
+          items={SORTS.map(([value, label, Icon]) => ({
+            value,
+            label,
+            icon: <Icon size={15} aria-hidden="true" />,
+            checked: sort === value,
+          }))}
+          onSelect={(value) => {
+            const s = SORTS.find((x) => x[0] === value)!;
+            setSort(s[0]);
+            setOrder(s[3]);
+          }}
+        />
+        <button
+          type="button"
+          className="pg-sort-direction"
+          aria-label={
+            order === "desc"
+              ? "Descending order. Switch to ascending"
+              : "Ascending order. Switch to descending"
+          }
+          title={order === "desc" ? "Descending" : "Ascending"}
+          onClick={() => setOrder((d) => (d === "desc" ? "asc" : "desc"))}
+        >
+          {order === "desc" ? (
+            <ArrowDownWideNarrow size={16} aria-hidden="true" />
+          ) : (
+            <ArrowUpNarrowWide size={16} aria-hidden="true" />
+          )}
+        </button>
+      </div>
       <div className="pg-view-query">
         <input
           aria-label="Search within view"
@@ -662,16 +808,6 @@ export function InboxViews({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select
-          aria-label="Sort conversations"
-          value={sort}
-          onChange={(e) => setSort(e.target.value)}
-        >
-          <option value="newest">Newest</option>
-          <option value="oldest">Oldest</option>
-          <option value="waiting">Longest waiting</option>
-          <option value="sla">SLA due soonest</option>
-        </select>
       </div>
       {(selection.ids.length > 0 || selection.all) && current && !query && (
         <div className="pg-select-all">
@@ -685,17 +821,22 @@ export function InboxViews({
             <button
               onClick={() => setPicked({ key: listKey, ids: [], all: true })}
             >
-              Select all {(countMap.get(current.id) ?? current).count_label} in
-              this view
+              Select all {countLabel(statusCounts?.[status])}{" "}
+              {statusName.toLowerCase()} in this view
             </button>
           )}
         </div>
       )}
       <BulkBar
-        selection={{ viewId, ids: selection.ids, all: selection.all }}
+        selection={{
+          viewId,
+          ids: selection.ids,
+          all: selection.all,
+          status,
+        }}
         count={
           selection.all
-            ? `All ${(current && (countMap.get(current.id) ?? current).count_label) || ""}`.trim()
+            ? `All ${countLabel(statusCounts?.[status])} ${statusName.toLowerCase()}`
             : selection.ids.length.toLocaleString()
         }
         dir={dir}
@@ -774,7 +915,15 @@ export function InboxViews({
           </button>
         )}
         {!rows.length && current?.ready && (
-          <p className="pg-empty">No conversations in this view.</p>
+          <p className="pg-empty">
+            No {statusName.toLowerCase()} conversations in this view.
+          </p>
+        )}
+        {current && !current.ready && (
+          <p className="pg-empty" aria-live="polite">
+            This view is being prepared. Its conversations and counts appear in
+            a moment.
+          </p>
         )}
       </div>
       {editing && (

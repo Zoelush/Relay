@@ -147,8 +147,12 @@ test("a missed target breaches live: red in the sidebar, on the timeline and in 
     )[0].n,
   ).toBe(1);
 
-  // "SLA due soonest" puts the overdue conversation first.
-  await page.getByLabel("Sort conversations").selectOption("sla");
+  // Sorting by next SLA puts the overdue conversation first.
+  await page.getByRole("button", { name: /^Sort:/ }).click();
+  await page
+    .getByRole("menu", { name: "Sort by" })
+    .getByRole("menuitemradio", { name: "Next SLA" })
+    .click();
   await expect(
     page.getByTestId("virtual-conversations").getByRole("button").first(),
   ).toContainText("Payment failed twice");

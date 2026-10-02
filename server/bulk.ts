@@ -10,7 +10,7 @@ import { authorize } from "./policy";
 import { command, conversation, type Command } from "./conversations";
 import { enqueueJob, type Job } from "./jobs";
 import { checkTargets, validateActions, type MacroAction } from "./macros";
-import { visibleView } from "./inbox-views";
+import { LIST_STATUSES, visibleView } from "./inbox-views";
 
 /** Conversations in one operation, items per job step, and the undo window. */
 export const BULK_LIMIT = 5000;
@@ -223,11 +223,22 @@ export async function prepareBulk(
   let ids: string[];
   if (p.viewId !== undefined) {
     const view = await visibleView(db, w, t, String(p.viewId));
+    // "Everything in this view" means what the list shows: the view in the status picked.
+    const status = p.status === undefined ? "all" : String(p.status);
+    assert(
+      status === "all" || (LIST_STATUSES as readonly string[]).includes(status),
+      "INVALID_STATUS",
+      "Choose an available status.",
+    );
+    const column = ["open", "snoozed", "closed"].includes(status)
+      ? "m.status"
+      : "m.ticket_kind";
     ids = (
       await db.query<{ id: string }>(
         `SELECT m.conversation_id AS id FROM inbox_filter_members m JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
-        WHERE m.workspace_id=$1 AND m.set_id=$2 AND c.merged_into_id IS NULL ORDER BY m.created_at DESC,m.conversation_id DESC LIMIT $3`,
-        [w, view.set_id, BULK_LIMIT + 1],
+        WHERE m.workspace_id=$1 AND m.set_id=$2 AND c.merged_into_id IS NULL${status === "all" ? "" : ` AND ${column}=$4`}
+        ORDER BY m.created_at DESC,m.conversation_id DESC LIMIT $3`,
+        [w, view.set_id, BULK_LIMIT + 1, ...(status === "all" ? [] : [status])],
       )
     ).rows.map((r) => r.id);
   } else {
@@ -272,7 +283,9 @@ export async function prepareBulk(
       t.id,
       JSON.stringify(action),
       JSON.stringify(
-        p.viewId !== undefined ? { viewId: p.viewId } : { picked: ids.length },
+        p.viewId !== undefined
+          ? { viewId: p.viewId, status: p.status ?? "all" }
+          : { picked: ids.length },
       ),
       ids.length,
     ],

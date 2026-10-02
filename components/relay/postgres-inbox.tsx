@@ -1188,7 +1188,7 @@ export default function PostgresInbox({
     <main className="pg-inbox">
       <aside className="pg-nav">
         <div className="pg-brand">
-          ◈ <strong>relay</strong>
+          ◈ <strong>Relay</strong>
         </div>
         <p>WORKSPACE</p>
         <button
