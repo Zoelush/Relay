@@ -1,22 +1,41 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AlarmClock,
+  Archive,
+  ArrowDown,
   ArrowDownWideNarrow,
+  ArrowUp,
   ArrowUpNarrowWide,
+  AtSign,
   CalendarPlus,
   CheckCircle2,
+  ChevronDown,
+  CircleDashed,
   Clock,
+  Copy,
   Flag,
   Hourglass,
   Inbox,
+  ListFilter,
   Loader,
   MoonStar,
+  Pencil,
+  Plus,
   Send,
+  SlidersHorizontal,
   Timer,
+  Users,
   Zap,
 } from "lucide-react";
 import { api } from "./api";
 import { Menu } from "./menu";
+import { ListHeader, SideMenu, type SideMenuState } from "./shell";
 import { BulkBar, type Directory } from "./bulk";
 import { SlaBadge } from "./sla";
 import type { ViewFilter } from "../server/inbox-views";
@@ -38,6 +57,11 @@ type View = ViewCount & {
   builtin?: string;
 };
 type Folder = { id: string; name: string; shared: boolean; position: number };
+type ViewsResponse = {
+  views: View[];
+  folders: Folder[];
+  teams?: { id: string; name: string }[];
+};
 type Row = {
   id: string;
   title: string;
@@ -58,6 +82,42 @@ const ANY_STATUS: ViewFilter = {
 };
 /** Default views every teammate has; keep in step with BUILTIN_VIEWS on the server. */
 const BUILTINS = ["mine", "mentions", "unassigned", "all"];
+/** Team inboxes are built-in views named `team:<team id>` (TEAM_INBOX on the server). */
+const TEAM_INBOX = "team:";
+const BUILTIN_ICONS: Record<string, ReactNode> = {
+  mine: <Inbox size={16} />,
+  mentions: <AtSign size={16} />,
+  unassigned: <CircleDashed size={16} />,
+  all: <Users size={16} />,
+};
+/** "Mine" reads as "Your inbox" in the menu, as in Intercom; its saved name is unchanged. */
+const viewName = (v: { name: string; builtin?: string }) =>
+  v.builtin === "mine" ? "Your inbox" : v.name;
+/** A titled group in the inbox menu that folds away. */
+function MenuSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <section className="pg-menu-section">
+      <h2>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <ChevronDown size={14} aria-hidden="true" />
+          {title}
+        </button>
+      </h2>
+      {open && children}
+    </section>
+  );
+}
 
 /** The status picker: conversation states, then ticket states (LIST_STATUSES on the server). */
 const STATUSES = [
@@ -283,8 +343,17 @@ export function InboxViews({
   onError,
   onJob,
   dir,
+  menu,
+  headerExtras,
+  onInboxCount,
 }: {
   dir: Directory;
+  /** The inbox menu's hidden and peek state (agent/shell.tsx). */
+  menu: SideMenuState;
+  /** Shown in the list header after the view's name: connection, workload. */
+  headerExtras?: ReactNode;
+  /** The open count in your inbox, for the badge on Inbox in the icon strip. */
+  onInboxCount?: (label: string | null) => void;
   selected: string;
   revision: number;
   counts: ViewCount[];
@@ -297,6 +366,7 @@ export function InboxViews({
 }) {
   const [views, setViews] = useState<View[]>([]),
     [folders, setFolders] = useState<Folder[]>([]),
+    [myTeams, setMyTeams] = useState<string[] | null>(null),
     [viewId, setViewId] = useState("");
   // Whether the teammate picked the current view. An automatic pick moves to "All" once it
   // exists: on a first visit the default views are created after the first list of views, and
@@ -365,19 +435,21 @@ export function InboxViews({
     setPicked({ key: listKey, ids: [...next], all: false });
   };
   const refresh = useCallback(async () => {
-    const data = await api<{ views: View[]; folders: Folder[] }>("views");
+    const data = await api<ViewsResponse>("views");
     setViews(withPending(data.views));
     setFolders(data.folders);
+    setMyTeams(data.teams?.map((t) => t.id) ?? []);
     const keep = chosen.current;
     setViewId((old) => pickView(old, data.views, keep));
   }, []);
   useEffect(() => {
     let live = true;
-    api<{ views: View[]; folders: Folder[] }>("views")
+    api<ViewsResponse>("views")
       .then((data) => {
         if (!live) return;
         setViews(withPending(data.views));
         setFolders(data.folders);
+        setMyTeams(data.teams?.map((t) => t.id) ?? []);
         const keep = chosen.current;
         setViewId((old) => pickView(old, data.views, keep));
       })
@@ -502,13 +574,22 @@ export function InboxViews({
   useEffect(() => {
     onViews?.(views.map((v) => ({ id: v.id, name: v.name })));
   }, [views, onViews]);
-  // A teammate set up before a default view existed (such as Mentions) gets it added once,
-  // through the idempotent initialize action.
+  // A teammate set up before a default view existed (such as Mentions), or whose teams changed,
+  // gets their default views and team inboxes brought up to date once, through the idempotent
+  // initialize action.
   const toppedUp = useRef(false);
   useEffect(() => {
-    if (toppedUp.current || !views.length) return;
+    if (toppedUp.current || !views.length || !myTeams) return;
     const have = new Set(views.map((v) => v.builtin).filter(Boolean));
-    if (BUILTINS.every((b) => have.has(b))) return;
+    const teamInboxes = views
+      .filter((v) => v.builtin?.startsWith(TEAM_INBOX))
+      .map((v) => v.builtin!.slice(TEAM_INBOX.length));
+    if (
+      BUILTINS.every((b) => have.has(b)) &&
+      teamInboxes.length === myTeams.length &&
+      myTeams.every((t) => teamInboxes.includes(t))
+    )
+      return;
     toppedUp.current = true;
     api<{ jobId?: string }>("views", { action: "initialize" })
       .then((result) => {
@@ -516,7 +597,7 @@ export function InboxViews({
         return refresh();
       })
       .catch(onError);
-  }, [views, refresh, onJob, onError]);
+  }, [views, myTeams, refresh, onJob, onError]);
   // Keyboard navigation (J/K) and palette view switching arrive as window events from the inbox.
   useEffect(() => {
     const navigate = (e: Event) => {
@@ -561,6 +642,13 @@ export function InboxViews({
   }, []);
   const current = views.find((v) => v.id === viewId),
     countMap = new Map(counts.map((c) => [c.id, c]));
+  const mineView = views.find((v) => v.builtin === "mine");
+  const mineLive = mineView ? (countMap.get(mineView.id) ?? mineView) : null;
+  const inboxCount =
+    mineLive?.ready && mineLive.count !== "0" ? mineLive.count_label : null;
+  useEffect(() => {
+    onInboxCount?.(inboxCount);
+  }, [inboxCount, onInboxCount]);
   async function mutate(
     p: Record<string, unknown>,
     optimistic?: View,
@@ -641,291 +729,385 @@ export function InboxViews({
   const rowHeight = 86,
     start = Math.max(0, Math.floor(scroll / rowHeight) - 5),
     end = Math.min(rows.length, start + Math.ceil(height / rowHeight) + 10);
+  const builtins = BUILTINS.map((b) =>
+      views.find((v) => v.builtin === b),
+    ).filter((v): v is View => !!v),
+    teamViews = views
+      .filter((v) => v.builtin?.startsWith(TEAM_INBOX))
+      .sort((a, b) => a.position - b.position),
+    customViews = views.filter((v) => !v.builtin);
+  const viewEntry = (v: View, icon: ReactNode) => {
+    const live = countMap.get(v.id) ?? v;
+    return (
+      <li key={v.id}>
+        <button
+          aria-pressed={viewId === v.id}
+          onClick={() => {
+            chosen.current = true;
+            setViewId(v.id);
+            applySaved(v.sort);
+            setStatusCounts(null);
+          }}
+        >
+          <span className="pg-menu-entry-icon" aria-hidden="true">
+            {icon}
+          </span>
+          <span className="pg-menu-entry-name">{viewName(v)}</span>
+          <span
+            className="pg-menu-entry-count"
+            title={live.ready ? undefined : "Updating"}
+          >
+            {live.ready ? (live.count === "0" ? "" : live.count_label) : "…"}
+            {!live.ready && (
+              <span className="pg-visually-hidden">Updating</span>
+            )}
+          </span>
+        </button>
+      </li>
+    );
+  };
+  const newView = () =>
+    setEditing({
+      name: "",
+      filter: ANY_STATUS,
+      sort: "activity",
+      shared: false,
+    });
+  const customName = current && !current.builtin ? `“${current.name}”` : "";
   return (
-    <div className="pg-views">
-      <header>
-        <h2>Conversations</h2>
-        <button
-          aria-label="Create view"
-          onClick={() =>
-            setEditing({
-              name: "",
-              filter: ANY_STATUS,
-              sort: "activity",
-              shared: false,
-            })
-          }
-        >
-          ＋ View
-        </button>
-      </header>
-      {error && <p role="alert">{error}</p>}
-      {!views.length && (
-        <button
-          disabled={busy}
-          onClick={() => void mutate({ action: "initialize" })}
-        >
-          Set up my default views
-        </button>
-      )}
-      <nav aria-label="Inbox views">
-        {[null, ...folders].map((folder) => (
-          <div key={folder?.id ?? "ungrouped"}>
-            {folder && <strong>{folder.name}</strong>}
-            {views
-              .filter((v) => v.folder_id === (folder?.id ?? null))
-              .sort((a, b) => a.position - b.position)
-              .map((v) => {
-                const live = countMap.get(v.id) ?? v;
+    <>
+      <SideMenu
+        state={menu}
+        title="Inbox"
+        label="Inbox menu"
+        actions={
+          <button
+            type="button"
+            className="pg-sidemenu-toggle"
+            aria-label="Create view"
+            title="New view"
+            onClick={newView}
+          >
+            <Plus size={16} aria-hidden="true" />
+          </button>
+        }
+        footer={
+          <Menu
+            className="pg-manage-views"
+            buttonLabel="Manage views"
+            button={
+              <>
+                <SlidersHorizontal size={15} aria-hidden="true" /> Manage views
+              </>
+            }
+            menuLabel="Manage views"
+            items={[
+              { value: "new", label: "New view", icon: <Plus size={15} /> },
+              {
+                value: "edit",
+                label: current ? `Edit “${viewName(current)}”` : "Edit view",
+                icon: <Pencil size={15} />,
+                disabled: busy || !current,
+                divider: true,
+              },
+              {
+                value: "duplicate",
+                label: current
+                  ? `Duplicate “${viewName(current)}”`
+                  : "Duplicate view",
+                icon: <Copy size={15} />,
+                disabled: busy || !current,
+              },
+              {
+                value: "up",
+                label: customName ? `Move ${customName} up` : "Move up",
+                icon: <ArrowUp size={15} />,
+                disabled: busy || !customName,
+              },
+              {
+                value: "down",
+                label: customName ? `Move ${customName} down` : "Move down",
+                icon: <ArrowDown size={15} />,
+                disabled: busy || !customName,
+              },
+              {
+                value: "archive",
+                label: customName ? `Archive ${customName}` : "Archive view",
+                icon: <Archive size={15} />,
+                disabled: busy || !customName,
+              },
+            ]}
+            onSelect={(action) => {
+              if (action === "new") return newView();
+              if (!current) return;
+              if (action === "edit") setEditing({ ...current });
+              else if (action === "duplicate")
+                void mutate(
+                  { action: "duplicate", id: current.id },
+                  {
+                    ...current,
+                    id: crypto.randomUUID(),
+                    name: current.name + " copy",
+                    builtin: undefined,
+                    ready: false,
+                  },
+                );
+              else if (action === "archive")
+                void mutate({
+                  action: "archive",
+                  id: current.id,
+                  revision: current.revision,
+                });
+              else move(current, action as "up" | "down");
+            }}
+          />
+        }
+      >
+        {!views.length && (
+          <button
+            className="pg-menu-setup"
+            disabled={busy}
+            onClick={() => void mutate({ action: "initialize" })}
+          >
+            Set up my default views
+          </button>
+        )}
+        <nav aria-label="Inbox views">
+          <ul className="pg-menu-entries">
+            {builtins.map((v) => viewEntry(v, BUILTIN_ICONS[v.builtin!]))}
+          </ul>
+          {teamViews.length > 0 && (
+            <MenuSection title="Team inboxes">
+              <ul className="pg-menu-entries">
+                {teamViews.map((v) => viewEntry(v, <Users size={16} />))}
+              </ul>
+            </MenuSection>
+          )}
+          {customViews.length > 0 && (
+            <MenuSection title="Views">
+              {[null, ...folders].map((folder) => {
+                const inFolder = customViews
+                  .filter((v) => v.folder_id === (folder?.id ?? null))
+                  .sort((a, b) => a.position - b.position);
+                if (!inFolder.length) return null;
                 return (
-                  <button
-                    key={v.id}
-                    aria-pressed={viewId === v.id}
-                    onClick={() => {
-                      chosen.current = true;
-                      setViewId(v.id);
-                      applySaved(v.sort);
-                      setStatusCounts(null);
-                    }}
-                  >
-                    {v.name}
-                    <span>{live.ready ? live.count_label : "Updating…"}</span>
-                  </button>
+                  <div key={folder?.id ?? "ungrouped"}>
+                    {folder && (
+                      <strong className="pg-menu-folder">{folder.name}</strong>
+                    )}
+                    <ul className="pg-menu-entries">
+                      {inFolder.map((v) =>
+                        viewEntry(v, <ListFilter size={16} />),
+                      )}
+                    </ul>
+                  </div>
                 );
               })}
-          </div>
-        ))}
-      </nav>
-      {current && (
-        <div className="pg-view-tools">
-          <button disabled={busy} onClick={() => setEditing({ ...current })}>
-            Edit
-          </button>
-          <button
-            disabled={busy}
-            onClick={() =>
-              void mutate(
-                { action: "duplicate", id: current.id },
-                {
-                  ...current,
-                  id: crypto.randomUUID(),
-                  name: current.name + " copy",
-                  ready: false,
-                },
-              )
+            </MenuSection>
+          )}
+        </nav>
+      </SideMenu>
+      <section className="pg-list pg-views" aria-label="Conversations">
+        <ListHeader menu={menu} title={current ? viewName(current) : "Inbox"}>
+          {headerExtras}
+        </ListHeader>
+        {error && (
+          <p role="alert" className="pg-list-error">
+            {error}
+          </p>
+        )}
+        <div className="pg-list-controls">
+          <Menu
+            className="pg-status-menu"
+            buttonLabel={`Status: ${statusName}, ${current?.ready === false ? "updating" : countLabel(statusCounts?.[status]) + " conversations"}`}
+            button={
+              <>
+                <span className="pg-status-count">
+                  {current?.ready === false
+                    ? "…"
+                    : countLabel(statusCounts?.[status])}
+                </span>{" "}
+                {statusName}
+              </>
             }
-          >
-            Duplicate
-          </button>
-          <button
-            disabled={busy || !!current.builtin}
-            onClick={() =>
-              void mutate({
-                action: "archive",
-                id: current.id,
-                revision: current.revision,
-              })
-            }
-          >
-            Archive
-          </button>
-          <button disabled={busy} onClick={() => move(current, "up")}>
-            Move up
-          </button>
-          <button disabled={busy} onClick={() => move(current, "down")}>
-            Move down
-          </button>
-        </div>
-      )}
-      <div className="pg-list-controls">
-        <Menu
-          className="pg-status-menu"
-          buttonLabel={`Status: ${statusName}, ${current?.ready === false ? "updating" : countLabel(statusCounts?.[status]) + " conversations"}`}
-          button={
-            <>
-              <span className="pg-status-count">
-                {current?.ready === false
+            menuLabel="Status"
+            items={STATUSES.map(([value, label, Icon], i) => ({
+              value,
+              label,
+              icon: <Icon size={15} aria-hidden="true" />,
+              detail:
+                current?.ready === false
                   ? "…"
-                  : countLabel(statusCounts?.[status])}
-              </span>{" "}
-              {statusName}
-            </>
-          }
-          menuLabel="Status"
-          items={STATUSES.map(([value, label, Icon], i) => ({
-            value,
-            label,
-            icon: <Icon size={15} aria-hidden="true" />,
-            detail:
-              current?.ready === false
-                ? "…"
-                : countLabel(statusCounts?.[value]),
-            checked: status === value,
-            divider: i === 3,
-          }))}
-          onSelect={(value) => setStatus(value as Status)}
-        />
-        <Menu
-          className="pg-sort-menu"
-          buttonLabel={`Sort: ${sortName}`}
-          button={sortName}
-          menuLabel="Sort by"
-          searchable
-          items={SORTS.map(([value, label, Icon]) => ({
-            value,
-            label,
-            icon: <Icon size={15} aria-hidden="true" />,
-            checked: sort === value,
-          }))}
-          onSelect={(value) => {
-            const s = SORTS.find((x) => x[0] === value)!;
-            setSort(s[0]);
-            setOrder(s[3]);
-          }}
-        />
-        <button
-          type="button"
-          className="pg-sort-direction"
-          aria-label={
-            order === "desc"
-              ? "Descending order. Switch to ascending"
-              : "Ascending order. Switch to descending"
-          }
-          title={order === "desc" ? "Descending" : "Ascending"}
-          onClick={() => setOrder((d) => (d === "desc" ? "asc" : "desc"))}
-        >
-          {order === "desc" ? (
-            <ArrowDownWideNarrow size={16} aria-hidden="true" />
-          ) : (
-            <ArrowUpNarrowWide size={16} aria-hidden="true" />
-          )}
-        </button>
-      </div>
-      <div className="pg-view-query">
-        <input
-          aria-label="Search within view"
-          placeholder="Search this view…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
-      {(selection.ids.length > 0 || selection.all) && current && !query && (
-        <div className="pg-select-all">
-          {selection.all ? (
-            <button
-              onClick={() => setPicked({ key: listKey, ids: [], all: false })}
-            >
-              Clear selection
-            </button>
-          ) : (
-            <button
-              onClick={() => setPicked({ key: listKey, ids: [], all: true })}
-            >
-              Select all {countLabel(statusCounts?.[status])}{" "}
-              {statusName.toLowerCase()} in this view
-            </button>
-          )}
-        </div>
-      )}
-      <BulkBar
-        selection={{
-          viewId,
-          ids: selection.ids,
-          all: selection.all,
-          status,
-        }}
-        count={
-          selection.all
-            ? `All ${countLabel(statusCounts?.[status])} ${statusName.toLowerCase()}`
-            : selection.ids.length.toLocaleString()
-        }
-        dir={dir}
-        onClear={() => setPicked({ key: listKey, ids: [], all: false })}
-        onJob={onJob}
-      />
-      <div
-        ref={viewport}
-        className="pg-virtual-list"
-        data-testid="virtual-conversations"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          setScroll(el.scrollTop);
-          if (
-            el.scrollHeight - el.scrollTop - el.clientHeight < 500 &&
-            cursor &&
-            !loading.current
-          )
-            void loadPage(cursor, generation.current);
-        }}
-      >
-        <div style={{ height: rows.length * rowHeight, position: "relative" }}>
-          {rows.slice(start, end).map((c, index) => (
-            <div
-              key={c.id}
-              className="pg-row-wrap"
-              style={{
-                position: "absolute",
-                top: (start + index) * rowHeight,
-                height: rowHeight,
-                width: "100%",
-              }}
-            >
-              <input
-                type="checkbox"
-                className="pg-row-check"
-                aria-label={`Select ${c.name || "Customer"}: ${c.title}`}
-                checked={selection.all || pickedSet.has(c.id)}
-                onChange={() => {}}
-                onClick={(e) => {
-                  if (selection.all)
-                    setPicked({ key: listKey, ids: [], all: false });
-                  else toggle(c.id, e.shiftKey);
-                }}
-              />
-              <button
-                className={c.id === selected ? "pg-row selected" : "pg-row"}
-                onClick={() => onSelect(c)}
-                onMouseEnter={() => onPrefetch?.(c.id)}
-                onFocus={() => onPrefetch?.(c.id)}
-              >
-                <span className="pg-avatar">
-                  {c.unread ? "●" : (c.name || "C").slice(0, 1)}
-                </span>
-                <span>
-                  <strong>{c.name || "Customer"}</strong>
-                  <span className="pg-row-title">{c.title}</span>
-                  <small>
-                    {c.status} · {c.channel}
-                    <SlaBadge
-                      dueAt={c.sla_next_due_at ?? null}
-                      overdue={!!c.sla_overdue}
-                    />
-                  </small>
-                </span>
-              </button>
-            </div>
-          ))}
-        </div>
-        {cursor && (
+                  : countLabel(statusCounts?.[value]),
+              checked: status === value,
+              divider: i === 3,
+            }))}
+            onSelect={(value) => setStatus(value as Status)}
+          />
+          <Menu
+            className="pg-sort-menu"
+            buttonLabel={`Sort: ${sortName}`}
+            button={sortName}
+            menuLabel="Sort by"
+            searchable
+            items={SORTS.map(([value, label, Icon]) => ({
+              value,
+              label,
+              icon: <Icon size={15} aria-hidden="true" />,
+              checked: sort === value,
+            }))}
+            onSelect={(value) => {
+              const s = SORTS.find((x) => x[0] === value)!;
+              setSort(s[0]);
+              setOrder(s[3]);
+            }}
+          />
           <button
-            disabled={pageLoading}
-            onClick={() => void loadPage(cursor, generation.current)}
+            type="button"
+            className="pg-sort-direction"
+            aria-label={
+              order === "desc"
+                ? "Descending order. Switch to ascending"
+                : "Ascending order. Switch to descending"
+            }
+            title={order === "desc" ? "Descending" : "Ascending"}
+            onClick={() => setOrder((d) => (d === "desc" ? "asc" : "desc"))}
           >
-            Load more conversations
+            {order === "desc" ? (
+              <ArrowDownWideNarrow size={16} aria-hidden="true" />
+            ) : (
+              <ArrowUpNarrowWide size={16} aria-hidden="true" />
+            )}
           </button>
+        </div>
+        <div className="pg-view-query">
+          <input
+            aria-label="Search within view"
+            placeholder="Search this view…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        {(selection.ids.length > 0 || selection.all) && current && !query && (
+          <div className="pg-select-all">
+            {selection.all ? (
+              <button
+                onClick={() => setPicked({ key: listKey, ids: [], all: false })}
+              >
+                Clear selection
+              </button>
+            ) : (
+              <button
+                onClick={() => setPicked({ key: listKey, ids: [], all: true })}
+              >
+                Select all {countLabel(statusCounts?.[status])}{" "}
+                {statusName.toLowerCase()} in this view
+              </button>
+            )}
+          </div>
         )}
-        {!rows.length && current?.ready && (
-          <p className="pg-empty">
-            No {statusName.toLowerCase()} conversations in this view.
-          </p>
-        )}
-        {current && !current.ready && (
-          <p className="pg-empty" aria-live="polite">
-            This view is being prepared. Its conversations and counts appear in
-            a moment.
-          </p>
-        )}
-      </div>
+        <BulkBar
+          selection={{
+            viewId,
+            ids: selection.ids,
+            all: selection.all,
+            status,
+          }}
+          count={
+            selection.all
+              ? `All ${countLabel(statusCounts?.[status])} ${statusName.toLowerCase()}`
+              : selection.ids.length.toLocaleString()
+          }
+          dir={dir}
+          onClear={() => setPicked({ key: listKey, ids: [], all: false })}
+          onJob={onJob}
+        />
+        <div
+          ref={viewport}
+          className="pg-virtual-list"
+          data-testid="virtual-conversations"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setScroll(el.scrollTop);
+            if (
+              el.scrollHeight - el.scrollTop - el.clientHeight < 500 &&
+              cursor &&
+              !loading.current
+            )
+              void loadPage(cursor, generation.current);
+          }}
+        >
+          <div
+            style={{ height: rows.length * rowHeight, position: "relative" }}
+          >
+            {rows.slice(start, end).map((c, index) => (
+              <div
+                key={c.id}
+                className="pg-row-wrap"
+                style={{
+                  position: "absolute",
+                  top: (start + index) * rowHeight,
+                  height: rowHeight,
+                  width: "100%",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  className="pg-row-check"
+                  aria-label={`Select ${c.name || "Customer"}: ${c.title}`}
+                  checked={selection.all || pickedSet.has(c.id)}
+                  onChange={() => {}}
+                  onClick={(e) => {
+                    if (selection.all)
+                      setPicked({ key: listKey, ids: [], all: false });
+                    else toggle(c.id, e.shiftKey);
+                  }}
+                />
+                <button
+                  className={c.id === selected ? "pg-row selected" : "pg-row"}
+                  onClick={() => onSelect(c)}
+                  onMouseEnter={() => onPrefetch?.(c.id)}
+                  onFocus={() => onPrefetch?.(c.id)}
+                >
+                  <span className="pg-avatar">
+                    {c.unread ? "●" : (c.name || "C").slice(0, 1)}
+                  </span>
+                  <span>
+                    <strong>{c.name || "Customer"}</strong>
+                    <span className="pg-row-title">{c.title}</span>
+                    <small>
+                      {c.status} · {c.channel}
+                      <SlaBadge
+                        dueAt={c.sla_next_due_at ?? null}
+                        overdue={!!c.sla_overdue}
+                      />
+                    </small>
+                  </span>
+                </button>
+              </div>
+            ))}
+          </div>
+          {cursor && (
+            <button
+              disabled={pageLoading}
+              onClick={() => void loadPage(cursor, generation.current)}
+            >
+              Load more conversations
+            </button>
+          )}
+          {!rows.length && current?.ready && (
+            <p className="pg-empty">
+              No {statusName.toLowerCase()} conversations in this view.
+            </p>
+          )}
+          {current && !current.ready && (
+            <p className="pg-empty" aria-live="polite">
+              This view is being prepared. Its conversations and counts appear
+              in a moment.
+            </p>
+          )}
+        </div>
+      </section>
       {editing && (
         <div className="pg-modal-backdrop">
           <section
@@ -1027,6 +1209,6 @@ export function InboxViews({
           </section>
         </div>
       )}
-    </div>
+    </>
   );
 }

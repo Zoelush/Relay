@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased: the agent app shell (icon strip and side menus)
+
+- **An icon strip** replaces the labelled sidebar: Inbox (with your open count), Knowledge, Notifications, Shortcuts and your account. It slides out with labels on hover or keyboard focus, lying over the page, and can be pinned open.
+- **Each area has its own side menu.**
+  - **Inbox menu:** your inbox, Mentions, Unassigned and All; **team inboxes**, one for each team you're on; and your saved views. View actions move into **Manage views**.
+  - **Knowledge menu:** Content, Help centers and Websites, replacing the tabs.
+  - **Hiding:** either menu can be hidden. It then peeks back over the page from its "Show menu" button or the left edge.
+  - **Remembered:** both choices are kept in this browser.
+- **The list header** shows the view's name, the connection and the workload controls. The top bar is gone.
+- **Team inboxes** follow your team memberships and team names, and can't be moved or archived. Moving views now reorders only your own.
+- **No migration.** **Tests:**
+  - unit: `tests/team-inboxes.test.ts`
+  - browser: `tests/browser/app-shell.spec.ts` (happy path, and blocked browser storage)
+
+  Details: `docs/AGENT_APP_SHELL.md`.
+
 ## Unreleased: the inbox list's status and sort pickers, and the conversation header
 
 - **Status picker** on the conversation list: Open, Snoozed, Closed and the ticket states (Submitted, In progress, Waiting on customer, Resolved), each with a live count.

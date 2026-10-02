@@ -62,7 +62,10 @@ test("build the help center tree, rename slugs, add a language, and old links re
   page,
 }) => {
   await open(page);
-  await page.getByRole("tab", { name: "Help centers" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Help centers" })
+    .click();
   const tree = page.getByRole("region", { name: "Collections" });
   await expect(
     tree.getByRole("article", { name: "Collection Getting started" }),
@@ -146,7 +149,10 @@ test("build the help center tree, rename slugs, add a language, and old links re
   });
 
   // The article's own address, from the Content tab.
-  await page.getByRole("tab", { name: "Content" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Content" })
+    .click();
   await page
     .getByRole("region", { name: "Knowledge records" })
     .getByRole("button", { name: /Can't sign in/ })
@@ -177,7 +183,10 @@ test("an article not switched on for the help center is refused with the reason,
   browser,
 }) => {
   await open(page);
-  await page.getByRole("tab", { name: "Help centers" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Help centers" })
+    .click();
   const billing = page
     .getByRole("region", { name: "Collections" })
     .getByRole("article", { name: "Collection Billing" });
@@ -198,6 +207,10 @@ test("an article not switched on for the help center is refused with the reason,
   // Grace (an agent) reads knowledge but cannot edit help centers.
   const grace = await browser.newPage();
   await open(grace, "?as=grace");
-  await expect(grace.getByRole("tab", { name: "Help centers" })).toHaveCount(0);
+  await expect(
+    grace
+      .getByRole("navigation", { name: "Knowledge areas" })
+      .getByRole("button", { name: "Help centers" }),
+  ).toHaveCount(0);
   await grace.close();
 });

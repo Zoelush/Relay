@@ -38,13 +38,19 @@ test("an article published in three languages is rendered by the server in each,
 }) => {
   await knowledge(page);
   // German joins the help center's languages.
-  await page.getByRole("tab", { name: "Help centers" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Help centers" })
+    .click();
   await page.getByLabel("Languages").fill("en, fr, de");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByRole("alert")).toHaveText("Settings saved.");
 
   // Write and publish in English, then French and German, each on its own.
-  await page.getByRole("tab", { name: "Content" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Content" })
+    .click();
   await page.getByRole("button", { name: "New article" }).click();
   const title = page.getByLabel("Title");
   await title.fill("Change your plan");
@@ -76,7 +82,10 @@ test("an article published in three languages is rendered by the server in each,
   await expect(
     page.getByRole("alert").filter({ hasText: "Settings saved." }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Help centers" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Help centers" })
+    .click();
   const billing = page.getByRole("article", { name: "Collection Billing" });
   await billing
     .getByLabel("Article to add to Billing")
@@ -135,7 +144,10 @@ test("an article published in three languages is rendered by the server in each,
   await expect(reader).toHaveURL(base + pages.fr[0]);
 
   // A changed address: the old link answers 301 and lands on the new page.
-  await page.getByRole("tab", { name: "Content" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Content" })
+    .click();
   await page
     .getByRole("region", { name: "Knowledge records" })
     .getByRole("button", { name: /Change your plan/ })
@@ -181,7 +193,10 @@ test("a signed-in article asks an anonymous visitor to sign in without naming it
   await expect(
     page.getByRole("alert").filter({ hasText: "Settings saved." }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Help centers" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Help centers" })
+    .click();
   const billing = page.getByRole("article", { name: "Collection Billing" });
   await billing
     .getByLabel("Article to add to Billing")

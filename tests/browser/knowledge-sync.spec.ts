@@ -25,7 +25,10 @@ async function websites(page: Page) {
     "● Live",
   );
   await page.getByRole("button", { name: "Knowledge" }).click();
-  await page.getByRole("tab", { name: "Websites" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Websites" })
+    .click();
 }
 async function add(page: Page, name: string, strip = "", exclude = "") {
   await page.getByRole("button", { name: "Add a website" }).click();
@@ -70,7 +73,10 @@ test("add a website, watch it sync, and find its pages in Knowledge", async ({
   expect(site.hits).not.toContain("/private/staff");
 
   // In Knowledge: found by a word inside the page, read-only, with where it comes from.
-  await page.getByRole("tab", { name: "Content" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Content" })
+    .click();
   await page.getByLabel("Search knowledge").fill("wombat");
   const list = page.getByRole("region", { name: "Knowledge records" });
   await expect(list.getByRole("listitem")).toHaveCount(1);
@@ -91,14 +97,20 @@ test("add a website, watch it sync, and find its pages in Knowledge", async ({
     "Shipping times",
     "<p>Orders now ship the same day by kangaroo express.</p>",
   );
-  await page.getByRole("tab", { name: "Websites" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Websites" })
+    .click();
   await entry(page, "Help site").click();
   await page.getByRole("button", { name: "Sync now" }).click();
   // Wait for this run's result, not the previous run's "Synced".
   await expect(
     page.getByRole("region", { name: "Website Help site" }).getByRole("status"),
   ).toContainText("1 updated", { timeout: 30_000 });
-  await page.getByRole("tab", { name: "Content" }).click();
+  await page
+    .getByRole("navigation", { name: "Knowledge areas" })
+    .getByRole("button", { name: "Content" })
+    .click();
   await page.getByLabel("Search knowledge").fill("kangaroo");
   await expect(list.getByRole("listitem")).toHaveCount(1);
   await expect(list).toContainText("Shipping times");
