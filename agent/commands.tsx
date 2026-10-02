@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { resolveWake, type SnoozePreset } from "../server/snooze";
 
 export type PaletteCommand = {
   id: string;
@@ -173,8 +174,29 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-export type SnoozeChoice =
-  { preset: "later_today" | "tomorrow" | "next_week" } | { wakeAt: string };
+export type SnoozeChoice = { preset: SnoozePreset } | { wakeAt: string };
+/** Each preset with the time it wakes, worked out as the server will (in this browser's zone). */
+const PRESETS: [SnoozePreset, string][] = [
+  ["later_today", "Later today"],
+  ["tomorrow", "Tomorrow"],
+  ["next_week", "Next week"],
+  ["one_week", "One week"],
+  ["one_month", "One month"],
+];
+function wakeLabel(preset: SnoozePreset) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const at = resolveWake({ preset, timezone }).wakeAt;
+  const sameDay = at.toDateString() === new Date().toDateString();
+  return at.toLocaleString(undefined, {
+    ...(sameDay
+      ? {}
+      : at.getTime() - Date.now() < 6 * 86_400_000
+        ? { weekday: "short" }
+        : { weekday: "short", month: "short", day: "numeric" }),
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export function SnoozeMenu({
   onSnooze,
@@ -195,15 +217,15 @@ export function SnoozeMenu({
     <Dialog label="Snooze conversation" onClose={onClose}>
       <h2>Snooze until…</h2>
       <div className="pg-snooze">
-        <button ref={first} onClick={() => choose({ preset: "later_today" })}>
-          Later today <small>in 3 hours</small>
-        </button>
-        <button onClick={() => choose({ preset: "tomorrow" })}>
-          Tomorrow <small>09:00</small>
-        </button>
-        <button onClick={() => choose({ preset: "next_week" })}>
-          Next week <small>Monday 09:00</small>
-        </button>
+        {PRESETS.map(([preset, label], i) => (
+          <button
+            key={preset}
+            ref={i === 0 ? first : undefined}
+            onClick={() => choose({ preset })}
+          >
+            {label} <small>{wakeLabel(preset)}</small>
+          </button>
+        ))}
         <form
           onSubmit={(e) => {
             e.preventDefault();

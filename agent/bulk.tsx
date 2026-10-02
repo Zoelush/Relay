@@ -10,7 +10,13 @@ export type Directory = {
   trackers?: Named[];
 };
 /** Picked conversation ids, or every conversation in the view (counted by the server). */
-export type Selection = { viewId: string; ids: string[]; all: boolean };
+export type Selection = {
+  viewId: string;
+  ids: string[];
+  all: boolean;
+  /** The status picked in the list: "everything in this view" means in that status. */
+  status?: string;
+};
 type Action =
   | { type: "assign"; teammateId?: string; teamId?: string }
   | { type: "tag_add" | "tag_remove"; tagId: string }
@@ -164,7 +170,7 @@ export function BulkBar({
         op: "prepare",
         action,
         ...(selection.all
-          ? { viewId: selection.viewId }
+          ? { viewId: selection.viewId, status: selection.status ?? "all" }
           : { conversationIds: selection.ids }),
       });
       setConfirm({ id: r.operationId, action, total: r.total });

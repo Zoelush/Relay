@@ -57,6 +57,18 @@ const message = (e: unknown, fallback: string) =>
 const show = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v));
 
 /** Converting a conversation: a customer ticket type and a starting state that is not resolved. */
+/**
+ * The conversation header's "Convert to ticket" starts the form in the details sidebar. The
+ * sidebar may only be mounting, so the request waits here until its form picks it up.
+ */
+let pendingConvert: string | null = null;
+export function requestConvert(conversationId: string) {
+  pendingConvert = conversationId;
+  window.dispatchEvent(
+    new CustomEvent("relay:convert", { detail: conversationId }),
+  );
+}
+
 function Convert({
   conversationId,
   onError,
@@ -80,6 +92,29 @@ function Convert({
       onError(e);
     }
   };
+  const form = useRef<HTMLDivElement>(null);
+  const requested = useRef(false);
+  useEffect(() => {
+    const start = () => {
+      if (pendingConvert !== conversationId) return;
+      pendingConvert = null;
+      requested.current = true;
+      void load();
+    };
+    start();
+    window.addEventListener("relay:convert", start);
+    return () => window.removeEventListener("relay:convert", start);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+  // Once the form appears for a header request, bring it into view and focus its first field.
+  useEffect(() => {
+    if (!types || !requested.current) return;
+    requested.current = false;
+    form.current?.scrollIntoView({ block: "nearest" });
+    (
+      form.current?.querySelector("select") as HTMLSelectElement | null
+    )?.focus();
+  }, [types]);
   const type = types?.find((t) => t.id === typeId);
   const open = type?.states.filter((s) => s.kind !== "resolved") ?? [];
   const convert = async () => {
@@ -109,6 +144,7 @@ function Convert({
     return <p className="pg-empty">No customer ticket types are set up yet.</p>;
   return (
     <div
+      ref={form}
       className="pg-ticket-convert"
       role="group"
       aria-label="Convert to ticket"

@@ -15,6 +15,13 @@ import {
   viewCounts,
 } from "../server/inbox-views";
 
+/** The built-in "All" view's filter: every status. */
+const ALL = {
+  field: "state",
+  op: "in",
+  value: ["open", "snoozed", "closed"],
+};
+
 test("filters: only fixed columns reach SQL, values are bound, unavailable fields fail closed", () => {
   const hostile = "x') OR 1=1; DROP TABLE conversations; --";
   const values: unknown[] = [];
@@ -169,8 +176,9 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
         [w],
       );
 
-    // Each teammate initialises five personal default views. Identical filters share one set,
-    // so the second and third teammates only rebuild their own "Mine" set.
+    // Each teammate initialises four personal default views (Mine, Mentions, Unassigned, All).
+    // Identical filters share one set, so later teammates only rebuild their own "Mine" and
+    // "Mentions" sets.
     for (const principal of ["owner-a", "agent-1-a", "agent-2-a"]) {
       const init = await agent("views", { action: "initialize" }, principal);
       assert.equal(init.status, 202);
@@ -178,9 +186,10 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
     }
     const second = await agent("views", { action: "initialize" }, "agent-1-a");
     assert.equal(second.body.jobId, null, "ready sets need no rebuild");
+    // "All": every status; the list's status picker narrows it (Open by default).
     const [ownerOpen, agentOpen] = [
-      await byBuiltin("open"),
-      await byBuiltin("open", "agent-1-a"),
+      await byBuiltin("all"),
+      await byBuiltin("all", "agent-1-a"),
     ];
     assert.notEqual(ownerOpen.id, agentOpen.id);
     assert.equal(ownerOpen.set_id, agentOpen.set_id);
@@ -192,16 +201,13 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
       Number(
         (await sql("a", "SELECT count(*) FROM inbox_filter_sets"))[0].count,
       ),
-      10,
-      "open, snoozed, closed, unassigned, three Mine and three Mentions sets",
+      8,
+      "all, unassigned, three Mine and three Mentions sets",
     );
     assert.equal(ownerOpen.ready, true);
+    // A view's count is its open conversations.
     assert.equal(Number(ownerOpen.count), await openCount());
-    assert.equal(
-      (await views()).length,
-      6,
-      "six defaults, including Mentions",
-    );
+    assert.equal((await views()).length, 4, "four defaults");
 
     // Tenant isolation: workspace B cannot read workspace A's view, even by id.
     assert.equal(
@@ -241,7 +247,7 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
             action: "save",
             name: "Team queue",
             shared: true,
-            filter: { field: "state", op: "eq", value: "open" },
+            filter: ALL,
           },
           "agent-1-a",
         )
@@ -252,7 +258,7 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
       action: "save",
       name: "Team queue",
       shared: true,
-      filter: { field: "state", op: "eq", value: "open" },
+      filter: ALL,
     });
     assert.equal(shared.status, 200, "an existing ready filter needs no job");
     assert.equal(shared.body.jobId, undefined);
@@ -339,29 +345,51 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
       assert.equal(Number(live.get(v.id)!.count), expectedOpen);
     const members = await sql(
       "a",
-      "SELECT count(*) FROM inbox_filter_members WHERE set_id=$1",
+      "SELECT count(*) FILTER (WHERE status='open') AS open,count(*) AS total FROM inbox_filter_members WHERE set_id=$1",
       [ownerOpen.set_id],
     );
-    assert.equal(Number(members[0].count), expectedOpen, "count matches rows");
-    const closed = await byBuiltin("closed");
-    const closedExpected = Number(
-      (
-        await sql(
-          "a",
-          "SELECT count(*) FROM conversations WHERE status='closed' AND merged_into_id IS NULL",
-        )
-      )[0].count,
+    assert.equal(Number(members[0].open), expectedOpen, "count matches rows");
+    const byStatus = async (status: string) =>
+      Number(
+        (
+          await sql(
+            "a",
+            "SELECT count(*) FROM conversations WHERE status=$1 AND merged_into_id IS NULL",
+            [status],
+          )
+        )[0].count,
+      );
+    assert.equal(
+      Number(members[0].total),
+      (await byStatus("open")) +
+        (await byStatus("snoozed")) +
+        (await byStatus("closed")),
     );
-    assert.equal(Number(live.get(closed.id)!.count), closedExpected);
+    // The status picker's counts come with the first page.
+    const firstAll = await page({ view: ownerOpen.id });
+    assert.equal(firstAll.body.status, "open");
+    assert.equal(firstAll.body.sort, "activity");
+    assert.equal(firstAll.body.dir, "desc");
+    assert.equal(firstAll.body.counts.open, expectedOpen);
+    assert.equal(firstAll.body.counts.closed, await byStatus("closed"));
+    assert.equal(firstAll.body.counts.snoozed, await byStatus("snoozed"));
+    const closedList = await page({ view: ownerOpen.id, status: "closed" });
+    assert(
+      closedList.body.conversations.every((c: any) => c.status === "closed"),
+    );
+    assert.equal(
+      (await page({ view: ownerOpen.id, status: "nope" })).status,
+      400,
+    );
     await sql(
       "a",
-      "UPDATE inbox_filter_sets SET match_count=10000 WHERE id=$1",
-      [closed.set_id],
+      "UPDATE inbox_filter_sets SET open_count=10000 WHERE id=$1",
+      [ownerOpen.set_id],
     );
-    assert.equal((await byBuiltin("closed")).count_label, "9,999+");
-    await sql("a", "UPDATE inbox_filter_sets SET match_count=$2 WHERE id=$1", [
-      closed.set_id,
-      closedExpected,
+    assert.equal((await byBuiltin("all")).count_label, "9,999+");
+    await sql("a", "UPDATE inbox_filter_sets SET open_count=$2 WHERE id=$1", [
+      ownerOpen.set_id,
+      expectedOpen,
     ]);
 
     // Keyset paging: every member exactly once, in order, even when rows change mid-way.
@@ -403,7 +431,7 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
     assert.equal(
       (
         await page({
-          view: (await byBuiltin("closed")).id,
+          view: (await byBuiltin("mine")).id,
           cursor: first.body.nextCursor,
         })
       ).status,
@@ -506,18 +534,60 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
     );
     await drain(custom.body.jobId);
     const customView = (await views()).find((v) => v.id === custom.body.id);
+    // Its count is the open ones: unassigned and open (open ones are never snoozed).
     const customExpected = Number(
       (
         await sql(
           "a",
-          "SELECT count(*) FROM conversations WHERE merged_into_id IS NULL AND (assigned='' OR status='snoozed')",
+          "SELECT count(*) FROM conversations WHERE merged_into_id IS NULL AND status='open' AND (assigned='' OR status='snoozed')",
         )
       )[0].count,
     );
     assert.equal(customView.ready, true);
     assert.equal(Number(customView.count), customExpected);
 
-    // Workspace B is untouched by everything above.
+    // Workspace B is untouched by everything above. Its owner has default views from before
+    // the status picker (each filtering to one status); initializing brings them up to date.
+    const legacy = (
+      builtin: string,
+      name: string,
+      filter: unknown,
+      position: number,
+    ) =>
+      sql(
+        "b",
+        "INSERT INTO inbox_views(workspace_id,id,owner_id,name,filter,builtin,position) VALUES('b',$1,'owner',$2,$3,$4,$5)",
+        [crypto.randomUUID(), name, JSON.stringify(filter), builtin, position],
+      );
+    await legacy(
+      "mine",
+      "Mine",
+      {
+        and: [
+          { field: "state", op: "eq", value: "open" },
+          { field: "assignee", op: "eq", value: "owner" },
+        ],
+      },
+      0,
+    );
+    await legacy(
+      "open",
+      "All open",
+      { field: "state", op: "eq", value: "open" },
+      3,
+    );
+    await legacy(
+      "snoozed",
+      "Snoozed",
+      { field: "state", op: "eq", value: "snoozed" },
+      4,
+    );
+    await legacy(
+      "closed",
+      "Closed",
+      { field: "state", op: "eq", value: "closed" },
+      5,
+    );
     const initB = await agent(
       "views",
       { action: "initialize" },
@@ -525,9 +595,27 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
       "b",
     );
     await drain(initB.body.jobId, "b");
-    const openB = (await views("owner-b", "b")).find(
-      (v) => v.builtin === "open",
+    const viewsB = await views("owner-b", "b");
+    assert.deepEqual(
+      viewsB.map((v) => v.builtin).sort(),
+      ["all", "mentions", "mine", "unassigned"],
+      "All open, Snoozed and Closed are archived",
     );
+    assert.deepEqual(viewsB.find((v) => v.builtin === "mine").filter, {
+      field: "assignee",
+      op: "eq",
+      value: "owner",
+    });
+    assert.equal(
+      (
+        await sql(
+          "b",
+          "SELECT count(*)::int AS n FROM inbox_views WHERE archived AND builtin IN ('open','snoozed','closed')",
+        )
+      )[0].n,
+      3,
+    );
+    const openB = viewsB.find((v) => v.builtin === "all");
     assert.equal(Number(openB.count), await openCount("b"));
     assert.equal(
       (

@@ -243,30 +243,45 @@ async function enqueueRebuild(
     : null;
 }
 /** Default views, in display order. Missing ones are added by the idempotent initialize. */
-export const BUILTIN_VIEWS = [
-  "mine",
-  "mentions",
-  "unassigned",
-  "open",
-  "snoozed",
-  "closed",
-] as const;
+export const BUILTIN_VIEWS = ["mine", "mentions", "unassigned", "all"] as const;
+/** Built-in views from before the status picker: they filtered to one status themselves. */
+const RETIRED_BUILTINS = ["open", "snoozed", "closed"];
+/**
+ * A teammate's default views. Status is chosen in the list's status picker, so the views say
+ * whose conversations, not which status: Mine, Mentions, Unassigned and All. Views from before
+ * the picker are brought up to date here (each initialize is idempotent): Mine and Unassigned
+ * stop filtering to open, and All open, Snoozed and Closed are archived in favour of All.
+ */
 export async function seedInboxViews(db: Sql, w: string, t: Teammate) {
   const eq = (field: string, value: string) => ({ field, op: "eq", value });
-  for (const [builtin, name, filter] of [
-    ["mine", "Mine", { and: [eq("state", "open"), eq("assignee", t.id)] }],
+  const defaults = [
+    ["mine", "Mine", eq("assignee", t.id)],
     ["mentions", "Mentions", eq("mentioned", t.id)],
+    ["unassigned", "Unassigned", eq("assignee", "")],
     [
-      "unassigned",
-      "Unassigned",
-      { and: [eq("state", "open"), eq("assignee", "")] },
+      "all",
+      "All",
+      { field: "state", op: "in", value: ["open", "snoozed", "closed"] },
     ],
-    ["open", "All open", eq("state", "open")],
-    ["snoozed", "Snoozed", eq("state", "snoozed")],
-    ["closed", "Closed", eq("state", "closed")],
-  ] as const) {
+  ] as const;
+  await db.query(
+    "UPDATE inbox_views SET archived=true,revision=revision+1 WHERE workspace_id=$1 AND owner_id=$2 AND builtin=ANY($3::text[]) AND NOT archived",
+    [w, t.id, RETIRED_BUILTINS],
+  );
+  // Built-in views start on the newest sort, last activity (the old default was newest first).
+  await db.query(
+    "UPDATE inbox_views SET sort='activity',revision=revision+1 WHERE workspace_id=$1 AND owner_id=$2 AND builtin IS NOT NULL AND sort='newest'",
+    [w, t.id],
+  );
+  for (const [builtin, , filter] of defaults)
+    // A changed filter detaches the view; initialize attaches it to its new set.
     await db.query(
-      "INSERT INTO inbox_views(workspace_id,id,owner_id,name,filter,builtin,position) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
+      "UPDATE inbox_views SET filter=$4,set_id=NULL,revision=revision+1 WHERE workspace_id=$1 AND owner_id=$2 AND builtin=$3 AND filter<>$4::jsonb",
+      [w, t.id, builtin, JSON.stringify(filter)],
+    );
+  for (const [builtin, name, filter] of defaults) {
+    await db.query(
+      "INSERT INTO inbox_views(workspace_id,id,owner_id,name,filter,builtin,position,sort) VALUES($1,$2,$3,$4,$5,$6,$7,'activity') ON CONFLICT DO NOTHING",
       [
         w,
         crypto.randomUUID(),
@@ -281,8 +296,9 @@ export async function seedInboxViews(db: Sql, w: string, t: Teammate) {
 }
 const viewColumns =
   "v.id,v.owner_id,v.name,v.shared,v.folder_id,v.position,v.filter,v.sort,v.builtin,v.revision,v.set_id";
+// A view's count is its open conversations (the status picker shows the rest).
 const countColumns =
-  "COALESCE(s.ready,false) AS ready,COALESCE(s.match_count,0)::text AS count,COALESCE(s.count_version,0)::text AS count_version,CASE WHEN s.match_count>9999 THEN '9,999+' ELSE COALESCE(s.match_count,0)::text END AS count_label";
+  "COALESCE(s.ready,false) AS ready,COALESCE(s.open_count,0)::text AS count,COALESCE(s.count_version,0)::text AS count_version,CASE WHEN s.open_count>9999 THEN '9,999+' ELSE COALESCE(s.open_count,0)::text END AS count_label";
 const withSet =
   "inbox_views v LEFT JOIN inbox_filter_sets s ON s.workspace_id=v.workspace_id AND s.id=v.set_id";
 export async function visibleView(
@@ -426,11 +442,11 @@ export async function mutateView(
       "INVALID_NAME",
       "Name the view using up to 80 characters.",
     );
-    const sort = String(p.sort ?? current?.sort ?? "newest");
+    const sort = String(p.sort ?? current?.sort ?? "activity");
     assert(
-      ["newest", "oldest", "waiting", "sla"].includes(sort),
+      sort in LIST_SORTS || sort in LEGACY_SORTS,
       "INVALID_SORT",
-      "Choose newest, oldest, longest waiting or SLA due soonest.",
+      "Choose an available sort.",
     );
     // Fields left out of a save keep their current values; a duplicate starts personal.
     const keep = p.action === "save" && current;
@@ -609,6 +625,13 @@ const SETS_PER_STATEMENT = 50;
 /** Sort key for conversations without an SLA clock: after every running and paused one. */
 const NO_SLA = "9999-12-31T00:00:00Z";
 /**
+ * What members carry for the status picker and sorts: the status, the ticket state's kind, the
+ * last reply either way (tags and reads don't count as activity), priority and snooze time.
+ */
+const MEMBER_KEYS = `c.status,(SELECT ts.kind FROM tickets k JOIN ticket_states ts ON ts.workspace_id=k.workspace_id AND ts.type_id=k.type_id AND ts.id=k.state_id
+  WHERE k.workspace_id=c.workspace_id AND k.conversation_id=c.id) AS ticket_kind,
+  COALESCE(GREATEST(c.last_contact_reply_at,c.last_teammate_reply_at),c.created_at) AS activity_at,c.priority,c.snooze_until`;
+/**
  * Reconciles membership of `ids` in `sets`: removes non-matching rows, inserts new matches
  * and refreshes sort keys of existing ones. One statement per chunk of sets.
  */
@@ -629,7 +652,7 @@ async function projectSets(
     const matches = chunk
       .map(
         (s) =>
-          `SELECT ${bind(s.id)}::text AS set_id,c.id AS conversation_id,c.created_at,COALESCE(c.last_contact_reply_at,c.created_at) AS waiting_at,COALESCE(c.sla_sort_at,'${NO_SLA}'::timestamptz) AS sla_sort_at FROM conversations c WHERE c.workspace_id=$1 AND c.id=ANY($2::text[]) AND c.merged_into_id IS NULL AND ${compileFilter(s.filter, values)}`,
+          `SELECT ${bind(s.id)}::text AS set_id,c.id AS conversation_id,c.created_at,COALESCE(c.last_contact_reply_at,c.created_at) AS waiting_at,COALESCE(c.sla_sort_at,'${NO_SLA}'::timestamptz) AS sla_sort_at,${MEMBER_KEYS} FROM conversations c WHERE c.workspace_id=$1 AND c.id=ANY($2::text[]) AND c.merged_into_id IS NULL AND ${compileFilter(s.filter, values)}`,
       )
       .join(" UNION ALL ");
     // DELETE and INSERT touch disjoint rows, so both see the same snapshot safely.
@@ -637,10 +660,13 @@ async function projectSets(
       `WITH matches AS (${matches}),
       removed AS (DELETE FROM inbox_filter_members m WHERE m.workspace_id=$1 AND m.set_id=ANY($3::text[]) AND m.conversation_id=ANY($2::text[])
         AND NOT EXISTS(SELECT 1 FROM matches x WHERE x.set_id=m.set_id AND x.conversation_id=m.conversation_id))
-      INSERT INTO inbox_filter_members(workspace_id,set_id,conversation_id,created_at,waiting_at,sla_sort_at)
-      SELECT $1,set_id,conversation_id,created_at,waiting_at,sla_sort_at FROM matches
-      ON CONFLICT(workspace_id,set_id,conversation_id) DO UPDATE SET created_at=EXCLUDED.created_at,waiting_at=EXCLUDED.waiting_at,sla_sort_at=EXCLUDED.sla_sort_at
-      WHERE (inbox_filter_members.created_at,inbox_filter_members.waiting_at,inbox_filter_members.sla_sort_at) IS DISTINCT FROM (EXCLUDED.created_at,EXCLUDED.waiting_at,EXCLUDED.sla_sort_at)`,
+      INSERT INTO inbox_filter_members(workspace_id,set_id,conversation_id,created_at,waiting_at,sla_sort_at,status,ticket_kind,activity_at,priority,snooze_until)
+      SELECT $1,set_id,conversation_id,created_at,waiting_at,sla_sort_at,status,ticket_kind,activity_at,priority,snooze_until FROM matches
+      ON CONFLICT(workspace_id,set_id,conversation_id) DO UPDATE SET created_at=EXCLUDED.created_at,waiting_at=EXCLUDED.waiting_at,sla_sort_at=EXCLUDED.sla_sort_at,
+        status=EXCLUDED.status,ticket_kind=EXCLUDED.ticket_kind,activity_at=EXCLUDED.activity_at,priority=EXCLUDED.priority,snooze_until=EXCLUDED.snooze_until
+      WHERE (inbox_filter_members.created_at,inbox_filter_members.waiting_at,inbox_filter_members.sla_sort_at,inbox_filter_members.status,inbox_filter_members.ticket_kind,
+        inbox_filter_members.activity_at,inbox_filter_members.priority,inbox_filter_members.snooze_until)
+        IS DISTINCT FROM (EXCLUDED.created_at,EXCLUDED.waiting_at,EXCLUDED.sla_sort_at,EXCLUDED.status,EXCLUDED.ticket_kind,EXCLUDED.activity_at,EXCLUDED.priority,EXCLUDED.snooze_until)`,
       values,
     );
   }
@@ -681,6 +707,52 @@ export async function projectInboxChanges(connect: Connect, w: string) {
     return true;
   });
 }
+/** The list's sorts and the direction each starts in (most useful first). */
+export const LIST_SORTS = {
+  activity: "desc",
+  created: "desc",
+  waiting: "asc",
+  sla: "asc",
+  priority: "desc",
+  snoozed: "asc",
+} as const;
+export type ListSort = keyof typeof LIST_SORTS;
+/** Sorts saved before the sort menu, as a sort and a direction. */
+const LEGACY_SORTS: Record<string, [ListSort, "asc" | "desc"]> = {
+  newest: ["created", "desc"],
+  oldest: ["created", "asc"],
+  waiting: ["waiting", "asc"],
+  sla: ["sla", "asc"],
+};
+export function listSort(
+  value: string | null | undefined,
+  dir?: string | null,
+) {
+  const legacy = value ? LEGACY_SORTS[value] : undefined;
+  const sort: ListSort = legacy
+    ? legacy[0]
+    : value && value in LIST_SORTS
+      ? (value as ListSort)
+      : (assert(!value, "INVALID_SORT", "Choose an available sort."),
+        "activity");
+  const direction =
+    dir === "asc" || dir === "desc" ? dir : (legacy?.[1] ?? LIST_SORTS[sort]);
+  return { sort, direction };
+}
+/** The status picker: conversation states, then ticket state kinds. */
+export const LIST_STATUSES = [
+  "open",
+  "snoozed",
+  "closed",
+  "submitted",
+  "in_progress",
+  "waiting_on_customer",
+  "resolved",
+] as const;
+const CONVERSATION_STATUSES = ["open", "snoozed", "closed"];
+/** Status counts stop at this many, so they stay fast on any view (shown as "999+"). */
+export const STATUS_COUNT_CAP = 1000;
+
 export async function viewPage(
   db: Sql,
   w: string,
@@ -689,21 +761,32 @@ export async function viewPage(
   q: URLSearchParams,
 ) {
   const view = await visibleView(db, w, t, q.get("view") ?? "");
-  const sort = q.get("sort") ?? view.sort;
+  const { sort, direction: dir } = listSort(
+    q.get("sort") ?? view.sort,
+    q.get("dir"),
+  );
+  const status = q.get("status") ?? "open";
   assert(
-    ["newest", "oldest", "waiting", "sla"].includes(sort),
-    "INVALID_SORT",
-    "Choose an available sort.",
+    status === "all" || (LIST_STATUSES as readonly string[]).includes(status),
+    "INVALID_STATUS",
+    "Choose an available status.",
   );
   // Set members carry the sort keys, so each page is one index range scan.
-  // Members projected before SLAs existed have no SLA key yet; they sort with "no SLA".
+  // Members projected before a key existed sort as if they had none.
+  const activity = "COALESCE(m.activity_at,m.created_at)";
   const key =
     sort === "waiting"
       ? "m.waiting_at"
       : sort === "sla"
         ? `COALESCE(m.sla_sort_at,'${NO_SLA}'::timestamptz)`
-        : "m.created_at";
-  const descending = sort === "newest",
+        : sort === "snoozed"
+          ? `COALESCE(m.snooze_until,'${NO_SLA}'::timestamptz)`
+          : sort === "created"
+            ? "m.created_at"
+            : activity;
+  // Priority sorts priority conversations first, then by last activity.
+  const ranked = sort === "priority";
+  const descending = dir === "desc",
     values: unknown[] = [w, view.set_id, t.id];
   const where = [
     "m.workspace_id=$1",
@@ -714,16 +797,23 @@ export async function viewPage(
     values.push(v);
     return "$" + values.length;
   };
+  if (status !== "all")
+    where.push(
+      `${CONVERSATION_STATUSES.includes(status) ? "m.status" : "m.ticket_kind"}=${bind(status)}`,
+    );
   const text = q.get("q") ?? "";
   assert(text.length <= 300, "INVALID_SEARCH", "Search up to 300 characters.");
   if (text.trim())
     where.push(
       `EXISTS(WITH RECURSIVE family AS (SELECT c.id UNION ALL SELECT child.id FROM conversations child JOIN family f ON child.merged_into_id=f.id WHERE child.workspace_id=$1) SELECT 1 FROM conversation_search_documents d WHERE d.workspace_id=$1 AND d.conversation_id IN(SELECT id FROM family) AND d.document @@ websearch_to_tsquery('simple',${bind(text)}))`,
     );
+  const stamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/;
   if (q.get("cursor")) {
     let cursor: {
       view?: string;
       sort?: string;
+      dir?: string;
+      status?: string;
       key?: string;
       id?: string;
       revision?: string;
@@ -734,27 +824,35 @@ export async function viewPage(
     } catch {
       assert(false, "INVALID_CURSOR", "Invalid list cursor.");
     }
+    const [rank, at] = ranked
+      ? (cursor.key ?? "").split("|")
+      : [null, cursor.key ?? ""];
     assert(
       cursor.view === view.id &&
         cursor.sort === sort &&
+        cursor.dir === dir &&
+        cursor.status === status &&
         cursor.revision === view.revision &&
         cursor.q === text &&
-        typeof cursor.key === "string" &&
-        /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/.test(cursor.key) &&
+        stamp.test(at) &&
+        (!ranked || rank === "0" || rank === "1") &&
         typeof cursor.id === "string",
       "INVALID_CURSOR",
       "The view changed. Restart the list.",
     );
     where.push(
-      `(${key},m.conversation_id) ${descending ? "<" : ">"} (${bind(cursor.key)}::timestamptz,${bind(cursor.id)})`,
+      ranked
+        ? `(m.priority::int,${key},m.conversation_id) ${descending ? "<" : ">"} (${bind(Number(rank))}::int,${bind(at)}::timestamptz,${bind(cursor.id)})`
+        : `(${key},m.conversation_id) ${descending ? "<" : ">"} (${bind(at)}::timestamptz,${bind(cursor.id)})`,
     );
   }
   const direction = descending ? "DESC" : "ASC";
+  const stampOf = `to_char(${key} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
   const rows = (
     await db.query<Conversation & { list_key: string; unread: boolean }>(
-      `SELECT c.*,to_char(${key} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS list_key,EXISTS(SELECT 1 FROM conversation_unread u WHERE u.workspace_id=$1 AND u.conversation_id=c.id AND u.teammate_id=$3) AS unread
+      `SELECT c.*,${ranked ? `(CASE WHEN m.priority THEN '1' ELSE '0' END)||'|'||${stampOf}` : stampOf} AS list_key,EXISTS(SELECT 1 FROM conversation_unread u WHERE u.workspace_id=$1 AND u.conversation_id=c.id AND u.teammate_id=$3) AS unread
       FROM inbox_filter_members m JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
-      WHERE ${where.join(" AND ")} ORDER BY ${key} ${direction},m.conversation_id ${direction} LIMIT 101`,
+      WHERE ${where.join(" AND ")} ORDER BY ${ranked ? `m.priority ${direction},` : ""}${key} ${direction},m.conversation_id ${direction} LIMIT 101`,
       values,
     )
   ).rows;
@@ -767,12 +865,19 @@ export async function viewPage(
       unread: c.unread,
     })),
     ready: view.ready,
+    sort,
+    dir,
+    status,
+    // The status picker's counts, with the first page of a list.
+    counts: q.get("cursor") ? null : await statusCounts(db, w, view.set_id),
     nextCursor:
       rows.length > 100 && last
         ? btoa(
             JSON.stringify({
               view: view.id,
               sort,
+              dir,
+              status,
               key: last.list_key,
               id: last.id,
               revision: view.revision,
@@ -781,6 +886,23 @@ export async function viewPage(
           )
         : null,
   };
+}
+/** How many of a view's conversations are in each status, up to the cap. */
+async function statusCounts(db: Sql, w: string, setId: string | null) {
+  if (!setId) return Object.fromEntries(LIST_STATUSES.map((s) => [s, 0]));
+  const counted = LIST_STATUSES.map(
+    (s, i) =>
+      `(SELECT count(*) FROM (SELECT 1 FROM inbox_filter_members m WHERE m.workspace_id=$1 AND m.set_id=$2 AND ${
+        CONVERSATION_STATUSES.includes(s) ? "m.status" : "m.ticket_kind"
+      }=$${i + 3} LIMIT ${STATUS_COUNT_CAP}) x)::int AS "${s}"`,
+  );
+  return (
+    await db.query<Record<string, number>>(`SELECT ${counted.join(",")}`, [
+      w,
+      setId,
+      ...LIST_STATUSES,
+    ])
+  ).rows[0];
 }
 export async function scheduleInboxProjection(connect: Connect, w: string) {
   return tenant(connect, w, async (db) => {

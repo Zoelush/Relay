@@ -945,7 +945,9 @@ if (
 ) {
   const app = await startLocalRelay({
     directory: resolve(process.env.RELAY_LOCAL_DIRECTORY ?? "work/local-relay"),
-    inboxViews: process.env.RELAY_LOCAL_INBOX_VIEWS === "true",
+    // Saved views, with the status and sort pickers, are on locally unless turned off
+    // (RELAY_LOCAL_INBOX_VIEWS=false). Deployed workspaces default to off.
+    inboxViews: process.env.RELAY_LOCAL_INBOX_VIEWS !== "false",
     longTimeline: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),

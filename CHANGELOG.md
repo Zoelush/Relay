@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased: the inbox list's status and sort pickers, and the conversation header
+
+- **Status picker** on the conversation list: Open, Snoozed, Closed and the ticket states (Submitted, In progress, Waiting on customer, Resolved), each with a live count.
+- **Sort menu:** searchable, with Last activity (the new default), Date started, Waiting since, Next SLA, Priority and Snoozed until, plus a direction toggle.
+- **Simpler built-in views:** Mine, Mentions, Unassigned and All. Status is picked separately, and existing views are upgraded automatically. View counts are open conversations. Bulk "select all" covers the status shown.
+- **Conversation header:**
+  - icon actions with tooltips (Priority, More actions, Convert to ticket, Snooze), then Close
+  - **More actions:** conversation details, export as text (without internal notes), command palette, shortcuts
+  - snooze presets show when they wake, and gain One week and One month
+- **"Relay" with a capital R** everywhere it appears.
+- **Fixed:** the dark-mode change had broken `white-space` rules, so conversation titles didn't truncate and line breaks in messages weren't kept. Saving a view sorted by SLA was refused by the database.
+- **Migration** 0035 with rollback. **Tests:**
+  - unit: `tests/list-status-sort.test.ts` and `tests/conversation-export.test.ts`
+  - browser: `tests/browser/list-status-sort.spec.ts` and `tests/browser/conversation-header.spec.ts`
+
+  Details: `docs/AGENT_LIST_AND_HEADER.md`.
+
 ## Unreleased: knowledge step C1b (website sync)
 
 - **Sync a website into Knowledge:** add a site by its address or sitemap in the new Websites tab. Its pages become synced-page records, found by their content in Knowledge search, and are re-read weekly (every 14 days for large sites) or on demand. Behind a new `knowledge_sync_v1` flag, off by default.

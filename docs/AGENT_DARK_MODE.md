@@ -122,3 +122,5 @@ Results on 1 October 2026:
 - Lint shows nothing new.
 - `npm run test:e2e`: 55/55, with no "Relay API failed".
 - The agent bundle builds.
+
+**Later fix (2 October 2026):** the colour replacement had also changed the word "white" inside five `white-space` rules, breaking them. They were restored in `docs/AGENT_LIST_AND_HEADER.md`'s change, and `tests/agent-theme.test.ts` now catches a token inside a property name.

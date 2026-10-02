@@ -47,13 +47,13 @@ test("default views load with live counts, a new view saves and pages through ev
     timeout: 15000,
   });
   const expected = await openCount();
-  await expect(viewButton(page, "All open")).toContainText(String(expected), {
+  await expect(viewButton(page, "All")).toContainText(String(expected), {
     timeout: 15000,
   });
-  for (const name of ["Mine", "Unassigned", "Snoozed", "Closed"])
+  for (const name of ["Mine", "Unassigned", "Mentions"])
     await expect(viewButton(page, name)).toBeVisible();
 
-  // A custom view with the same filter as "All open" reuses its list: ready at once.
+  // A new view starts with every status, like "All": it reuses that list, ready at once.
   await page.getByRole("button", { name: "Create view" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit inbox view" });
   await dialog.getByLabel("Name").fill("Everything open");
@@ -88,7 +88,7 @@ test("default views load with live counts, a new view saves and pages through ev
   await sql(
     "UPDATE conversations SET status='closed' WHERE workspace_id='demo' AND id='views-e2e-001'",
   );
-  await expect(viewButton(page, "All open")).toContainText(
+  await expect(viewButton(page, "All")).toContainText(
     String(expected - 1),
     { timeout: 15000 },
   );
@@ -102,7 +102,7 @@ test("a rejected view save removes the optimistic view and shows the error", asy
 }) => {
   await page.goto(relay.hostOrigin + "/agent");
   await expect(page.getByRole("status")).toHaveText("● Live");
-  await expect(viewButton(page, "All open")).toBeVisible({ timeout: 15000 });
+  await expect(viewButton(page, "All")).toBeVisible({ timeout: 15000 });
   // Hold the rejection until the optimistic view has been seen.
   let release!: () => void;
   const answer = new Promise<void>((resolve) => (release = resolve));
