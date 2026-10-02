@@ -27,6 +27,7 @@ import {
   FileText,
   Command,
   Ticket,
+  Zap,
 } from "lucide-react";
 import "../../agent/inbox.css";
 import { useAgentTheme } from "../../agent/theme";
@@ -42,6 +43,9 @@ import { Menu } from "../../agent/menu";
 import { exportConversation } from "../../agent/export";
 import { WorkloadBar } from "../../agent/workload";
 import { ListHeader, Rail, useSideMenu } from "../../agent/shell";
+import { ConversationCard, initials } from "../../agent/card";
+import { SlaBadge } from "../../agent/sla";
+import type { MessagePreview } from "../../server/conversations";
 import { ContextSidebar } from "../../agent/sidebar";
 import {
   MacroManager,
@@ -81,6 +85,12 @@ type Conversation = {
   priority?: boolean;
   team_id?: string | null;
   snooze_until?: string | null;
+  unread?: boolean;
+  activity_at?: string;
+  updated_at?: string;
+  sla_next_due_at?: string | null;
+  sla_overdue?: boolean;
+  preview?: MessagePreview | null;
 };
 type Part = {
   id: string;
@@ -1308,6 +1318,7 @@ export default function PostgresInbox({
               menu={inboxMenu}
               headerExtras={listExtras}
               onInboxCount={setInboxCount}
+              me={me}
               dir={{
                 teammates: snapshot?.teammates ?? [],
                 teams: snapshot?.teams ?? [],
@@ -1339,26 +1350,17 @@ export default function PostgresInbox({
               </ListHeader>
               <h2 className="pg-list-sub">Recent conversations</h2>
               {snapshot?.conversations.map((c) => (
-                <button
+                <ConversationCard
                   key={c.id}
-                  className={c.id === selected ? "pg-row selected" : "pg-row"}
-                  onClick={() => pick(c.id)}
-                  onMouseEnter={() => prefetch(c.id)}
-                  onFocus={() => prefetch(c.id)}
-                >
-                  <span className="pg-avatar">
-                    {(c.name || "C").slice(0, 1)}
-                  </span>
-                  <span>
-                    <strong>{c.name || "Customer"}</strong>
-                    <span className="pg-row-title">
-                      {c.title || "Conversation"}
-                    </span>
-                    <small>
-                      {c.status} · {c.channel}
-                    </small>
-                  </span>
-                </button>
+                  row={c}
+                  selected={c.id === selected}
+                  assignee={
+                    snapshot.teammates.find((t) => t.id === c.assigned)?.name
+                  }
+                  me={me}
+                  onOpen={() => pick(c.id)}
+                  onPrefetch={() => prefetch(c.id)}
+                />
               ))}
               {snapshot?.conversations.length === 0 && (
                 <p className="pg-empty">
@@ -1371,11 +1373,27 @@ export default function PostgresInbox({
             {selected ? (
               <>
                 <header className="pg-thread-title">
-                  <h2>{conversation?.title ?? "Conversation"}</h2>
-                  <p>
-                    {conversation?.name || "Customer"}
-                    {conversation?.email ? ` · ${conversation.email}` : ""}
-                  </p>
+                  <div className="pg-thread-who">
+                    <span className="pg-avatar" aria-hidden="true">
+                      {initials(conversation?.name || "Customer")}
+                    </span>
+                    <div>
+                      <p className="pg-thread-name">
+                        <strong>{conversation?.name || "Customer"}</strong>
+                        {conversation?.email && (
+                          <span> · {conversation.email}</span>
+                        )}
+                      </p>
+                      <h2 title={conversation?.title ?? "Conversation"}>
+                        {conversation?.title ?? "Conversation"}
+                      </h2>
+                    </div>
+                    <SlaBadge
+                      dueAt={conversation?.sla_next_due_at ?? null}
+                      overdue={!!conversation?.sla_overdue}
+                      chip
+                    />
+                  </div>
                   <p
                     className="pg-activity"
                     role="status"
@@ -1585,6 +1603,7 @@ export default function PostgresInbox({
                   )}
                   <Timeline
                     parts={parts}
+                    customer={conversation?.name}
                     dir={{
                       teammates: snapshot?.teammates ?? [],
                       teams: snapshot?.teams ?? [],
@@ -1600,22 +1619,29 @@ export default function PostgresInbox({
                         ),
                     )
                     .map((p) => (
-                      <article
-                        key={p.id}
-                        className={
-                          p.mode === "note"
-                            ? "pg-message pg-note pg-pending"
-                            : "pg-message pg-pending"
-                        }
-                      >
-                        <header>
-                          {p.mode === "note"
-                            ? "Internal note · Team only"
-                            : "Reply"}{" "}
-                          · Sending…
-                        </header>
-                        <p>{p.body}</p>
-                      </article>
+                      <div key={p.id} className="pg-bubble-row team">
+                        <span
+                          className="pg-avatar pg-bubble-avatar"
+                          aria-hidden="true"
+                        >
+                          {initials(snapshot?.teammate.name ?? "You")}
+                        </span>
+                        <article
+                          className={
+                            p.mode === "note"
+                              ? "pg-message pg-note pg-pending"
+                              : "pg-message from-team pg-pending"
+                          }
+                        >
+                          <header>
+                            {p.mode === "note"
+                              ? "Internal note · Team only"
+                              : "Reply"}{" "}
+                            · Sending…
+                          </header>
+                          <p>{p.body}</p>
+                        </article>
+                      </div>
                     ))}
                   <div ref={bottom} />
                 </div>
@@ -1648,6 +1674,17 @@ export default function PostgresInbox({
                         ? "Only your team can see this"
                         : "Visible to the customer"}
                     </small>
+                    {canMacros && (
+                      <button
+                        type="button"
+                        className="pg-macros-button"
+                        title="Macros (M)"
+                        onClick={() => setOverlay("macros")}
+                      >
+                        <Zap size={14} aria-hidden="true" /> Macros{" "}
+                        <kbd aria-hidden="true">M</kbd>
+                      </button>
+                    )}
                   </div>
                   <Suspense
                     fallback={
@@ -1717,13 +1754,9 @@ export default function PostgresInbox({
                     </div>
                   )}
                   <footer>
-                    <span>
-                      {!canSend
-                        ? "Your role cannot perform this action."
-                        : mode === "note"
-                          ? "Private to your team"
-                          : "Messenger"}
-                    </span>
+                    {!canSend && (
+                      <span>Your role cannot perform this action.</span>
+                    )}
                     {macroNotice && (
                       <small className="pg-macro-notice" role="status">
                         {macroNotice}

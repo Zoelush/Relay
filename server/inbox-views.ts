@@ -1,6 +1,10 @@
 import { assert, once, tenant, type Sql, type Connect } from "./db";
 import { authorize, can, type Teammate } from "./policy";
-import { agentConversation, type Conversation } from "./conversations";
+import {
+  agentConversation,
+  listPreviews,
+  type Conversation,
+} from "./conversations";
 import { enqueueJob, type Job } from "./jobs";
 
 export type ViewFilter =
@@ -898,8 +902,10 @@ export async function viewPage(
   const direction = descending ? "DESC" : "ASC";
   const stampOf = `to_char(${key} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
   const rows = (
-    await db.query<Conversation & { list_key: string; unread: boolean }>(
-      `SELECT c.*,${ranked ? `(CASE WHEN m.priority THEN '1' ELSE '0' END)||'|'||${stampOf}` : stampOf} AS list_key,EXISTS(SELECT 1 FROM conversation_unread u WHERE u.workspace_id=$1 AND u.conversation_id=c.id AND u.teammate_id=$3) AS unread
+    await db.query<
+      Conversation & { list_key: string; unread: boolean; activity_at: string }
+    >(
+      `SELECT c.*,m.activity_at,${ranked ? `(CASE WHEN m.priority THEN '1' ELSE '0' END)||'|'||${stampOf}` : stampOf} AS list_key,EXISTS(SELECT 1 FROM conversation_unread u WHERE u.workspace_id=$1 AND u.conversation_id=c.id AND u.teammate_id=$3) AS unread
       FROM inbox_filter_members m JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
       WHERE ${where.join(" AND ")} ORDER BY ${ranked ? `m.priority ${direction},` : ""}${key} ${direction},m.conversation_id ${direction} LIMIT 101`,
       values,
@@ -907,11 +913,18 @@ export async function viewPage(
   ).rows;
   const page = rows.slice(0, 100),
     last = page.at(-1),
-    personal = await can(db, w, principal, "contacts.personal_data");
+    personal = await can(db, w, principal, "contacts.personal_data"),
+    previews = await listPreviews(
+      db,
+      w,
+      page.map((c) => c.id),
+    );
   return {
     conversations: page.map((c) => ({
       ...agentConversation(c, personal),
       unread: c.unread,
+      activity_at: c.activity_at,
+      preview: previews.get(c.id) ?? null,
     })),
     ready: view.ready,
     sort,

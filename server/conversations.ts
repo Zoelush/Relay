@@ -167,6 +167,81 @@ export function agentConversation(c: Conversation, personalData: boolean) {
   };
 }
 
+/**
+ * The latest message in each listed conversation, for the agent list's preview line. Edited
+ * messages count as their latest version; deleted ones, system events and older versions are
+ * skipped. Internal notes are included and labelled: the list is only ever shown to teammates.
+ * Read for a page's rows after the page is chosen (`listPreviews`): joined into the page query
+ * itself, the planner could run it before the sort and limit, for every row in the view.
+ */
+const LATEST_MESSAGE = `LEFT JOIN LATERAL (
+  SELECT p.kind AS preview_kind,p.author_type AS preview_author_type,p.audience AS preview_audience,
+    left(p.body,400) AS preview_body,p.data->>'authorName' AS preview_author,p.author_id AS preview_author_id,p.data->>'name' AS preview_file
+  FROM conversation_parts p
+  WHERE p.workspace_id=c.workspace_id AND p.conversation_id=c.id
+    AND p.kind IN ('customer_message','teammate_reply','internal_note','ai_reply','attachment')
+    AND NOT COALESCE((p.data->>'deleted')::boolean,false)
+    AND NOT EXISTS(SELECT 1 FROM conversation_parts s WHERE s.workspace_id=p.workspace_id AND s.supersedes_id=p.id)
+  ORDER BY p.seq DESC LIMIT 1
+) lp ON true`;
+export type MessagePreview = {
+  /** Who wrote it: the customer, a teammate, the AI agent, or a teammate's internal note. */
+  from: "customer" | "teammate" | "ai" | "note";
+  author: string | null;
+  /** The teammate who wrote it, so the list can say "You". */
+  authorId: string | null;
+  text: string;
+};
+const PREVIEW_LENGTH = 160;
+/** Previews for a page of conversations (at most 100 ids), each a short scan of `parts_timeline`. */
+export async function listPreviews(db: Sql, w: string, ids: string[]) {
+  const rows = ids.length
+    ? (
+        await db.query<Record<string, unknown> & { id: string }>(
+          `SELECT c.id,lp.* FROM conversations c ${LATEST_MESSAGE} WHERE c.workspace_id=$1 AND c.id=ANY($2::text[])`,
+          [w, ids],
+        )
+      ).rows
+    : [];
+  return new Map(rows.map((r) => [r.id, messagePreview(r)]));
+}
+/** The preview for a row read with LATEST_MESSAGE, or null when there is no message yet. */
+export function messagePreview(
+  row: Record<string, unknown>,
+): MessagePreview | null {
+  if (!row.preview_kind) return null;
+  const note =
+    row.preview_kind === "internal_note" || row.preview_audience === "internal";
+  const body = String(row.preview_body ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const text =
+    row.preview_kind === "attachment"
+      ? `Attachment: ${row.preview_file || "file"}`
+      : body.length > PREVIEW_LENGTH
+        ? body.slice(0, PREVIEW_LENGTH - 1).trimEnd() + "…"
+        : body;
+  return {
+    from: note
+      ? "note"
+      : row.preview_author_type === "contact"
+        ? "customer"
+        : row.preview_author_type === "ai"
+          ? "ai"
+          : "teammate",
+    author:
+      row.preview_author_type === "teammate" &&
+      typeof row.preview_author === "string"
+        ? row.preview_author
+        : null,
+    authorId:
+      row.preview_author_type === "teammate"
+        ? String(row.preview_author_id ?? "") || null
+        : null,
+    text,
+  };
+}
+
 export async function conversation(
   db: Sql,
   w: string,

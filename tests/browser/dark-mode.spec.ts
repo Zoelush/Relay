@@ -179,7 +179,11 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
   // The inbox, a conversation with a reply and an internal note, and the note composer.
   expect(await lowContrast(page)).toEqual([]);
   await page.getByRole("button", { name: /Where is my parcel\?/ }).click();
-  await expect(page.getByText("Check the carrier first.")).toBeVisible();
+  await expect(
+    page
+      .getByRole("log", { name: "Messages" })
+      .getByText("Check the carrier first."),
+  ).toBeVisible();
   expect(await lowContrast(page)).toEqual([]);
   await page
     .getByRole("button", { name: "Internal note", exact: true })
