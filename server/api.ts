@@ -91,6 +91,29 @@ import {
   setTeammateRole,
 } from "./people-settings";
 import { listBrands, saveBrand } from "./channel-settings";
+import {
+  changeMessenger,
+  messengerV3,
+  readMessenger,
+} from "./messenger-config";
+
+/**
+ * The brand as the messenger boots with it: its live settings, with the M1 additions
+ * (`messenger3`) only while messenger drafts are on, so switching them off falls back cleanly.
+ */
+export async function bootBrand(
+  db: Sql,
+  w: string,
+  b: { id: string; name: string; settings: Record<string, unknown> },
+) {
+  const { messenger3, ...settings } = b.settings;
+  return {
+    id: b.id,
+    name: b.name,
+    ...settings,
+    ...(messenger3 && (await messengerV3(db, w)) ? { messenger3 } : {}),
+  };
+}
 import { changeHealth, knowledgeHealth } from "./knowledge-health";
 import { aiAnswers, type AiEnvironment } from "./ai-agent";
 import {
@@ -999,7 +1022,20 @@ export async function handleApi(
                 locale,
               },
               expires,
-              brand: { id: b.id, name: b.name, ...b.settings },
+              brand: await bootBrand(db, p.workspaceId, b),
+              // A verified customer's first name, for the welcome greeting (messenger M1).
+              ...(verified &&
+              typeof p.user?.name === "string" &&
+              p.user.name.trim()
+                ? {
+                    profile: {
+                      firstName: p.user.name
+                        .trim()
+                        .split(/\s+/)[0]
+                        .slice(0, 40),
+                    },
+                  }
+                : {}),
               locale,
               // One source for office hours: the calendar that applies (phase 06, step C).
               availability: await availabilityFor(
@@ -1092,6 +1128,7 @@ export async function handleApi(
             "/v1/agent/teammates",
             "/v1/agent/roles",
             "/v1/agent/brands",
+            "/v1/agent/messenger",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1124,6 +1161,7 @@ export async function handleApi(
               "/v1/agent/teammates",
               "/v1/agent/roles",
               "/v1/agent/brands",
+              "/v1/agent/messenger",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1411,6 +1449,20 @@ export async function handleApi(
                 req.headers.get("idempotency-key") ?? "",
                 p,
                 () => portalSettings(db, workspace, principal, p),
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/messenger")
+          // Messenger settings (M1): the draft, publishing and earlier versions.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              once(
+                db,
+                workspace,
+                "messenger:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () => changeMessenger(db, workspace, principal, p),
               ),
             ),
           );
@@ -1822,6 +1874,17 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listTicketTypes(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/messenger")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readMessenger(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("brand"),
+            ),
           ),
         );
       if (url.pathname === "/v1/agent/brands")

@@ -26,7 +26,7 @@ export type Messenger = {
   directConversation: boolean;
   allowedOrigins: string[];
 };
-const DEFAULTS: Messenger = {
+export const DEFAULTS: Messenger = {
   color: "#087a57",
   theme: "auto",
   position: "right",
@@ -55,7 +55,7 @@ const text = (value: unknown, max: number, what: string) => {
 };
 
 /** What a brand's stored settings mean, with defaults for anything missing or malformed. */
-function messengerOf(s: Record<string, unknown>): Messenger {
+export function messengerOf(s: Record<string, unknown>): Messenger {
   const pick = <K extends keyof Messenger>(k: K, ok: (v: unknown) => boolean) =>
     (ok(s[k]) ? s[k] : DEFAULTS[k]) as Messenger[K];
   const str = (v: unknown) => typeof v === "string";
@@ -109,6 +109,45 @@ export function websiteOrigin(value: unknown) {
       `“${raw}” isn't a website address. Use the exact origin, such as https://shop.example.com, with no path.`,
     );
   return url.origin;
+}
+
+/** Checks and normalises a brand's messenger fields (Settings S3b; drafts in M1 use it too). */
+export function validMessenger(m: Record<string, unknown>): Messenger {
+  const logo = text(m.logo, 500, "the logo address");
+  if (logo) {
+    let ok = false;
+    try {
+      ok = new URL(logo).protocol === "https:";
+    } catch {
+      ok = false;
+    }
+    if (!ok) invalid("The logo needs an https:// image address.");
+  }
+  if (typeof m.color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(m.color))
+    invalid("Choose a colour such as #087a57.");
+  if (!Array.isArray(m.allowedOrigins) || m.allowedOrigins.length > 50)
+    invalid("List up to 50 websites.");
+  const origins = [
+    ...new Set((m.allowedOrigins as unknown[]).map(websiteOrigin)),
+  ];
+  return {
+    color: (m.color as string).toLowerCase(),
+    theme: oneOf(m.theme, ["auto", "light", "dark"] as const, "a theme"),
+    position: oneOf(m.position, ["right", "left"] as const, "a side"),
+    shape: oneOf(m.shape, ["rounded", "circle"] as const, "a shape"),
+    logo,
+    locale: validLanguage(m.locale),
+    teamIntroduction:
+      text(m.teamIntroduction, 200, "the greeting") ||
+      invalid("Write a greeting."),
+    outOfHours:
+      text(m.outOfHours, 500, "the away message") ||
+      invalid("Write an away message."),
+    allowVisitors: m.allowVisitors === true,
+    requireSearch: m.requireSearch === true,
+    directConversation: m.directConversation === true,
+    allowedOrigins: origins,
+  } satisfies Messenger;
 }
 
 export async function listBrands(
@@ -203,42 +242,19 @@ export async function saveBrand(
   );
   if (p.section === "messenger") {
     assert(existing, "BRAND_NOT_FOUND", "Brand unavailable.", 404);
-    const m = (p.messenger ?? {}) as Record<string, unknown>;
-    const logo = text(m.logo, 500, "the logo address");
-    if (logo) {
-      let ok = false;
-      try {
-        ok = new URL(logo).protocol === "https:";
-      } catch {
-        ok = false;
-      }
-      if (!ok) invalid("The logo needs an https:// image address.");
-    }
-    if (typeof m.color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(m.color))
-      invalid("Choose a colour such as #087a57.");
-    if (!Array.isArray(m.allowedOrigins) || m.allowedOrigins.length > 50)
-      invalid("List up to 50 websites.");
-    const origins = [
-      ...new Set((m.allowedOrigins as unknown[]).map(websiteOrigin)),
-    ];
-    const next: Messenger = {
-      color: (m.color as string).toLowerCase(),
-      theme: oneOf(m.theme, ["auto", "light", "dark"] as const, "a theme"),
-      position: oneOf(m.position, ["right", "left"] as const, "a side"),
-      shape: oneOf(m.shape, ["rounded", "circle"] as const, "a shape"),
-      logo,
-      locale: validLanguage(m.locale),
-      teamIntroduction:
-        text(m.teamIntroduction, 200, "the greeting") ||
-        invalid("Write a greeting."),
-      outOfHours:
-        text(m.outOfHours, 500, "the away message") ||
-        invalid("Write an away message."),
-      allowVisitors: m.allowVisitors === true,
-      requireSearch: m.requireSearch === true,
-      directConversation: m.directConversation === true,
-      allowedOrigins: origins,
-    };
+    // With drafts (messenger_v3), the messenger is published from Settings › Messenger instead.
+    assert(
+      !(
+        await db.query(
+          "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='messenger_v3' AND enabled",
+          [w],
+        )
+      ).rows.length,
+      "MESSENGER_DRAFTS",
+      "This workspace edits its messenger as drafts. Save and publish it from the Messenger page.",
+      409,
+    );
+    const next = validMessenger((p.messenger ?? {}) as Record<string, unknown>);
     await db.query(
       "UPDATE brands SET settings=settings||$3::jsonb WHERE workspace_id=$1 AND id=$2",
       [w, existing.id, JSON.stringify(next)],

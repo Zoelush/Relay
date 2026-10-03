@@ -235,7 +235,8 @@
     if (custom) {
       button.hidden = true;
       custom.addEventListener("click", open);
-    }
+    } else button.hidden = !launcherShown();
+    host.dataset.launcher = button.hidden ? "hidden" : "shown";
     host.dataset.ready = "true";
     connect(epoch);
     emit("ready", { brand: boot.brand.name, capabilities: boot.capabilities });
@@ -338,8 +339,37 @@
       emit("soundRequested", {});
     if (data.type === "identityRequired") emit("identityRequired", {});
   });
+  /**
+   * Messenger settings M1: whether this page shows the launcher, for this customer's audience
+   * (visitors or verified users). Opening from the host page's own code still works when hidden.
+   */
+  function launcherShown() {
+    const m3 = boot && boot.brand.messenger3;
+    const audience =
+      boot && boot.session && boot.session.verified ? "users" : "visitors";
+    const launcher =
+      m3 &&
+      m3.audiences &&
+      m3.audiences[audience] &&
+      m3.audiences[audience].launcher;
+    if (!launcher || launcher.show === "always") return true;
+    if (launcher.show === "never") return false;
+    const url = location.href.split("#")[0];
+    const hit = (launcher.rules || []).some((r) =>
+      r.op === "equals"
+        ? url === r.value
+        : r.op === "starts_with"
+          ? url.startsWith(r.value)
+          : url.includes(r.value),
+    );
+    return launcher.show === "only_matching" ? hit : !hit;
+  }
   let navigationTimer;
   function context() {
+    if (button && !custom && !opened) {
+      button.hidden = !launcherShown();
+      host.dataset.launcher = button.hidden ? "hidden" : "shown";
+    }
     clearTimeout(navigationTimer);
     navigationTimer = setTimeout(() => {
       if (boot)

@@ -42,6 +42,7 @@ export function Frame({
   menu,
   page,
   save,
+  actions,
   children,
 }: {
   menu: MenuState;
@@ -52,7 +53,12 @@ export function Frame({
     saved: boolean;
     error: string;
     onSave: () => void;
+    /** The button's wording ("Save" unless given), and what "Saved" says. */
+    label?: string;
+    savedLabel?: string;
   };
+  /** More controls beside Save (Publish, for drafts). */
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   // A page with a Save button is a form (Enter saves); one without holds its own forms.
@@ -67,15 +73,20 @@ export function Frame({
         {save && (
           <div className="pg-settings-save">
             <span role="status" className="pg-muted">
-              {save.busy ? "Saving…" : save.saved && !save.dirty ? "Saved" : ""}
+              {save.busy
+                ? "Saving…"
+                : save.saved && !save.dirty
+                  ? (save.savedLabel ?? "Saved")
+                  : ""}
             </span>
             <button
               type="submit"
               className="pg-primary"
               disabled={!save.dirty || save.busy}
             >
-              <Save size={14} aria-hidden="true" /> Save
+              <Save size={14} aria-hidden="true" /> {save.label ?? "Save"}
             </button>
+            {actions}
           </div>
         )}
       </header>
