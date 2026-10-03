@@ -62,8 +62,8 @@ export function HelpSpace({
   t: Strings;
   /** A search happened: its signed receipt (for "search before contacting"). */
   onSearched: (receipt: string) => void;
-  /** "Talk to us" after a "No": start a conversation about this article. */
-  onTalk: (context: {
+  /** "Talk to us" after a "No" (none when the messenger doesn't offer it, M3). */
+  onTalk?: (context: {
     articleId: string;
     feedbackId: string;
     comment: string;
@@ -247,7 +247,7 @@ function ArticleView({
   request: Request;
   api: string;
   t: Strings;
-  onTalk: (context: {
+  onTalk?: (context: {
     articleId: string;
     feedbackId: string;
     comment: string;
@@ -295,7 +295,7 @@ function ArticleView({
           feedbackId: feedback.id,
           comment: comment.trim(),
         });
-      if (talk)
+      if (talk && onTalk)
         onTalk({
           articleId: id,
           feedbackId: feedback.id,
@@ -356,13 +356,15 @@ function ArticleView({
               <button type="button" onClick={() => void sendComment(false)}>
                 {t.feedbackSend}
               </button>
-              <button
-                type="button"
-                className="help-talk"
-                onClick={() => void sendComment(true)}
-              >
-                {t.talkToUs}
-              </button>
+              {onTalk && (
+                <button
+                  type="button"
+                  className="help-talk"
+                  onClick={() => void sendComment(true)}
+                >
+                  {t.talkToUs}
+                </button>
+              )}
             </div>
           </>
         )}

@@ -93,9 +93,39 @@ import {
 import { listBrands, saveBrand } from "./channel-settings";
 import {
   changeMessenger,
+  generalOf,
   messengerV3,
   readMessenger,
 } from "./messenger-config";
+
+/**
+ * Messenger M3: a boot that fails identity verification is counted (brand, generic reason, hour)
+ * for Settings' install check, in its own transaction since the boot's rolls back. Seven days kept.
+ */
+async function recordingIdentityFailures<T>(
+  connect: Connect,
+  w: string,
+  brandId: string,
+  boot: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await boot();
+  } catch (e) {
+    if (e instanceof DomainError && e.code.startsWith("IDENTITY_"))
+      await tenant(connect, w, async (db) => {
+        await db.query(
+          `INSERT INTO identity_failures(workspace_id,brand_id,reason,hour) VALUES($1,$2,$3,date_trunc('hour',now()))
+           ON CONFLICT(workspace_id,brand_id,reason,hour) DO UPDATE SET count=identity_failures.count+1,last_at=now()`,
+          [w, brandId, e.message.slice(0, 200)],
+        );
+        await db.query(
+          "DELETE FROM identity_failures WHERE workspace_id=$1 AND hour<now()-interval '7 days'",
+          [w],
+        );
+      }).catch(() => undefined);
+    throw e;
+  }
+}
 
 /**
  * The brand as the messenger boots with it: its live settings, with the M1 additions
@@ -918,169 +948,195 @@ export async function handleApi(
         "BOOT_INVALID",
         "Workspace and brand are required.",
       );
-      const result = await tenant(env.connect, p.workspaceId, async (db) => {
-        const b = await brand(db, p.workspaceId, p.brandId);
-        allowedOrigin(b, origin);
-        corsOrigin = origin!;
-        assert(
-          (
-            await db.query(
-              "SELECT name FROM workspace_features WHERE workspace_id=$1 AND name=$2 AND enabled=true",
-              [p.workspaceId, "messenger_v2"],
-            )
-          ).rows.length,
-          "FEATURE_DISABLED",
-          "Messenger is not enabled for this workspace.",
-          404,
-        );
-        assert(
-          typeof p.deviceToken === "string" &&
-            p.deviceToken.length >= 32 &&
-            p.deviceToken.length <= 200,
-          "DEVICE_TOKEN_REQUIRED",
-          "A device token is required.",
-        );
-        const keys: Record<string, Uint8Array> = {};
-        for (const key of (
-          await db.query<{ kid: string; wrapped_key: string }>(
-            "SELECT kid,wrapped_key FROM identity_keys WHERE workspace_id=$1",
-            [p.workspaceId],
-          )
-        ).rows)
-          keys[key.kid] = await unwrapIdentityKey(
-            key.wrapped_key,
-            env.identityMaster,
-            p.workspaceId,
-            key.kid,
-          );
-        const verified = p.user
-          ? await verifyIdentity(p.user as IdentityProof, {
-              workspaceId: p.workspaceId,
-              enforced: b.identity_enforced,
-              legacyHmacEnabled: b.legacy_hmac_enabled,
-              keys,
-            })
-          : false;
-        return once(
-          db,
-          p.workspaceId,
-          "boot:" + (await digest(p.deviceToken)),
-          req.headers.get("idempotency-key") ?? "",
-          p,
-          async () => {
-            const visitor = await getIdentity(
+      const result = await recordingIdentityFailures(
+        env.connect,
+        p.workspaceId,
+        p.brandId,
+        () =>
+          tenant(env.connect, p.workspaceId, async (db) => {
+            const b = await brand(db, p.workspaceId, p.brandId);
+            allowedOrigin(b, origin);
+            corsOrigin = origin!;
+            assert(
+              (
+                await db.query(
+                  "SELECT name FROM workspace_features WHERE workspace_id=$1 AND name=$2 AND enabled=true",
+                  [p.workspaceId, "messenger_v2"],
+                )
+              ).rows.length,
+              "FEATURE_DISABLED",
+              "Messenger is not enabled for this workspace.",
+              404,
+            );
+            assert(
+              typeof p.deviceToken === "string" &&
+                p.deviceToken.length >= 32 &&
+                p.deviceToken.length <= 200,
+              "DEVICE_TOKEN_REQUIRED",
+              "A device token is required.",
+            );
+            const keys: Record<string, Uint8Array> = {};
+            for (const key of (
+              await db.query<{ kid: string; wrapped_key: string }>(
+                "SELECT kid,wrapped_key FROM identity_keys WHERE workspace_id=$1",
+                [p.workspaceId],
+              )
+            ).rows)
+              keys[key.kid] = await unwrapIdentityKey(
+                key.wrapped_key,
+                env.identityMaster,
+                p.workspaceId,
+                key.kid,
+              );
+            const verified = p.user
+              ? await verifyIdentity(p.user as IdentityProof, {
+                  workspaceId: p.workspaceId,
+                  enforced: b.identity_enforced,
+                  legacyHmacEnabled: b.legacy_hmac_enabled,
+                  keys,
+                })
+              : false;
+            return once(
               db,
               p.workspaceId,
-              "anonymous",
-              p.deviceToken,
-              p.user && !verified
-                ? { name: p.user.name, email: p.user.email }
-                : {},
-            );
-            let identity = visitor;
-            if (verified) {
-              identity = await getIdentity(
-                db,
-                p.workspaceId,
-                "user",
-                p.user.userId,
-                { name: p.user.name, email: p.user.email },
-              );
-              await mergeVisitorIdentity(
-                db,
-                p.workspaceId,
-                visitor.identityId,
-                identity.contactId,
-              );
-            }
-            const sessionId = crypto.randomUUID(),
-              proofExpiry = verified
-                ? p.user.jwt
-                  ? Number(decodeJwt(p.user.jwt).exp)
-                  : Number(p.user.hmac.expiresAt)
-                : Infinity;
-            const expires = Math.min(
-              Math.floor(Date.now() / 1000) + (verified ? 900 : 86400),
-              proofExpiry,
-            );
-            let locale =
-              typeof p.locale === "string" && p.locale.length < 50
-                ? p.locale
-                : (b.settings.locale ?? "en");
-            try {
-              locale = Intl.getCanonicalLocales(locale)[0];
-            } catch {
-              locale = "en";
-            }
-            const timezone = originTimezone(p.timezone);
-            await db.query(
-              "INSERT INTO messenger_sessions(workspace_id,id,brand_id,identity_id,secret_hash,expires_at,page_url,locale,origin_timezone) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-              [
-                p.workspaceId,
-                sessionId,
-                b.id,
-                identity.identityId,
-                await digest(sessionId),
-                new Date(expires * 1000).toISOString(),
-                pageUrl(p.pageUrl),
-                locale,
-                timezone ?? null,
-              ],
-            );
-            return {
-              session: {
-                workspace: p.workspaceId,
-                brandId: b.id,
-                identityId: identity.identityId,
-                sessionId,
-                verified,
-                originTimezone: timezone,
-                locale,
+              "boot:" + (await digest(p.deviceToken)),
+              req.headers.get("idempotency-key") ?? "",
+              p,
+              async () => {
+                const visitor = await getIdentity(
+                  db,
+                  p.workspaceId,
+                  "anonymous",
+                  p.deviceToken,
+                  p.user && !verified
+                    ? { name: p.user.name, email: p.user.email }
+                    : {},
+                );
+                let identity = visitor;
+                if (verified) {
+                  identity = await getIdentity(
+                    db,
+                    p.workspaceId,
+                    "user",
+                    p.user.userId,
+                    { name: p.user.name, email: p.user.email },
+                  );
+                  await mergeVisitorIdentity(
+                    db,
+                    p.workspaceId,
+                    visitor.identityId,
+                    identity.contactId,
+                  );
+                }
+                const sessionId = crypto.randomUUID(),
+                  proofExpiry = verified
+                    ? p.user.jwt
+                      ? Number(decodeJwt(p.user.jwt).exp)
+                      : Number(p.user.hmac.expiresAt)
+                    : Infinity;
+                const expires = Math.min(
+                  Math.floor(Date.now() / 1000) + (verified ? 900 : 86400),
+                  proofExpiry,
+                );
+                let locale =
+                  typeof p.locale === "string" && p.locale.length < 50
+                    ? p.locale
+                    : (b.settings.locale ?? "en");
+                try {
+                  locale = Intl.getCanonicalLocales(locale)[0];
+                } catch {
+                  locale = "en";
+                }
+                // Messenger M3: only the interface languages the brand offers; others get its own.
+                const general = await generalOf(db, p.workspaceId, b.settings);
+                if (general) {
+                  const own = String(b.settings.locale ?? "en");
+                  const offered = [own, ...general.languages];
+                  locale =
+                    offered.find((l) => l === locale) ??
+                    offered.find((l) => l === locale.split("-")[0]) ??
+                    offered.find(
+                      (l) => l.split("-")[0] === locale.split("-")[0],
+                    ) ??
+                    own;
+                }
+                const timezone = originTimezone(p.timezone);
+                await db.query(
+                  "INSERT INTO messenger_sessions(workspace_id,id,brand_id,identity_id,secret_hash,expires_at,page_url,locale,origin_timezone) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                  [
+                    p.workspaceId,
+                    sessionId,
+                    b.id,
+                    identity.identityId,
+                    await digest(sessionId),
+                    new Date(expires * 1000).toISOString(),
+                    pageUrl(p.pageUrl),
+                    locale,
+                    timezone ?? null,
+                  ],
+                );
+                return {
+                  session: {
+                    workspace: p.workspaceId,
+                    brandId: b.id,
+                    identityId: identity.identityId,
+                    sessionId,
+                    verified,
+                    originTimezone: timezone,
+                    locale,
+                  },
+                  expires,
+                  brand: await bootBrand(db, p.workspaceId, b),
+                  // A verified customer's first name, for the welcome greeting (messenger M1).
+                  ...(verified &&
+                  typeof p.user?.name === "string" &&
+                  p.user.name.trim()
+                    ? {
+                        profile: {
+                          firstName: p.user.name
+                            .trim()
+                            .split(/\s+/)[0]
+                            .slice(0, 40),
+                        },
+                      }
+                    : {}),
+                  locale,
+                  // One source for office hours: the calendar that applies (phase 06, step C).
+                  // Messenger M3: on Home, or only once a team has the conversation.
+                  availability:
+                    general?.replyTimes === "after_team"
+                      ? null
+                      : await availabilityFor(
+                          db,
+                          p.workspaceId,
+                          { brandId: b.id },
+                          locale,
+                        ),
+                  replyTime:
+                    general?.replyTimes === "after_team"
+                      ? null
+                      : await expectedReply(db, p.workspaceId, b.id),
+                  capabilities: {
+                    // The brand's help center in the messenger's Help space (phase 07, B2).
+                    help: await helpAvailable(db, p.workspaceId, b.id),
+                    // The portal is for verified customers; the messenger links to it for them.
+                    tickets:
+                      verified &&
+                      (
+                        await db.query(
+                          "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='portal_v1' AND enabled",
+                          [p.workspaceId],
+                        )
+                      ).rows.length > 0,
+                    queue: true,
+                    attachments: !!env.attachments,
+                    realtime: !!env.realtimeUrl,
+                  },
+                };
               },
-              expires,
-              brand: await bootBrand(db, p.workspaceId, b),
-              // A verified customer's first name, for the welcome greeting (messenger M1).
-              ...(verified &&
-              typeof p.user?.name === "string" &&
-              p.user.name.trim()
-                ? {
-                    profile: {
-                      firstName: p.user.name
-                        .trim()
-                        .split(/\s+/)[0]
-                        .slice(0, 40),
-                    },
-                  }
-                : {}),
-              locale,
-              // One source for office hours: the calendar that applies (phase 06, step C).
-              availability: await availabilityFor(
-                db,
-                p.workspaceId,
-                { brandId: b.id },
-                locale,
-              ),
-              replyTime: await expectedReply(db, p.workspaceId, b.id),
-              capabilities: {
-                // The brand's help center in the messenger's Help space (phase 07, B2).
-                help: await helpAvailable(db, p.workspaceId, b.id),
-                // The portal is for verified customers; the messenger links to it for them.
-                tickets:
-                  verified &&
-                  (
-                    await db.query(
-                      "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='portal_v1' AND enabled",
-                      [p.workspaceId],
-                    )
-                  ).rows.length > 0,
-                queue: true,
-                attachments: !!env.attachments,
-                realtime: !!env.realtimeUrl,
-              },
-            };
-          },
-        );
-      });
+            );
+          }),
+      );
       const token = await sign(
         result.session,
         env,

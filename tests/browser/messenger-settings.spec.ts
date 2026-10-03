@@ -84,7 +84,9 @@ test("a draft of the Home screen, welcome, notice and audiences is saved, publis
     .getByLabel("Introduction (English)")
     .fill("Ask us anything about your order.");
   await page.getByRole("checkbox", { name: "Show the notice" }).check();
-  await page.getByLabel("Notice (English)").fill("Replies are slower today.");
+  await page
+    .getByLabel("Notice (English)", { exact: true })
+    .fill("Replies are slower today.");
 
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(notice(page)).toContainText(

@@ -12,13 +12,14 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/INTERCOM_GAP_AUDIT.md` compares Intercom with Relay (October 2026); its
 additions are marked inside each phase of `docs/BUILD_PHASES.md`.
 
-Current position: messenger settings (`docs/MESSENGER_SETTINGS_PLAN.md`, steps M1–M3, asked for
-before phase 08 A2): M1 and M2 are done locally (`docs/MESSENGER_SETTINGS_STEP1.md`, `STEP2.md`);
-next is M3, then phase 08 A2. Settings' live preview loads the app's own copy of the messenger page
-(`/messenger/frame.html?preview=1`) and sends it a boot built from the draft; in preview mode the
-messenger fetches and sends nothing. With `messenger_v3` on, a brand's messenger is a draft
-published as versions (`server/messenger-config.ts`); publishing writes `brands.settings` (the
-`messenger3` key is only booted while the flag is on). Phase 08 (the AI agent, `docs/AI_PLAN.md`):
+Current position: the messenger settings plan (`docs/MESSENGER_SETTINGS_PLAN.md`, M1–M3, asked for
+before phase 08 A2) is complete locally (`docs/MESSENGER_SETTINGS_STEP1.md` to `STEP3.md`); next is
+phase 08 A2. With `messenger_v3` on, a brand's messenger is a draft published as versions
+(`server/messenger-config.ts`); publishing writes `brands.settings` (the `messenger3` key is only
+booted while the flag is on). Its inbound rules are enforced in `server/conversations.ts`
+(`inboundRules`), not only in the messenger. Settings' live preview loads the app's own copy of the
+messenger page (`/messenger/frame.html?preview=1`); in preview mode it fetches and sends nothing.
+Phase 08 (the AI agent, `docs/AI_PLAN.md`):
 step A1 (answering core) is done locally (`docs/AI_STEP1.md`); next is A2 (escalation and handover). The agent answers only from
 passages `server/ai-retrieval.ts` allows, decided in PostgreSQL before ranking; the relevance gate
 and the reply check in `server/ai-agent.ts` are code, not prompt text; `ai_reply` part data reaches

@@ -1,3 +1,4 @@
+import { more } from "./strings-more";
 const en = {
   unread: "Unread",
   support: "support",
@@ -93,7 +94,13 @@ const en = {
   tickets: "Tickets",
   notice: "Notice",
   team: "The team",
+  // Messenger settings M3: one conversation at a time, closed conversations, privacy.
+  continueConversation: "Continue your conversation",
+  closedNoReply:
+    "This conversation is closed. Start a new one if you need more help.",
+  privacyLink: "Privacy policy",
 };
+export type Dictionary = typeof en;
 const ar: typeof en = {
   unread: "غير مقروءة",
   support: "الدعم",
@@ -187,9 +194,13 @@ const ar: typeof en = {
   tickets: "التذاكر",
   notice: "إشعار",
   team: "الفريق",
+  continueConversation: "تابع محادثتك",
+  closedNoReply:
+    "هذه المحادثة مغلقة. ابدأ محادثة جديدة إذا احتجت إلى مزيد من المساعدة.",
+  privacyLink: "سياسة الخصوصية",
 };
 export function language(locale: string, brandLocale = "en") {
-  const dictionaries: Record<string, typeof en> = { en, ar };
+  const dictionaries: Record<string, typeof en> = { en, ar, ...more };
   const chain = [
     locale,
     locale.split("-")[0],

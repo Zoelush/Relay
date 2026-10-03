@@ -1,3 +1,4 @@
+import { INTERFACE_LANGUAGES } from "../lib/messenger-languages";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize } from "./policy";
 import { requireSettings, validLanguage } from "./settings";
@@ -56,7 +57,43 @@ export type AudienceConfig = {
     show: "always" | "never" | "only_matching" | "except_matching";
     rules: UrlRule[];
   };
+  /** Messenger settings M3: what this audience may start and reply to. */
+  inbound: Inbound;
 };
+export type Inbound = {
+  /** One open (or snoozed) conversation at a time: the messenger continues it instead. */
+  oneConversation: boolean;
+  /** "Talk to us" after saying a help article didn't help. */
+  talkAfterUnhelpful: boolean;
+  /** No replies to a closed conversation (a new one can be started). */
+  blockClosedReplies: boolean;
+  /** No replies to a closed ticket. */
+  blockClosedTicketReplies: boolean;
+};
+export const DEFAULT_INBOUND: Inbound = {
+  oneConversation: false,
+  talkAfterUnhelpful: true,
+  blockClosedReplies: false,
+  blockClosedTicketReplies: false,
+};
+/** Messenger settings M3: for everyone. */
+export type General = {
+  /** Reply times and office hours on Home always, or only once a team has the conversation. */
+  replyTimes: "always" | "after_team";
+  /** Whether the reply sound starts switched on (customers can still change it). */
+  soundDefault: boolean;
+  /** Interface languages offered besides the messenger's own; others get its own. */
+  languages: string[];
+  /** A privacy notice when a conversation is started, with a link to the policy. */
+  privacy: { enabled: boolean; url: string; text: Record<string, string> };
+};
+export const DEFAULT_GENERAL: General = {
+  replyTimes: "always",
+  soundDefault: false,
+  languages: [],
+  privacy: { enabled: false, url: "", text: {} },
+};
+export { INTERFACE_LANGUAGES } from "../lib/messenger-languages";
 export type HomeCard = {
   id: string;
   type: (typeof CARD_TYPES)[number];
@@ -72,6 +109,7 @@ export type Extras = {
   notice: { enabled: boolean; text: Record<string, string> };
   /** Messenger settings M2: the look beyond colour, theme, side, shape and logo. */
   look: Look;
+  general: General;
 };
 export type Look = {
   /** The primary colour in the dark theme (null: the light one). */
@@ -104,12 +142,27 @@ export const DEFAULT_LOOK: Look = {
   launcherSpacing: { side: 24, bottom: 24 },
   showTeammates: false,
 };
-/** A config from before M2 gets the default look. */
+/** A config from before M2 or M3 gets the defaults for what it lacks. */
 export const withLook = <T extends Partial<Extras>>(
   c: T,
-): T & { look: Look } => ({
+): T & { look: Look; general: General } => ({
   ...c,
+  ...(c.audiences
+    ? {
+        audiences: {
+          visitors: {
+            ...c.audiences.visitors,
+            inbound: c.audiences.visitors.inbound ?? DEFAULT_INBOUND,
+          },
+          users: {
+            ...c.audiences.users,
+            inbound: c.audiences.users.inbound ?? DEFAULT_INBOUND,
+          },
+        },
+      }
+    : {}),
   look: c.look ?? DEFAULT_LOOK,
+  general: c.general ?? DEFAULT_GENERAL,
 });
 export type MessengerConfig = Messenger & Extras;
 
@@ -126,6 +179,7 @@ const audienceDefaults = (m: Messenger): AudienceConfig => ({
   launchToConversation: m.directConversation,
   startButton: "start",
   launcher: { show: "always", rules: [] },
+  inbound: DEFAULT_INBOUND,
 });
 /** What a brand's current settings describe, as a full config (the first draft's starting point). */
 export function configOf(settings: Record<string, unknown>): MessengerConfig {
@@ -150,6 +204,7 @@ export function configOf(settings: Record<string, unknown>): MessengerConfig {
     },
     notice: { enabled: false, text: {} },
     look: DEFAULT_LOOK,
+    general: DEFAULT_GENERAL,
   };
 }
 
@@ -193,6 +248,55 @@ function validAudience(v: unknown, who: "visitors" | "users"): AudienceConfig {
     launchToConversation: a.launchToConversation === true,
     startButton: a.startButton as AudienceConfig["startButton"],
     launcher: { show: show as AudienceConfig["launcher"]["show"], rules },
+    inbound: validInbound(a.inbound ?? DEFAULT_INBOUND),
+  };
+}
+function validInbound(v: unknown): Inbound {
+  const i = (v ?? {}) as Record<string, unknown>;
+  for (const k of Object.keys(DEFAULT_INBOUND))
+    if (typeof i[k] !== "boolean") invalid("Choose each conversation rule.");
+  return {
+    oneConversation: i.oneConversation === true,
+    talkAfterUnhelpful: i.talkAfterUnhelpful === true,
+    blockClosedReplies: i.blockClosedReplies === true,
+    blockClosedTicketReplies: i.blockClosedTicketReplies === true,
+  };
+}
+function validGeneral(v: unknown, own: string): General {
+  const g = (v ?? {}) as Record<string, unknown>;
+  if (g.replyTimes !== "always" && g.replyTimes !== "after_team")
+    invalid("Choose when reply times show.");
+  const languages = (Array.isArray(g.languages) ? g.languages : []).map(String);
+  if (
+    !languages.every((l) =>
+      (INTERFACE_LANGUAGES as readonly string[]).includes(l),
+    )
+  )
+    invalid("Choose interface languages the messenger has words for.");
+  const p = (g.privacy ?? {}) as Record<string, unknown>;
+  const url = str(p.url, 500, "the privacy policy address");
+  if (url && !https(url))
+    invalid("The privacy policy needs an https:// address.");
+  const text: Record<string, string> = {};
+  for (const [locale, t] of Object.entries(
+    (p.text ?? {}) as Record<string, unknown>,
+  )) {
+    const v = str(t, 300, "the privacy notice");
+    if (v) text[validLanguage(locale)] = v;
+  }
+  if (p.enabled === true && !text[own])
+    invalid(
+      "Write the privacy notice in the messenger's own language before switching it on.",
+    );
+  if (p.enabled === true && !url)
+    invalid(
+      "Give the privacy policy's address before switching the notice on.",
+    );
+  return {
+    replyTimes: g.replyTimes as General["replyTimes"],
+    soundDefault: g.soundDefault === true,
+    languages: [...new Set(languages.filter((l) => l !== own))],
+    privacy: { enabled: p.enabled === true, url, text },
   };
 }
 
@@ -341,6 +445,7 @@ export function validConfig(input: unknown): MessengerConfig {
     welcome,
     notice: { enabled: n.enabled === true, text: noticeText },
     look: validLook(c.look ?? DEFAULT_LOOK),
+    general: validGeneral(c.general ?? DEFAULT_GENERAL, base.locale),
   };
 }
 
@@ -459,7 +564,34 @@ export async function readMessenger(
       [w, brand.id],
     )
   ).rows;
+  // Messenger M3: where the messenger ran in the last seven days, and failed verifications.
+  const seen = (
+    await db.query<{ origin: string; sessions: number; verified: number }>(
+      `SELECT substring(s.page_url from '^[a-z]+://[^/]+') AS origin,count(*)::int AS sessions,
+         count(*) FILTER (WHERE i.kind='user')::int AS verified
+       FROM messenger_sessions s JOIN identities i ON i.workspace_id=s.workspace_id AND i.id=s.identity_id
+       WHERE s.workspace_id=$1 AND s.brand_id=$2 AND s.expires_at>now()-interval '7 days'
+       GROUP BY 1 ORDER BY 2 DESC LIMIT 20`,
+      [w, brand.id],
+    )
+  ).rows.filter((r) => r.origin);
+  const failures = (
+    await db.query<{ reason: string; count: number; last_at: string }>(
+      `SELECT reason,sum(count)::int AS count,max(last_at) AS last_at FROM identity_failures
+       WHERE workspace_id=$1 AND brand_id=$2 AND hour>now()-interval '7 days'
+       GROUP BY reason ORDER BY max(last_at) DESC`,
+      [w, brand.id],
+    )
+  ).rows;
   return {
+    install: {
+      origins: seen,
+      failures: failures.map((f) => ({
+        reason: f.reason,
+        count: f.count,
+        lastAt: new Date(f.last_at).toISOString(),
+      })),
+    },
     brandId: brand.id,
     draft: draft.config,
     draftVersion: draft.version,
@@ -512,7 +644,7 @@ export async function changeMessenger(
       "INSERT INTO messenger_versions(workspace_id,brand_id,version,config,published_by) VALUES($1,$2,$3,$4,$5)",
       [w, brand.id, version, JSON.stringify(config), t.id],
     );
-    const { audiences, home, welcome, notice, look, ...base } = config;
+    const { audiences, home, welcome, notice, look, general, ...base } = config;
     await db.query(
       "UPDATE brands SET settings=settings||$3::jsonb WHERE workspace_id=$1 AND id=$2",
       [
@@ -520,7 +652,7 @@ export async function changeMessenger(
         brand.id,
         JSON.stringify({
           ...base,
-          messenger3: { audiences, home, welcome, notice, look },
+          messenger3: { audiences, home, welcome, notice, look, general },
         }),
       ],
     );
@@ -550,4 +682,31 @@ export function pageMatches(url: string, rules: UrlRule[]) {
         ? url.startsWith(r.value)
         : url.includes(r.value),
   );
+}
+
+/**
+ * The published inbound rules for a customer (messenger M3), or null when drafts are off or
+ * nothing is published: the server enforces these, not just the messenger.
+ */
+export async function inboundRules(
+  db: Sql,
+  w: string,
+  settings: Record<string, unknown>,
+  verified: boolean,
+): Promise<Inbound | null> {
+  const m3 = settings.messenger3 as Partial<Extras> | undefined;
+  if (!m3?.audiences || !(await messengerV3(db, w))) return null;
+  return (
+    m3.audiences[verified ? "users" : "visitors"]?.inbound ?? DEFAULT_INBOUND
+  );
+}
+/** The published "for everyone" settings, or null when drafts are off or nothing is published. */
+export async function generalOf(
+  db: Sql,
+  w: string,
+  settings: Record<string, unknown>,
+): Promise<General | null> {
+  const m3 = settings.messenger3 as Partial<Extras> | undefined;
+  if (!m3 || !(await messengerV3(db, w))) return null;
+  return m3.general ?? DEFAULT_GENERAL;
 }

@@ -31,4 +31,4 @@ Approved on 3 October 2026 ("Yes, go ahead"):
 | **M2: Look and preview** | Light and dark colours, header background (solid, gradient or image) with text colour and fade, home and launcher logos, launcher spacing, teammate faces on Home. A live preview in Settings that runs the real messenger on the draft. |
 | **M3: Rules, languages, install** | One open conversation at a time; a conversation after a 😞 on an article; blocking replies to closed conversations and tickets; reply times only after team assignment. Interface languages, with a default and an allowlist. A privacy notice. The default for the incoming sound. Install guides per framework and an install status. A guided identity set-up with a verification-error log. |
 
-Handoffs: `docs/MESSENGER_SETTINGS_STEP1.md` (M1), `docs/MESSENGER_SETTINGS_STEP2.md` (M2).
+Handoffs: `docs/MESSENGER_SETTINGS_STEP1.md` (M1), `docs/MESSENGER_SETTINGS_STEP2.md` (M2), `docs/MESSENGER_SETTINGS_STEP3.md` (M3). The plan is complete.

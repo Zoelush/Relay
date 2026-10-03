@@ -11,10 +11,15 @@ import {
 import {
   LANGUAGES,
   languageName,
-  snippetFor,
   type Brand,
   type Brands,
 } from "./settings-channels";
+import {
+  IdentityGuide,
+  InstallCard,
+  type InstallStatus,
+} from "./messenger-install";
+import { INTERFACE_LANGUAGES as INTERFACE } from "../lib/messenger-languages";
 import type {
   AudienceConfig,
   HomeCard,
@@ -37,6 +42,8 @@ export type DraftState = {
   live: MessengerConfig;
   liveVersion: number | null;
   changed: boolean;
+  /** Where the messenger has run lately, and failed verifications (M3). */
+  install?: InstallStatus;
   versions: {
     version: number;
     publishedAt: string;
@@ -133,6 +140,10 @@ export function MessengerDrafts({
     set("look", { ...form.look, ...change });
   const setHeader = (change: Partial<MessengerConfig["look"]["header"]>) =>
     setLook({ header: { ...form.look.header, ...change } });
+  const setGeneral = (change: Partial<MessengerConfig["general"]>) =>
+    set("general", { ...form.general, ...change });
+  const setPrivacy = (change: Partial<MessengerConfig["general"]["privacy"]>) =>
+    setGeneral({ privacy: { ...form.general.privacy, ...change } });
   const setAud = (change: Partial<AudienceConfig>) =>
     set("audiences", { ...form.audiences, [who]: { ...aud, ...change } });
   const languages = Object.keys(form.welcome);
@@ -550,6 +561,169 @@ export function MessengerDrafts({
                 </label>
               ))}
             </div>
+          </Card>
+
+          <Card
+            title="Conversation rules"
+            description={`What ${who === "visitors" ? "visitors" : "users"} may start and reply to. Relay enforces these, not just the messenger.`}
+          >
+            {(
+              [
+                [
+                  "oneConversation",
+                  "One open conversation at a time",
+                  "With one open, the messenger continues it instead of starting another.",
+                ],
+                [
+                  "talkAfterUnhelpful",
+                  "Offer a conversation after an article didn't help",
+                  "\u201cTalk to us\u201d after a \u201cNo\u201d on a help article.",
+                ],
+                [
+                  "blockClosedReplies",
+                  "No replies to closed conversations",
+                  "They start a new conversation instead.",
+                ],
+                [
+                  "blockClosedTicketReplies",
+                  "No replies to closed tickets",
+                  "Resolved requests stay closed.",
+                ],
+              ] as const
+            ).map(([key, label, help]) => (
+              <label key={key} className="pg-settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={aud.inbound[key]}
+                  onChange={(e) =>
+                    setAud({
+                      inbound: { ...aud.inbound, [key]: e.target.checked },
+                    })
+                  }
+                />
+                <span>
+                  <strong>{label}</strong>
+                  <small className="pg-muted">{help}</small>
+                </span>
+              </label>
+            ))}
+          </Card>
+
+          <Card
+            title="Languages, reply times and privacy"
+            description="For everyone who uses the messenger."
+          >
+            <fieldset className="pg-settings-fieldset">
+              <legend>Interface languages</legend>
+              <p className="pg-muted pg-settings-small">
+                The messenger&apos;s own words in the visitor&apos;s language
+                when it&apos;s offered here, otherwise in{" "}
+                {languageName(form.locale)}. Each was translated by Relay and
+                wants a native speaker&apos;s check.
+              </p>
+              <div className="pg-settings-checks">
+                {INTERFACE.filter((l) => l !== form.locale).map((l) => (
+                  <label key={l}>
+                    <input
+                      type="checkbox"
+                      checked={form.general.languages.includes(l)}
+                      onChange={(e) =>
+                        setGeneral({
+                          languages: e.target.checked
+                            ? [...form.general.languages, l]
+                            : form.general.languages.filter((x) => x !== l),
+                        })
+                      }
+                    />
+                    {languageName(l)}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset className="pg-settings-fieldset">
+              <legend>Reply times and office hours on Home</legend>
+              {(
+                [
+                  ["always", "Always", "As soon as the messenger opens."],
+                  [
+                    "after_team",
+                    "Once a team has the conversation",
+                    "Best when each team has its own office hours.",
+                  ],
+                ] as const
+              ).map(([v, label, help]) => (
+                <label key={v} className="pg-settings-toggle">
+                  <input
+                    type="radio"
+                    name="reply-times"
+                    checked={form.general.replyTimes === v}
+                    onChange={() => setGeneral({ replyTimes: v })}
+                  />
+                  <span>
+                    <strong>{label}</strong>
+                    <small className="pg-muted">{help}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <label className="pg-settings-toggle">
+              <input
+                type="checkbox"
+                checked={form.general.soundDefault}
+                onChange={(e) => setGeneral({ soundDefault: e.target.checked })}
+              />
+              <span>
+                <strong>
+                  Play a sound for replies, unless the customer turns it off
+                </strong>
+                <small className="pg-muted">
+                  Off: customers turn it on in Preferences.
+                </small>
+              </span>
+            </label>
+            <label className="pg-settings-toggle">
+              <input
+                type="checkbox"
+                checked={form.general.privacy.enabled}
+                onChange={(e) => setPrivacy({ enabled: e.target.checked })}
+              />
+              <span>
+                <strong>
+                  Show a privacy notice when a conversation starts
+                </strong>
+              </span>
+            </label>
+            <Field label="Privacy policy address">
+              {(id) => (
+                <input
+                  id={id}
+                  maxLength={500}
+                  placeholder="https://example.com/privacy"
+                  value={form.general.privacy.url}
+                  onChange={(e) => setPrivacy({ url: e.target.value })}
+                />
+              )}
+            </Field>
+            {languages.map((l) => (
+              <Field key={l} label={`Privacy notice (${languageName(l)})`}>
+                {(id) => (
+                  <input
+                    id={id}
+                    maxLength={300}
+                    placeholder="We use your messages to help you."
+                    value={form.general.privacy.text[l] ?? ""}
+                    onChange={(e) =>
+                      setPrivacy({
+                        text: {
+                          ...form.general.privacy.text,
+                          [l]: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                )}
+              </Field>
+            ))}
           </Card>
 
           <Card
@@ -1325,14 +1499,18 @@ export function MessengerDrafts({
 
           <IdentityCard data={data} brand={brand} onSaved={onIdentity} />
 
-          <Card
-            title="Install"
-            description="Add these to every page of the websites above."
-          >
-            <pre className="pg-settings-code" aria-label="Install snippet">
-              {snippetFor(data.apiOrigin, data.workspaceId, brand.id)}
-            </pre>
-          </Card>
+          <IdentityGuide
+            workspaceId={data.workspaceId}
+            keys={data.identityKeys}
+            status={state.install}
+          />
+
+          <InstallCard
+            api={data.apiOrigin}
+            workspaceId={data.workspaceId}
+            brandId={brand.id}
+            status={state.install}
+          />
         </div>
         <Preview
           config={form}
@@ -1454,7 +1632,7 @@ function Preview({
   }, [channel]);
   useEffect(() => {
     if (!ready) return;
-    const { audiences, home, welcome, notice, look, ...base } = config;
+    const { audiences, home, welcome, notice, look, general, ...base } = config;
     frame.current?.contentWindow?.postMessage(
       {
         relay: channel,
@@ -1477,6 +1655,7 @@ function Preview({
               welcome,
               notice,
               look,
+              general,
               team: look.showTeammates
                 ? [
                     { firstName: "Teammate", initials: "AB" },
