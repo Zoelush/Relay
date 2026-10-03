@@ -522,3 +522,32 @@ footer strong {
 .help-feedback textarea { font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
 .help-feedback-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .help-feedback p { margin: 0; }
+
+/* The AI agent's sources and a clarifying question's choices (phase 08). */
+.message .sources {
+  list-style: none;
+  margin: 6px 5px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.message .sources a {
+  color: var(--accent);
+}
+.message .options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 5px 0;
+}
+.message .options button {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  color: var(--accent);
+}

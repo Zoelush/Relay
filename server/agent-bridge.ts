@@ -37,6 +37,7 @@ const routes = {
     "notifications",
     "macros",
     "context",
+    "ai-answers",
     "bulk",
     "ticket-types",
     "ticket-preview",

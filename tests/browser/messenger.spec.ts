@@ -7,7 +7,13 @@ let relay: Awaited<ReturnType<typeof startLocalRelay>>;
 let directory: string;
 test.beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "relay-browser-"));
-  relay = await startLocalRelay({ apiPort: 8798, hostPort: 8799, directory });
+  // The AI agent (phase 08) is off: these tests count the messenger's messages exactly.
+  relay = await startLocalRelay({
+    apiPort: 8798,
+    hostPort: 8799,
+    directory,
+    aiAgent: false,
+  });
 });
 test.afterAll(async () => {
   await relay?.close();

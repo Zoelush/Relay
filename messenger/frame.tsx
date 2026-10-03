@@ -458,10 +458,15 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
         }).catch(() => renderedReads.current.delete(p.id));
       }
   }, [parts, visible, documentVisible, space, selected, request]);
-  async function submit(event?: React.FormEvent, retry = false) {
+  /** Sends the draft, or `option` (a clarifying question's choice, phase 08). */
+  async function submit(
+    event?: React.FormEvent,
+    retry = false,
+    option?: string,
+  ) {
     event?.preventDefault();
     if (busy) return;
-    const text = draft.trim();
+    const text = (option ?? draft).trim();
     if (!retry && !text) return;
     setBusy(true);
     setError("");
@@ -489,7 +494,7 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       );
       pending.current = null;
       setCanRetry(false);
-      setDraft("");
+      if (!option) setDraft("");
       setHelpTalk(null);
       if (result.conversationId !== selected) select(result.conversationId);
       await refreshList();
@@ -747,7 +752,8 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
               >
                 {parts
                   .filter((p) => !superseded.has(p.id))
-                  .map((p) => {
+                  .map((p, _i, shown) => {
+                    const lastPartId = shown.at(-1)?.id;
                     if (p.kind === "attachment")
                       return (
                         <article
@@ -840,6 +846,53 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
                         {p.supersedes_id && !p.data.deleted && (
                           <small>{t.edited}</small>
                         )}
+                        {p.kind === "ai_reply" &&
+                          Array.isArray(p.data.sources) &&
+                          p.data.sources.length > 0 && (
+                            // The AI agent's sources (phase 08): articles open in the help center.
+                            <ul className="sources" aria-label={t.sources}>
+                              {(
+                                p.data.sources as {
+                                  title: string;
+                                  path?: string;
+                                }[]
+                              ).map((s, i) => (
+                                <li key={i}>
+                                  {s.path ? (
+                                    <a
+                                      href={new URL(s.path, api).href}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      {s.title}
+                                    </a>
+                                  ) : (
+                                    s.title
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        {p.kind === "ai_reply" &&
+                          p.id === lastPartId &&
+                          Array.isArray(p.data.options) &&
+                          p.data.options.length > 0 && (
+                            // A clarifying question's choices, sent as the customer's reply.
+                            <div className="options">
+                              {(p.data.options as string[]).map((o) => (
+                                <button
+                                  key={o}
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    void submit(undefined, false, o)
+                                  }
+                                >
+                                  {o}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                       </article>
                     );
                   })}

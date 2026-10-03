@@ -18,6 +18,12 @@ import {
   runDuplicates,
   scheduleDuplicateCheck,
 } from "../server/knowledge-health";
+import { runAiReply, type AiEnvironment } from "../server/ai-agent";
+import {
+  claudeAnswerModel,
+  workersAiReranker,
+  type WorkersAiRerank,
+} from "../server/ai-model";
 import { purgeDrafts } from "../server/drafts";
 import { purgeHelpSearches } from "../server/help-search";
 import { purgeInlineImages } from "../server/attachments";
@@ -71,8 +77,13 @@ interface Env extends Partial<StorageEnv> {
    * 1,024 dimensions). Both optional; without them the index can't run and its flag stays off.
    * TODO(phase 17): provision both and add them to the generated Worker config.
    */
-  AI?: WorkersAi;
+  AI?: WorkersAi & WorkersAiRerank;
   KNOWLEDGE_VECTORS?: VectorizeIndex;
+  /**
+   * The AI agent's answering model (phase 08): Claude through Anthropic's API. A Worker secret
+   * (`wrangler secret put ANTHROPIC_API_KEY`), never in config. Without it the agent can't run.
+   */
+  ANTHROPIC_API_KEY?: string;
 }
 /** The AI index's model and store, when both bindings exist. */
 const knowledgeIndex = (env: Env): IndexEnvironment | undefined =>
@@ -82,6 +93,17 @@ const knowledgeIndex = (env: Env): IndexEnvironment | undefined =>
         vectors: vectorizeStore(env.KNOWLEDGE_VECTORS),
       }
     : undefined;
+/** The AI agent's models, when the index and the answering model's key both exist. */
+const aiAgent = (env: Env): AiEnvironment | undefined => {
+  const index = knowledgeIndex(env);
+  return index && env.AI && env.ANTHROPIC_API_KEY
+    ? {
+        model: claudeAnswerModel(env.ANTHROPIC_API_KEY),
+        rerank: workersAiReranker(env.AI),
+        index,
+      }
+    : undefined;
+};
 async function scheduleClock(env: Env, w: string, id: string) {
   const row = await tenant(
     hyperdriveConnection(env.HYPERDRIVE),
@@ -146,6 +168,7 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     connect,
     attachments,
     knowledgeIndex: knowledgeIndex(env),
+    ai: aiAgent(env),
     sessionSecret: env.SESSION_SECRET,
     identityMaster: env.IDENTITY_MASTER,
     bridgeSecret: env.BRIDGE_SECRET,
@@ -411,6 +434,10 @@ const relayWorker = {
     if (runtime.knowledgeIndex)
       handlers["knowledge.index"] = (job) =>
         runIndex(runtime.connect, runtime.knowledgeIndex!, job);
+    // The AI agent (phase 08) answers customers, when its models are bound.
+    if (runtime.ai)
+      handlers["ai.reply"] = (job) =>
+        runAiReply(runtime.connect, runtime.ai!, job);
     // Content health's near-duplicate check (phase 07, C2b) reads the same vector store.
     if (runtime.knowledgeIndex)
       handlers["knowledge.duplicates"] = (job) =>
