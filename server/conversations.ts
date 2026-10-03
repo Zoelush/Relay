@@ -29,6 +29,7 @@ import { customerReply, refreshCustomerUnread } from "./unread";
 import { enqueueJob } from "./jobs";
 import { customerVisiblePart } from "./delivery-policy";
 import { queueAiReply } from "./ai-agent";
+import { inboundRules } from "./messenger-config";
 
 export type Actor = (
   | { type: "teammate"; principal: string }
@@ -593,6 +594,28 @@ export async function command(
         "Sign in to your account to start a conversation.",
         403,
       );
+      // Messenger M3: one open conversation at a time, when the brand's messenger says so.
+      const rules = await inboundRules(
+        db,
+        w,
+        brand.settings,
+        actor.verified === true,
+      );
+      if (rules?.oneConversation) {
+        const open = (
+          await db.query<{ id: string }>(
+            "SELECT id FROM conversations WHERE workspace_id=$1 AND primary_identity_id=$2 AND brand_id=$3 AND status<>'closed' AND merged_into_id IS NULL ORDER BY updated_at DESC LIMIT 1",
+            [w, actor.identityId, actor.brandId],
+          )
+        ).rows[0];
+        if (open)
+          throw new DomainError(
+            "CONVERSATION_OPEN",
+            "You already have an open conversation. Continue it in Messages.",
+            409,
+            { conversationId: open.id },
+          );
+      }
       // "Search before contacting": a verified search (or an article read) is the proof.
       const help = p.helpContext ?? null;
       assert(
@@ -810,6 +833,36 @@ export async function command(
           imageIds(content.doc),
           p.action === "note" ? "internal" : "public",
         );
+      // Messenger M3: replies to a closed conversation or ticket, when the messenger forbids them.
+      if (actor.type === "contact" && c.status === "closed") {
+        const settings = (
+          await db.query<{ settings: Record<string, unknown> }>(
+            "SELECT settings FROM brands WHERE workspace_id=$1 AND id=$2",
+            [w, c.brand_id],
+          )
+        ).rows[0]?.settings;
+        const rules = settings
+          ? await inboundRules(db, w, settings, actor.verified === true)
+          : null;
+        if (rules) {
+          const ticket = (
+            await db.query(
+              "SELECT 1 FROM tickets WHERE workspace_id=$1 AND conversation_id=$2",
+              [w, c.id],
+            )
+          ).rows.length;
+          assert(
+            !(ticket
+              ? rules.blockClosedTicketReplies
+              : rules.blockClosedReplies),
+            ticket ? "TICKET_CLOSED" : "CONVERSATION_CLOSED",
+            ticket
+              ? "This request is closed. Start a new conversation if you need more help."
+              : "This conversation is closed. Start a new one if you need more help.",
+            409,
+          );
+        }
+      }
       if (actor.type === "contact" && c.status !== "open")
         await transition(db, w, c, who, "open");
       const kind =

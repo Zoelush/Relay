@@ -117,6 +117,13 @@ test("messenger drafts: saved with a version check, validated, published as vers
       launchToConversation: false,
       startButton: "start",
       launcher: { show: "always", rules: [] },
+      // Messenger M3's conversation rules, at their defaults.
+      inbound: {
+        oneConversation: false,
+        talkAfterUnhelpful: true,
+        blockClosedReplies: false,
+        blockClosedTicketReplies: false,
+      },
     });
     assert.deepEqual(
       first.draft.home.map((c: any) => c.type),

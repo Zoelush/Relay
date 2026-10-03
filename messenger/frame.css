@@ -616,3 +616,31 @@ footer strong {
   font-size: 12px;
   font-weight: 600;
 }
+
+/* Messenger settings M3: the privacy notice and a closed conversation. */
+.privacy {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.privacy a {
+  color: var(--accent);
+}
+.closed-note {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.closed-note p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.thread > .privacy {
+  padding: 8px 12px 0;
+  margin: 0;
+}

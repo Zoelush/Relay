@@ -24,6 +24,13 @@ type Conversation = {
   status: string;
 };
 type Audience = {
+  /** Messenger M3: what this audience may start and reply to (enforced by the server too). */
+  inbound?: {
+    oneConversation: boolean;
+    talkAfterUnhelpful: boolean;
+    blockClosedReplies: boolean;
+    blockClosedTicketReplies: boolean;
+  };
   spaces: ("home" | "messages" | "help" | "tickets")[];
   launchToConversation: boolean;
   startButton: "send" | "ask" | "chat" | "start" | "contact" | "support";
@@ -53,6 +60,11 @@ type Messenger3 = {
     showTeammates: boolean;
   };
   team?: { firstName: string; initials: string }[];
+  /** Messenger M3: the reply sound's default and the privacy notice. */
+  general?: {
+    soundDefault: boolean;
+    privacy: { enabled: boolean; url: string; text: Record<string, string> };
+  };
 };
 /** Home's welcome background, as CSS (only an https image is ever used). */
 function heroBackground(h: NonNullable<Messenger3["look"]>["header"]) {
@@ -197,7 +209,9 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
     [canRetry, setCanRetry] = useState(false),
     [connected, setConnected] = useState(false),
     [typing, setTyping] = useState(false),
-    [sounds, setSounds] = useState(false),
+    [sounds, setSounds] = useState(
+      !!boot.brand.messenger3?.general?.soundDefault,
+    ),
     [visible, setVisible] = useState(initialOpen),
     [documentVisible, setDocumentVisible] = useState(
       document.visibilityState !== "hidden",
@@ -669,7 +683,34 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
       {!conversations.length && <p className="muted empty">{t.empty}</p>}
     </div>
   );
-  const startLabel = aud ? t[START_LABEL[aud.startButton]] : t.start;
+  // Messenger M3: with one conversation at a time, an open one is continued instead.
+  const openOne = aud?.inbound?.oneConversation
+    ? conversations.find((c) => c.status !== "closed")
+    : undefined;
+  const startLabel = openOne
+    ? t.continueConversation
+    : aud
+      ? t[START_LABEL[aud.startButton]]
+      : t.start;
+  const privacy = m3?.general?.privacy;
+  const privacyText =
+    privacy?.enabled && /^https:\/\//.test(privacy.url)
+      ? localized(privacy.text, boot.locale, boot.brand.locale)
+      : undefined;
+  const privacyNotice = privacyText ? (
+    <p className="privacy">
+      {privacyText}{" "}
+      <a href={privacy!.url} target="_blank" rel="noopener noreferrer">
+        {t.privacyLink}
+      </a>
+    </p>
+  ) : null;
+  const selectedConversation = conversations.find((c) => c.id === selected);
+  // No replies to a closed conversation, when the messenger says so (tickets: the server says).
+  const closedForReplies =
+    !!selectedConversation &&
+    selectedConversation.status === "closed" &&
+    !!aud?.inbound?.blockClosedReplies;
   const look = m3?.look;
   const hero = look ? heroBackground(look.header) : undefined;
   const welcome = m3 && localized(m3.welcome, boot.locale, boot.brand.locale);
@@ -697,7 +738,10 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
   );
   const start = () =>
     mayStart ? (
-      <button className="primary start" onClick={() => select(null)}>
+      <button
+        className="primary start"
+        onClick={() => select(openOne ? openOne.id : null)}
+      >
         {startLabel}
         <span aria-hidden="true">↗</span>
       </button>
@@ -867,23 +911,30 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
               <h1>{t.messages}</h1>
               {noticeBanner}
               {rows()}
-              <form onSubmit={(e) => void submit(e)}>
-                <label htmlFor="first-message">{t.write}</label>
-                <textarea
-                  id="first-message"
-                  ref={input}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  maxLength={5000}
-                  disabled={!mayStart}
-                />
-                <button
-                  className="primary"
-                  disabled={busy || !mayStart || !draft.trim()}
-                >
-                  {t.send}
+              {openOne ? (
+                <button className="primary" onClick={() => select(openOne.id)}>
+                  {t.continueConversation}
                 </button>
-              </form>
+              ) : (
+                <form onSubmit={(e) => void submit(e)}>
+                  {privacyNotice}
+                  <label htmlFor="first-message">{t.write}</label>
+                  <textarea
+                    id="first-message"
+                    ref={input}
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    maxLength={5000}
+                    disabled={!mayStart}
+                  />
+                  <button
+                    className="primary"
+                    disabled={busy || !mayStart || !draft.trim()}
+                  >
+                    {t.send}
+                  </button>
+                </form>
+              )}
             </div>
           ) : (
             <div className="thread">
@@ -1088,72 +1139,87 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
               <div role="status" className="upload-status">
                 {uploadState}
               </div>
-              <form className="composer" onSubmit={(e) => void submit(e)}>
-                <label className="sr-only" htmlFor="reply">
-                  {t.write}
-                </label>
-                <textarea
-                  ref={input}
-                  id="reply"
-                  placeholder={t.write}
-                  value={draft}
-                  maxLength={5000}
-                  onChange={(e) => {
-                    setDraft(e.target.value);
-                    if (
-                      selected &&
-                      Date.now() - lastTyping.current > 1500 &&
-                      socket.current?.readyState === WebSocket.OPEN
-                    ) {
-                      lastTyping.current = Date.now();
-                      socket.current.send(
-                        JSON.stringify({
-                          type: "typing",
-                          conversationId: selected,
-                          active: true,
-                        }),
-                      );
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void submit();
-                    }
-                  }}
-                />
-                {boot.capabilities.attachments && (
-                  <>
-                    <input
-                      ref={fileInput}
-                      type="file"
-                      accept="image/png,image/jpeg,application/pdf,text/plain"
-                      className="sr-only"
-                      tabIndex={-1}
-                      aria-label={t.upload}
-                      onChange={(e) => {
-                        if (e.target.files?.[0]) void upload(e.target.files[0]);
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={t.upload}
-                      disabled={!selected || !!uploadState}
-                      onClick={() => fileInput.current?.click()}
-                    >
-                      ＋
+              {selected === null && privacyNotice}
+              {closedForReplies ? (
+                <div className="closed-note" role="status">
+                  <p>{t.closedNoReply}</p>
+                  {mayStart && (
+                    <button className="primary" onClick={() => select(null)}>
+                      {startLabel === t.continueConversation
+                        ? t.start
+                        : startLabel}
                     </button>
-                  </>
-                )}
-                <button
-                  className="send"
-                  aria-label={t.send}
-                  disabled={busy || !draft.trim()}
-                >
-                  ↑
-                </button>
-              </form>
+                  )}
+                </div>
+              ) : (
+                <form className="composer" onSubmit={(e) => void submit(e)}>
+                  <label className="sr-only" htmlFor="reply">
+                    {t.write}
+                  </label>
+                  <textarea
+                    ref={input}
+                    id="reply"
+                    placeholder={t.write}
+                    value={draft}
+                    maxLength={5000}
+                    onChange={(e) => {
+                      setDraft(e.target.value);
+                      if (
+                        selected &&
+                        Date.now() - lastTyping.current > 1500 &&
+                        socket.current?.readyState === WebSocket.OPEN
+                      ) {
+                        lastTyping.current = Date.now();
+                        socket.current.send(
+                          JSON.stringify({
+                            type: "typing",
+                            conversationId: selected,
+                            active: true,
+                          }),
+                        );
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void submit();
+                      }
+                    }}
+                  />
+                  {boot.capabilities.attachments && (
+                    <>
+                      <input
+                        ref={fileInput}
+                        type="file"
+                        accept="image/png,image/jpeg,application/pdf,text/plain"
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-label={t.upload}
+                        onChange={(e) => {
+                          if (e.target.files?.[0])
+                            void upload(e.target.files[0]);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={t.upload}
+                        disabled={!selected || !!uploadState}
+                        onClick={() => fileInput.current?.click()}
+                      >
+                        ＋
+                      </button>
+                    </>
+                  )}
+                  <button
+                    className="send"
+                    aria-label={t.send}
+                    disabled={busy || !draft.trim()}
+                  >
+                    ↑
+                  </button>
+                </form>
+              )}
             </div>
           ))}
         {space === "help" && (
@@ -1165,13 +1231,17 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
                 api={api}
                 t={t}
                 onSearched={setReceipt}
-                onTalk={({ comment, ...context }) => {
-                  setHelpTalk(context);
-                  // What they told us they were looking for starts their message.
-                  if (comment) setDraft(comment);
-                  setSpace("messages");
-                  select(null);
-                }}
+                onTalk={
+                  aud?.inbound && !aud.inbound.talkAfterUnhelpful
+                    ? undefined
+                    : ({ comment, ...context }) => {
+                        setHelpTalk(context);
+                        // What they told us they were looking for starts their message.
+                        if (comment) setDraft(comment);
+                        setSpace("messages");
+                        select(openOne ? openOne.id : null);
+                      }
+                }
               />
             ) : (
               <p>{t.unavailable}</p>

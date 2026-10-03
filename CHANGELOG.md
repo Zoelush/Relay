@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased: Messenger settings (M3: rules, languages, privacy, install)
+
+- **Conversation rules for visitors and users, enforced by the server:**
+  - one open conversation at a time
+  - "Talk to us" after an unhelpful article
+  - no replies to closed conversations
+  - no replies to closed tickets
+- **Interface languages:** the messenger in French, Spanish, German, Portuguese, Brazilian Portuguese, Italian and Dutch, offered per brand. Visitors in other languages get the brand's own.
+- **For everyone:**
+  - reply times on Home only once a team has the conversation
+  - a reply-sound default
+  - a privacy notice with a link when a conversation starts
+- **Install:** where the messenger ran in the last seven days, and snippets for HTML, React, Vue, Angular, WordPress and Google Tag Manager, for visitors or signed-in customers.
+- **Identity:** a guided set-up with server examples in six languages, and verification failures from the last seven days (reasons and counts only).
+- **Migration** 0042 with rollback. **Tests:**
+  - unit: `tests/messenger-rules.test.ts`
+  - browser: `tests/browser/messenger-rules.spec.ts`
+
+  Details: `docs/MESSENGER_SETTINGS_STEP3.md`.
+
 ## Unreleased: Messenger settings (M2: the look and the live preview)
 
 - **A live preview beside the Messenger settings.** It runs the real messenger on the unsaved draft, for visitors or users, in either theme. It fetches and sends nothing.

@@ -979,6 +979,15 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-launcher-preview span { position:absolute; display:grid; place-items:center; width:46px; height:46px; border-radius:15px; color:var(--pg-on-accent); font-size:20px; box-shadow:0 3px 12px var(--pg-shadow-soft); }
 .pg-launcher-preview span[data-shape="circle"] { border-radius:50%; }
 .pg-launcher-preview img { width:26px; height:26px; object-fit:contain; }
+.pg-settings-tabs { display:flex; flex-wrap:wrap; gap:4px; }
+.pg-settings-tabs button { padding:5px 12px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-surface); color:var(--pg-text); font-size:13px; }
+.pg-settings-tabs button[aria-selected="true"] { background:var(--pg-selected); border-color:var(--pg-accent); font-weight:600; }
+.pg-settings-code-block { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
+.pg-settings-code-block pre { align-self:stretch; max-height:340px; }
+.pg-settings-steps { margin:0; padding-inline-start:20px; display:flex; flex-direction:column; gap:12px; font-size:13px; line-height:1.55; }
+.pg-settings-steps li > .pg-settings-tabs, .pg-settings-steps li > .pg-settings-code-block { margin-top:8px; }
+.pg-settings-steps code, .pg-settings-card p code { font:12px ui-monospace, monospace; padding:1px 4px; border-radius:4px; background:var(--pg-sunken); }
+.pg-settings-subhead { margin:6px 0 0; font-size:13px; }
 @media (max-width: 1280px) { .pg-messenger-layout { grid-template-columns:minmax(0,1fr); } .pg-messenger-preview { position:static; } }
 @media (max-width: 760px) { .pg-health-summary { grid-template-columns:1fr; } }
 .pg-index-card form input { flex:1; min-width:200px; }
