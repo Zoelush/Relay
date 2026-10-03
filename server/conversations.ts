@@ -28,7 +28,7 @@ import { resolveContact } from "./people";
 import { customerReply, refreshCustomerUnread } from "./unread";
 import { enqueueJob } from "./jobs";
 import { customerVisiblePart } from "./delivery-policy";
-import { queueAiReply } from "./ai-agent";
+import { confirmAiHelped, queueAiReply } from "./ai-agent";
 import { inboundRules } from "./messenger-config";
 
 export type Actor = (
@@ -802,10 +802,20 @@ export async function command(
           ? "conversations.note"
           : p.action === "assign"
             ? "conversations.assign"
-            : p.action === "read"
+            : p.action === "read" || p.action === "ai_helped"
               ? "conversations.read"
               : "conversations.manage";
     const who = await access(db, w, c, actor, capability);
+    if (p.action === "ai_helped") {
+      // The customer says an AI answer helped: a confirmed resolution (phase 08 A3).
+      assert(
+        actor.type === "contact",
+        "FORBIDDEN",
+        "Only the customer can say an answer helped.",
+        403,
+      );
+      return confirmAiHelped(db, w, c, String(p.partId ?? ""));
+    }
     if (p.action === "reply" || p.action === "note") {
       assert(
         p.action !== "note" || actor.type === "teammate",

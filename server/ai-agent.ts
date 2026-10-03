@@ -4,6 +4,11 @@ import { requireSettings } from "./settings";
 import { afterChange } from "./routing";
 import { availabilityFor } from "./office-hours";
 import {
+  recordResolution,
+  resolutionSummary,
+  reverseOnHandover,
+} from "./ai-resolutions";
+import {
   facts,
   matchKeywords,
   matchRule,
@@ -95,6 +100,9 @@ type Strings = {
   away: string;
   awayUntil: string;
   awayContinue: string;
+  /** Under an answer from content (A3): the customer says it helped, and the thanks. */
+  helped: string;
+  thanks: string;
 };
 const STRINGS: Record<string, Strings> = {
   en: {
@@ -109,6 +117,9 @@ const STRINGS: Record<string, Strings> = {
       "Our team is away right now and back {when}. They'll reply here then.",
     awayContinue:
       "Our team is away right now; they'll reply here when they're back. Until then, I'm happy to keep helping.",
+    helped: "That helped",
+    thanks:
+      "Glad that helped! If you need anything else, just write here.",
   },
   fr: {
     unknown:
@@ -122,6 +133,9 @@ const STRINGS: Record<string, Strings> = {
       "Notre équipe est absente pour le moment et revient {when}. Elle vous répondra ici.",
     awayContinue:
       "Notre équipe est absente pour le moment et vous répondra ici à son retour. D'ici là, je peux continuer à vous aider.",
+    helped: "Ça m'a aidé",
+    thanks:
+      "Ravi d'avoir pu aider ! Si vous avez besoin d'autre chose, écrivez-nous ici.",
   },
   es: {
     unknown:
@@ -135,6 +149,9 @@ const STRINGS: Record<string, Strings> = {
       "Nuestro equipo no está disponible ahora y vuelve {when}. Te responderá aquí.",
     awayContinue:
       "Nuestro equipo no está disponible ahora y te responderá aquí cuando vuelva. Mientras tanto, puedo seguir ayudándote.",
+    helped: "Me ha ayudado",
+    thanks:
+      "¡Me alegra haber ayudado! Si necesitas algo más, escríbenos aquí.",
   },
   de: {
     unknown:
@@ -148,6 +165,9 @@ const STRINGS: Record<string, Strings> = {
       "Unser Team ist gerade nicht da und ab {when} zurück. Sie erhalten die Antwort dann hier.",
     awayContinue:
       "Unser Team ist gerade nicht da und antwortet hier, sobald es zurück ist. Bis dahin helfe ich gern weiter.",
+    helped: "Das hat geholfen",
+    thanks:
+      "Schön, dass es geholfen hat! Wenn Sie noch etwas brauchen, schreiben Sie einfach hier.",
   },
   pt: {
     unknown:
@@ -161,6 +181,9 @@ const STRINGS: Record<string, Strings> = {
       "A nossa equipa não está disponível agora e volta {when}. A resposta chega aqui.",
     awayContinue:
       "A nossa equipa não está disponível agora e responde aqui quando voltar. Até lá, posso continuar a ajudar.",
+    helped: "Isso ajudou",
+    thanks:
+      "Ainda bem que ajudou! Se precisar de mais alguma coisa, escreva aqui.",
   },
 };
 /** The "Talk to a person" button's words in every language, as the customer sends them. */
@@ -198,9 +221,10 @@ async function agentOf(db: Sql, w: string) {
       escalate_on_sentiment: boolean;
       never_handle: Topic[];
       escalation_guidance: string[];
+      resolution_window_hours: number;
       version: string;
     }>(
-      "SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,never_handle,escalation_guidance,version::text AS version FROM ai_agents WHERE workspace_id=$1 AND id=$2",
+      "SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,never_handle,escalation_guidance,resolution_window_hours,version::text AS version FROM ai_agents WHERE workspace_id=$1 AND id=$2",
       [w, DEFAULT_AGENT],
     )
   ).rows[0];
@@ -630,6 +654,8 @@ export async function runAiReply(
           sources: await tenant(connect, w, (db) =>
             sources(db, w, ctx.c.brand_id, records),
           ),
+          // A3: "That helped" (a resolution) or "Talk to a person", in the customer's language.
+          confirm: { helped: text.helped, person: text.person, thanks: text.thanks },
         };
       } else if (reply.kind === "clarify") {
         outcome = "clarified";
@@ -707,7 +733,7 @@ export async function runAiReply(
       await customerReply(db, w, c, part.seq);
       // Waiting on the customer, unless handed over already (kept answering while the team's away).
       await db.query(
-        "UPDATE conversations SET ai_state='pending' WHERE workspace_id=$1 AND id=$2 AND (ai_state IS NULL OR ai_state='pending')",
+        "UPDATE conversations SET ai_state='pending' WHERE workspace_id=$1 AND id=$2 AND (ai_state IS NULL OR ai_state IN ('pending','resolved'))",
         [w, c.id],
       );
       await syncUnread(db, w, c);
@@ -807,6 +833,8 @@ async function handOver(
   );
   await customerReply(db, w, c, reply.seq);
   if (!already) {
+    // A3: a resolution recorded within its window is reversed by a handover.
+    await reverseOnHandover(db, w, c, h.agent.id);
     // For teammates only: an internal note is never delivered to the customer.
     await append(
       db,
@@ -898,6 +926,56 @@ async function summary(db: Sql, w: string, c: Conversation, reason: string) {
     .join("\n");
 }
 
+/**
+ * The customer tapped "That helped" under an answer from content (A3): a confirmed resolution,
+ * unless the conversation was handed over or one already stands. Repeating it changes nothing.
+ */
+export async function confirmAiHelped(
+  db: Sql,
+  w: string,
+  c: Conversation,
+  partId: string,
+) {
+  const part = (
+    await db.query<{ data: Record<string, unknown> }>(
+      "SELECT data FROM conversation_parts WHERE workspace_id=$1 AND conversation_id=$2 AND id=$3 AND kind='ai_reply' AND audience='public'",
+      [w, c.id, partId],
+    )
+  ).rows[0];
+  const confirm = part?.data.confirm as { thanks?: unknown } | undefined;
+  assert(
+    confirm,
+    "AI_REPLY_NOT_FOUND",
+    "Only an answer from the AI agent can be marked as helpful.",
+    404,
+  );
+  if (
+    !(await aiEnabled(db, w)) ||
+    c.ai_state === "escalated" ||
+    c.ai_state === "needs_input"
+  )
+    return { conversationId: c.id, resolved: false };
+  const agent = await agentOf(db, w);
+  const id = await recordResolution(db, w, c, {
+    agentId: agent.id,
+    rule: "confirmed",
+    windowHours: agent.resolution_window_hours,
+  });
+  if (!id) return { conversationId: c.id, resolved: false };
+  const thanks = await append(
+    db,
+    w,
+    c,
+    { type: "ai", id: agent.id },
+    "ai_reply",
+    typeof confirm.thanks === "string" ? confirm.thanks : STRINGS.en.thanks,
+    {},
+  );
+  await customerReply(db, w, c, thanks.seq);
+  await syncUnread(db, w, c);
+  return { conversationId: c.id, resolved: true, resolutionId: id };
+}
+
 /* ------------------------------------------------------------------------------------------ */
 /* Settings › AI agent (A2a): the handover choices                                             */
 
@@ -931,6 +1009,8 @@ export async function readAiSettings(db: Sql, w: string, principal: string) {
       ),
     },
     rules: await rulesOf(db, w, a.id),
+    // A3: the resolution ledger, net of reversals, and its latest rows.
+    resolutions: await resolutionSummary(db, w),
     topics: a.never_handle,
     guidance: a.escalation_guidance,
     agent: {
@@ -942,6 +1022,7 @@ export async function readAiSettings(db: Sql, w: string, principal: string) {
       outOfHours: a.out_of_hours,
       failedLimit: a.failed_limit,
       escalateOnSentiment: a.escalate_on_sentiment,
+      resolutionWindowHours: a.resolution_window_hours,
       version: a.version,
     },
     teams,
@@ -974,6 +1055,12 @@ export async function saveAiSettings(
     invalid("Choose when the agent answers.");
   if (!["continue", "take_message", "reply_time"].includes(String(p.outOfHours)))
     invalid("Choose what the agent does outside office hours.");
+  const windowHours =
+    p.resolutionWindowHours === undefined
+      ? current.agent.resolutionWindowHours
+      : Number(p.resolutionWindowHours);
+  if (![1, 4, 12, 24, 48, 72].includes(windowHours))
+    invalid("Choose a resolution window of 1, 4, 12, 24, 48 or 72 hours.");
   const limit = Number(p.failedLimit);
   if (!Number.isInteger(limit) || limit < 1 || limit > 5)
     invalid("Hand over after 1 to 5 answers the agent couldn't give.");
@@ -987,7 +1074,7 @@ export async function saveAiSettings(
     p.guidance === undefined ? current.guidance : validGuidance(p.guidance);
   await db.query(
     `UPDATE ai_agents SET enabled=$3,handover_team_id=$4,answer_hours=$5,out_of_hours=$6,failed_limit=$7,escalate_on_sentiment=$8,
-     never_handle=$9,escalation_guidance=$10,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+     never_handle=$9,escalation_guidance=$10,resolution_window_hours=$11,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
     [
       w,
       DEFAULT_AGENT,
@@ -999,6 +1086,7 @@ export async function saveAiSettings(
       p.escalateOnSentiment,
       JSON.stringify(topics),
       JSON.stringify(guidance),
+      windowHours,
     ],
   );
   await saveRules(db, w, DEFAULT_AGENT, rules);

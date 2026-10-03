@@ -633,6 +633,23 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
       setBusy(false);
     }
   }
+  /** The customer says an AI answer helped (phase 08 A3): recorded once, thanked by the agent. */
+  async function helped(partId: string) {
+    if (!selected || preview) return;
+    setBusy(true);
+    setError("");
+    try {
+      await request(
+        "command",
+        { action: "ai_helped", conversationId: selected, partId },
+        crypto.randomUUID(),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function upload(file: File) {
     if (!selected) return;
     setUploadState(t.scanning);
@@ -1144,6 +1161,40 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
                                   {o}
                                 </button>
                               ))}
+                            </div>
+                          )}
+                        {p.kind === "ai_reply" &&
+                          p.id === lastPartId &&
+                          !!p.data.confirm && (
+                            // An answer from content (phase 08 A3): it helped (a resolution), or a person.
+                            <div
+                              className="options"
+                              role="group"
+                              aria-label={String(
+                                (p.data.confirm as { helped?: string }).helped ?? "",
+                              )}
+                            >
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void helped(p.id)}
+                              >
+                                👍{" "}
+                                {String((p.data.confirm as { helped?: string }).helped)}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() =>
+                                  void submit(
+                                    undefined,
+                                    false,
+                                    String((p.data.confirm as { person?: string }).person),
+                                  )
+                                }
+                              >
+                                {String((p.data.confirm as { person?: string }).person)}
+                              </button>
                             </div>
                           )}
                       </article>

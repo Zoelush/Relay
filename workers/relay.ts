@@ -5,6 +5,7 @@ import {
 } from "../server/inbox-views";
 import { processKnowledgeFile } from "../server/knowledge-files";
 import { processBrandAsset } from "../server/brand-assets";
+import { resolveQuiet } from "../server/ai-resolutions";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
   runIndex,
@@ -494,6 +495,8 @@ const relayWorker = {
           // Published knowledge waiting for the AI index (phase 07, C2a).
           if (runtime.knowledgeIndex)
             await scheduleIndex(runtime.connect, work.workspace);
+          // AI answers the customer didn't come back to: resolved (phase 08 A3).
+          await resolveQuiet(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(
