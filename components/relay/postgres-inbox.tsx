@@ -28,6 +28,7 @@ import {
   Command,
   Ticket,
   Zap,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import "../../agent/inbox.css";
 import { useAgentTheme } from "../../agent/theme";
@@ -44,6 +45,7 @@ import { exportConversation } from "../../agent/export";
 import { WorkloadBar } from "../../agent/workload";
 import { ListHeader, Rail, useSideMenu } from "../../agent/shell";
 import { ConversationCard, initials } from "../../agent/card";
+import { alertTeammate, type AlertPrefs } from "../../agent/alerts";
 import { SlaBadge } from "../../agent/sla";
 import type { MessagePreview } from "../../server/conversations";
 import { ContextSidebar } from "../../agent/sidebar";
@@ -124,7 +126,10 @@ type Snapshot = Directory & {
     macros?: boolean;
     views?: boolean;
     knowledge?: boolean;
+    settings?: boolean;
   };
+  /** Your preferences (Settings › Your profile and Notifications). */
+  profile?: { signature: string; notifications: AlertPrefs };
 };
 /** The rich editor is its own chunk (about 130 KB gzip), so the list and timeline load first. */
 const Composer = lazy(() =>
@@ -134,6 +139,32 @@ const Composer = lazy(() =>
 const Knowledge = lazy(() =>
   import("../../agent/knowledge").then((m) => ({ default: m.Knowledge })),
 );
+/** Settings load on their own, only when opened. */
+const Settings = lazy(() =>
+  import("../../agent/settings").then((m) => ({ default: m.Settings })),
+);
+/** A settings page from the address (`#settings/<page>`), or null when not in Settings. */
+const settingsFromHash = () => {
+  if (typeof window === "undefined") return null;
+  const m = /^#settings(?:\/([a-z-]+))?$/.exec(window.location.hash);
+  return m ? (m[1] ?? "home") : null;
+};
+/** Your signature, as paragraphs after a reply (never a note). */
+function withSignature(doc: RichDoc, signature: string): RichDoc {
+  if (!signature.trim()) return doc;
+  return {
+    ...doc,
+    content: [
+      ...doc.content,
+      ...signature.split("\n").map((line) => ({
+        type: "paragraph" as const,
+        ...(line.trim()
+          ? { content: [{ type: "text" as const, text: line }] }
+          : {}),
+      })),
+    ],
+  };
+}
 /** The teammate's own IANA zone: snooze presets are resolved in it on the server. */
 const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 /** A cached timeline: parts, the live replay cursor, and the cursor for older history. */
@@ -234,7 +265,46 @@ export default function PostgresInbox({
     Record<string, Partial<Conversation>>
   >({});
   /** The section on screen. The inbox stays mounted underneath Knowledge, keeping its place. */
-  const [area, setArea] = useState<"inbox" | "knowledge">("inbox");
+  // The section on screen; Settings has an address per page (`#settings/<page>`).
+  const [area, setAreaState] = useState<"inbox" | "knowledge" | "settings">(
+    () => (settingsFromHash() ? "settings" : "inbox"),
+  );
+  const [settingsPage, setSettingsPage] = useState(
+    () => settingsFromHash() ?? "home",
+  );
+  const [knowledgeTab, setKnowledgeTab] = useState<
+    "content" | "help" | "websites" | "index"
+  >("content");
+  const setArea = useCallback(
+    (next: "inbox" | "knowledge" | "settings", page = "home") => {
+      setAreaState(next);
+      if (next === "settings") setSettingsPage(page);
+      const hash =
+        next === "settings"
+          ? "#settings" + (page === "home" ? "" : "/" + page)
+          : "";
+      if (window.location.hash !== hash)
+        history.replaceState(
+          null,
+          "",
+          window.location.pathname + window.location.search + hash,
+        );
+    },
+    [],
+  );
+  // Back and forward, or a link to a settings page, move to it.
+  useEffect(() => {
+    const onHash = () => {
+      const page = settingsFromHash();
+      if (page) {
+        setAreaState("settings");
+        setSettingsPage(page);
+      } else if (window.location.hash === "")
+        setAreaState((a) => (a === "settings" ? "inbox" : a));
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   const inboxMenu = useSideMenu("inbox");
   const [inboxCount, setInboxCount] = useState<string | null>(null);
   const [theme, setTheme] = useAgentTheme();
@@ -745,6 +815,25 @@ export default function PostgresInbox({
   useEffect(() => {
     if (canMacros) void loadMacros();
   }, [canMacros, loadMacros]);
+  // Managing macros happens in Settings › Macros when the workspace has Settings.
+  const manageMacros = () => {
+    if (snapshot?.capabilities.settings) {
+      setOverlay(null);
+      setArea("settings", "macros");
+    } else setOverlay("macro-manager");
+  };
+  // A new notification gets your attention the ways you chose (Settings › Notifications).
+  const lastCount = useRef<number | null>(null);
+  useEffect(() => {
+    const prefs = snapshot?.profile?.notifications;
+    if (
+      prefs &&
+      lastCount.current !== null &&
+      notificationCount > lastCount.current
+    )
+      alertTeammate(prefs, notificationCount);
+    lastCount.current = notificationCount;
+  }, [notificationCount, snapshot?.profile?.notifications]);
   // Ticket states for macros and bulk actions, as "Type: State". Off (or absent) means none.
   const [ticketStates, setTicketStates] = useState<
     { id: string; name: string }[]
@@ -972,7 +1061,7 @@ export default function PostgresInbox({
             id: "macros",
             group: "Macro",
             label: "Manage macros",
-            run: () => setOverlay("macro-manager"),
+            run: manageMacros,
           },
         ]
       : []),
@@ -1186,7 +1275,12 @@ export default function PostgresInbox({
         {
           action: item.mode,
           conversationId: item.conversationId,
-          doc: item.doc,
+          // Your signature goes on replies as they're sent; the draft (and a failed send's
+          // restored text) stays without it, so it's never added twice.
+          doc:
+            item.mode === "reply" && snapshot?.profile?.signature
+              ? withSignature(item.doc, snapshot.profile.signature)
+              : item.doc,
         },
         item.id,
       );
@@ -1241,7 +1335,10 @@ export default function PostgresInbox({
                   label: "Knowledge",
                   icon: <BookOpen size={19} />,
                   current: area === "knowledge",
-                  onClick: () => setArea("knowledge"),
+                  onClick: () => {
+                    setKnowledgeTab("content");
+                    setArea("knowledge");
+                  },
                 },
               ]
             : []),
@@ -1268,6 +1365,17 @@ export default function PostgresInbox({
             icon: <Keyboard size={19} />,
             onClick: () => setOverlay("shortcuts"),
           },
+          ...(snapshot?.capabilities.settings
+            ? [
+                {
+                  id: "settings",
+                  label: "Settings",
+                  icon: <SettingsIcon size={19} />,
+                  current: area === "settings",
+                  onClick: () => setArea("settings"),
+                },
+              ]
+            : []),
         ]}
         account={
           snapshot ? (
@@ -1284,6 +1392,11 @@ export default function PostgresInbox({
               }}
               theme={theme}
               onTheme={setTheme}
+              onProfile={
+                snapshot.capabilities.settings
+                  ? () => setArea("settings", "profile")
+                  : undefined
+              }
             />
           ) : (
             <div className="pg-nav-foot" title="Authenticated inbox">
@@ -1297,12 +1410,69 @@ export default function PostgresInbox({
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}
         >
-          <Knowledge teammates={snapshot.teammates} />
+          <Knowledge
+            key={knowledgeTab}
+            teammates={snapshot.teammates}
+            initialTab={knowledgeTab}
+          />
+        </Suspense>
+      )}
+      {area === "settings" && snapshot?.capabilities.settings && (
+        <Suspense
+          fallback={<section className="pg-workspace" aria-busy="true" />}
+        >
+          <Settings
+            page={settingsPage}
+            onPage={(page) => setArea("settings", page)}
+            theme={theme}
+            onTheme={setTheme}
+            macros={{
+              list: macroList,
+              dir: {
+                teammates: snapshot.teammates,
+                teams: snapshot.teams,
+                tags: snapshot.tags,
+                ticketStates,
+              },
+              onChanged: () => void loadMacros(),
+            }}
+            onLink={(target) => {
+              if (target === "views") {
+                setArea("inbox");
+                inboxMenu.setHidden(false);
+                return;
+              }
+              setKnowledgeTab(
+                target === "help-centers"
+                  ? "help"
+                  : target === "websites"
+                    ? "websites"
+                    : "index",
+              );
+              setArea("knowledge");
+            }}
+            onProfile={(p) =>
+              setSnapshot(
+                (s) =>
+                  s && {
+                    ...s,
+                    teammate: { ...s.teammate, name: p.name },
+                    profile: {
+                      signature: p.signature,
+                      notifications: p.notifications,
+                    },
+                  },
+              )
+            }
+          />
         </Suspense>
       )}
       <section
         className="pg-workspace"
-        hidden={area === "knowledge" && !!snapshot?.capabilities.knowledge}
+        hidden={
+          (area === "knowledge" && !!snapshot?.capabilities.knowledge) ||
+          (area === "settings" && !!snapshot?.capabilities.settings)
+        }
       >
         {error && (
           <div className="pg-error" role="alert">
@@ -1825,7 +1995,7 @@ export default function PostgresInbox({
         <MacroPicker
           list={macroList}
           onApply={(m) => void applyMacro(m)}
-          onManage={() => setOverlay("macro-manager")}
+          onManage={manageMacros}
           onClose={() => setOverlay(null)}
         />
       )}

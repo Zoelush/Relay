@@ -6,7 +6,12 @@ import { command } from "../../server/conversations";
 
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
 test.beforeAll(async () => {
-  relay = await startLocalRelay({ apiPort: 8920, hostPort: 8921 });
+  // The manager as a dialog (without Settings); Settings › Macros is in settings.spec.ts.
+  relay = await startLocalRelay({
+    apiPort: 8920,
+    hostPort: 8921,
+    settings: false,
+  });
 });
 test.afterAll(async () => {
   await relay?.close();

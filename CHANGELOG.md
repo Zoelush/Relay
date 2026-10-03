@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased: Settings (S1: the frame and personal settings)
+
+- **A Settings area,** opened from a gear in the icon strip:
+  - a grouped side menu and a home page of cards
+  - every page at its own address (`#settings/profile`)
+  - behind a new `settings_v1` flag, off by default
+  - pages show only to teammates who may use them
+- **Your profile:** name, timezone and a reply signature, added to every reply you send and never to notes.
+- **Notifications:** desktop notifications while Relay is in the background, and a soft chime, following your account.
+- **Appearance:** the theme.
+- **Workspace › General:** the workspace's name, timezone and team language, with counts of teammates, contacts and conversations.
+- **Macros** are managed in Settings now. The command palette and macro picker open it there.
+- **Settings links to** saved views, help centers, websites and the AI index where they live.
+- **Next:** helpdesk settings (S2), then people and channels (S3).
+- **Migration** 0037 with rollback. **Tests:**
+  - unit: `tests/settings.test.ts`
+  - browser: `tests/browser/settings.spec.ts`
+
+  Details: `docs/SETTINGS_PLAN.md` and `docs/SETTINGS_STEP1.md`.
+
 ## Unreleased: knowledge step C2a (the AI index)
 
 - **Published knowledge is indexed by meaning:**
