@@ -217,9 +217,11 @@
     host.hidden = false;
     button = document.createElement("button");
     button.type = "button";
-    // Messenger settings M2: a launcher logo (https) instead of the ✦, and spacing from the edges.
+    // Messenger settings M2: a launcher logo instead of the ✦, and spacing from the edges. M5: an
+    // uploaded logo is served by Relay itself; any other address must be https.
     const look = boot.brand.messenger3 && boot.brand.messenger3.look;
-    if (look && /^https:\/\//.test(look.launcherLogo || "")) {
+    const logoUrl = (look && look.launcherLogo) || "";
+    if (/^https:\/\//.test(logoUrl) || logoUrl.startsWith(config.api + "/")) {
       const logo = document.createElement("img");
       logo.src = look.launcherLogo;
       logo.alt = "";

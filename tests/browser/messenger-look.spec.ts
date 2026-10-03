@@ -155,24 +155,18 @@ test("the preview shows the draft as it's edited, for visitors and users, light 
   );
 });
 
-test("a launcher logo that isn't https is refused with the reason, and nothing is published", async ({
+test("launcher spacing beyond 120 pixels is refused with the reason, and nothing is published", async ({
   page,
 }) => {
   await settings(page);
   const before = (
     await sql("SELECT count(*)::int AS n FROM messenger_versions")
   )[0].n;
-  await section(page, "Widget", "Messenger theme and branding", "Appearance");
-  await page
-    .getByLabel("Launcher logo")
-    .fill("http://cdn.example.com/launcher.png");
-  // The preview shows the ✦, never an insecure image.
-  await expect(
-    page.getByRole("img", { name: "Launcher preview" }),
-  ).toContainText("✦");
+  await section(page, "Widget", "Launcher position", "Appearance");
+  await page.getByLabel("Side spacing (px)").fill("500");
   await setLive(page);
   await expect(page.getByRole("alert")).toContainText(
-    "The launcher logo needs an https:// image address.",
+    "The launcher's side spacing is 0 to 120 pixels.",
   );
   expect(
     (await sql("SELECT count(*)::int AS n FROM messenger_versions"))[0].n,

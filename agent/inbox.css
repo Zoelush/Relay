@@ -1002,6 +1002,9 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-accordion h3 svg { flex:none; color:var(--pg-muted); transition:transform .15s; }
 .pg-accordion[data-open] h3 svg { transform:rotate(180deg); }
 .pg-accordion-body { display:flex; flex-direction:column; gap:14px; padding:2px 18px 18px; }
+.pg-settings-label { font-weight:600; font-size:13px; }
+.pg-messenger-image-box { display:grid; place-items:center; width:56px; height:56px; border:1px solid var(--pg-border); border-radius:10px; background:var(--pg-sunken); overflow:hidden; font-size:12px; }
+.pg-messenger-image-box img { max-width:100%; max-height:100%; object-fit:contain; }
 .pg-colour-sample { display:grid; place-items:center; width:34px; height:34px; border-radius:8px; border:1px solid var(--pg-border); font-weight:600; }
 .pg-settings-tabs { display:flex; flex-wrap:wrap; gap:4px; }
 .pg-settings-tabs button { padding:5px 12px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-surface); color:var(--pg-text); font-size:13px; }

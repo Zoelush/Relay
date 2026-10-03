@@ -68,11 +68,17 @@ type Messenger3 = {
   };
 };
 /** Home's welcome background, as CSS (only an https image is ever used). */
-function heroBackground(h: NonNullable<Messenger3["look"]>["header"]) {
+/** An image address the messenger shows: https, or an upload Relay serves (messenger M5). */
+const imageAddress = (value: string | undefined, api: string) =>
+  !!value && (/^https:\/\//.test(value) || value.startsWith(api + "/"));
+function heroBackground(
+  h: NonNullable<Messenger3["look"]>["header"],
+  api: string,
+) {
   if (h.background === "solid") return h.colors[0];
   if (h.background === "gradient")
     return `linear-gradient(135deg, ${h.colors.join(", ")})`;
-  if (h.background === "image" && /^https:\/\//.test(h.image))
+  if (h.background === "image" && imageAddress(h.image, api))
     return `center / cover no-repeat url(${JSON.stringify(h.image)})`;
   return undefined;
 }
@@ -725,7 +731,7 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
     selectedConversation.status === "closed" &&
     !!aud?.inbound?.blockClosedReplies;
   const look = m3?.look;
-  const hero = look ? heroBackground(look.header) : undefined;
+  const hero = look ? heroBackground(look.header, api) : undefined;
   const welcome = m3 && localized(m3.welcome, boot.locale, boot.brand.locale);
   // "{first_name}" becomes the verified customer's first name, or is left out.
   const greeting = welcome?.greeting
@@ -772,7 +778,7 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
     >
       <header>
         <div className="brand">
-          {boot.brand.logo && (
+          {imageAddress(boot.brand.logo, api) && (
             <img src={boot.brand.logo} alt="" width="32" height="32" />
           )}
           <span className="brand-mark" aria-hidden="true">
