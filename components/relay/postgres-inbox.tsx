@@ -1313,7 +1313,15 @@ export default function PostgresInbox({
       <span className="pg-visually-hidden" data-testid="storage-source">
         {storage}
       </span>
-      <WorkloadBar revision={viewRevision} onOpen={(id) => pick(id)} />
+      <WorkloadBar
+        revision={viewRevision}
+        onOpen={(id) => pick(id)}
+        onEditTeams={
+          snapshot?.capabilities.settings
+            ? () => setArea("settings", "teams")
+            : undefined
+        }
+      />
     </>
   );
   return (

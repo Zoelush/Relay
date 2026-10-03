@@ -997,3 +997,36 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-settings-tile small { color:var(--pg-muted); font-size:12px; line-height:1.4; }
 .pg-macros-embedded { display:flex; flex-direction:column; gap:12px; }
 @media (max-width: 760px) { .pg-settings-stats { grid-template-columns:1fr; } }
+
+/* Settings › Helpdesk (S2a): lists, editors, the week's hours, targets. */
+.pg-settings-notice { margin:0; padding:8px 12px; border-radius:8px; background:var(--pg-selected); color:var(--pg-text); font-size:13px; }
+.pg-settings-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; }
+.pg-settings-list li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid var(--pg-border-subtle); }
+.pg-settings-list li:first-child { border-top:0; }
+.pg-settings-list li > span:first-child { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.pg-settings-list small { font-size:12px; }
+.pg-settings-buttons { display:flex; gap:4px; flex:none; }
+.pg-settings-badge { margin-left:8px; padding:0 7px; border-radius:999px; background:var(--pg-neutral-bg); color:var(--pg-neutral-text); font-size:11px; font-weight:600; }
+.pg-settings-table input { width:90px; }
+.pg-settings-table th[scope="row"] { font-weight:500; text-align:left; }
+.pg-settings-fieldset { display:flex; flex-direction:column; gap:8px; margin:0; padding:10px 12px; border:1px solid var(--pg-border-subtle); border-radius:9px; }
+.pg-settings-fieldset legend { padding:0 4px; font-size:13px; font-weight:600; }
+.pg-settings-small { margin:0; font-size:12px; }
+.pg-settings-checks { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:6px 12px; }
+.pg-settings-checks label { display:flex; align-items:center; gap:6px; font-size:13px; }
+.pg-settings-row { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+.pg-settings-row .pg-settings-field { flex:1; min-width:180px; }
+.pg-settings-actions { display:flex; justify-content:flex-end; gap:8px; }
+.pg-settings-day { display:grid; grid-template-columns:140px 1fr; gap:10px; align-items:start; padding:4px 0; }
+.pg-settings-windows { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; min-height:28px; }
+.pg-settings-window { display:inline-flex; align-items:center; gap:6px; font-size:13px; }
+.pg-settings-window input { width:64px; text-align:center; font-variant-numeric:tabular-nums; }
+.pg-settings-window button { border:0; background:none; color:var(--pg-text-3); font-size:16px; padding:0 4px; }
+.pg-settings-chips { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px; }
+.pg-settings-chips li { display:inline-flex; align-items:center; gap:4px; padding:2px 4px 2px 10px; border:1px solid var(--pg-border-strong); border-radius:999px; font-size:12px; font-variant-numeric:tabular-nums; }
+.pg-settings-chips button { border:0; background:none; color:var(--pg-text-3); }
+.pg-link-button { border:0; background:none; padding:0; color:var(--pg-accent); text-decoration:underline; font-size:13px; }
+.pg-settings-target { display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; padding:4px 0; }
+.pg-settings-target > span { display:flex; flex-direction:column; gap:1px; }
+.pg-settings-target input { width:72px; }
+@media (max-width: 760px) { .pg-settings-day { grid-template-columns:1fr; } }

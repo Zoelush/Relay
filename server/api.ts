@@ -1339,10 +1339,19 @@ export async function handleApi(
           url.pathname === "/v1/agent/teams" ||
           url.pathname === "/v1/agent/teammate-limits"
         ) {
+          // A retried save (a new team, say) is applied once and answers the same.
           const result = await tenant(env.connect, workspace, (db) =>
-            url.pathname === "/v1/agent/teams"
-              ? saveTeam(db, workspace, principal, p)
-              : saveTeammateLimits(db, workspace, principal, p),
+            once(
+              db,
+              workspace,
+              url.pathname.slice(10) + ":" + principal,
+              req.headers.get("idempotency-key") ?? "",
+              p,
+              (): Promise<Record<string, unknown>> =>
+                url.pathname === "/v1/agent/teams"
+                  ? saveTeam(db, workspace, principal, p)
+                  : saveTeammateLimits(db, workspace, principal, p),
+            ),
           );
           await env.notify?.(workspace, "");
           return json(result);
@@ -1355,17 +1364,32 @@ export async function handleApi(
           );
         if (url.pathname === "/v1/agent/sla-policies") {
           const result = await tenant(env.connect, workspace, (db) =>
-            savePolicy(db, workspace, principal, p),
+            once(
+              db,
+              workspace,
+              "sla-policies:" + principal,
+              req.headers.get("idempotency-key") ?? "",
+              p,
+              () => savePolicy(db, workspace, principal, p),
+            ),
           );
           await env.dispatchJobs?.(workspace);
           return json(result);
         }
         if (url.pathname === "/v1/agent/calendars")
           return json(
-            await tenant(env.connect, workspace, (db): Promise<unknown> =>
-              p.op === "assign"
-                ? assignCalendar(db, workspace, principal, p)
-                : publishCalendar(db, workspace, principal, p),
+            await tenant(env.connect, workspace, (db) =>
+              once(
+                db,
+                workspace,
+                "calendars:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                (): Promise<Record<string, unknown>> =>
+                  p.op === "assign"
+                    ? assignCalendar(db, workspace, principal, p)
+                    : publishCalendar(db, workspace, principal, p),
+              ),
             ),
           );
         if (url.pathname === "/v1/agent/tickets") {

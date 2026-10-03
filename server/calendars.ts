@@ -92,9 +92,19 @@ export async function listCalendars(db: Sql, w: string, principal: string) {
     scopeId: a.scope_id,
     calendarId: a.calendar_id,
   }));
+  // What a calendar can be assigned to (Settings › Office hours).
+  const named = async (table: "brands" | "teams") =>
+    (
+      await db.query<{ id: string; name: string }>(
+        `SELECT id,name FROM ${table} WHERE workspace_id=$1 ORDER BY lower(name),id`,
+        [w],
+      )
+    ).rows;
   return {
     calendars,
     assignments,
+    brands: await named("brands"),
+    teams: await named("teams"),
     canManage: await can(db, w, principal, "workspace.manage"),
   };
 }

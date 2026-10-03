@@ -67,10 +67,13 @@ const message = (e: unknown, fallback: string) =>
 export function WorkloadBar({
   revision,
   onOpen,
+  onEditTeams,
 }: {
   /** Changes when the workspace changes, to reload. */
   revision: number;
   onOpen: (id: string) => void;
+  /** Opens Settings › Teams & assignment; without it, teams are edited in the panel. */
+  onEditTeams?: () => void;
 }) {
   const [data, setData] = useState<Workload | null>(null);
   const [panel, setPanel] = useState(false);
@@ -130,6 +133,13 @@ export function WorkloadBar({
           data={data}
           onChanged={() => setReload((n) => n + 1)}
           onClose={() => setPanel(false)}
+          onEditTeams={
+            onEditTeams &&
+            (() => {
+              setPanel(false);
+              onEditTeams();
+            })
+          }
         />
       )}
     </div>
@@ -141,10 +151,12 @@ function WorkloadPanel({
   data,
   onChanged,
   onClose,
+  onEditTeams,
 }: {
   data: Workload;
   onChanged: () => void;
   onClose: () => void;
+  onEditTeams?: () => void;
 }) {
   const [editing, setEditing] = useState<Team | null>(null);
   const first = useRef<HTMLButtonElement>(null);
@@ -222,7 +234,10 @@ function WorkloadPanel({
               </tbody>
             </table>
             {data.canManage && (
-              <button type="button" onClick={() => setEditing(t)}>
+              <button
+                type="button"
+                onClick={() => (onEditTeams ? onEditTeams() : setEditing(t))}
+              >
                 Edit team settings
               </button>
             )}
