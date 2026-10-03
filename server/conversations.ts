@@ -1156,17 +1156,21 @@ export async function command(
         [w, c.id, p.title],
       );
     } else if (p.action === "tag_add" || p.action === "tag_remove") {
-      assert(
-        p.tagId &&
-          (
-            await db.query(
-              "SELECT id FROM tags WHERE workspace_id=$1 AND id=$2",
+      const tag = p.tagId
+        ? (
+            await db.query<{ archived: boolean }>(
+              "SELECT archived_at IS NOT NULL AS archived FROM tags WHERE workspace_id=$1 AND id=$2",
               [w, p.tagId],
             )
-          ).rows.length,
-        "TAG_NOT_FOUND",
-        "Tag unavailable.",
-        404,
+          ).rows[0]
+        : undefined;
+      assert(tag, "TAG_NOT_FOUND", "Tag unavailable.", 404);
+      // An archived tag stays where it is and can be removed, but isn't added again.
+      assert(
+        p.action === "tag_remove" || !tag.archived,
+        "TAG_ARCHIVED",
+        "This tag is archived. Restore it in Settings to use it again.",
+        409,
       );
       if (p.action === "tag_add")
         await db.query(

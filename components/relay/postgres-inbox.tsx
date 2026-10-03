@@ -35,7 +35,7 @@ import { useAgentTheme } from "../../agent/theme";
 import { AccountMenu } from "../../agent/account-menu";
 import { api, InboxError } from "../../agent/api";
 import { InboxViews, type ViewCount } from "../../agent/views";
-import { Timeline, type Directory } from "../../agent/timeline";
+import { activeTags, Timeline, type Directory } from "../../agent/timeline";
 import type { ComposerHandle } from "../../agent/composer";
 import { useDrafts } from "../../agent/use-drafts";
 import { NotificationsPanel } from "../../agent/notifications";
@@ -1014,7 +1014,7 @@ export default function PostgresInbox({
                 { assigned: "", team_id: t.id },
               ),
           })),
-          ...(snapshot?.tags ?? []).map((t) => ({
+          ...(snapshot ? activeTags(snapshot) : []).map((t) => ({
             id: "tag-" + t.id,
             group: "Tag",
             label: "Add tag " + t.name,
@@ -1432,6 +1432,7 @@ export default function PostgresInbox({
           <Settings
             page={settingsPage}
             onPage={(page) => setArea("settings", page)}
+            onDirectory={() => void load()}
             theme={theme}
             onTheme={setTheme}
             macros={{

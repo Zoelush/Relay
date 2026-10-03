@@ -1030,3 +1030,9 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-settings-target > span { display:flex; flex-direction:column; gap:1px; }
 .pg-settings-target input { width:72px; }
 @media (max-width: 760px) { .pg-settings-day { grid-template-columns:1fr; } }
+.pg-settings-states { width:100%; border-collapse:collapse; }
+.pg-settings-states th { padding:0 6px 4px 0; color:var(--pg-muted); font-size:12px; font-weight:600; text-align:left; }
+.pg-settings-states td { padding:3px 6px 3px 0; }
+.pg-settings-states td input { width:100%; min-width:110px; }
+.pg-settings-field-choice { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 16px; padding:4px 0; font-size:13px; }
+.pg-settings-field-choice label { display:inline-flex; align-items:center; gap:6px; }

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased: Settings (S2b: tags, attributes, ticket types)
+
+- **Three more Helpdesk pages in Settings:**
+  - **Tags:** add, rename, archive and restore. An archived tag stays on its conversations and in their history, can still be removed, and is left out of every "add tag" picker.
+  - **Attributes** (conversation attributes):
+    - create with a type: text, number, decimal, yes or no, date, or list
+    - rename, add options, archive and restore
+    - the type is fixed once created, and saved options can't be renamed or removed
+  - **Ticket types:**
+    - name, category, portal visibility
+    - states with customer labels and kinds
+    - the moves allowed between states
+    - fields from the attributes, optionally required to resolve
+    - archive
+- **Archived tags and attributes** are refused when adding a tag or setting a value, by hand or in a macro.
+- **Live updates:** saving a tag or a team refreshes the app's pickers at once.
+- **Idempotent saves:** saving tags, attributes and ticket types uses the idempotency key.
+- **Migration** 0038 with rollback (`tags.archived_at`; tags can't be deleted). **Tests:**
+  - unit: `tests/settings-data.test.ts`
+  - browser: `tests/browser/settings-data.spec.ts`
+
+  Details: `docs/SETTINGS_STEP3.md`.
+
 ## Unreleased: Settings (S2a: teams, office hours, SLAs)
 
 - **A Helpdesk group in Settings,** for workspace managers:

@@ -90,6 +90,8 @@ test("settings: off by default; your profile and notifications for everyone; Gen
       "notifications",
       "appearance",
       "general",
+      "tags",
+      "attributes",
       "macros",
       "views",
     ]);

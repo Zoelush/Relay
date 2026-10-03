@@ -28,7 +28,8 @@ const SLA_NAMES: Record<string, string> = {
 export type Directory = {
   teammates: { id: string; name: string }[];
   teams: { id: string; name: string }[];
-  tags: { id: string; name: string }[];
+  /** Archived tags are kept for names in history; pickers leave them out (see `activeTags`). */
+  tags: { id: string; name: string; archived?: boolean }[];
   /** Ticket states across types, named "Type: State"; empty when tickets are off. */
   ticketStates?: { id: string; name: string }[];
 };
@@ -56,6 +57,13 @@ const pick = (list: { id: string; name: string }[], id: unknown) =>
   list.find((x) => x.id === id)?.name ?? (id ? String(id) : "");
 
 /** One line of text for a system part. Every kind written by the conversation core is covered. */
+/** The tags that can be added: archived ones stay on conversations but aren't added again. */
+export const activeTags = (dir: Pick<Directory, "tags">) =>
+  dir.tags.filter((t) => !t.archived);
+/** A tag's name in a picker, marked when archived (it can still be removed). */
+export const tagLabel = (t: Directory["tags"][number]) =>
+  t.archived ? `${t.name} (archived)` : t.name;
+
 export function describePart(p: TimelinePart, dir: Directory): string {
   const d = p.data;
   const who =
