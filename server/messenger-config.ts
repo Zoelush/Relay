@@ -70,7 +70,47 @@ export type Extras = {
   home: HomeCard[];
   welcome: Record<string, { greeting: string; intro: string }>;
   notice: { enabled: boolean; text: Record<string, string> };
+  /** Messenger settings M2: the look beyond colour, theme, side, shape and logo. */
+  look: Look;
 };
+export type Look = {
+  /** The primary colour in the dark theme (null: the light one). */
+  darkColor: string | null;
+  /** The background of Home's welcome, with its text colour, and a fade into the page. */
+  header: {
+    background: "none" | "solid" | "gradient" | "image";
+    colors: string[];
+    image: string;
+    text: "light" | "dark";
+    fade: boolean;
+  };
+  /** An image in the launcher instead of the ✦ (https). */
+  launcherLogo: string;
+  /** The launcher's distance from the side and bottom on computers and tablets, in pixels. */
+  launcherSpacing: { side: number; bottom: number };
+  /** Teammates' initials on Home, to put people behind the messenger. */
+  showTeammates: boolean;
+};
+export const DEFAULT_LOOK: Look = {
+  darkColor: null,
+  header: {
+    background: "none",
+    colors: ["#087a57"],
+    image: "",
+    text: "light",
+    fade: false,
+  },
+  launcherLogo: "",
+  launcherSpacing: { side: 24, bottom: 24 },
+  showTeammates: false,
+};
+/** A config from before M2 gets the default look. */
+export const withLook = <T extends Partial<Extras>>(
+  c: T,
+): T & { look: Look } => ({
+  ...c,
+  look: c.look ?? DEFAULT_LOOK,
+});
 export type MessengerConfig = Messenger & Extras;
 
 const invalid = (message: string): never => {
@@ -91,7 +131,7 @@ const audienceDefaults = (m: Messenger): AudienceConfig => ({
 export function configOf(settings: Record<string, unknown>): MessengerConfig {
   const m = messengerOf(settings);
   const extras = settings.messenger3 as Extras | undefined;
-  if (extras) return { ...m, ...extras };
+  if (extras) return withLook({ ...m, ...extras });
   const blocks = Array.isArray(settings.homeBlocks)
     ? (settings.homeBlocks as { type: string }[])
     : [{ type: "start" }, { type: "recent" }];
@@ -109,6 +149,7 @@ export function configOf(settings: Record<string, unknown>): MessengerConfig {
       [m.locale]: { greeting: "Hi {first_name} 👋", intro: "How can we help?" },
     },
     notice: { enabled: false, text: {} },
+    look: DEFAULT_LOOK,
   };
 }
 
@@ -152,6 +193,66 @@ function validAudience(v: unknown, who: "visitors" | "users"): AudienceConfig {
     launchToConversation: a.launchToConversation === true,
     startButton: a.startButton as AudienceConfig["startButton"],
     launcher: { show: show as AudienceConfig["launcher"]["show"], rules },
+  };
+}
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const https = (v: string) => {
+  try {
+    return new URL(v).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+function validLook(input: unknown): Look {
+  const l = (input ?? {}) as Record<string, unknown>;
+  const h = (l.header ?? {}) as Record<string, unknown>;
+  const darkColor =
+    l.darkColor === null || l.darkColor === "" || l.darkColor === undefined
+      ? null
+      : String(l.darkColor);
+  if (darkColor !== null && !HEX.test(darkColor))
+    invalid("Choose a dark-theme colour such as #2bb88a.");
+  const background = String(h.background ?? "none");
+  if (!["none", "solid", "gradient", "image"].includes(background))
+    invalid(
+      "Choose Home's background: none, a colour, a gradient or an image.",
+    );
+  const colors = (Array.isArray(h.colors) ? h.colors : []).map(String);
+  if (!colors.length || colors.length > 3 || !colors.every((x) => HEX.test(x)))
+    invalid("Home's background takes one to three colours such as #087a57.");
+  if (background === "gradient" && colors.length < 2)
+    invalid("A gradient needs two or three colours.");
+  const image = str(h.image, 500, "the background image address");
+  if (background === "image" && !https(image))
+    invalid("The background image needs an https:// address.");
+  if (h.text !== "light" && h.text !== "dark")
+    invalid("Choose light or dark text for Home's background.");
+  const launcherLogo = str(l.launcherLogo, 500, "the launcher logo address");
+  if (launcherLogo && !https(launcherLogo))
+    invalid("The launcher logo needs an https:// image address.");
+  const spacing = (l.launcherSpacing ?? {}) as Record<string, unknown>;
+  const px = (v: unknown, what: string) => {
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 120)
+      invalid(`The launcher's ${what} spacing is 0 to 120 pixels.`);
+    return n;
+  };
+  return {
+    darkColor: darkColor?.toLowerCase() ?? null,
+    header: {
+      background: background as Look["header"]["background"],
+      colors: colors.map((x) => x.toLowerCase()),
+      image: background === "image" ? image : "",
+      text: h.text as Look["header"]["text"],
+      fade: h.fade === true,
+    },
+    launcherLogo,
+    launcherSpacing: {
+      side: px(spacing.side, "side"),
+      bottom: px(spacing.bottom, "bottom"),
+    },
+    showTeammates: l.showTeammates === true,
   };
 }
 
@@ -239,6 +340,7 @@ export function validConfig(input: unknown): MessengerConfig {
     home,
     welcome,
     notice: { enabled: n.enabled === true, text: noticeText },
+    look: validLook(c.look ?? DEFAULT_LOOK),
   };
 }
 
@@ -312,14 +414,15 @@ async function draftOf(
       [w, brand.id],
     )
   ).rows[0];
-  if (row) return row;
-  const config =
-    (await latest(db, w, brand.id))?.config ?? configOf(brand.settings);
+  if (row) return { ...row, config: withLook(row.config) };
+  const config = withLook(
+    (await latest(db, w, brand.id))?.config ?? configOf(brand.settings),
+  );
   await db.query(
     "INSERT INTO messenger_drafts(workspace_id,brand_id,config) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
     [w, brand.id, JSON.stringify(config)],
   );
-  return (
+  const created = (
     await db.query<{
       config: MessengerConfig;
       version: string;
@@ -329,6 +432,7 @@ async function draftOf(
       [w, brand.id],
     )
   ).rows[0];
+  return { ...created, config: withLook(created.config) };
 }
 
 /** The Messenger page: the draft, what's live, and the versions to restore. */
@@ -341,7 +445,7 @@ export async function readMessenger(
   const { brand } = await manage(db, w, principal, brandId);
   const draft = await draftOf(db, w, brand);
   const live = await latest(db, w, brand.id);
-  const liveConfig = live?.config ?? configOf(brand.settings);
+  const liveConfig = withLook(live?.config ?? configOf(brand.settings));
   const versions = (
     await db.query<{
       version: number;
@@ -408,7 +512,7 @@ export async function changeMessenger(
       "INSERT INTO messenger_versions(workspace_id,brand_id,version,config,published_by) VALUES($1,$2,$3,$4,$5)",
       [w, brand.id, version, JSON.stringify(config), t.id],
     );
-    const { audiences, home, welcome, notice, ...base } = config;
+    const { audiences, home, welcome, notice, look, ...base } = config;
     await db.query(
       "UPDATE brands SET settings=settings||$3::jsonb WHERE workspace_id=$1 AND id=$2",
       [
@@ -416,15 +520,14 @@ export async function changeMessenger(
         brand.id,
         JSON.stringify({
           ...base,
-          messenger3: { audiences, home, welcome, notice },
+          messenger3: { audiences, home, welcome, notice, look },
         }),
       ],
     );
-    if (!same(config, draft.config))
-      await setDraft(config);
+    if (!same(config, draft.config)) await setDraft(config);
   } else if (p.action === "discard") {
     const live = await latest(db, w, brand.id);
-    await setDraft(live?.config ?? configOf(brand.settings));
+    await setDraft(withLook(live?.config ?? configOf(brand.settings)));
   } else if (p.action === "restore") {
     const old = (
       await db.query<{ config: MessengerConfig }>(
@@ -433,7 +536,7 @@ export async function changeMessenger(
       )
     ).rows[0];
     assert(old, "VERSION_NOT_FOUND", "That version is unavailable.", 404);
-    await setDraft(old.config);
+    await setDraft(withLook(old.config));
   } else invalid("Choose save, publish, discard or restore.");
   return readMessenger(db, w, principal, brand.id);
 }

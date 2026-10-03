@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased: Messenger settings (M2: the look and the live preview)
+
+- **A live preview beside the Messenger settings.** It runs the real messenger on the unsaved draft, for visitors or users, in either theme. It fetches and sends nothing.
+- **The look:**
+  - a dark-theme colour
+  - Home's welcome on a colour, gradient or image, with white or black text and a fade
+  - a launcher logo
+  - launcher spacing from the side and bottom
+  - up to three teammates' initials on Home
+- **Colours from the boot:** the messenger takes its colours from the boot, so drafts show at once.
+- **No migration.** **Tests:**
+  - unit: `tests/messenger-look.test.ts`
+  - browser: `tests/browser/messenger-look.spec.ts`
+
+  Details: `docs/MESSENGER_SETTINGS_STEP2.md`.
+
 ## Unreleased: Messenger settings (M1: content and audiences, as drafts)
 
 - **The messenger is edited as a draft and published as a version,** behind a new `messenger_v3` flag, off by default. You can save drafts, publish, discard, and restore earlier versions.

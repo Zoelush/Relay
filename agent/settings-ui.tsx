@@ -43,6 +43,7 @@ export function Frame({
   page,
   save,
   actions,
+  wide,
   children,
 }: {
   menu: MenuState;
@@ -59,6 +60,8 @@ export function Frame({
   };
   /** More controls beside Save (Publish, for drafts). */
   actions?: ReactNode;
+  /** A wider body, for a page with a preview beside its fields. */
+  wide?: boolean;
   children: ReactNode;
 }) {
   // A page with a Save button is a form (Enter saves); one without holds its own forms.
@@ -90,7 +93,7 @@ export function Frame({
           </div>
         )}
       </header>
-      <div className="pg-settings-body">
+      <div className={"pg-settings-body" + (wide ? " wide" : "")}>
         {save?.error && (
           <p role="alert" className="pg-attr-error">
             {save.error}

@@ -11,7 +11,7 @@
   background: #f8faf8;
   font-size: 14px;
   color-scheme: light;
-  --accent: #087a57;
+  --accent: var(--accent-light, #087a57);
   --bg: #f8faf8;
   --surface: white;
   --text: #183c34;
@@ -418,6 +418,7 @@ footer strong {
   clip-path: inset(50%);
 }
 :root[data-theme="dark"] {
+  --accent: var(--accent-dark, var(--accent-light, #087a57));
   --bg: #152722;
   --surface: #1e352d;
   --text: #eff8f2;
@@ -427,6 +428,7 @@ footer strong {
 }
 @media (prefers-color-scheme: dark) {
   :root[data-theme="auto"] {
+    --accent: var(--accent-dark, var(--accent-light, #087a57));
     --bg: #152722;
     --surface: #1e352d;
     --text: #eff8f2;
@@ -565,4 +567,52 @@ footer strong {
 .welcome-intro {
   margin: 0 0 8px;
   font-size: 15px;
+}
+
+/* Messenger settings M2: Home's welcome on a background, with its text colour and a fade. */
+.intro.hero {
+  position: relative;
+  margin: 0 -22px 24px;
+  padding: 28px 22px 32px;
+  color: #fff;
+}
+/* Up to the top edge, unless a notice sits above it. */
+.intro.hero:first-child {
+  margin-top: -28px;
+}
+.intro.hero[data-text="dark"] {
+  color: #10221c;
+}
+.intro.hero .eyebrow,
+.intro.hero p,
+.intro.hero small {
+  color: inherit;
+  opacity: 0.9;
+}
+.intro.hero[data-fade="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 48px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+.team {
+  list-style: none;
+  display: flex;
+  margin: 0 0 14px;
+  padding: 0;
+}
+.team li {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-inline-end: -8px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
 }

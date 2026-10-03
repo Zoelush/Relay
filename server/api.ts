@@ -107,12 +107,28 @@ export async function bootBrand(
   b: { id: string; name: string; settings: Record<string, unknown> },
 ) {
   const { messenger3, ...settings } = b.settings;
-  return {
-    id: b.id,
-    name: b.name,
-    ...settings,
-    ...(messenger3 && (await messengerV3(db, w)) ? { messenger3 } : {}),
-  };
+  if (!messenger3 || !(await messengerV3(db, w)))
+    return { id: b.id, name: b.name, ...settings };
+  const m3 = messenger3 as { look?: { showTeammates?: boolean } };
+  // Teammates on Home (messenger M2): up to three active teammates' first names and initials,
+  // nothing else about them.
+  const team = m3.look?.showTeammates
+    ? (
+        await db.query<{ name: string }>(
+          "SELECT name FROM teammates WHERE workspace_id=$1 ORDER BY presence='active' DESC,name,id LIMIT 3",
+          [w],
+        )
+      ).rows.map((t) => {
+        const words = t.name.trim().split(/\s+/);
+        return {
+          firstName: words[0].slice(0, 40),
+          initials: (
+            words[0][0] + (words.length > 1 ? words.at(-1)![0] : "")
+          ).toUpperCase(),
+        };
+      })
+    : [];
+  return { id: b.id, name: b.name, ...settings, messenger3: { ...m3, team } };
 }
 import { changeHealth, knowledgeHealth } from "./knowledge-health";
 import { aiAnswers, type AiEnvironment } from "./ai-agent";
