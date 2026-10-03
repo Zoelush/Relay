@@ -25,8 +25,10 @@ booted while the flag is on). Its inbound rules are enforced in `server/conversa
 (`inboundRules`), not only in the messenger. Settings' live preview loads the app's own copy of the
 messenger page (`/messenger/frame.html?preview=1`); in preview mode it fetches and sends nothing.
 Phase 08 (the AI agent, `docs/AI_PLAN.md`):
-steps A1 (answering core) and A2a (handover) are done locally (`docs/AI_STEP1.md`, `AI_STEP2.md`); next is A2b
-(escalation rules, never-handle topics, guidance). A handover's summary is an `internal_note` (never
+steps A1 (answering core), A2a (handover) and A2b (escalation rules, topics, guidance) are done
+locally (`docs/AI_STEP1.md` to `AI_STEP3.md`); next is A3 (resolution ledger). Escalation rules are
+code (`server/ai-escalation.ts`, a closed list of conditions); topic keywords are checked in code
+before the classifier, so they hold when the model is down. A handover's summary is an `internal_note` (never
 delivered); `conversations.ai_state` (pending, escalated, needs_input) is set only by the agent and a
 teammate's reply; the classifier (`ClassifierPort`) returns only "asks for a person" and sentiment,
 so no message can grant the agent anything. The agent answers only from

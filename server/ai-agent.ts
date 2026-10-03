@@ -3,6 +3,17 @@ import { authorize } from "./policy";
 import { requireSettings } from "./settings";
 import { afterChange } from "./routing";
 import { availabilityFor } from "./office-hours";
+import {
+  facts,
+  matchKeywords,
+  matchRule,
+  rulesOf,
+  saveRules,
+  validGuidance,
+  validRules,
+  validTopics,
+  type Topic,
+} from "./ai-escalation";
 import { enqueueJob, type Job } from "./jobs";
 import {
   access,
@@ -52,7 +63,9 @@ import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
  * customer), moves the conversation to the agent's handover team so routing (phase 06) assigns
  * it, and sets the conversation's AI state. Outside office hours the agent takes a message,
  * promises when the team is back, or keeps answering until a teammate replies.
- * TODO(phase 08 A2b): escalation rules, never-handle topics and escalation guidance.
+ * Step A2b (docs/AI_STEP3.md) adds escalation rules (conditions on the customer and conversation,
+ * checked in code first), never-handle topics (keywords in code, and meaning by the classifier)
+ * and escalation guidance (applied by the classifier, which can only decide to hand over).
  * TODO(phase 08 B1): several agents, guidance, content targeting and language detection.
  */
 export type AiEnvironment = {
@@ -183,9 +196,11 @@ async function agentOf(db: Sql, w: string) {
       out_of_hours: "continue" | "take_message" | "reply_time";
       failed_limit: number;
       escalate_on_sentiment: boolean;
+      never_handle: Topic[];
+      escalation_guidance: string[];
       version: string;
     }>(
-      "SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,version::text AS version FROM ai_agents WHERE workspace_id=$1 AND id=$2",
+      "SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,never_handle,escalation_guidance,version::text AS version FROM ai_agents WHERE workspace_id=$1 AND id=$2",
       [w, DEFAULT_AGENT],
     )
   ).rows[0];
@@ -473,12 +488,19 @@ export async function runAiReply(
   const locale = ctx.chain[0] ?? "en";
   const text = strings(locale);
 
-  // Handover triggers checked before answering (A2a). The button's own words need no model.
-  let trigger: Trigger | null = PERSON_LABELS.has(
-    ctx.question.trim().toLowerCase(),
-  )
-    ? "asked_for_person"
-    : null;
+  // Handover triggers checked before answering. First the escalation rules (A2b), in code.
+  let why = "";
+  const matched = await tenant(connect, w, async (db) =>
+    matchRule(
+      await rulesOf(db, w, ctx.agent.id),
+      await facts(db, w, ctx.c, { signedIn: ctx.signedIn, language: locale }),
+    ),
+  );
+  let trigger: Trigger | null = matched ? "rule" : null;
+  if (matched) why = matched.name;
+  // The button's own words need no model (A2a).
+  if (!trigger && PERSON_LABELS.has(ctx.question.trim().toLowerCase()))
+    trigger = "asked_for_person";
   let note = "";
   if (!trigger && ctx.agent.answer_hours === "outside_office_hours") {
     const hours = await tenant(connect, w, (db) =>
@@ -495,6 +517,13 @@ export async function runAiReply(
     // With no office hours set, there's no "inside" them: the agent answers.
     if (hours?.open) trigger = "office_hours";
   }
+  // Never-handle topics' keywords, in code, so they hold when the model is down (A2b).
+  const topics = ctx.agent.never_handle;
+  const keyword = trigger ? null : matchKeywords(topics, ctx.question);
+  if (keyword) {
+    trigger = "topic";
+    why = keyword.name;
+  }
   if (!trigger && env.classify) {
     let seen: Classification | null = null;
     try {
@@ -502,14 +531,30 @@ export async function runAiReply(
         message: ctx.question,
         history: ctx.history,
         locale,
+        topics: topics.map((t) => ({ name: t.name, description: t.description })),
+        guidance: ctx.agent.escalation_guidance,
       });
     } catch {
       // Decision (docs/AI_STEP2.md): a failing classifier doesn't hand everything over. The agent
       // answers with A1's safeguards, and two failed answers still hand over.
       note = " The classifier was unavailable, so only the fixed handover triggers applied.";
     }
+    const topic = seen?.topic != null ? topics[seen.topic] : undefined;
+    const guidance =
+      seen?.guidance != null
+        ? ctx.agent.escalation_guidance[seen.guidance]
+        : undefined;
     if (seen?.wantsHuman) trigger = "asked_for_person";
-    else if (seen?.sentiment === "negative" && ctx.agent.escalate_on_sentiment)
+    else if (topic) {
+      trigger = "topic";
+      why = topic.name;
+    } else if (guidance) {
+      trigger = "guidance";
+      why = guidance.length > 120 ? guidance.slice(0, 119) + "…" : guidance;
+    } else if (
+      seen?.sentiment === "negative" &&
+      ctx.agent.escalate_on_sentiment
+    )
       trigger = "negative_sentiment";
   }
 
@@ -522,7 +567,7 @@ export async function runAiReply(
   let model: string | null = null;
   if (trigger) {
     outcome = "escalated";
-    reason = TRIGGERS[trigger] + "." + note;
+    reason = TRIGGERS[trigger] + (why ? `: “${why}”` : "") + "." + note;
     body = "";
   } else if (!searchable(ctx.question)) {
     outcome = "clarified";
@@ -690,13 +735,19 @@ export async function runAiReply(
   };
 }
 
-/** Why the agent handed a conversation over (A2a; rules, topics and guidance join in A2b). */
+/** Why the agent handed a conversation over (A2a; rules, topics and guidance from A2b). */
 export type Trigger =
   | "asked_for_person"
   | "failed_answers"
   | "negative_sentiment"
-  | "office_hours";
+  | "office_hours"
+  | "rule"
+  | "topic"
+  | "guidance";
 const TRIGGERS: Record<Trigger, string> = {
+  rule: "An escalation rule matched",
+  topic: "The message is about a never-handle topic",
+  guidance: "Escalation guidance says a person should handle this",
   asked_for_person: "The customer asked for a person",
   failed_answers: "The agent couldn't answer too many times",
   negative_sentiment: "The customer seemed frustrated",
@@ -861,13 +912,27 @@ export async function readAiSettings(db: Sql, w: string, principal: string) {
     404,
   );
   const a = await agentOf(db, w);
-  const teams = (
-    await db.query<{ id: string; name: string }>(
-      "SELECT id,name FROM teams WHERE workspace_id=$1 ORDER BY name,id",
-      [w],
-    )
-  ).rows;
+  const list = async (sql: string) =>
+    (await db.query<{ id: string; name: string }>(sql, [w])).rows;
+  const teams = await list(
+    "SELECT id,name FROM teams WHERE workspace_id=$1 ORDER BY name,id",
+  );
   return {
+    // What a rule can be about (A2b): this workspace's own brands, tags and attributes.
+    choices: {
+      brands: await list(
+        "SELECT id,name FROM brands WHERE workspace_id=$1 ORDER BY name,id",
+      ),
+      tags: await list(
+        "SELECT id,name FROM tags WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id",
+      ),
+      attributes: await list(
+        "SELECT id,name FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='conversation' AND archived_at IS NULL ORDER BY lower(name),id",
+      ),
+    },
+    rules: await rulesOf(db, w, a.id),
+    topics: a.never_handle,
+    guidance: a.escalation_guidance,
     agent: {
       id: a.id,
       name: a.name,
@@ -914,11 +979,29 @@ export async function saveAiSettings(
     invalid("Hand over after 1 to 5 answers the agent couldn't give.");
   if (typeof p.enabled !== "boolean" || typeof p.escalateOnSentiment !== "boolean")
     invalid("Choose on or off.");
+  // A2b: rules, never-handle topics and guidance; left as they are when not sent.
+  const rules =
+    p.rules === undefined ? current.rules : await validRules(db, w, p.rules);
+  const topics = p.topics === undefined ? current.topics : validTopics(p.topics);
+  const guidance =
+    p.guidance === undefined ? current.guidance : validGuidance(p.guidance);
   await db.query(
     `UPDATE ai_agents SET enabled=$3,handover_team_id=$4,answer_hours=$5,out_of_hours=$6,failed_limit=$7,escalate_on_sentiment=$8,
-     version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
-    [w, DEFAULT_AGENT, p.enabled, team, p.answerHours, p.outOfHours, limit, p.escalateOnSentiment],
+     never_handle=$9,escalation_guidance=$10,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+    [
+      w,
+      DEFAULT_AGENT,
+      p.enabled,
+      team,
+      p.answerHours,
+      p.outOfHours,
+      limit,
+      p.escalateOnSentiment,
+      JSON.stringify(topics),
+      JSON.stringify(guidance),
+    ],
   );
+  await saveRules(db, w, DEFAULT_AGENT, rules);
   return readAiSettings(db, w, principal);
 }
 /** The settings route: saves are idempotent on the request's key. */

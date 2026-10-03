@@ -39,4 +39,11 @@ Acceptance criteria (phase brief):
    - Settings › AI agent starts in A2a (B1 adds to it)
    - migration 0044 adds the AI state, handover settings and the escalation rules table
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a).
+6. **A2b decisions** (3 October 2026):
+   - topic keywords are always checked in code, as a safety net when the model is down
+   - limits: 20 rules, 20 topics, 10 guidance items of 500 characters
+   - three sections on Settings › AI agent, saved and versioned with the page
+   - migration 0045 stores topics and guidance on the agent
+   - email-domain rules use verified addresses only
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b).

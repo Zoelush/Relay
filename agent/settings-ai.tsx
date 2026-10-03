@@ -4,9 +4,55 @@ import { Card, Field, Frame, message, type MenuState, type Page } from "./settin
 
 /**
  * Settings › AI agent (phase 08 A2a; docs/AI_STEP2.md): when the agent answers and how it hands
- * conversations to the team. Escalation rules, never-handle topics and guidance arrive in A2b;
- * several agents, identity and content targeting in B1.
+ * conversations to the team. A2b (docs/AI_STEP3.md) adds escalation rules, never-handle topics and
+ * escalation guidance; several agents, identity and content targeting arrive in B1.
  */
+type Condition = {
+  field: string;
+  op: string;
+  value: string | boolean;
+  key?: string;
+};
+type Rule = {
+  id?: string;
+  name: string;
+  enabled: boolean;
+  match: "all" | "any";
+  conditions: Condition[];
+};
+type Topic = { name: string; description: string; keywords: string[] };
+type Choice = { id: string; name: string };
+/** What a rule can check, the comparisons each takes, and its starting condition. */
+const FIELDS: [string, string, [string, string][]][] = [
+  ["signed_in", "Customer is signed in", [["is", "is"]]],
+  ["email_domain", "Email domain", [["is", "is"], ["is_not", "is not"]]],
+  ["brand", "Brand", [["is", "is"], ["is_not", "is not"]]],
+  ["language", "Language", [["is", "is"], ["is_not", "is not"]]],
+  [
+    "page",
+    "Page address",
+    [
+      ["contains", "contains"],
+      ["starts_with", "starts with"],
+      ["equals", "is exactly"],
+    ],
+  ],
+  ["tag", "Conversation tag", [["has", "has"], ["has_not", "hasn't"]]],
+  [
+    "attribute",
+    "Conversation attribute",
+    [
+      ["is", "is"],
+      ["is_not", "is not"],
+      ["is_set", "is set"],
+    ],
+  ],
+];
+const fresh = (field: string): Condition => ({
+  field,
+  op: FIELDS.find(([f]) => f === field)![2][0][0],
+  value: field === "signed_in" ? true : "",
+});
 type Settings = {
   agent: {
     id: string;
@@ -19,9 +65,17 @@ type Settings = {
     escalateOnSentiment: boolean;
     version: string;
   };
-  teams: { id: string; name: string }[];
+  teams: Choice[];
+  choices: { brands: Choice[]; tags: Choice[]; attributes: Choice[] };
+  rules: Rule[];
+  topics: Topic[];
+  guidance: string[];
 };
-type Form = Omit<Settings["agent"], "id" | "name" | "version">;
+type Form = Omit<Settings["agent"], "id" | "name" | "version"> & {
+  rules: Rule[];
+  topics: Topic[];
+  guidance: string[];
+};
 const formOf = (s: Settings): Form => ({
   enabled: s.agent.enabled,
   handoverTeamId: s.agent.handoverTeamId,
@@ -29,6 +83,9 @@ const formOf = (s: Settings): Form => ({
   outOfHours: s.agent.outOfHours,
   failedLimit: s.agent.failedLimit,
   escalateOnSentiment: s.agent.escalateOnSentiment,
+  rules: s.rules,
+  topics: s.topics,
+  guidance: s.guidance,
 });
 
 export function AiAgentPage({ menu, page }: { menu: MenuState; page: Page }) {
@@ -224,8 +281,326 @@ export function AiAgentPage({ menu, page }: { menu: MenuState; page: Page }) {
               ))}
             </div>
           </Card>
+
+          <Rules
+            rules={form.rules}
+            choices={data.choices}
+            onChange={(rules) => set({ rules })}
+          />
+
+          <Card
+            title="Never-handle topics"
+            description="Subjects the agent never answers: it hands the conversation over instead. Keywords are checked word for word, even if the model is unavailable; the model also recognises the topic from its name and description."
+          >
+            <ul className="pg-settings-list" aria-label="Never-handle topics">
+              {form.topics.map((t, i) => {
+                const change = (c: Partial<Topic>) =>
+                  set({
+                    topics: form.topics.map((x, j) =>
+                      j === i ? { ...x, ...c } : x,
+                    ),
+                  });
+                return (
+                  <li key={i} className="pg-ai-topic">
+                    <input
+                      aria-label={`Topic ${i + 1} name`}
+                      placeholder="Legal"
+                      maxLength={80}
+                      value={t.name}
+                      onChange={(e) => change({ name: e.target.value })}
+                    />
+                    <input
+                      aria-label={`Topic ${i + 1} description`}
+                      placeholder="Complaints that mention lawyers, courts or legal action"
+                      maxLength={300}
+                      value={t.description}
+                      onChange={(e) => change({ description: e.target.value })}
+                    />
+                    <input
+                      aria-label={`Topic ${i + 1} keywords`}
+                      placeholder="lawyer, solicitor, court"
+                      value={t.keywords.join(",")}
+                      onChange={(e) =>
+                        change({ keywords: e.target.value.split(",") })
+                      }
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remove topic ${i + 1}`}
+                      onClick={() =>
+                        set({ topics: form.topics.filter((_, j) => j !== i) })
+                      }
+                    >
+                      ×
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div>
+              <button
+                type="button"
+                disabled={form.topics.length >= 20}
+                onClick={() =>
+                  set({
+                    topics: [
+                      ...form.topics,
+                      { name: "", description: "", keywords: [] },
+                    ],
+                  })
+                }
+              >
+                Add topic
+              </button>
+            </div>
+          </Card>
+
+          <Card
+            title="Escalation guidance"
+            description="Plain-language instructions on when a person should take over, such as: Hand over if the customer mentions “cancel my account”. Guidance only decides whether to hand over; it can't change what the agent may do."
+          >
+            {form.guidance.map((g, i) => (
+              <div key={i} className="pg-settings-row">
+                <textarea
+                  aria-label={`Guidance ${i + 1}`}
+                  rows={2}
+                  maxLength={500}
+                  value={g}
+                  onChange={(e) =>
+                    set({
+                      guidance: form.guidance.map((x, j) =>
+                        j === i ? e.target.value : x,
+                      ),
+                    })
+                  }
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove guidance ${i + 1}`}
+                  onClick={() =>
+                    set({ guidance: form.guidance.filter((_, j) => j !== i) })
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <div>
+              <button
+                type="button"
+                disabled={form.guidance.length >= 10}
+                onClick={() => set({ guidance: [...form.guidance, ""] })}
+              >
+                Add guidance
+              </button>
+            </div>
+          </Card>
         </>
       )}
     </Frame>
+  );
+}
+
+/** Escalation rules (A2b): when one matches, the agent hands over without answering. */
+function Rules({
+  rules,
+  choices,
+  onChange,
+}: {
+  rules: Rule[];
+  choices: Settings["choices"];
+  onChange: (rules: Rule[]) => void;
+}) {
+  const change = (i: number, c: Partial<Rule>) =>
+    onChange(rules.map((r, j) => (j === i ? { ...r, ...c } : r)));
+  return (
+    <Card
+      title="Escalation rules"
+      description="Customers and conversations a person should always handle. Checked on every customer message, before the agent answers, in order; the first that matches hands the conversation over. Company and contact attributes arrive with the people service."
+    >
+      {rules.map((r, i) => {
+        const n = i + 1;
+        const setCondition = (k: number, c: Partial<Condition>) =>
+          change(i, {
+            conditions: r.conditions.map((x, j) =>
+              j === k ? { ...x, ...c } : x,
+            ),
+          });
+        return (
+          <fieldset key={r.id ?? i} className="pg-settings-fieldset">
+            <legend>Rule {n}</legend>
+            <div className="pg-settings-row">
+              <input
+                aria-label={`Rule ${n} name`}
+                placeholder="Enterprise customers"
+                maxLength={120}
+                value={r.name}
+                onChange={(e) => change(i, { name: e.target.value })}
+              />
+              <select
+                aria-label={`Rule ${n} needs`}
+                value={r.match}
+                onChange={(e) =>
+                  change(i, { match: e.target.value as Rule["match"] })
+                }
+              >
+                <option value="all">All conditions</option>
+                <option value="any">Any condition</option>
+              </select>
+              <label className="pg-settings-inline">
+                <input
+                  type="checkbox"
+                  checked={r.enabled}
+                  onChange={(e) => change(i, { enabled: e.target.checked })}
+                />
+                On
+              </label>
+              <button
+                type="button"
+                aria-label={`Remove rule ${n}`}
+                onClick={() => onChange(rules.filter((_, j) => j !== i))}
+              >
+                ×
+              </button>
+            </div>
+            {r.conditions.map((c, k) => {
+              const label = `Rule ${n} condition ${k + 1}`;
+              const ops = FIELDS.find(([f]) => f === c.field)?.[2] ?? [];
+              const options =
+                c.field === "brand"
+                  ? choices.brands
+                  : c.field === "tag"
+                    ? choices.tags
+                    : null;
+              return (
+                <div key={k} className="pg-settings-row">
+                  <select
+                    aria-label={`${label} field`}
+                    value={c.field}
+                    onChange={(e) => setCondition(k, fresh(e.target.value))}
+                  >
+                    {FIELDS.map(([f, name]) => (
+                      <option key={f} value={f}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  {c.field === "attribute" && (
+                    <select
+                      aria-label={`${label} attribute`}
+                      value={c.key ?? ""}
+                      onChange={(e) => setCondition(k, { key: e.target.value })}
+                    >
+                      <option value="">Choose an attribute…</option>
+                      {choices.attributes.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {c.field !== "signed_in" && (
+                    <select
+                      aria-label={`${label} comparison`}
+                      value={c.op}
+                      onChange={(e) => setCondition(k, { op: e.target.value })}
+                    >
+                      {ops.map(([v, name]) => (
+                        <option key={v} value={v}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {c.field === "signed_in" ? (
+                    <select
+                      aria-label={`${label} value`}
+                      value={String(c.value)}
+                      onChange={(e) =>
+                        setCondition(k, { value: e.target.value === "true" })
+                      }
+                    >
+                      <option value="true">Yes</option>
+                      <option value="false">No (a visitor)</option>
+                    </select>
+                  ) : options ? (
+                    <select
+                      aria-label={`${label} value`}
+                      value={String(c.value)}
+                      onChange={(e) => setCondition(k, { value: e.target.value })}
+                    >
+                      <option value="">Choose…</option>
+                      {options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : c.op !== "is_set" ? (
+                    <input
+                      aria-label={`${label} value`}
+                      placeholder={
+                        c.field === "email_domain"
+                          ? "example.com"
+                          : c.field === "language"
+                            ? "fr"
+                            : c.field === "page"
+                              ? "/enterprise"
+                              : "Value"
+                      }
+                      maxLength={300}
+                      value={String(c.value)}
+                      onChange={(e) => setCondition(k, { value: e.target.value })}
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${label}`}
+                    disabled={r.conditions.length === 1}
+                    onClick={() =>
+                      change(i, {
+                        conditions: r.conditions.filter((_, j) => j !== k),
+                      })
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            <div>
+              <button
+                type="button"
+                disabled={r.conditions.length >= 10}
+                onClick={() =>
+                  change(i, { conditions: [...r.conditions, fresh("signed_in")] })
+                }
+              >
+                Add condition to rule {n}
+              </button>
+            </div>
+          </fieldset>
+        );
+      })}
+      <div>
+        <button
+          type="button"
+          disabled={rules.length >= 20}
+          onClick={() =>
+            onChange([
+              ...rules,
+              {
+                name: "",
+                enabled: true,
+                match: "all",
+                conditions: [fresh("signed_in")],
+              },
+            ])
+          }
+        >
+          Add rule
+        </button>
+      </div>
+    </Card>
   );
 }

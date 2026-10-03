@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased: AI agent (phase 08, A2b: escalation rules, never-handle topics, guidance)
+
+- **Escalation rules** in Settings › AI agent:
+  - conditions on the customer (signed in, verified email domain) and the conversation (brand, language, page, tag, attribute)
+  - all or any, in order, checked on every customer message
+  - a match hands over without answering
+- **Never-handle topics** with keywords, checked in code even when the model is down, and recognised by meaning by the model.
+- **Escalation guidance:** plain-language instructions that can only decide to hand over.
+- **The handover summary and "Why this reply"** name the rule, topic or guidance.
+- **Migration** 0045 with rollback. **Tests:**
+  - unit: `tests/ai-escalation.test.ts`
+  - browser: `tests/browser/ai-escalation.spec.ts`
+
+  Details: `docs/AI_STEP3.md`.
+
 ## Unreleased: AI agent (phase 08, A2a: handing over to the team)
 
 - **When the agent hands over:**
