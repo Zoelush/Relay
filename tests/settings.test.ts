@@ -94,6 +94,8 @@ test("settings: off by default; your profile and notifications for everyone; Gen
       "roles",
       "tags",
       "attributes",
+      "brands",
+      "messenger",
       "macros",
       "views",
     ]);

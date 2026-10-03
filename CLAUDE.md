@@ -68,8 +68,9 @@ teammate.
 - Settings (`agent/settings.tsx`, `server/settings.ts`; `docs/SETTINGS_PLAN.md`) is one area behind
   `settings_v1`, with pages at `#settings/<page>`. A new configurable feature gets a page there (or a
   link card, if it's managed where the work happens), listed by `settingsOverview` with the
-  permission it needs. S1, S2a, S2b and S3a are done; S3b (brands, messenger, portal) is next in that
-  plan. Roles change only within the acting manager's own permissions, never their own, and always
+  permission it needs. The plan (S1–S3b) is complete. A brand's messenger settings live in
+  `brands.settings` and are edited through `server/channel-settings.ts`, which keeps keys it doesn't
+  own; allowed websites must be exact origins (`websiteOrigin`). Roles change only within the acting manager's own permissions, never their own, and always
   leaving an owner (`server/people-settings.ts`). Page
   building blocks are in `agent/settings-ui.tsx`. Tags and attributes are archived, never deleted
   (`server/workspace-data.ts`); pickers that add a tag use `activeTags` from `agent/timeline.tsx`.
