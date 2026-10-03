@@ -46,4 +46,10 @@ Acceptance criteria (phase brief):
    - migration 0045 stores topics and guidance on the agent
    - email-domain rules use verified addresses only
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b).
+7. **A3 decisions** (3 October 2026):
+   - a handover within the resolution window reverses a resolution (a reversal row); after it, the resolution stands
+   - "That helped" only under answers from content
+   - windows of 1, 4, 12, 24, 48 or 72 hours, default 24
+   - migration 0046 adds the append-only ledger
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3).

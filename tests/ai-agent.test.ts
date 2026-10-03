@@ -337,6 +337,12 @@ test("the AI agent answers from content the customer may see, refuses below the 
     );
     assert.deepEqual(reply.data, {
       sources: [{ title: "Refunds", path: "/help/a/help/en/articles/refunds" }],
+      // A3: the customer can say it helped, or ask for a person.
+      confirm: {
+        helped: "That helped",
+        person: "Talk to a person",
+        thanks: "Glad that helped! If you need anything else, just write here.",
+      },
     });
     const [answered] = await answers(answerable.conversationId);
     assert.equal(answered.outcome, "answered");

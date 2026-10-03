@@ -63,6 +63,7 @@ type Settings = {
     outOfHours: "continue" | "take_message" | "reply_time";
     failedLimit: number;
     escalateOnSentiment: boolean;
+    resolutionWindowHours: number;
     version: string;
   };
   teams: Choice[];
@@ -70,6 +71,20 @@ type Settings = {
   rules: Rule[];
   topics: Topic[];
   guidance: string[];
+  /** The resolution ledger (A3). */
+  resolutions: {
+    last30Days: { resolutions: number; reversals: number; net: number };
+    recent: {
+      id: string;
+      kind: "resolution" | "reversal";
+      rule: string;
+      conversationId: string;
+      title: string;
+      at: string;
+      detail: string;
+      answers: number;
+    }[];
+  };
 };
 type Form = Omit<Settings["agent"], "id" | "name" | "version"> & {
   rules: Rule[];
@@ -83,6 +98,7 @@ const formOf = (s: Settings): Form => ({
   outOfHours: s.agent.outOfHours,
   failedLimit: s.agent.failedLimit,
   escalateOnSentiment: s.agent.escalateOnSentiment,
+  resolutionWindowHours: s.agent.resolutionWindowHours,
   rules: s.rules,
   topics: s.topics,
   guidance: s.guidance,
@@ -280,6 +296,65 @@ export function AiAgentPage({ menu, page }: { menu: MenuState; page: Page }) {
                 </label>
               ))}
             </div>
+          </Card>
+
+          <Card
+            title="Resolutions"
+            description="When the AI agent resolved a conversation: the customer tapped “That helped” under an answer from your content, or didn't write again within the window after one, and it was never handed to the team. Each is a row in a ledger that's never changed; a handover within the window adds a reversal."
+          >
+            <Field
+              label="Resolution window"
+              hint="How long after an answer the customer's silence counts as resolved, and how long a resolution can still be reversed by a handover."
+            >
+              {(id, hint) => (
+                <select
+                  id={id}
+                  aria-describedby={hint}
+                  value={form.resolutionWindowHours}
+                  onChange={(e) =>
+                    set({ resolutionWindowHours: Number(e.target.value) })
+                  }
+                >
+                  {[1, 4, 12, 24, 48, 72].map((h) => (
+                    <option key={h} value={h}>
+                      {h} {h === 1 ? "hour" : "hours"}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <p className="pg-settings-small" data-testid="resolution-count">
+              Last 30 days: <strong>{data.resolutions.last30Days.net}</strong>{" "}
+              {data.resolutions.last30Days.net === 1 ? "resolution" : "resolutions"}
+              {data.resolutions.last30Days.reversals > 0 &&
+                ` (${data.resolutions.last30Days.resolutions} recorded, ${data.resolutions.last30Days.reversals} reversed)`}
+              .
+            </p>
+            {data.resolutions.recent.length > 0 && (
+              <ul className="pg-settings-list" aria-label="Latest resolutions">
+                {data.resolutions.recent.map((r) => (
+                  <li key={r.id}>
+                    <span>
+                      <strong>
+                        {r.kind === "reversal"
+                          ? "Reversed"
+                          : r.rule === "confirmed"
+                            ? "Confirmed by the customer"
+                            : "No reply within the window"}
+                        {" · "}
+                        {r.title || "Conversation"}
+                      </strong>
+                      <small className="pg-muted">
+                        {new Date(r.at).toLocaleString()} · {r.detail}
+                        {r.kind === "resolution" &&
+                          ` · ${r.answers} ${r.answers === 1 ? "answer" : "answers"}`}{" "}
+                        · conversation {r.conversationId}
+                      </small>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
 
           <Rules

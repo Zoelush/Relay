@@ -44,6 +44,7 @@ import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
 import { processKnowledgeFile } from "../server/knowledge-files";
 import { processBrandAsset } from "../server/brand-assets";
+import { resolveQuiet } from "../server/ai-resolutions";
 import {
   runIndex,
   scheduleIndex,
@@ -691,6 +692,8 @@ export async function startLocalRelay(
           );
         // Published knowledge waiting for the AI index (phase 07, C2a).
         await scheduleIndex(db.connect, w);
+        // AI answers the customer didn't come back to: resolved (phase 08 A3).
+        await resolveQuiet(db.connect, w);
         // Websites due a sync (phase 07, C1b), checked once a minute.
         if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
           lastSyncCheck.set(w, Date.now());

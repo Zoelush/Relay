@@ -160,6 +160,13 @@ export function describePart(p: TimelinePart, dir: Directory): string {
           .filter(Boolean)
           .join(" · ");
       }
+      // The resolution ledger (phase 08 A3).
+      if (d.event === "ai_resolved")
+        return d.rule === "confirmed"
+          ? "Resolved by the AI agent: the customer said the answer helped"
+          : `Resolved by the AI agent: no reply within ${Number(d.windowHours)} hours of its answer`;
+      if (d.event === "ai_resolution_reversed")
+        return "AI resolution reversed: handed to the team within the resolution window";
       if (d.event === "human_joined")
         return `${pick(dir.teammates, d.teammateId) || "A teammate"} joined the conversation`;
       return "Conversation activity";

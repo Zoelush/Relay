@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased: AI agent (phase 08, A3: the resolution ledger)
+
+- **"That helped"** under the AI agent's answers from content, beside "Talk to a person". Tapping it records a confirmed resolution and thanks the customer.
+- **Quiet resolution:** after an answer from content, a conversation the customer doesn't come back to within the resolution window (24 hours by default), never handed over or taken on by a teammate, is recorded as resolved by a background sweep.
+- **The ledger:**
+  - append-only rows with the conversation, the answers, the rule and the time
+  - a handover within the window adds a reversal
+  - one standing resolution per conversation
+- **The AI state Resolved** on cards, a timeline line for teammates, and a Resolutions section in Settings › AI agent (window, last 30 days, latest rows).
+- **Migration** 0046 with rollback. **Tests:**
+  - unit: `tests/ai-resolutions.test.ts`
+  - browser: `tests/browser/ai-resolutions.spec.ts`
+
+  Details: `docs/AI_STEP4.md`.
+
 ## Unreleased: AI agent (phase 08, A2b: escalation rules, never-handle topics, guidance)
 
 - **Escalation rules** in Settings › AI agent:
