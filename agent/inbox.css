@@ -1008,6 +1008,9 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-card-ai { padding:1px 7px; border-radius:999px; background:var(--pg-chip); color:var(--pg-text-2); font-size:11px; white-space:nowrap; }
 .pg-card-ai[data-state="escalated"], .pg-card-ai[data-state="needs_input"] { background:var(--pg-info-bg); color:var(--pg-text); box-shadow:inset 0 0 0 1px var(--pg-info-line); }
 .pg-handover { white-space:pre-line; }
+.pg-settings-inline { display:inline-flex; align-items:center; gap:6px; font-size:13px; }
+.pg-ai-topic { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,1.4fr) auto; gap:8px; align-items:center; }
+@media (max-width: 760px) { .pg-ai-topic { grid-template-columns:minmax(0,1fr) auto; } }
 .pg-colour-sample { display:grid; place-items:center; width:34px; height:34px; border-radius:8px; border:1px solid var(--pg-border); font-weight:600; }
 .pg-settings-tabs { display:flex; flex-wrap:wrap; gap:4px; }
 .pg-settings-tabs button { padding:5px 12px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-surface); color:var(--pg-text); font-size:13px; }

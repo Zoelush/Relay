@@ -496,10 +496,17 @@ test("classification keeps the message as data, and only its exact shape parses"
   assert.equal(user.match(/<message>/g)?.length, 1);
   assert.equal(user.match(/<\/message>/g)?.length, 1);
   assert.equal(user.match(/<history>/g)?.length, 1);
+  // A2b: topic and guidance are optional indexes (null when absent).
   assert.deepEqual(parseClassification('{"wants_human":true,"sentiment":"negative"}'), {
     wantsHuman: true,
     sentiment: "negative",
+    topic: null,
+    guidance: null,
   });
+  assert.equal(
+    parseClassification('{"wants_human":false,"sentiment":"neutral","topic":-1}'),
+    null,
+  );
   assert.equal(parseClassification('{"wants_human":"yes","sentiment":"negative"}'), null);
   assert.equal(parseClassification('{"wants_human":false,"sentiment":"furious"}'), null);
   assert.equal(parseClassification("no json"), null);
@@ -530,6 +537,8 @@ test("classification keeps the message as data, and only its exact shape parses"
   assert.deepEqual(await haiku.classify({ message: "human please", history: [], locale: "en" }), {
     wantsHuman: true,
     sentiment: "neutral",
+    topic: null,
+    guidance: null,
   });
   assert.equal(sent.model, "claude-haiku-4-5-20251001");
   assert.equal(sent.temperature, 0);
