@@ -967,6 +967,19 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-settings-audience button[aria-checked="true"] { background:var(--pg-selected); border-color:var(--pg-accent); font-weight:600; }
 .pg-settings-audience small { flex-basis:100%; font-size:12px; }
 .pg-settings-card-row > span:first-child { flex:1; }
+.pg-settings-body.wide { max-width:1280px; }
+.pg-messenger-layout { display:grid; grid-template-columns:minmax(0,1fr) 400px; gap:24px; align-items:start; }
+.pg-messenger-fields { display:flex; flex-direction:column; gap:16px; min-width:0; }
+.pg-messenger-preview { position:sticky; top:0; display:flex; flex-direction:column; gap:10px; }
+.pg-messenger-preview-head { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; }
+.pg-messenger-preview-head small { flex:1; font-size:12px; }
+.pg-messenger-preview-head button[aria-checked="true"] { background:var(--pg-selected); font-weight:600; }
+.pg-messenger-preview iframe { width:390px; height:640px; max-height:calc(100dvh - 220px); border:1px solid var(--pg-border); border-radius:22px; background:var(--pg-surface); box-shadow:0 8px 30px var(--pg-shadow-soft); }
+.pg-launcher-preview { position:relative; width:390px; height:90px; border:1px dashed var(--pg-border-strong); border-radius:12px; background:var(--pg-sunken); }
+.pg-launcher-preview span { position:absolute; display:grid; place-items:center; width:46px; height:46px; border-radius:15px; color:var(--pg-on-accent); font-size:20px; box-shadow:0 3px 12px var(--pg-shadow-soft); }
+.pg-launcher-preview span[data-shape="circle"] { border-radius:50%; }
+.pg-launcher-preview img { width:26px; height:26px; object-fit:contain; }
+@media (max-width: 1280px) { .pg-messenger-layout { grid-template-columns:minmax(0,1fr); } .pg-messenger-preview { position:static; } }
 @media (max-width: 760px) { .pg-health-summary { grid-template-columns:1fr; } }
 .pg-index-card form input { flex:1; min-width:200px; }
 .pg-index-results { margin:0; padding-left:20px; display:flex; flex-direction:column; gap:10px; }

@@ -92,6 +92,7 @@ const en = {
   startSupport: "Contact support",
   tickets: "Tickets",
   notice: "Notice",
+  team: "The team",
 };
 const ar: typeof en = {
   unread: "غير مقروءة",
@@ -185,6 +186,7 @@ const ar: typeof en = {
   startSupport: "تواصل مع الدعم",
   tickets: "التذاكر",
   notice: "إشعار",
+  team: "الفريق",
 };
 export function language(locale: string, brandLocale = "en") {
   const dictionaries: Record<string, typeof en> = { en, ar };

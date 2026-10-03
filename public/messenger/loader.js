@@ -217,7 +217,18 @@
     host.hidden = false;
     button = document.createElement("button");
     button.type = "button";
-    button.textContent = "✦";
+    // Messenger settings M2: a launcher logo (https) instead of the ✦, and spacing from the edges.
+    const look = boot.brand.messenger3 && boot.brand.messenger3.look;
+    if (look && /^https:\/\//.test(look.launcherLogo || "")) {
+      const logo = document.createElement("img");
+      logo.src = look.launcherLogo;
+      logo.alt = "";
+      button.append(logo);
+    } else button.textContent = "✦";
+    if (look && look.launcherSpacing) {
+      host.style.setProperty("--relay-side", Number(look.launcherSpacing.side) + "px");
+      host.style.setProperty("--relay-bottom", Number(look.launcherSpacing.bottom) + "px");
+    }
     button.setAttribute("aria-label", text("open"));
     button.setAttribute("aria-expanded", "false");
     button.setAttribute("aria-haspopup", "dialog");

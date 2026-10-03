@@ -13,8 +13,10 @@ phase before starting work. Phase 04 has its own detailed plan in
 additions are marked inside each phase of `docs/BUILD_PHASES.md`.
 
 Current position: messenger settings (`docs/MESSENGER_SETTINGS_PLAN.md`, steps M1–M3, asked for
-before phase 08 A2): M1 is done locally (`docs/MESSENGER_SETTINGS_STEP1.md`); next is M2 (look and
-live preview), then M3, then phase 08 A2. With `messenger_v3` on, a brand's messenger is a draft
+before phase 08 A2): M1 and M2 are done locally (`docs/MESSENGER_SETTINGS_STEP1.md`, `STEP2.md`);
+next is M3, then phase 08 A2. Settings' live preview loads the app's own copy of the messenger page
+(`/messenger/frame.html?preview=1`) and sends it a boot built from the draft; in preview mode the
+messenger fetches and sends nothing. With `messenger_v3` on, a brand's messenger is a draft
 published as versions (`server/messenger-config.ts`); publishing writes `brands.settings` (the
 `messenger3` key is only booted while the flag is on). Phase 08 (the AI agent, `docs/AI_PLAN.md`):
 step A1 (answering core) is done locally (`docs/AI_STEP1.md`); next is A2 (escalation and handover). The agent answers only from

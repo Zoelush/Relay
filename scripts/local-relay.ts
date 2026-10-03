@@ -931,6 +931,13 @@ export async function startLocalRelay(
         status: 404,
       });
     if (url.pathname.startsWith("/agent/")) return staticResponse(req);
+    // The messenger's own page and files, for Settings' live preview (messenger settings M2).
+    if (
+      ["/messenger/frame.html", "/messenger/frame.js", "/messenger/frame.css"].includes(
+        url.pathname,
+      )
+    )
+      return staticResponse(req);
     if (url.pathname === "/agent") {
       // Development-only identity, issued only on the loopback fixture, never in app/ or workers/.
       // `?as=grace` signs in as the seeded second teammate, to try mentions between two people.
@@ -955,7 +962,7 @@ export async function startLocalRelay(
               "relay_local_agent=" +
               token +
               "; HttpOnly; SameSite=Strict; Path=/api/agent; Max-Age=3600",
-            "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ${apiOrigin.replace("http", "ws")}; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'`,
+            "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ${apiOrigin.replace("http", "ws")}; img-src 'self' https:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'`,
           },
         },
       );

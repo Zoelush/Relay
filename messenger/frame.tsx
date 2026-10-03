@@ -40,7 +40,29 @@ type Messenger3 = {
   }[];
   welcome: Record<string, { greeting: string; intro: string }>;
   notice: { enabled: boolean; text: Record<string, string> };
+  /** Messenger settings M2: Home's background, the dark-theme colour and teammates. */
+  look?: {
+    darkColor: string | null;
+    header: {
+      background: "none" | "solid" | "gradient" | "image";
+      colors: string[];
+      image: string;
+      text: "light" | "dark";
+      fade: boolean;
+    };
+    showTeammates: boolean;
+  };
+  team?: { firstName: string; initials: string }[];
 };
+/** Home's welcome background, as CSS (only an https image is ever used). */
+function heroBackground(h: NonNullable<Messenger3["look"]>["header"]) {
+  if (h.background === "solid") return h.colors[0];
+  if (h.background === "gradient")
+    return `linear-gradient(135deg, ${h.colors.join(", ")})`;
+  if (h.background === "image" && /^https:\/\//.test(h.image))
+    return `center / cover no-repeat url(${JSON.stringify(h.image)})`;
+  return undefined;
+}
 /** A text for the customer's language: theirs, its base, the brand's, then any. */
 function localized<T>(
   texts: Record<string, T>,
@@ -73,6 +95,7 @@ type Boot = {
     name: string;
     locale?: string;
     theme?: string;
+    color?: string;
     directConversation?: boolean;
     allowVisitors?: boolean;
     requireSearch?: boolean;
@@ -122,7 +145,13 @@ function inLine(t: Strings, locale: string, n: number) {
   ];
   return t.queue.replace("{n}", `${n}${suffix}`);
 }
-type Init = { boot: Boot; api: string; open: boolean };
+type Init = {
+  boot: Boot;
+  api: string;
+  open: boolean;
+  /** Settings' live preview (messenger M2): nothing is sent or fetched. */
+  preview?: boolean;
+};
 const query = new URLSearchParams(location.search),
   parentOrigin = query.get("parent") ?? "",
   channel = query.get("channel");
@@ -141,7 +170,7 @@ const sound = () => {
   osc.stop(ctx.currentTime + 0.15);
   osc.onended = () => void ctx.close();
 };
-function Messenger({ boot, api, open: initialOpen }: Init) {
+function Messenger({ boot, api, open: initialOpen, preview }: Init) {
   const { strings: t, locale, dir } = language(boot.locale, boot.brand.locale);
   // Messenger settings M1: what this customer's audience (visitor or verified user) sees.
   const m3 = boot.brand.messenger3;
@@ -214,6 +243,21 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       body?: unknown,
       key = crypto.randomUUID(),
     ) => {
+      // The preview fetches nothing: an example conversation, and otherwise no answer.
+      if (preview)
+        return (
+          path === "conversations"
+            ? {
+                conversations: [
+                  {
+                    id: "preview",
+                    title: "Where is my order?",
+                    status: "open",
+                  },
+                ],
+              }
+            : new Promise<never>(() => {})
+        ) as T;
       const r = await fetch(api + "/v1/messenger/" + path, {
         method: body ? "POST" : "GET",
         credentials: "omit",
@@ -232,13 +276,14 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       }
       return data;
     },
-    [api, boot.token, t.error],
+    [api, boot.token, t.error, preview],
   );
   /**
    * Opens the customer portal in a new tab with a one-time, 60-second code (verified customers
    * only). The tab opens first, inside the click, so pop-up blockers allow it.
    */
   async function openPortal() {
+    if (preview) return;
     const tab = window.open("", "_blank");
     try {
       const { url } = await request<{ url: string }>("portal-handoff", {});
@@ -294,19 +339,19 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       );
     setTimeout(() => input.current?.focus(), 0);
   }
+  // The brand's colours, light and dark (messenger M2), from the boot: a draft shows at once.
+  const brandColor = /^#[0-9a-fA-F]{6}$/.test(String(boot.brand.color))
+    ? String(boot.brand.color)
+    : "#087a57";
+  const darkColor = boot.brand.messenger3?.look?.darkColor ?? brandColor;
+  useEffect(() => {
+    document.documentElement.style.setProperty("--accent-light", brandColor);
+    document.documentElement.style.setProperty("--accent-dark", darkColor);
+  }, [brandColor, darkColor]);
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = dir;
     document.documentElement.dataset.theme = boot.brand.theme ?? "auto";
-    const theme = document.createElement("link");
-    theme.rel = "stylesheet";
-    theme.href =
-      api +
-      "/messenger/theme.css?workspace=" +
-      encodeURIComponent(boot.session.workspace) +
-      "&brand=" +
-      encodeURIComponent(boot.brand.id);
-    document.head.appendChild(theme);
     let active = true;
     void request<{ conversations: Conversation[] }>("conversations")
       .then((data) => {
@@ -343,7 +388,6 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
     addEventListener("keydown", escape);
     return () => {
       active = false;
-      theme.remove();
       removeEventListener("message", listener);
       removeEventListener("keydown", escape);
     };
@@ -515,6 +559,7 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
     option?: string,
   ) {
     event?.preventDefault();
+    if (preview) return;
     if (busy) return;
     const text = (option ?? draft).trim();
     if (!retry && !text) return;
@@ -625,6 +670,8 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
     </div>
   );
   const startLabel = aud ? t[START_LABEL[aud.startButton]] : t.start;
+  const look = m3?.look;
+  const hero = look ? heroBackground(look.header) : undefined;
   const welcome = m3 && localized(m3.welcome, boot.locale, boot.brand.locale);
   // "{first_name}" becomes the verified customer's first name, or is left out.
   const greeting = welcome?.greeting
@@ -688,7 +735,21 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
         {space === "home" && (
           <div className="home">
             {noticeBanner}
-            <div className="intro">
+            <div
+              className={"intro" + (hero ? " hero" : "")}
+              style={hero ? { background: hero } : undefined}
+              data-text={look?.header.text}
+              data-fade={look?.header.fade ? "true" : undefined}
+            >
+              {look?.showTeammates && !!m3?.team?.length && (
+                <ul className="team" aria-label={t.team}>
+                  {m3.team.map((p, i) => (
+                    <li key={i} title={p.firstName}>
+                      {p.initials}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <span className="eyebrow">{boot.brand.teamIntroduction}</span>
               <h1>{greeting || t.welcome}</h1>
               {welcome?.intro && (
@@ -1284,6 +1345,12 @@ addEventListener("message", (event) => {
     event.data.type !== "initialize"
   )
     return;
-  root.render(<Messenger key={event.data.boot.token} {...event.data} />);
+  root.render(
+    <Messenger
+      key={event.data.boot.token}
+      {...event.data}
+      preview={query.get("preview") === "1"}
+    />,
+  );
 });
 sendParent("ready");

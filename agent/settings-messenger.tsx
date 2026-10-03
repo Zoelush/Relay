@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import {
   Card,
@@ -129,6 +129,10 @@ export function MessengerDrafts({
   const aud = form.audiences[who];
   const set = <K extends keyof MessengerConfig>(k: K, v: MessengerConfig[K]) =>
     setForm({ ...form, [k]: v });
+  const setLook = (change: Partial<MessengerConfig["look"]>) =>
+    set("look", { ...form.look, ...change });
+  const setHeader = (change: Partial<MessengerConfig["look"]["header"]>) =>
+    setLook({ header: { ...form.look.header, ...change } });
   const setAud = (change: Partial<AudienceConfig>) =>
     set("audiences", { ...form.audiences, [who]: { ...aud, ...change } });
   const languages = Object.keys(form.welcome);
@@ -212,857 +216,1131 @@ export function MessengerDrafts({
           Publish
         </button>
       }
+      wide
     >
-      {notice && (
-        <p role="status" className="pg-settings-notice">
-          {notice}
-        </p>
-      )}
-      <Card
-        title="Publishing"
-        description="Changes are a draft until you publish them. Published versions are kept, so you can go back to one."
-      >
-        <p className="pg-settings-small" data-testid="publish-state">
-          {dirty
-            ? "Unsaved changes."
-            : state.changed
-              ? "Draft saved, not published yet."
-              : state.liveVersion
-                ? `Live: version ${state.liveVersion}, as published.`
-                : "Live: the messenger as it was set up before drafts. Publish to make version 1."}
-        </p>
-        <div className="pg-settings-row">
-          {state.changed && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void send(
-                  { action: "discard" },
-                  "Draft discarded: it matches what's live again.",
-                )
-              }
-            >
-              Discard draft
-            </button>
+      <div className="pg-messenger-layout">
+        <div className="pg-messenger-fields">
+          {notice && (
+            <p role="status" className="pg-settings-notice">
+              {notice}
+            </p>
           )}
-          {state.versions.length > 0 && (
-            <>
-              <select
-                aria-label="Earlier version"
-                value={restore}
-                onChange={(e) => setRestore(e.target.value)}
+          <Card
+            title="Publishing"
+            description="Changes are a draft until you publish them. Published versions are kept, so you can go back to one."
+          >
+            <p className="pg-settings-small" data-testid="publish-state">
+              {dirty
+                ? "Unsaved changes."
+                : state.changed
+                  ? "Draft saved, not published yet."
+                  : state.liveVersion
+                    ? `Live: version ${state.liveVersion}, as published.`
+                    : "Live: the messenger as it was set up before drafts. Publish to make version 1."}
+            </p>
+            <div className="pg-settings-row">
+              {state.changed && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void send(
+                      { action: "discard" },
+                      "Draft discarded: it matches what's live again.",
+                    )
+                  }
+                >
+                  Discard draft
+                </button>
+              )}
+              {state.versions.length > 0 && (
+                <>
+                  <select
+                    aria-label="Earlier version"
+                    value={restore}
+                    onChange={(e) => setRestore(e.target.value)}
+                  >
+                    <option value="">Earlier versions…</option>
+                    {state.versions.map((v) => (
+                      <option key={v.version} value={v.version}>
+                        Version {v.version} · {when(v.publishedAt)}
+                        {v.publishedBy ? ` · ${v.publishedBy}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={busy || !restore}
+                    onClick={() =>
+                      void send(
+                        { action: "restore", version: Number(restore) },
+                        `Version ${restore} restored into the draft. Publish to put it live.`,
+                      )
+                    }
+                  >
+                    Restore into draft
+                  </button>
+                </>
+              )}
+            </div>
+          </Card>
+          {data.brands.length > 1 && (
+            <Field label="Brand" hint="Each brand has its own messenger.">
+              {(id, hint) => (
+                <select
+                  id={id}
+                  aria-describedby={hint}
+                  value={brand.id}
+                  onChange={(e) => onBrand(e.target.value)}
+                >
+                  {data.brands.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          )}
+
+          <div
+            className="pg-settings-audience"
+            role="radiogroup"
+            aria-label="Audience"
+          >
+            {AUDIENCES.map(([value, label, help]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={who === value}
+                title={help}
+                onClick={() => setWho(value)}
               >
-                <option value="">Earlier versions…</option>
-                {state.versions.map((v) => (
-                  <option key={v.version} value={v.version}>
-                    Version {v.version} · {when(v.publishedAt)}
-                    {v.publishedBy ? ` · ${v.publishedBy}` : ""}
+                {label}
+              </button>
+            ))}
+            <small className="pg-muted">
+              {AUDIENCES.find(([v]) => v === who)![2]} Spaces, Opening and Start
+              button below are for {who === "visitors" ? "visitors" : "users"}.
+            </small>
+          </div>
+
+          <Card
+            title="Spaces"
+            description="The tabs along the bottom of the messenger, in order."
+          >
+            <ul className="pg-settings-list" aria-label="Spaces">
+              {(["home", "messages", "help", "tickets"] as Space[])
+                .sort((a, b) => {
+                  const ia = aud.spaces.indexOf(a),
+                    ib = aud.spaces.indexOf(b);
+                  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+                })
+                .map((s) => {
+                  const on = aud.spaces.includes(s);
+                  const i = aud.spaces.indexOf(s);
+                  const fixed = s === "messages";
+                  const blocked = s === "tickets" && who === "visitors";
+                  return (
+                    <li key={s}>
+                      <label className="pg-settings-toggle">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          disabled={fixed || blocked}
+                          onChange={(e) =>
+                            setAud({
+                              spaces: e.target.checked
+                                ? [...aud.spaces, s]
+                                : aud.spaces.filter((x) => x !== s),
+                            })
+                          }
+                        />
+                        <span>
+                          <strong>{SPACE_NAMES[s][0]}</strong>
+                          <small className="pg-muted">
+                            {blocked
+                              ? "For signed-in users only."
+                              : SPACE_NAMES[s][1]}
+                          </small>
+                        </span>
+                      </label>
+                      {on && (
+                        <span className="pg-settings-buttons">
+                          <button
+                            type="button"
+                            aria-label={`Move ${SPACE_NAMES[s][0]} earlier`}
+                            disabled={i === 0}
+                            onClick={() =>
+                              setAud({ spaces: move(aud.spaces, i, -1) })
+                            }
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Move ${SPACE_NAMES[s][0]} later`}
+                            disabled={i === aud.spaces.length - 1}
+                            onClick={() =>
+                              setAud({ spaces: move(aud.spaces, i, 1) })
+                            }
+                          >
+                            ↓
+                          </button>
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+            </ul>
+          </Card>
+
+          <Card
+            title="Opening"
+            description="What happens when the messenger opens, and where the launcher shows."
+          >
+            <label className="pg-settings-toggle">
+              <input
+                type="checkbox"
+                checked={aud.launchToConversation}
+                onChange={(e) =>
+                  setAud({ launchToConversation: e.target.checked })
+                }
+              />
+              <span>
+                <strong>Open straight into a conversation</strong>
+                <small className="pg-muted">
+                  Skip Home: a new message, or their most recent conversation.
+                </small>
+              </span>
+            </label>
+            <Field
+              label="Show the launcher"
+              hint="The button that opens the messenger. Your site's own code can still open it when hidden."
+            >
+              {(id, hint) => (
+                <select
+                  id={id}
+                  aria-describedby={hint}
+                  value={aud.launcher.show}
+                  onChange={(e) =>
+                    setAud({
+                      launcher: {
+                        ...aud.launcher,
+                        show: e.target
+                          .value as AudienceConfig["launcher"]["show"],
+                      },
+                    })
+                  }
+                >
+                  <option value="always">On every page</option>
+                  <option value="only_matching">
+                    Only on pages that match
+                  </option>
+                  <option value="except_matching">
+                    On every page except those that match
+                  </option>
+                  <option value="never">Never</option>
+                </select>
+              )}
+            </Field>
+            {(aud.launcher.show === "only_matching" ||
+              aud.launcher.show === "except_matching") && (
+              <fieldset className="pg-settings-fieldset">
+                <legend>Pages that match</legend>
+                <p className="pg-muted pg-settings-small">
+                  Compared with the page&apos;s full address, such as
+                  https://shop.example.com/pricing.
+                </p>
+                {aud.launcher.rules.map((r, i) => (
+                  <div key={i} className="pg-settings-row">
+                    <select
+                      aria-label={`Rule ${i + 1} kind`}
+                      value={r.op}
+                      onChange={(e) =>
+                        setAud({
+                          launcher: {
+                            ...aud.launcher,
+                            rules: aud.launcher.rules.map((x, j) =>
+                              j === i
+                                ? { ...x, op: e.target.value as typeof r.op }
+                                : x,
+                            ),
+                          },
+                        })
+                      }
+                    >
+                      <option value="contains">Address contains</option>
+                      <option value="starts_with">Address starts with</option>
+                      <option value="equals">Address is exactly</option>
+                    </select>
+                    <input
+                      aria-label={`Rule ${i + 1} text`}
+                      value={r.value}
+                      maxLength={300}
+                      placeholder="/pricing"
+                      onChange={(e) =>
+                        setAud({
+                          launcher: {
+                            ...aud.launcher,
+                            rules: aud.launcher.rules.map((x, j) =>
+                              j === i ? { ...x, value: e.target.value } : x,
+                            ),
+                          },
+                        })
+                      }
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remove rule ${i + 1}`}
+                      onClick={() =>
+                        setAud({
+                          launcher: {
+                            ...aud.launcher,
+                            rules: aud.launcher.rules.filter((_, j) => j !== i),
+                          },
+                        })
+                      }
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAud({
+                        launcher: {
+                          ...aud.launcher,
+                          rules: [
+                            ...aud.launcher.rules,
+                            { op: "contains", value: "" },
+                          ],
+                        },
+                      })
+                    }
+                  >
+                    Add page rule
+                  </button>
+                </div>
+              </fieldset>
+            )}
+          </Card>
+
+          <Card
+            title="Start button"
+            description="The wording of the button that starts a conversation."
+          >
+            <div
+              className="pg-settings-checks"
+              role="radiogroup"
+              aria-label="Start button wording"
+            >
+              {START.map(([value, label]) => (
+                <label key={value}>
+                  <input
+                    type="radio"
+                    name={`start-${who}`}
+                    checked={aud.startButton === value}
+                    onChange={() => setAud({ startButton: value })}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </Card>
+
+          <Card
+            title="Home cards"
+            description="The cards under the welcome on Home, in order. Each card says who sees it."
+          >
+            <ul className="pg-settings-list" aria-label="Home cards">
+              {form.home.map((c, i) => (
+                <li key={c.id} className="pg-settings-card-row">
+                  <span>
+                    <strong>{cardName(c.type)}</strong>
+                    <span className="pg-settings-row">
+                      <select
+                        aria-label={`${cardName(c.type)} ${i + 1}: who sees it`}
+                        value={c.audience}
+                        onChange={(e) =>
+                          set(
+                            "home",
+                            form.home.map((x) =>
+                              x.id === c.id
+                                ? {
+                                    ...x,
+                                    audience: e.target
+                                      .value as HomeCard["audience"],
+                                  }
+                                : x,
+                            ),
+                          )
+                        }
+                      >
+                        {c.type !== "tickets" && (
+                          <option value="everyone">Everyone</option>
+                        )}
+                        {c.type !== "tickets" && (
+                          <option value="visitors">Visitors only</option>
+                        )}
+                        <option value="users">Users only</option>
+                      </select>
+                      {(c.type === "link" || c.type === "announcement") && (
+                        <input
+                          aria-label={`${cardName(c.type)} ${i + 1}: title`}
+                          placeholder="Title"
+                          maxLength={80}
+                          value={c.title ?? ""}
+                          onChange={(e) =>
+                            set(
+                              "home",
+                              form.home.map((x) =>
+                                x.id === c.id
+                                  ? { ...x, title: e.target.value }
+                                  : x,
+                              ),
+                            )
+                          }
+                        />
+                      )}
+                      {(c.type === "link" || c.type === "announcement") && (
+                        <input
+                          aria-label={`${cardName(c.type)} ${i + 1}: text`}
+                          placeholder="Text (optional)"
+                          maxLength={300}
+                          value={c.body ?? ""}
+                          onChange={(e) =>
+                            set(
+                              "home",
+                              form.home.map((x) =>
+                                x.id === c.id
+                                  ? { ...x, body: e.target.value }
+                                  : x,
+                              ),
+                            )
+                          }
+                        />
+                      )}
+                      {c.type === "link" && (
+                        <input
+                          aria-label={`${cardName(c.type)} ${i + 1}: address`}
+                          placeholder="https://"
+                          maxLength={500}
+                          value={c.url ?? ""}
+                          onChange={(e) =>
+                            set(
+                              "home",
+                              form.home.map((x) =>
+                                x.id === c.id
+                                  ? { ...x, url: e.target.value }
+                                  : x,
+                              ),
+                            )
+                          }
+                        />
+                      )}
+                    </span>
+                  </span>
+                  <span className="pg-settings-buttons">
+                    <button
+                      type="button"
+                      aria-label={`Move ${cardName(c.type)} ${i + 1} up`}
+                      disabled={i === 0}
+                      onClick={() => set("home", move(form.home, i, -1))}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move ${cardName(c.type)} ${i + 1} down`}
+                      disabled={i === form.home.length - 1}
+                      onClick={() => set("home", move(form.home, i, 1))}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${cardName(c.type)} ${i + 1}`}
+                      onClick={() =>
+                        set(
+                          "home",
+                          form.home.filter((x) => x.id !== c.id),
+                        )
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="pg-settings-row">
+              <select
+                aria-label="New card kind"
+                value={newCard}
+                onChange={(e) => setNewCard(e.target.value as HomeCard["type"])}
+              >
+                {CARDS.map(([v, label]) => (
+                  <option key={v} value={v}>
+                    {label}
                   </option>
                 ))}
               </select>
               <button
                 type="button"
-                disabled={busy || !restore}
+                disabled={form.home.length >= 12}
                 onClick={() =>
-                  void send(
-                    { action: "restore", version: Number(restore) },
-                    `Version ${restore} restored into the draft. Publish to put it live.`,
-                  )
+                  set("home", [
+                    ...form.home,
+                    {
+                      id: "card-" + crypto.randomUUID().slice(0, 8),
+                      type: newCard,
+                      audience: newCard === "tickets" ? "users" : "everyone",
+                      ...(newCard === "link" || newCard === "announcement"
+                        ? { title: "", body: "" }
+                        : {}),
+                      ...(newCard === "link" ? { url: "" } : {}),
+                    },
+                  ])
                 }
               >
-                Restore into draft
+                Add card
               </button>
-            </>
-          )}
-        </div>
-      </Card>
-      {data.brands.length > 1 && (
-        <Field label="Brand" hint="Each brand has its own messenger.">
-          {(id, hint) => (
-            <select
-              id={id}
-              aria-describedby={hint}
-              value={brand.id}
-              onChange={(e) => onBrand(e.target.value)}
-            >
-              {data.brands.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-      )}
+              <small className="pg-muted">
+                {CARDS.find(([v]) => v === newCard)![2]}
+              </small>
+            </div>
+          </Card>
 
-      <div
-        className="pg-settings-audience"
-        role="radiogroup"
-        aria-label="Audience"
-      >
-        {AUDIENCES.map(([value, label, help]) => (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={who === value}
-            title={help}
-            onClick={() => setWho(value)}
+          <Card
+            title="Welcome"
+            description="The greeting and introduction at the top of Home, in each language. {first_name} becomes a signed-in customer's first name, and is left out for visitors."
           >
-            {label}
-          </button>
-        ))}
-        <small className="pg-muted">
-          {AUDIENCES.find(([v]) => v === who)![2]} Spaces, Opening and Start
-          button below are for {who === "visitors" ? "visitors" : "users"}.
-        </small>
-      </div>
-
-      <Card
-        title="Spaces"
-        description="The tabs along the bottom of the messenger, in order."
-      >
-        <ul className="pg-settings-list" aria-label="Spaces">
-          {(["home", "messages", "help", "tickets"] as Space[])
-            .sort((a, b) => {
-              const ia = aud.spaces.indexOf(a),
-                ib = aud.spaces.indexOf(b);
-              return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-            })
-            .map((s) => {
-              const on = aud.spaces.includes(s);
-              const i = aud.spaces.indexOf(s);
-              const fixed = s === "messages";
-              const blocked = s === "tickets" && who === "visitors";
-              return (
-                <li key={s}>
-                  <label className="pg-settings-toggle">
+            {languages.map((l) => (
+              <fieldset key={l} className="pg-settings-fieldset">
+                <legend>
+                  {languageName(l)}
+                  {l === form.locale && " (the messenger's language)"}
+                </legend>
+                <div className="pg-settings-row">
+                  <Field label={`Greeting (${languageName(l)})`}>
+                    {(id) => (
+                      <input
+                        id={id}
+                        maxLength={120}
+                        value={form.welcome[l].greeting}
+                        onChange={(e) =>
+                          set("welcome", {
+                            ...form.welcome,
+                            [l]: {
+                              ...form.welcome[l],
+                              greeting: e.target.value,
+                            },
+                          })
+                        }
+                      />
+                    )}
+                  </Field>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      set("welcome", {
+                        ...form.welcome,
+                        [l]: {
+                          ...form.welcome[l],
+                          greeting: (
+                            form.welcome[l].greeting + " {first_name}"
+                          ).trim(),
+                        },
+                      })
+                    }
+                  >
+                    Insert first name
+                  </button>
+                </div>
+                <Field label={`Introduction (${languageName(l)})`}>
+                  {(id) => (
                     <input
-                      type="checkbox"
-                      checked={on}
-                      disabled={fixed || blocked}
+                      id={id}
+                      maxLength={160}
+                      value={form.welcome[l].intro}
                       onChange={(e) =>
-                        setAud({
-                          spaces: e.target.checked
-                            ? [...aud.spaces, s]
-                            : aud.spaces.filter((x) => x !== s),
+                        set("welcome", {
+                          ...form.welcome,
+                          [l]: { ...form.welcome[l], intro: e.target.value },
                         })
                       }
                     />
-                    <span>
-                      <strong>{SPACE_NAMES[s][0]}</strong>
-                      <small className="pg-muted">
-                        {blocked
-                          ? "For signed-in users only."
-                          : SPACE_NAMES[s][1]}
-                      </small>
-                    </span>
-                  </label>
-                  {on && (
-                    <span className="pg-settings-buttons">
-                      <button
-                        type="button"
-                        aria-label={`Move ${SPACE_NAMES[s][0]} earlier`}
-                        disabled={i === 0}
-                        onClick={() =>
-                          setAud({ spaces: move(aud.spaces, i, -1) })
-                        }
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Move ${SPACE_NAMES[s][0]} later`}
-                        disabled={i === aud.spaces.length - 1}
-                        onClick={() =>
-                          setAud({ spaces: move(aud.spaces, i, 1) })
-                        }
-                      >
-                        ↓
-                      </button>
-                    </span>
                   )}
-                </li>
-              );
-            })}
-        </ul>
-      </Card>
-
-      <Card
-        title="Opening"
-        description="What happens when the messenger opens, and where the launcher shows."
-      >
-        <label className="pg-settings-toggle">
-          <input
-            type="checkbox"
-            checked={aud.launchToConversation}
-            onChange={(e) => setAud({ launchToConversation: e.target.checked })}
-          />
-          <span>
-            <strong>Open straight into a conversation</strong>
-            <small className="pg-muted">
-              Skip Home: a new message, or their most recent conversation.
-            </small>
-          </span>
-        </label>
-        <Field
-          label="Show the launcher"
-          hint="The button that opens the messenger. Your site's own code can still open it when hidden."
-        >
-          {(id, hint) => (
-            <select
-              id={id}
-              aria-describedby={hint}
-              value={aud.launcher.show}
-              onChange={(e) =>
-                setAud({
-                  launcher: {
-                    ...aud.launcher,
-                    show: e.target.value as AudienceConfig["launcher"]["show"],
-                  },
-                })
-              }
-            >
-              <option value="always">On every page</option>
-              <option value="only_matching">Only on pages that match</option>
-              <option value="except_matching">
-                On every page except those that match
-              </option>
-              <option value="never">Never</option>
-            </select>
-          )}
-        </Field>
-        {(aud.launcher.show === "only_matching" ||
-          aud.launcher.show === "except_matching") && (
-          <fieldset className="pg-settings-fieldset">
-            <legend>Pages that match</legend>
-            <p className="pg-muted pg-settings-small">
-              Compared with the page&apos;s full address, such as
-              https://shop.example.com/pricing.
-            </p>
-            {aud.launcher.rules.map((r, i) => (
-              <div key={i} className="pg-settings-row">
-                <select
-                  aria-label={`Rule ${i + 1} kind`}
-                  value={r.op}
-                  onChange={(e) =>
-                    setAud({
-                      launcher: {
-                        ...aud.launcher,
-                        rules: aud.launcher.rules.map((x, j) =>
-                          j === i
-                            ? { ...x, op: e.target.value as typeof r.op }
-                            : x,
-                        ),
-                      },
-                    })
-                  }
-                >
-                  <option value="contains">Address contains</option>
-                  <option value="starts_with">Address starts with</option>
-                  <option value="equals">Address is exactly</option>
-                </select>
-                <input
-                  aria-label={`Rule ${i + 1} text`}
-                  value={r.value}
-                  maxLength={300}
-                  placeholder="/pricing"
-                  onChange={(e) =>
-                    setAud({
-                      launcher: {
-                        ...aud.launcher,
-                        rules: aud.launcher.rules.map((x, j) =>
-                          j === i ? { ...x, value: e.target.value } : x,
-                        ),
-                      },
-                    })
-                  }
-                />
-                <button
-                  type="button"
-                  aria-label={`Remove rule ${i + 1}`}
-                  onClick={() =>
-                    setAud({
-                      launcher: {
-                        ...aud.launcher,
-                        rules: aud.launcher.rules.filter((_, j) => j !== i),
-                      },
-                    })
-                  }
-                >
-                  ×
-                </button>
-              </div>
+                </Field>
+                {l !== form.locale && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const rest = Object.fromEntries(
+                          Object.entries(form.welcome).filter(([k]) => k !== l),
+                        );
+                        const notes = Object.fromEntries(
+                          Object.entries(form.notice.text).filter(
+                            ([k]) => k !== l,
+                          ),
+                        );
+                        setForm({
+                          ...form,
+                          welcome: rest,
+                          notice: { ...form.notice, text: notes },
+                        });
+                      }}
+                    >
+                      Remove {languageName(l)}
+                    </button>
+                  </div>
+                )}
+              </fieldset>
             ))}
-            <div>
+            <div className="pg-settings-row">
+              <select
+                aria-label="Add a language"
+                value={newLanguage}
+                onChange={(e) => setNewLanguage(e.target.value)}
+              >
+                <option value="">Add a language…</option>
+                {LANGUAGES.filter((l) => !languages.includes(l)).map((l) => (
+                  <option key={l} value={l}>
+                    {languageName(l)}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
-                onClick={() =>
-                  setAud({
-                    launcher: {
-                      ...aud.launcher,
-                      rules: [
-                        ...aud.launcher.rules,
-                        { op: "contains", value: "" },
-                      ],
-                    },
-                  })
-                }
+                disabled={!newLanguage}
+                onClick={() => {
+                  set("welcome", {
+                    ...form.welcome,
+                    [newLanguage]: { greeting: "", intro: "" },
+                  });
+                  setNewLanguage("");
+                }}
               >
-                Add page rule
+                Add language
               </button>
             </div>
-          </fieldset>
-        )}
-      </Card>
+          </Card>
 
-      <Card
-        title="Start button"
-        description="The wording of the button that starts a conversation."
-      >
-        <div
-          className="pg-settings-checks"
-          role="radiogroup"
-          aria-label="Start button wording"
-        >
-          {START.map(([value, label]) => (
-            <label key={value}>
+          <Card
+            title="Special notice"
+            description="A short notice at the top of Home and Messages for everyone, such as a delay or an outage."
+          >
+            <label className="pg-settings-toggle">
               <input
-                type="radio"
-                name={`start-${who}`}
-                checked={aud.startButton === value}
-                onChange={() => setAud({ startButton: value })}
+                type="checkbox"
+                checked={form.notice.enabled}
+                onChange={(e) =>
+                  set("notice", { ...form.notice, enabled: e.target.checked })
+                }
               />
-              {label}
-            </label>
-          ))}
-        </div>
-      </Card>
-
-      <Card
-        title="Home cards"
-        description="The cards under the welcome on Home, in order. Each card says who sees it."
-      >
-        <ul className="pg-settings-list" aria-label="Home cards">
-          {form.home.map((c, i) => (
-            <li key={c.id} className="pg-settings-card-row">
               <span>
-                <strong>{cardName(c.type)}</strong>
-                <span className="pg-settings-row">
-                  <select
-                    aria-label={`${cardName(c.type)} ${i + 1}: who sees it`}
-                    value={c.audience}
-                    onChange={(e) =>
-                      set(
-                        "home",
-                        form.home.map((x) =>
-                          x.id === c.id
-                            ? {
-                                ...x,
-                                audience: e.target
-                                  .value as HomeCard["audience"],
-                              }
-                            : x,
-                        ),
-                      )
-                    }
-                  >
-                    {c.type !== "tickets" && (
-                      <option value="everyone">Everyone</option>
-                    )}
-                    {c.type !== "tickets" && (
-                      <option value="visitors">Visitors only</option>
-                    )}
-                    <option value="users">Users only</option>
-                  </select>
-                  {(c.type === "link" || c.type === "announcement") && (
-                    <input
-                      aria-label={`${cardName(c.type)} ${i + 1}: title`}
-                      placeholder="Title"
-                      maxLength={80}
-                      value={c.title ?? ""}
-                      onChange={(e) =>
-                        set(
-                          "home",
-                          form.home.map((x) =>
-                            x.id === c.id ? { ...x, title: e.target.value } : x,
-                          ),
-                        )
-                      }
-                    />
-                  )}
-                  {(c.type === "link" || c.type === "announcement") && (
-                    <input
-                      aria-label={`${cardName(c.type)} ${i + 1}: text`}
-                      placeholder="Text (optional)"
-                      maxLength={300}
-                      value={c.body ?? ""}
-                      onChange={(e) =>
-                        set(
-                          "home",
-                          form.home.map((x) =>
-                            x.id === c.id ? { ...x, body: e.target.value } : x,
-                          ),
-                        )
-                      }
-                    />
-                  )}
-                  {c.type === "link" && (
-                    <input
-                      aria-label={`${cardName(c.type)} ${i + 1}: address`}
-                      placeholder="https://"
-                      maxLength={500}
-                      value={c.url ?? ""}
-                      onChange={(e) =>
-                        set(
-                          "home",
-                          form.home.map((x) =>
-                            x.id === c.id ? { ...x, url: e.target.value } : x,
-                          ),
-                        )
-                      }
-                    />
-                  )}
-                </span>
+                <strong>Show the notice</strong>
               </span>
-              <span className="pg-settings-buttons">
-                <button
-                  type="button"
-                  aria-label={`Move ${cardName(c.type)} ${i + 1} up`}
-                  disabled={i === 0}
-                  onClick={() => set("home", move(form.home, i, -1))}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Move ${cardName(c.type)} ${i + 1} down`}
-                  disabled={i === form.home.length - 1}
-                  onClick={() => set("home", move(form.home, i, 1))}
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove ${cardName(c.type)} ${i + 1}`}
-                  onClick={() =>
-                    set(
-                      "home",
-                      form.home.filter((x) => x.id !== c.id),
-                    )
-                  }
-                >
-                  ×
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-        <div className="pg-settings-row">
-          <select
-            aria-label="New card kind"
-            value={newCard}
-            onChange={(e) => setNewCard(e.target.value as HomeCard["type"])}
-          >
-            {CARDS.map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={form.home.length >= 12}
-            onClick={() =>
-              set("home", [
-                ...form.home,
-                {
-                  id: "card-" + crypto.randomUUID().slice(0, 8),
-                  type: newCard,
-                  audience: newCard === "tickets" ? "users" : "everyone",
-                  ...(newCard === "link" || newCard === "announcement"
-                    ? { title: "", body: "" }
-                    : {}),
-                  ...(newCard === "link" ? { url: "" } : {}),
-                },
-              ])
-            }
-          >
-            Add card
-          </button>
-          <small className="pg-muted">
-            {CARDS.find(([v]) => v === newCard)![2]}
-          </small>
-        </div>
-      </Card>
-
-      <Card
-        title="Welcome"
-        description="The greeting and introduction at the top of Home, in each language. {first_name} becomes a signed-in customer's first name, and is left out for visitors."
-      >
-        {languages.map((l) => (
-          <fieldset key={l} className="pg-settings-fieldset">
-            <legend>
-              {languageName(l)}
-              {l === form.locale && " (the messenger's language)"}
-            </legend>
-            <div className="pg-settings-row">
-              <Field label={`Greeting (${languageName(l)})`}>
+            </label>
+            {languages.map((l) => (
+              <Field key={l} label={`Notice (${languageName(l)})`}>
                 {(id) => (
-                  <input
+                  <textarea
                     id={id}
-                    maxLength={120}
-                    value={form.welcome[l].greeting}
+                    rows={2}
+                    maxLength={300}
+                    value={form.notice.text[l] ?? ""}
                     onChange={(e) =>
-                      set("welcome", {
-                        ...form.welcome,
-                        [l]: { ...form.welcome[l], greeting: e.target.value },
+                      set("notice", {
+                        ...form.notice,
+                        text: { ...form.notice.text, [l]: e.target.value },
                       })
                     }
                   />
                 )}
               </Field>
-              <button
-                type="button"
-                onClick={() =>
-                  set("welcome", {
-                    ...form.welcome,
-                    [l]: {
-                      ...form.welcome[l],
-                      greeting: (
-                        form.welcome[l].greeting + " {first_name}"
-                      ).trim(),
-                    },
-                  })
-                }
-              >
-                Insert first name
-              </button>
+            ))}
+          </Card>
+
+          <Card title="Look" description="Colour, theme, launcher and logo.">
+            <div className="pg-settings-row">
+              <Field label="Brand colour">
+                {(id) => (
+                  <span className="pg-settings-colour">
+                    <input
+                      type="color"
+                      aria-label="Pick the brand colour"
+                      value={form.color}
+                      onChange={(e) => set("color", e.target.value)}
+                    />
+                    <input
+                      id={id}
+                      value={form.color}
+                      maxLength={7}
+                      onChange={(e) => set("color", e.target.value)}
+                    />
+                  </span>
+                )}
+              </Field>
+              <Field label="Messenger theme">
+                {(id) => (
+                  <select
+                    id={id}
+                    value={form.theme}
+                    onChange={(e) =>
+                      set("theme", e.target.value as typeof form.theme)
+                    }
+                  >
+                    <option value="auto">
+                      Follow the visitor&apos;s device
+                    </option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                  </select>
+                )}
+              </Field>
+              <Field label="Launcher side">
+                {(id) => (
+                  <select
+                    id={id}
+                    value={form.position}
+                    onChange={(e) =>
+                      set("position", e.target.value as typeof form.position)
+                    }
+                  >
+                    <option value="right">Bottom right</option>
+                    <option value="left">Bottom left</option>
+                  </select>
+                )}
+              </Field>
+              <Field label="Launcher shape">
+                {(id) => (
+                  <select
+                    id={id}
+                    value={form.shape}
+                    onChange={(e) =>
+                      set("shape", e.target.value as typeof form.shape)
+                    }
+                  >
+                    <option value="rounded">Rounded square</option>
+                    <option value="circle">Circle</option>
+                  </select>
+                )}
+              </Field>
             </div>
-            <Field label={`Introduction (${languageName(l)})`}>
-              {(id) => (
+            <Field
+              label="Logo"
+              hint="An https:// image address, shown at the top of the messenger."
+            >
+              {(id, hint) => (
                 <input
                   id={id}
-                  maxLength={160}
-                  value={form.welcome[l].intro}
-                  onChange={(e) =>
-                    set("welcome", {
-                      ...form.welcome,
-                      [l]: { ...form.welcome[l], intro: e.target.value },
-                    })
-                  }
+                  aria-describedby={hint}
+                  maxLength={500}
+                  value={form.logo}
+                  placeholder="https://example.com/logo.png"
+                  onChange={(e) => set("logo", e.target.value)}
                 />
               )}
             </Field>
-            {l !== form.locale && (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const rest = Object.fromEntries(
-                      Object.entries(form.welcome).filter(([k]) => k !== l),
-                    );
-                    const notes = Object.fromEntries(
-                      Object.entries(form.notice.text).filter(([k]) => k !== l),
-                    );
+          </Card>
+
+          <Card
+            title="Home background and launcher"
+            description="The welcome's background on Home, the dark theme's colour, the launcher's logo and spacing, and teammates' initials."
+          >
+            <label className="pg-settings-toggle">
+              <input
+                type="checkbox"
+                checked={form.look.darkColor !== null}
+                onChange={(e) =>
+                  setLook({ darkColor: e.target.checked ? form.color : null })
+                }
+              />
+              <span>
+                <strong>A different colour in the dark theme</strong>
+                <small className="pg-muted">
+                  Otherwise the brand colour is used in both.
+                </small>
+              </span>
+            </label>
+            {form.look.darkColor !== null && (
+              <Field label="Dark theme colour">
+                {(id) => (
+                  <span className="pg-settings-colour">
+                    <input
+                      type="color"
+                      aria-label="Pick the dark theme colour"
+                      value={form.look.darkColor ?? form.color}
+                      onChange={(e) => setLook({ darkColor: e.target.value })}
+                    />
+                    <input
+                      id={id}
+                      maxLength={7}
+                      value={form.look.darkColor ?? ""}
+                      onChange={(e) => setLook({ darkColor: e.target.value })}
+                    />
+                  </span>
+                )}
+              </Field>
+            )}
+            <Field label="Home background">
+              {(id) => (
+                <select
+                  id={id}
+                  value={form.look.header.background}
+                  onChange={(e) =>
+                    setHeader({
+                      background: e.target
+                        .value as typeof form.look.header.background,
+                      colors:
+                        e.target.value === "gradient" &&
+                        form.look.header.colors.length < 2
+                          ? [
+                              form.look.header.colors[0] ?? form.color,
+                              "#1d3a8a",
+                            ]
+                          : form.look.header.colors,
+                    })
+                  }
+                >
+                  <option value="none">None</option>
+                  <option value="solid">A colour</option>
+                  <option value="gradient">A gradient</option>
+                  <option value="image">An image</option>
+                </select>
+              )}
+            </Field>
+            {(form.look.header.background === "solid" ||
+              form.look.header.background === "gradient") && (
+              <div className="pg-settings-row">
+                {form.look.header.colors
+                  .slice(0, form.look.header.background === "solid" ? 1 : 3)
+                  .map((c, i) => (
+                    <span key={i} className="pg-settings-colour">
+                      <input
+                        type="color"
+                        aria-label={`Background colour ${i + 1}`}
+                        value={c}
+                        onChange={(e) =>
+                          setHeader({
+                            colors: form.look.header.colors.map((x, j) =>
+                              j === i ? e.target.value : x,
+                            ),
+                          })
+                        }
+                      />
+                      {form.look.header.background === "gradient" &&
+                        form.look.header.colors.length > 2 && (
+                          <button
+                            type="button"
+                            aria-label={`Remove colour ${i + 1}`}
+                            onClick={() =>
+                              setHeader({
+                                colors: form.look.header.colors.filter(
+                                  (_, j) => j !== i,
+                                ),
+                              })
+                            }
+                          >
+                            ×
+                          </button>
+                        )}
+                    </span>
+                  ))}
+                {form.look.header.background === "gradient" &&
+                  form.look.header.colors.length < 3 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setHeader({
+                          colors: [...form.look.header.colors, "#ffffff"],
+                        })
+                      }
+                    >
+                      Add colour
+                    </button>
+                  )}
+              </div>
+            )}
+            {form.look.header.background === "image" && (
+              <Field
+                label="Background image"
+                hint="An https:// image address. It covers the welcome."
+              >
+                {(id, hint) => (
+                  <input
+                    id={id}
+                    aria-describedby={hint}
+                    maxLength={500}
+                    placeholder="https://example.com/background.jpg"
+                    value={form.look.header.image}
+                    onChange={(e) => setHeader({ image: e.target.value })}
+                  />
+                )}
+              </Field>
+            )}
+            {form.look.header.background !== "none" && (
+              <>
+                <fieldset className="pg-settings-fieldset">
+                  <legend>Text on the background</legend>
+                  <div className="pg-settings-checks">
+                    {(
+                      [
+                        ["light", "White"],
+                        ["dark", "Black"],
+                      ] as const
+                    ).map(([v, label]) => (
+                      <label key={v}>
+                        <input
+                          type="radio"
+                          name="header-text"
+                          checked={form.look.header.text === v}
+                          onChange={() => setHeader({ text: v })}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <label className="pg-settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={form.look.header.fade}
+                    onChange={(e) => setHeader({ fade: e.target.checked })}
+                  />
+                  <span>
+                    <strong>Fade the background into the page</strong>
+                  </span>
+                </label>
+              </>
+            )}
+            <label className="pg-settings-toggle">
+              <input
+                type="checkbox"
+                checked={form.look.showTeammates}
+                onChange={(e) => setLook({ showTeammates: e.target.checked })}
+              />
+              <span>
+                <strong>Show teammates on Home</strong>
+                <small className="pg-muted">
+                  Up to three teammates&apos; initials, active ones first, with
+                  their first names on hover.
+                </small>
+              </span>
+            </label>
+            <Field
+              label="Launcher logo"
+              hint="An https:// image shown in the launcher instead of ✦. Square images with a transparent background work best. Your site's content policy must allow its address."
+            >
+              {(id, hint) => (
+                <input
+                  id={id}
+                  aria-describedby={hint}
+                  maxLength={500}
+                  placeholder="https://example.com/launcher.png"
+                  value={form.look.launcherLogo}
+                  onChange={(e) => setLook({ launcherLogo: e.target.value })}
+                />
+              )}
+            </Field>
+            <div className="pg-settings-row">
+              <Field
+                label="Side spacing (px)"
+                hint="On computers and tablets. Phones use the bottom right corner."
+              >
+                {(id, hint) => (
+                  <input
+                    id={id}
+                    aria-describedby={hint}
+                    type="number"
+                    min={0}
+                    max={120}
+                    value={form.look.launcherSpacing.side}
+                    onChange={(e) =>
+                      setLook({
+                        launcherSpacing: {
+                          ...form.look.launcherSpacing,
+                          side: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                )}
+              </Field>
+              <Field label="Bottom spacing (px)">
+                {(id) => (
+                  <input
+                    id={id}
+                    type="number"
+                    min={0}
+                    max={120}
+                    value={form.look.launcherSpacing.bottom}
+                    onChange={(e) =>
+                      setLook({
+                        launcherSpacing: {
+                          ...form.look.launcherSpacing,
+                          bottom: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                )}
+              </Field>
+            </div>
+          </Card>
+
+          <Card
+            title="Conversations"
+            description="Who can start one, and what they read."
+          >
+            <label className="pg-settings-toggle">
+              <input
+                type="checkbox"
+                checked={form.allowVisitors}
+                onChange={(e) => set("allowVisitors", e.target.checked)}
+              />
+              <span>
+                <strong>Visitors can start conversations</strong>
+                <small className="pg-muted">
+                  Off: only signed-in, verified customers can.
+                </small>
+              </span>
+            </label>
+            <label className="pg-settings-toggle">
+              <input
+                type="checkbox"
+                checked={form.requireSearch}
+                onChange={(e) => set("requireSearch", e.target.checked)}
+              />
+              <span>
+                <strong>Ask visitors to search help first</strong>
+              </span>
+            </label>
+            <Field
+              label="Team introduction"
+              hint="Above the welcome, such as who answers and when."
+            >
+              {(id, hint) => (
+                <input
+                  id={id}
+                  aria-describedby={hint}
+                  maxLength={200}
+                  value={form.teamIntroduction}
+                  onChange={(e) => set("teamIntroduction", e.target.value)}
+                />
+              )}
+            </Field>
+            <Field label="Away message" hint="Shown outside office hours.">
+              {(id, hint) => (
+                <textarea
+                  id={id}
+                  aria-describedby={hint}
+                  rows={2}
+                  maxLength={500}
+                  value={form.outOfHours}
+                  onChange={(e) => set("outOfHours", e.target.value)}
+                />
+              )}
+            </Field>
+            <Field
+              label="Messenger language"
+              hint="Its own language, used when the website doesn't say which one a visitor reads."
+            >
+              {(id, hint) => (
+                <select
+                  id={id}
+                  aria-describedby={hint}
+                  value={form.locale}
+                  onChange={(e) => {
+                    const l = e.target.value;
+                    // The messenger's own language always has a welcome.
                     setForm({
                       ...form,
-                      welcome: rest,
-                      notice: { ...form.notice, text: notes },
+                      locale: l,
+                      welcome: form.welcome[l]
+                        ? form.welcome
+                        : { ...form.welcome, [l]: { greeting: "", intro: "" } },
                     });
                   }}
                 >
-                  Remove {languageName(l)}
-                </button>
-              </div>
-            )}
-          </fieldset>
-        ))}
-        <div className="pg-settings-row">
-          <select
-            aria-label="Add a language"
-            value={newLanguage}
-            onChange={(e) => setNewLanguage(e.target.value)}
+                  {[...new Set([form.locale, ...LANGUAGES])].map((l) => (
+                    <option key={l} value={l}>
+                      {languageName(l)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          </Card>
+
+          <Card
+            title="Websites"
+            description="The messenger loads only on these exact addresses, such as https://shop.example.com. Each subdomain is listed on its own; wildcards aren't allowed."
           >
-            <option value="">Add a language…</option>
-            {LANGUAGES.filter((l) => !languages.includes(l)).map((l) => (
-              <option key={l} value={l}>
-                {languageName(l)}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={!newLanguage}
-            onClick={() => {
-              set("welcome", {
-                ...form.welcome,
-                [newLanguage]: { greeting: "", intro: "" },
-              });
-              setNewLanguage("");
-            }}
-          >
-            Add language
-          </button>
-        </div>
-      </Card>
-
-      <Card
-        title="Special notice"
-        description="A short notice at the top of Home and Messages for everyone, such as a delay or an outage."
-      >
-        <label className="pg-settings-toggle">
-          <input
-            type="checkbox"
-            checked={form.notice.enabled}
-            onChange={(e) =>
-              set("notice", { ...form.notice, enabled: e.target.checked })
-            }
-          />
-          <span>
-            <strong>Show the notice</strong>
-          </span>
-        </label>
-        {languages.map((l) => (
-          <Field key={l} label={`Notice (${languageName(l)})`}>
-            {(id) => (
-              <textarea
-                id={id}
-                rows={2}
-                maxLength={300}
-                value={form.notice.text[l] ?? ""}
-                onChange={(e) =>
-                  set("notice", {
-                    ...form.notice,
-                    text: { ...form.notice.text, [l]: e.target.value },
-                  })
-                }
-              />
-            )}
-          </Field>
-        ))}
-      </Card>
-
-      <Card title="Look" description="Colour, theme, launcher and logo.">
-        <div className="pg-settings-row">
-          <Field label="Brand colour">
-            {(id) => (
-              <span className="pg-settings-colour">
-                <input
-                  type="color"
-                  aria-label="Pick the brand colour"
-                  value={form.color}
-                  onChange={(e) => set("color", e.target.value)}
-                />
-                <input
-                  id={id}
-                  value={form.color}
-                  maxLength={7}
-                  onChange={(e) => set("color", e.target.value)}
-                />
-              </span>
-            )}
-          </Field>
-          <Field label="Messenger theme">
-            {(id) => (
-              <select
-                id={id}
-                value={form.theme}
-                onChange={(e) =>
-                  set("theme", e.target.value as typeof form.theme)
-                }
-              >
-                <option value="auto">Follow the visitor&apos;s device</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            )}
-          </Field>
-          <Field label="Launcher side">
-            {(id) => (
-              <select
-                id={id}
-                value={form.position}
-                onChange={(e) =>
-                  set("position", e.target.value as typeof form.position)
-                }
-              >
-                <option value="right">Bottom right</option>
-                <option value="left">Bottom left</option>
-              </select>
-            )}
-          </Field>
-          <Field label="Launcher shape">
-            {(id) => (
-              <select
-                id={id}
-                value={form.shape}
-                onChange={(e) =>
-                  set("shape", e.target.value as typeof form.shape)
-                }
-              >
-                <option value="rounded">Rounded square</option>
-                <option value="circle">Circle</option>
-              </select>
-            )}
-          </Field>
-        </div>
-        <Field
-          label="Logo"
-          hint="An https:// image address, shown at the top of the messenger."
-        >
-          {(id, hint) => (
-            <input
-              id={id}
-              aria-describedby={hint}
-              maxLength={500}
-              value={form.logo}
-              placeholder="https://example.com/logo.png"
-              onChange={(e) => set("logo", e.target.value)}
-            />
-          )}
-        </Field>
-      </Card>
-
-      <Card
-        title="Conversations"
-        description="Who can start one, and what they read."
-      >
-        <label className="pg-settings-toggle">
-          <input
-            type="checkbox"
-            checked={form.allowVisitors}
-            onChange={(e) => set("allowVisitors", e.target.checked)}
-          />
-          <span>
-            <strong>Visitors can start conversations</strong>
-            <small className="pg-muted">
-              Off: only signed-in, verified customers can.
-            </small>
-          </span>
-        </label>
-        <label className="pg-settings-toggle">
-          <input
-            type="checkbox"
-            checked={form.requireSearch}
-            onChange={(e) => set("requireSearch", e.target.checked)}
-          />
-          <span>
-            <strong>Ask visitors to search help first</strong>
-          </span>
-        </label>
-        <Field
-          label="Team introduction"
-          hint="Above the welcome, such as who answers and when."
-        >
-          {(id, hint) => (
-            <input
-              id={id}
-              aria-describedby={hint}
-              maxLength={200}
-              value={form.teamIntroduction}
-              onChange={(e) => set("teamIntroduction", e.target.value)}
-            />
-          )}
-        </Field>
-        <Field label="Away message" hint="Shown outside office hours.">
-          {(id, hint) => (
-            <textarea
-              id={id}
-              aria-describedby={hint}
-              rows={2}
-              maxLength={500}
-              value={form.outOfHours}
-              onChange={(e) => set("outOfHours", e.target.value)}
-            />
-          )}
-        </Field>
-        <Field
-          label="Messenger language"
-          hint="Its own language, used when the website doesn't say which one a visitor reads."
-        >
-          {(id, hint) => (
-            <select
-              id={id}
-              aria-describedby={hint}
-              value={form.locale}
-              onChange={(e) => {
-                const l = e.target.value;
-                // The messenger's own language always has a welcome.
-                setForm({
-                  ...form,
-                  locale: l,
-                  welcome: form.welcome[l]
-                    ? form.welcome
-                    : { ...form.welcome, [l]: { greeting: "", intro: "" } },
-                });
-              }}
-            >
-              {[...new Set([form.locale, ...LANGUAGES])].map((l) => (
-                <option key={l} value={l}>
-                  {languageName(l)}
-                </option>
+            <ul className="pg-settings-chips" aria-label="Websites">
+              {form.allowedOrigins.map((o) => (
+                <li key={o}>
+                  {o}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${o}`}
+                    onClick={() =>
+                      set(
+                        "allowedOrigins",
+                        form.allowedOrigins.filter((x) => x !== o),
+                      )
+                    }
+                  >
+                    ×
+                  </button>
+                </li>
               ))}
-            </select>
-          )}
-        </Field>
-      </Card>
-
-      <Card
-        title="Websites"
-        description="The messenger loads only on these exact addresses, such as https://shop.example.com. Each subdomain is listed on its own; wildcards aren't allowed."
-      >
-        <ul className="pg-settings-chips" aria-label="Websites">
-          {form.allowedOrigins.map((o) => (
-            <li key={o}>
-              {o}
+            </ul>
+            <div className="pg-settings-row">
+              <input
+                aria-label="Website address"
+                placeholder="https://shop.example.com"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+              />
               <button
                 type="button"
-                aria-label={`Remove ${o}`}
-                onClick={() =>
-                  set(
-                    "allowedOrigins",
-                    form.allowedOrigins.filter((x) => x !== o),
-                  )
-                }
+                onClick={() => {
+                  const w = website.trim().replace(/\/$/, "");
+                  if (w && !form.allowedOrigins.includes(w))
+                    set("allowedOrigins", [...form.allowedOrigins, w]);
+                  setWebsite("");
+                }}
               >
-                ×
+                Add website
               </button>
-            </li>
-          ))}
-        </ul>
-        <div className="pg-settings-row">
-          <input
-            aria-label="Website address"
-            placeholder="https://shop.example.com"
-            value={website}
-            onChange={(e) => setWebsite(e.target.value)}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              const w = website.trim().replace(/\/$/, "");
-              if (w && !form.allowedOrigins.includes(w))
-                set("allowedOrigins", [...form.allowedOrigins, w]);
-              setWebsite("");
-            }}
+            </div>
+          </Card>
+
+          <IdentityCard data={data} brand={brand} onSaved={onIdentity} />
+
+          <Card
+            title="Install"
+            description="Add these to every page of the websites above."
           >
-            Add website
-          </button>
+            <pre className="pg-settings-code" aria-label="Install snippet">
+              {snippetFor(data.apiOrigin, data.workspaceId, brand.id)}
+            </pre>
+          </Card>
         </div>
-      </Card>
-
-      <IdentityCard data={data} brand={brand} onSaved={onIdentity} />
-
-      <Card
-        title="Install"
-        description="Add these to every page of the websites above."
-      >
-        <pre className="pg-settings-code" aria-label="Install snippet">
-          {snippetFor(data.apiOrigin, data.workspaceId, brand.id)}
-        </pre>
-      </Card>
+        <Preview
+          config={form}
+          who={who}
+          brand={brand}
+          workspaceId={data.workspaceId}
+        />
+      </div>
     </Frame>
   );
 }
@@ -1139,5 +1417,144 @@ function IdentityCard({
         </span>
       </div>
     </Card>
+  );
+}
+
+/**
+ * The live preview (messenger M2): the real messenger, loaded from this app's own copy of its
+ * page, showing the draft as the chosen audience would see it. It fetches and sends nothing.
+ */
+function Preview({
+  config,
+  who,
+  brand,
+  workspaceId,
+}: {
+  config: MessengerConfig;
+  who: "visitors" | "users";
+  brand: Brand;
+  workspaceId: string;
+}) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const channel = useMemo(() => "preview-" + crypto.randomUUID(), []);
+  const [ready, setReady] = useState(false);
+  const [scheme, setScheme] = useState<"as-set" | "light" | "dark">("as-set");
+  useEffect(() => {
+    const listener = (event: MessageEvent) => {
+      if (
+        event.source === frame.current?.contentWindow &&
+        event.origin === location.origin &&
+        event.data?.relay === channel &&
+        event.data.type === "ready"
+      )
+        setReady(true);
+    };
+    addEventListener("message", listener);
+    return () => removeEventListener("message", listener);
+  }, [channel]);
+  useEffect(() => {
+    if (!ready) return;
+    const { audiences, home, welcome, notice, look, ...base } = config;
+    frame.current?.contentWindow?.postMessage(
+      {
+        relay: channel,
+        type: "initialize",
+        api: location.origin,
+        open: true,
+        boot: {
+          // A new audience starts the messenger afresh; other changes update it in place.
+          token: "preview-" + who,
+          locale: config.locale,
+          session: { workspace: workspaceId, verified: who === "users" },
+          brand: {
+            id: brand.id,
+            name: brand.name,
+            ...base,
+            theme: scheme === "as-set" ? base.theme : scheme,
+            messenger3: {
+              audiences,
+              home,
+              welcome,
+              notice,
+              look,
+              team: look.showTeammates
+                ? [
+                    { firstName: "Teammate", initials: "AB" },
+                    { firstName: "Teammate", initials: "CD" },
+                    { firstName: "Teammate", initials: "EF" },
+                  ]
+                : [],
+            },
+          },
+          profile: who === "users" ? { firstName: "Alex" } : undefined,
+          capabilities: { help: true, tickets: who === "users" },
+          availability: null,
+          replyTime: null,
+        },
+      },
+      location.origin,
+    );
+  }, [ready, config, who, scheme, channel, brand.id, brand.name, workspaceId]);
+  const spacing = config.look.launcherSpacing;
+  return (
+    <aside className="pg-messenger-preview" aria-label="Preview">
+      <div className="pg-messenger-preview-head">
+        <strong>Preview</strong>
+        <small className="pg-muted">
+          As {who === "users" ? "a signed-in user (Alex)" : "a visitor"} sees
+          the draft.
+        </small>
+        <span
+          className="pg-settings-buttons"
+          role="radiogroup"
+          aria-label="Preview theme"
+        >
+          {(
+            [
+              ["as-set", "As set"],
+              ["light", "Light"],
+              ["dark", "Dark"],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={scheme === v}
+              onClick={() => setScheme(v)}
+            >
+              {label}
+            </button>
+          ))}
+        </span>
+      </div>
+      <iframe
+        ref={frame}
+        title="Messenger preview"
+        src={`/messenger/frame.html?preview=1&parent=${encodeURIComponent(location.origin)}&channel=${channel}`}
+        sandbox="allow-scripts allow-same-origin"
+      />
+      <div
+        className="pg-launcher-preview"
+        aria-label="Launcher preview"
+        role="img"
+      >
+        <span
+          data-shape={config.shape}
+          style={{
+            background: config.color,
+            bottom: Math.min(spacing.bottom, 60) / 2 + 6,
+            [config.position === "left" ? "left" : "right"]:
+              Math.min(spacing.side, 120) / 2 + 6,
+          }}
+        >
+          {/^https:\/\//.test(config.look.launcherLogo) ? (
+            <img src={config.look.launcherLogo} alt="" />
+          ) : (
+            "✦"
+          )}
+        </span>
+      </div>
+    </aside>
   );
 }
