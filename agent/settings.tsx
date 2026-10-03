@@ -9,6 +9,7 @@ import {
   Moon,
   Palette,
   Sparkles,
+  HeartPulse,
   Sun,
   User,
   Zap,
@@ -59,7 +60,8 @@ import {
  * parts of the app can link straight to one. Pages show only to teammates who may use them (the
  * server lists them); features managed elsewhere (Knowledge, saved views) are linked, not copied.
  */
-type Link = "views" | "help-centers" | "websites" | "ai-index";
+type Link =
+  "views" | "help-centers" | "websites" | "ai-index" | "content-health";
 
 const PAGES: Page[] = [
   {
@@ -211,6 +213,15 @@ const PAGES: Page[] = [
     description:
       "What the AI agent can search, with which model, and re-embedding.",
     icon: Sparkles,
+    group: "Knowledge & AI",
+    link: true,
+  },
+  {
+    id: "content-health",
+    label: "Content health",
+    description:
+      "Content never reviewed, not used in 90 days, or nearly duplicated.",
+    icon: HeartPulse,
     group: "Knowledge & AI",
     link: true,
   },

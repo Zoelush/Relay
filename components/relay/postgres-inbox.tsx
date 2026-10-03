@@ -273,7 +273,7 @@ export default function PostgresInbox({
     () => settingsFromHash() ?? "home",
   );
   const [knowledgeTab, setKnowledgeTab] = useState<
-    "content" | "help" | "websites" | "index"
+    "content" | "help" | "websites" | "index" | "health"
   >("content");
   const setArea = useCallback(
     (next: "inbox" | "knowledge" | "settings", page = "home") => {
@@ -1456,7 +1456,9 @@ export default function PostgresInbox({
                   ? "help"
                   : target === "websites"
                     ? "websites"
-                    : "index",
+                    : target === "content-health"
+                      ? "health"
+                      : "index",
               );
               setArea("knowledge");
             }}

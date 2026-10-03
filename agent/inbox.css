@@ -949,6 +949,14 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-index-card dd { margin:0; }
 .pg-index-card progress { width:100%; accent-color:var(--pg-accent); }
 .pg-index-state { font-size:13px; color:var(--pg-text-2); }
+.pg-health-summary { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; }
+.pg-health-summary li { display:flex; flex-direction:column; gap:2px; padding:12px 14px; border:1px solid var(--pg-border); border-radius:10px; background:var(--pg-surface); }
+.pg-health-summary strong { font-size:22px; font-variant-numeric:tabular-nums; }
+.pg-health-summary small { color:var(--pg-muted); font-size:12px; }
+.pg-health .pg-link-button { font-size:14px; font-weight:600; text-align:left; }
+.pg-health-pair { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; }
+.pg-health-pair > span { color:var(--pg-muted); }
+@media (max-width: 760px) { .pg-health-summary { grid-template-columns:1fr; } }
 .pg-index-card form input { flex:1; min-width:200px; }
 .pg-index-results { margin:0; padding-left:20px; display:flex; flex-direction:column; gap:10px; }
 .pg-index-results header { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }

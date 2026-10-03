@@ -12,18 +12,19 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/INTERCOM_GAP_AUDIT.md` compares Intercom with Relay (October 2026); its
 additions are marked inside each phase of `docs/BUILD_PHASES.md`.
 
-Current position: phase 07 (help center and knowledge store, `docs/KNOWLEDGE_PLAN.md`) steps A1,
-A2, B1, B2, C1a, C1b and C2a are done locally (`docs/KNOWLEDGE_STEP1.md` to `STEP7.md`); next is step
-C2b (the content health report). The public
+Current position: phase 07 (help center and knowledge store, `docs/KNOWLEDGE_PLAN.md`) is complete
+locally: steps A1, A2, B1, B2, C1a, C1b, C2a and C2b (`docs/KNOWLEDGE_STEP1.md` to `STEP8.md`). Next
+is phase 08 (the AI agent), not yet planned. The public
 help center is at `/help/demo/relay-help` locally. Phase 06 (routing, teams and workload) is complete locally, planned in
 `docs/ROUTING_PLAN.md`; its step docs are `docs/ROUTING_STEP1.md` to `STEP3.md`. Phase 05
 (tickets and SLAs; `docs/TICKETS_PLAN.md`, `TICKETS_STEP1.md` to `STEP5.md`) and phase 04
 (agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete locally. Open items from phases 04–06 were cleared in
 `docs/MAINTENANCE_2026-10.md`. Flags `tickets_v1`, `sla_v1`, `portal_v1`,
-`routing_v1`, `knowledge_v1`, `help_center_v1`, `knowledge_sync_v1` and `knowledge_index_v1` default
-off; the local relay turns them all on. The AI index (`server/knowledge-index.ts`) keeps vectors out
+`routing_v1`, `knowledge_v1`, `help_center_v1`, `knowledge_sync_v1`, `knowledge_index_v1` and
+`knowledge_health_v1` default off; the local relay turns them all on. The AI index (`server/knowledge-index.ts`) keeps vectors out
 of PostgreSQL behind `EmbeddingPort` and `VectorStorePort`; retrieval re-checks access in PostgreSQL,
-so never filter by vector-store metadata alone. Website sync fetches only public https addresses (`server/safe-fetch.ts`);
+so never filter by vector-store metadata alone. Content health's near-duplicate check
+(`server/knowledge-health.ts`) reads stored vectors back through `VectorStorePort.get`. Website sync fetches only public https addresses (`server/safe-fetch.ts`);
 tests reach their local test site through `sync.policy.allowHosts`, never set when deployed.
 Phases 01–03 are implemented locally but not complete
 or hosted; see `docs/STATUS.md`. Locally, `/agent?as=grace` signs in as a second

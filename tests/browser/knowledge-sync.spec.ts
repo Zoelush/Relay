@@ -75,7 +75,7 @@ test("add a website, watch it sync, and find its pages in Knowledge", async ({
   // In Knowledge: found by a word inside the page, read-only, with where it comes from.
   await page
     .getByRole("navigation", { name: "Knowledge areas" })
-    .getByRole("button", { name: "Content" })
+    .getByRole("button", { name: "Content", exact: true })
     .click();
   await page.getByLabel("Search knowledge").fill("wombat");
   const list = page.getByRole("region", { name: "Knowledge records" });
@@ -109,7 +109,7 @@ test("add a website, watch it sync, and find its pages in Knowledge", async ({
   ).toContainText("1 updated", { timeout: 30_000 });
   await page
     .getByRole("navigation", { name: "Knowledge areas" })
-    .getByRole("button", { name: "Content" })
+    .getByRole("button", { name: "Content", exact: true })
     .click();
   await page.getByLabel("Search knowledge").fill("kangaroo");
   await expect(list.getByRole("listitem")).toHaveCount(1);

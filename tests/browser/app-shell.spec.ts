@@ -151,10 +151,9 @@ test("the strip slides out and pins; the inbox menu lists your inbox, team inbox
   // Choosing a destination closes the slid-out strip, so it never covers what opened.
   await expect(rail(page)).not.toHaveClass(/\bopen\b/);
   const areas = page.getByRole("navigation", { name: "Knowledge areas" });
-  await expect(areas.getByRole("button", { name: "Content" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
+  await expect(
+    areas.getByRole("button", { name: "Content", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
   await areas.getByRole("button", { name: "Help centers" }).click();
   await expect(
     page.getByRole("heading", { name: "Help centers", level: 2 }),

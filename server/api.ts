@@ -91,6 +91,7 @@ import {
   setTeammateRole,
 } from "./people-settings";
 import { listBrands, saveBrand } from "./channel-settings";
+import { changeHealth, knowledgeHealth } from "./knowledge-health";
 import {
   indexStatus,
   rebuildIndex,
@@ -1080,6 +1081,7 @@ export async function handleApi(
             "/v1/agent/knowledge-source",
             "/v1/agent/knowledge-index",
             "/v1/agent/knowledge-retrieve",
+            "/v1/agent/knowledge-health",
             "/v1/agent/settings",
             "/v1/agent/tags",
             "/v1/agent/attributes",
@@ -1111,6 +1113,7 @@ export async function handleApi(
               "/v1/agent/knowledge-files",
               "/v1/agent/knowledge-sources",
               "/v1/agent/knowledge-index",
+              "/v1/agent/knowledge-health",
               "/v1/agent/settings",
               "/v1/agent/tags",
               "/v1/agent/attributes",
@@ -1266,6 +1269,21 @@ export async function handleApi(
               ),
             ),
           );
+        if (url.pathname === "/v1/agent/knowledge-health") {
+          // Phase 07 C2b: "Check now" for near-duplicates, and "Not duplicates" on a pair.
+          const result = await tenant(env.connect, workspace, (db) =>
+            once(
+              db,
+              workspace,
+              "knowledge-health:" + principal,
+              req.headers.get("idempotency-key") ?? "",
+              p,
+              () => changeHealth(db, workspace, principal, p),
+            ),
+          );
+          if (p.action === "check") await env.dispatchJobs?.(workspace);
+          return json(result);
+        }
         if (url.pathname === "/v1/agent/knowledge-index") {
           // Phase 07 C2a: re-embed everything beside the active index version.
           assert(
@@ -1896,6 +1914,12 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             indexStatus(db, workspace, principal, env.knowledgeIndex),
+          ),
+        );
+      if (url.pathname === "/v1/agent/knowledge-health")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            knowledgeHealth(db, workspace, principal),
           ),
         );
       if (url.pathname === "/v1/agent/knowledge-retrieve")

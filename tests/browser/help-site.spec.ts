@@ -49,7 +49,7 @@ test("an article published in three languages is rendered by the server in each,
   // Write and publish in English, then French and German, each on its own.
   await page
     .getByRole("navigation", { name: "Knowledge areas" })
-    .getByRole("button", { name: "Content" })
+    .getByRole("button", { name: "Content", exact: true })
     .click();
   await page.getByRole("button", { name: "New article" }).click();
   const title = page.getByLabel("Title");
@@ -146,7 +146,7 @@ test("an article published in three languages is rendered by the server in each,
   // A changed address: the old link answers 301 and lands on the new page.
   await page
     .getByRole("navigation", { name: "Knowledge areas" })
-    .getByRole("button", { name: "Content" })
+    .getByRole("button", { name: "Content", exact: true })
     .click();
   await page
     .getByRole("region", { name: "Knowledge records" })

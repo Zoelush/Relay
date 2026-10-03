@@ -14,6 +14,10 @@ import {
   type VectorizeIndex,
   type WorkersAi,
 } from "../server/knowledge-index";
+import {
+  runDuplicates,
+  scheduleDuplicateCheck,
+} from "../server/knowledge-health";
 import { purgeDrafts } from "../server/drafts";
 import { purgeHelpSearches } from "../server/help-search";
 import { purgeInlineImages } from "../server/attachments";
@@ -407,6 +411,10 @@ const relayWorker = {
     if (runtime.knowledgeIndex)
       handlers["knowledge.index"] = (job) =>
         runIndex(runtime.connect, runtime.knowledgeIndex!, job);
+    // Content health's near-duplicate check (phase 07, C2b) reads the same vector store.
+    if (runtime.knowledgeIndex)
+      handlers["knowledge.duplicates"] = (job) =>
+        runDuplicates(runtime.connect, runtime.knowledgeIndex!, job);
     for (const message of batch.messages) {
       const work = message.body;
       try {
@@ -468,6 +476,9 @@ const relayWorker = {
               runtime.attachments,
               work.workspace,
             );
+            // The nightly near-duplicate check (phase 07, C2b); at most one per 20 hours.
+            if (runtime.knowledgeIndex)
+              await scheduleDuplicateCheck(runtime.connect, work.workspace);
           }
           message.ack();
           continue;

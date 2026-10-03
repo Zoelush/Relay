@@ -48,6 +48,10 @@ import {
   scheduleIndex,
   type IndexEnvironment,
 } from "../server/knowledge-index";
+import {
+  runDuplicates,
+  scheduleDuplicateCheck,
+} from "../server/knowledge-health";
 import { localIndex } from "./local-vectors";
 import {
   runSync,
@@ -91,6 +95,8 @@ export async function startLocalRelay(
     settings?: boolean;
     /** The AI index (phase 07, C2a), likewise on locally unless turned off. */
     knowledgeIndex?: boolean;
+    /** The content health report (phase 07, C2b). */
+    knowledgeHealth?: boolean;
     /** Its model and vector store; by default the test embedder and a local store. */
     index?: IndexEnvironment;
     /** Website sync's fetch policy and renderer (tests reach a local test site this way). */
@@ -460,6 +466,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_index_v1'",
         [w, options.knowledgeIndex !== false],
       );
+      // Content health (phase 07, C2b).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_health_v1'",
+        [w, options.knowledgeHealth !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -586,6 +597,8 @@ export async function startLocalRelay(
     runSync(db.connect, env.sync ?? {}, job);
   handlers["knowledge.index"] = (job) =>
     runIndex(db.connect, env.knowledgeIndex!, job);
+  handlers["knowledge.duplicates"] = (job) =>
+    runDuplicates(db.connect, env.knowledgeIndex!, job);
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
@@ -609,7 +622,11 @@ export async function startLocalRelay(
         for (const job of pending) {
           await runJob(db.connect, w, job.id, handlers);
           // Indexing knowledge changes nothing a teammate's inbox shows: no workspace refresh.
-          if (job.kind !== "knowledge.index") await publishBatch(w, [""]);
+          if (
+            job.kind !== "knowledge.index" &&
+            job.kind !== "knowledge.duplicates"
+          )
+            await publishBatch(w, [""]);
         }
         const timers = await tenant(
           db.connect,
@@ -649,6 +666,8 @@ export async function startLocalRelay(
           await purgeDrafts(db.connect, w);
           await purgeHelpSearches(db.connect, w);
           await purgeInlineImages(db.connect, env.attachments, w);
+          // The nightly near-duplicate check (phase 07, C2b).
+          await scheduleDuplicateCheck(db.connect, w);
         }
         await drainConversationOutbox(db.connect, w, (ids) =>
           publishBatch(w, ids),
@@ -1115,6 +1134,25 @@ async function seedKnowledge(sql: Sql, w: string) {
     },
     { article: true },
   );
+  // A snippet repeating the article's passage, so the content health report (phase 07, C2b)
+  // has a near-duplicate to show. Internal: never in the help center or the AI agent.
+  const repeat: RichDoc = normalizeDoc(
+    {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Open the messenger on your site and say hello. Replies usually arrive within an hour during office hours.",
+            },
+          ],
+        },
+      ],
+    },
+    { article: true },
+  );
   const records = [
     [
       "00000000-0000-4000-8000-00000000a001",
@@ -1135,6 +1173,16 @@ async function seedKnowledge(sql: Sql, w: string) {
       "Refund approvals",
       internal,
       false,
+    ],
+    [
+      "00000000-0000-4000-8000-00000000a003",
+      "snippet",
+      "internal",
+      false,
+      false,
+      "Start a conversation",
+      repeat,
+      true,
     ],
   ] as const;
   for (const [
