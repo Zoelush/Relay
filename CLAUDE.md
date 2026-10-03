@@ -12,8 +12,12 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/INTERCOM_GAP_AUDIT.md` compares Intercom with Relay (October 2026); its
 additions are marked inside each phase of `docs/BUILD_PHASES.md`.
 
-Current position: phase 08 (the AI agent, `docs/AI_PLAN.md`): step A1 (answering core) is done
-locally (`docs/AI_STEP1.md`); next is A2 (escalation and handover). The agent answers only from
+Current position: messenger settings (`docs/MESSENGER_SETTINGS_PLAN.md`, steps M1–M3, asked for
+before phase 08 A2): M1 is done locally (`docs/MESSENGER_SETTINGS_STEP1.md`); next is M2 (look and
+live preview), then M3, then phase 08 A2. With `messenger_v3` on, a brand's messenger is a draft
+published as versions (`server/messenger-config.ts`); publishing writes `brands.settings` (the
+`messenger3` key is only booted while the flag is on). Phase 08 (the AI agent, `docs/AI_PLAN.md`):
+step A1 (answering core) is done locally (`docs/AI_STEP1.md`); next is A2 (escalation and handover). The agent answers only from
 passages `server/ai-retrieval.ts` allows, decided in PostgreSQL before ranking; the relevance gate
 and the reply check in `server/ai-agent.ts` are code, not prompt text; `ai_reply` part data reaches
 customers, so only sources and options go there (everything else in `ai_answers`). Models sit behind
@@ -26,7 +30,7 @@ help center is at `/help/demo/relay-help` locally. Phase 06 (routing, teams and 
 (agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete locally. Open items from phases 04–06 were cleared in
 `docs/MAINTENANCE_2026-10.md`. Flags `tickets_v1`, `sla_v1`, `portal_v1`,
 `routing_v1`, `knowledge_v1`, `help_center_v1`, `knowledge_sync_v1`, `knowledge_index_v1` and
-`knowledge_health_v1` and `ai_agent_v1` default off; the local relay turns them all on. The AI index (`server/knowledge-index.ts`) keeps vectors out
+`knowledge_health_v1`, `ai_agent_v1` and `messenger_v3` default off; the local relay turns them all on. The AI index (`server/knowledge-index.ts`) keeps vectors out
 of PostgreSQL behind `EmbeddingPort` and `VectorStorePort`; retrieval re-checks access in PostgreSQL,
 so never filter by vector-store metadata alone. Content health's near-duplicate check
 (`server/knowledge-health.ts`) reads stored vectors back through `VectorStorePort.get`. Website sync fetches only public https addresses (`server/safe-fetch.ts`);

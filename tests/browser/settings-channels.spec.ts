@@ -6,7 +6,12 @@ import { tenant } from "../../server/db";
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
 test.use({ viewport: { width: 1440, height: 1100 } });
 test.beforeAll(async () => {
-  relay = await startLocalRelay({ apiPort: 8966, hostPort: 8967 });
+  // The earlier Messenger page (drafts, messenger settings M1, are tested in their own spec).
+  relay = await startLocalRelay({
+    apiPort: 8966,
+    hostPort: 8967,
+    messengerV3: false,
+  });
 });
 test.afterAll(async () => {
   await relay?.close();

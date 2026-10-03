@@ -551,3 +551,18 @@ footer strong {
   background: var(--surface);
   color: var(--accent);
 }
+
+/* Messenger settings M1: the special notice and the welcome's introduction. */
+.notice {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  font-size: 13px;
+  line-height: 1.5;
+}
+.welcome-intro {
+  margin: 0 0 8px;
+  font-size: 15px;
+}

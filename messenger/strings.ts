@@ -83,6 +83,15 @@ const en = {
   waiting: "Connecting to support…",
   edited: "Edited",
   searchFirst: "Please search Help before starting a conversation.",
+  // Messenger settings M1: start-button wording, the Tickets space and the notice.
+  startSend: "Send us a message",
+  startAsk: "Ask a question",
+  startChat: "Chat with us",
+  startStart: "Start a conversation",
+  startContact: "Contact us",
+  startSupport: "Contact support",
+  tickets: "Tickets",
+  notice: "Notice",
 };
 const ar: typeof en = {
   unread: "غير مقروءة",
@@ -168,6 +177,14 @@ const ar: typeof en = {
   waiting: "جارٍ الاتصال بالدعم…",
   edited: "عُدّلت",
   searchFirst: "يرجى البحث في المساعدة أولاً.",
+  startSend: "أرسل لنا رسالة",
+  startAsk: "اطرح سؤالًا",
+  startChat: "تحدّث معنا",
+  startStart: "ابدأ محادثة",
+  startContact: "تواصل معنا",
+  startSupport: "تواصل مع الدعم",
+  tickets: "التذاكر",
+  notice: "إشعار",
 };
 export function language(locale: string, brandLocale = "en") {
   const dictionaries: Record<string, typeof en> = { en, ar };

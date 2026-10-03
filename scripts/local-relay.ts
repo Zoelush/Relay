@@ -110,6 +110,8 @@ export async function startLocalRelay(
     ai?: { model?: AnswerModel; rerank?: RerankPort };
     /** The AI agent (phase 08), likewise on locally unless turned off. */
     aiAgent?: boolean;
+    /** Messenger drafts (messenger settings M1), likewise on locally unless turned off. */
+    messengerV3?: boolean;
     /** Website sync's fetch policy and renderer (tests reach a local test site this way). */
     sync?: SyncEnvironment;
     longTimeline?: boolean;
@@ -482,6 +484,11 @@ export async function startLocalRelay(
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_index_v1'",
         [w, options.knowledgeIndex !== false],
+      );
+      // Messenger drafts (messenger settings M1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='messenger_v3'",
+        [w, options.messengerV3 !== false],
       );
       // The AI agent (phase 08).
       await sql.query(

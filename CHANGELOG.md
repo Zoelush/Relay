@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased: Messenger settings (M1: content and audiences, as drafts)
+
+- **The messenger is edited as a draft and published as a version,** behind a new `messenger_v3` flag, off by default. You can save drafts, publish, discard, and restore earlier versions.
+- **Visitors and signed-in users each get their own:**
+  - spaces and their order (Tickets for users)
+  - "open straight into a conversation"
+  - launcher visibility by page address
+  - start-button wording
+- **Home cards:** start a conversation, search help, recent conversations, links, announcements and your tickets, each for everyone, visitors or users.
+- **A welcome per language,** with the customer's first name.
+- **A special notice** at the top of Home and Messages.
+- **Identity verification** stays saved at once; with drafts on, the earlier direct save is refused.
+- **Migration** 0041 with rollback. **Tests:**
+  - unit: `tests/messenger-config.test.ts`
+  - browser: `tests/browser/messenger-settings.spec.ts`
+
+  Details: `docs/MESSENGER_SETTINGS_STEP1.md`.
+
 ## Unreleased: Phase 08 A1 (the AI agent's answering core)
 
 - **The AI agent answers customers in the messenger,** behind a new `ai_agent_v1` flag, off by default. It answers in conversations no teammate has taken on:

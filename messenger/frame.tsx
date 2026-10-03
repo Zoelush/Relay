@@ -23,6 +23,47 @@ type Conversation = {
   title: string;
   status: string;
 };
+type Audience = {
+  spaces: ("home" | "messages" | "help" | "tickets")[];
+  launchToConversation: boolean;
+  startButton: "send" | "ask" | "chat" | "start" | "contact" | "support";
+};
+type Messenger3 = {
+  audiences: { visitors: Audience; users: Audience };
+  home: {
+    id: string;
+    type: "start" | "search" | "recent" | "link" | "announcement" | "tickets";
+    audience: "everyone" | "visitors" | "users";
+    title?: string;
+    body?: string;
+    url?: string;
+  }[];
+  welcome: Record<string, { greeting: string; intro: string }>;
+  notice: { enabled: boolean; text: Record<string, string> };
+};
+/** A text for the customer's language: theirs, its base, the brand's, then any. */
+function localized<T>(
+  texts: Record<string, T>,
+  locale: string,
+  brandLocale = "en",
+): T | undefined {
+  for (const l of [
+    locale,
+    locale.split("-")[0],
+    brandLocale,
+    brandLocale.split("-")[0],
+  ])
+    if (texts[l] !== undefined) return texts[l];
+  return Object.values(texts)[0];
+}
+const START_LABEL = {
+  send: "startSend",
+  ask: "startAsk",
+  chat: "startChat",
+  start: "startStart",
+  contact: "startContact",
+  support: "startSupport",
+} as const;
 type Boot = {
   token: string;
   locale: string;
@@ -44,7 +85,11 @@ type Boot = {
       body?: string;
       url?: string;
     }[];
+    /** Messenger settings M1: audiences, Home cards, welcome and notice (when published). */
+    messenger3?: Messenger3;
   };
+  /** A verified customer's first name, for the welcome greeting. */
+  profile?: { firstName?: string };
   capabilities: Record<string, boolean>;
   /** From the calendar that applies; null when none does (then no hours line is shown). */
   availability?: { open: boolean; nextOpenLabel?: string } | null;
@@ -98,10 +143,15 @@ const sound = () => {
 };
 function Messenger({ boot, api, open: initialOpen }: Init) {
   const { strings: t, locale, dir } = language(boot.locale, boot.brand.locale);
-  const [space, setSpace] = useState(
-      boot.brand.directConversation ? "messages" : "home",
-    ),
-    [composing, setComposing] = useState(!!boot.brand.directConversation),
+  // Messenger settings M1: what this customer's audience (visitor or verified user) sees.
+  const m3 = boot.brand.messenger3;
+  const audience = boot.session.verified ? "users" : "visitors";
+  const aud = m3?.audiences[audience];
+  const direct = aud
+    ? aud.launchToConversation
+    : !!boot.brand.directConversation;
+  const [space, setSpace] = useState<string>(direct ? "messages" : "home"),
+    [composing, setComposing] = useState(direct),
     // Phase 07 B2: the last search's signed receipt ("search before contacting"), and the
     // article a "Talk to us" came from.
     [receipt, setReceipt] = useState<string | null>(null),
@@ -574,10 +624,34 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       {!conversations.length && <p className="muted empty">{t.empty}</p>}
     </div>
   );
+  const startLabel = aud ? t[START_LABEL[aud.startButton]] : t.start;
+  const welcome = m3 && localized(m3.welcome, boot.locale, boot.brand.locale);
+  // "{first_name}" becomes the verified customer's first name, or is left out.
+  const greeting = welcome?.greeting
+    .replace(/\{first_name\}/g, boot.profile?.firstName ?? "")
+    .replace(/\s+([,!.?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  const notice =
+    m3?.notice.enabled &&
+    localized(m3.notice.text, boot.locale, boot.brand.locale);
+  const noticeBanner = notice ? (
+    <p className="notice" role="note" aria-label={t.notice}>
+      {notice}
+    </p>
+  ) : null;
+  const spaces = (
+    aud?.spaces ?? (["home", "messages", "help"] as const)
+  ).filter((s) => s !== "tickets" || boot.capabilities.tickets);
+  const ticketsCard = (
+    <button className="card" onClick={() => void openPortal()}>
+      {t.yourTickets}
+    </button>
+  );
   const start = () =>
     mayStart ? (
       <button className="primary start" onClick={() => select(null)}>
-        {t.start}
+        {startLabel}
         <span aria-hidden="true">↗</span>
       </button>
     ) : (
@@ -613,9 +687,13 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
       <main>
         {space === "home" && (
           <div className="home">
+            {noticeBanner}
             <div className="intro">
               <span className="eyebrow">{boot.brand.teamIntroduction}</span>
-              <h1>{t.welcome}</h1>
+              <h1>{greeting || t.welcome}</h1>
+              {welcome?.intro && (
+                <p className="welcome-intro">{welcome.intro}</p>
+              )}
               {boot.availability && (
                 <p>
                   {boot.availability.open
@@ -636,53 +714,97 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
                   </small>
                 )}
             </div>
-            {boot.capabilities.tickets && (
-              <section>
-                <button className="card" onClick={() => void openPortal()}>
-                  {t.yourTickets}
-                </button>
-              </section>
+            {!m3 && boot.capabilities.tickets && (
+              <section>{ticketsCard}</section>
             )}
-            {(
-              boot.brand.homeBlocks ?? [{ type: "start" }, { type: "recent" }]
-            ).map((block, index: number) => (
-              <section key={index}>
-                {block.type === "start" ? (
-                  start()
-                ) : block.type === "recent" ? (
-                  <>
-                    <h2>{t.recent}</h2>
-                    {rows(3)}
-                  </>
-                ) : block.type === "announcement" ? (
-                  <article className="card">
-                    <h2>{block.title}</h2>
-                    <p>{block.body}</p>
-                  </article>
-                ) : block.type === "card" &&
-                  /^https:\/\//.test(block.url ?? "") ? (
-                  <a
-                    className="card"
-                    href={block.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <h2>{block.title}</h2>
-                    <p>{block.body}</p>
-                  </a>
-                ) : block.type === "search" ? (
-                  <button className="card" onClick={() => setSpace("help")}>
-                    {t.help}
-                  </button>
-                ) : null}
-              </section>
-            ))}
+            {m3 &&
+              m3.home
+                .filter(
+                  (c) => c.audience === "everyone" || c.audience === audience,
+                )
+                .map((c) => (
+                  <section key={c.id}>
+                    {c.type === "start" ? (
+                      start()
+                    ) : c.type === "recent" ? (
+                      <>
+                        <h2>{t.recent}</h2>
+                        {rows(3)}
+                      </>
+                    ) : c.type === "search" ? (
+                      <button className="card" onClick={() => setSpace("help")}>
+                        {t.searchHelp}
+                      </button>
+                    ) : c.type === "tickets" ? (
+                      boot.capabilities.tickets ? (
+                        ticketsCard
+                      ) : null
+                    ) : c.type === "announcement" ? (
+                      <article className="card">
+                        <h2>{c.title}</h2>
+                        {c.body && <p>{c.body}</p>}
+                      </article>
+                    ) : c.type === "link" && /^https:\/\//.test(c.url ?? "") ? (
+                      <a
+                        className="card"
+                        href={c.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <h2>{c.title}</h2>
+                        {c.body && <p>{c.body}</p>}
+                      </a>
+                    ) : null}
+                  </section>
+                ))}
+            {!m3 &&
+              (
+                boot.brand.homeBlocks ?? [{ type: "start" }, { type: "recent" }]
+              ).map((block, index: number) => (
+                <section key={index}>
+                  {block.type === "start" ? (
+                    start()
+                  ) : block.type === "recent" ? (
+                    <>
+                      <h2>{t.recent}</h2>
+                      {rows(3)}
+                    </>
+                  ) : block.type === "announcement" ? (
+                    <article className="card">
+                      <h2>{block.title}</h2>
+                      <p>{block.body}</p>
+                    </article>
+                  ) : block.type === "card" &&
+                    /^https:\/\//.test(block.url ?? "") ? (
+                    <a
+                      className="card"
+                      href={block.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <h2>{block.title}</h2>
+                      <p>{block.body}</p>
+                    </a>
+                  ) : block.type === "search" ? (
+                    <button className="card" onClick={() => setSpace("help")}>
+                      {t.help}
+                    </button>
+                  ) : null}
+                </section>
+              ))}
+          </div>
+        )}
+        {space === "tickets" && (
+          <div className="help">
+            <h1>{t.tickets}</h1>
+            {boot.capabilities.tickets ? ticketsCard : <p>{t.portalSignIn}</p>}
           </div>
         )}
         {space === "messages" &&
           (selected === null && !composing ? (
             <div className="messages-index">
               <h1>{t.messages}</h1>
+              {noticeBanner}
               {rows()}
               <form onSubmit={(e) => void submit(e)}>
                 <label htmlFor="first-message">{t.write}</label>
@@ -1043,7 +1165,7 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
         </span>
       </details>
       <nav aria-label={t.spaces}>
-        {(["home", "messages", "help"] as const).map((s) => (
+        {spaces.map((s) => (
           <button
             key={s}
             onClick={() => {
@@ -1057,7 +1179,13 @@ function Messenger({ boot, api, open: initialOpen }: Init) {
             aria-current={space === s ? "page" : undefined}
           >
             <span aria-hidden="true">
-              {s === "home" ? "⌂" : s === "messages" ? "▤" : "⌕"}
+              {s === "home"
+                ? "⌂"
+                : s === "messages"
+                  ? "▤"
+                  : s === "tickets"
+                    ? "▣"
+                    : "⌕"}
             </span>
             {t[s]}
           </button>

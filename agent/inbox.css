@@ -962,6 +962,11 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-ai-why { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; margin:0; font-size:12px; }
 .pg-ai-why dt { color:var(--pg-muted); }
 .pg-ai-why dd { margin:0; }
+.pg-settings-audience { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; }
+.pg-settings-audience button { padding:6px 14px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-surface); color:var(--pg-text); }
+.pg-settings-audience button[aria-checked="true"] { background:var(--pg-selected); border-color:var(--pg-accent); font-weight:600; }
+.pg-settings-audience small { flex-basis:100%; font-size:12px; }
+.pg-settings-card-row > span:first-child { flex:1; }
 @media (max-width: 760px) { .pg-health-summary { grid-template-columns:1fr; } }
 .pg-index-card form input { flex:1; min-width:200px; }
 .pg-index-results { margin:0; padding-left:20px; display:flex; flex-direction:column; gap:10px; }

@@ -9,6 +9,7 @@ import {
   type Page,
 } from "./settings-ui";
 import type { Messenger } from "../server/channel-settings";
+import { MessengerDrafts, useMessengerDrafts } from "./settings-messenger";
 
 /**
  * Settings › Channels (S3b; docs/SETTINGS_STEP5.md): brands, each brand's messenger and the
@@ -16,7 +17,7 @@ import type { Messenger } from "../server/channel-settings";
  * boot, so a saved change shows on the next page that opens it. Identity keys are listed, never
  * shown; creating and rotating them stays an operator task until phase 16.
  */
-type Brand = {
+export type Brand = {
   id: string;
   name: string;
   conversations: number;
@@ -24,13 +25,13 @@ type Brand = {
   identity: { enforced: boolean; legacyHmac: boolean };
   portalUrl?: string;
 };
-type Brands = {
+export type Brands = {
   workspaceId: string;
   apiOrigin: string;
   brands: Brand[];
   identityKeys: { kid: string; slot: number; createdAt: string }[];
 };
-function useBrands() {
+export function useBrands() {
   const [data, setData] = useState<Brands | null>(null);
   const [error, setError] = useState("");
   const load = useCallback(
@@ -220,7 +221,7 @@ export function BrandsPage({
   );
 }
 
-const LANGUAGES = [
+export const LANGUAGES = [
   "en",
   "en-GB",
   "fr",
@@ -243,13 +244,34 @@ const LANGUAGES = [
   "ha",
   "ig",
 ];
-const languageName = (tag: string) => {
+export const languageName = (tag: string) => {
   try {
     return new Intl.DisplayNames(["en"], { type: "language" }).of(tag) ?? tag;
   } catch {
     return tag;
   }
 };
+
+/** The install snippet for a brand's messenger. */
+export const snippetFor = (
+  apiOrigin: string,
+  workspaceId: string,
+  brandId: string,
+) =>
+  `<!-- support-boot.js, served from your own site -->
+window.Relay = window.Relay || function () {
+  (window.Relay.q = window.Relay.q || []).push(arguments);
+};
+Relay('boot', {
+  api: '${apiOrigin}',
+  workspaceId: '${workspaceId}',
+  brandId: '${brandId}',
+  locale: document.documentElement.lang,
+});
+
+<!-- In each page, before </body> -->
+<script src="/support-boot.js" defer></script>
+<script src="${apiOrigin}/messenger/loader.js" async></script>`;
 
 export function MessengerPage({
   menu,
@@ -269,7 +291,25 @@ export function MessengerPage({
   const [savedFor, setSavedFor] = useState("");
   const brand =
     data?.brands.find((b) => b.id === brandId) ?? data?.brands[0] ?? null;
-  if (!data || !brand)
+  // Messenger settings M1: with drafts on, the draft editor; otherwise the earlier page.
+  const drafts = useMessengerDrafts(brand?.id ?? null);
+  if (data && brand && drafts.state)
+    return (
+      <MessengerDrafts
+        key={brand.id + ":" + drafts.state.draftVersion}
+        menu={menu}
+        page={page}
+        data={data}
+        brand={brand}
+        state={drafts.state}
+        onBrand={onBrand}
+        onState={drafts.setState}
+        onIdentity={load}
+        notice={drafts.notice}
+        setNotice={drafts.setNotice}
+      />
+    );
+  if (!data || !brand || drafts.state === undefined)
     return (
       <Frame menu={menu} page={page}>
         {error && (
@@ -360,20 +400,7 @@ function MessengerEditor({
       set("allowedOrigins", [...form.allowedOrigins, w]);
     setWebsite("");
   }
-  const snippet = `<!-- support-boot.js, served from your own site -->
-window.Relay = window.Relay || function () {
-  (window.Relay.q = window.Relay.q || []).push(arguments);
-};
-Relay('boot', {
-  api: '${data.apiOrigin}',
-  workspaceId: '${data.workspaceId}',
-  brandId: '${brand.id}',
-  locale: document.documentElement.lang,
-});
-
-<!-- In each page, before </body> -->
-<script src="/support-boot.js" defer></script>
-<script src="${data.apiOrigin}/messenger/loader.js" async></script>`;
+  const snippet = snippetFor(data.apiOrigin, data.workspaceId, brand.id);
   return (
     <Frame
       menu={menu}
