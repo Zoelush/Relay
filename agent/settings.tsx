@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
   Bell,
   Building2,
@@ -8,16 +8,30 @@ import {
   Monitor,
   Moon,
   Palette,
-  Save,
   Sparkles,
   Sun,
   User,
   Zap,
+  Users,
+  Clock,
+  Timer,
   type LucideIcon,
 } from "lucide-react";
 import { api } from "./api";
 import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
+import {
+  Card,
+  deviceZone,
+  Field,
+  Frame,
+  message,
+  timezones,
+  useForm,
+  type MenuState,
+  type Page,
+} from "./settings-ui";
 import { MacroManager, type MacroList } from "./macros";
+import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
 import type { Directory } from "./timeline";
 import type { ThemeChoice } from "./theme";
 import {
@@ -35,15 +49,7 @@ import {
  * server lists them); features managed elsewhere (Knowledge, saved views) are linked, not copied.
  */
 type Link = "views" | "help-centers" | "websites" | "ai-index";
-type Page = {
-  id: string;
-  label: string;
-  description: string;
-  icon: LucideIcon;
-  group: string;
-  /** Opens where the feature already lives, instead of a page here. */
-  link?: boolean;
-};
+
 const PAGES: Page[] = [
   {
     id: "profile",
@@ -73,6 +79,29 @@ const PAGES: Page[] = [
     description: "Your workspace's name, timezone and team language.",
     icon: Building2,
     group: "Workspace",
+  },
+  {
+    id: "teams",
+    label: "Teams & assignment",
+    description:
+      "Teams, their members, how conversations are assigned, and limits.",
+    icon: Users,
+    group: "Helpdesk",
+  },
+  {
+    id: "office-hours",
+    label: "Office hours",
+    description:
+      "When your team works, and which teams and brands use which hours.",
+    icon: Clock,
+    group: "Helpdesk",
+  },
+  {
+    id: "slas",
+    label: "SLAs",
+    description: "Response and resolution targets, and when they apply.",
+    icon: Timer,
+    group: "Helpdesk",
   },
   {
     id: "macros",
@@ -116,24 +145,9 @@ const PAGES: Page[] = [
     link: true,
   },
 ];
-const GROUPS = ["Personal", "Workspace", "Inbox", "Knowledge & AI"];
+const GROUPS = ["Personal", "Workspace", "Helpdesk", "Inbox", "Knowledge & AI"];
 export const SETTINGS_PAGES = PAGES.map((p) => p.id);
 
-const message = (e: unknown, fallback: string) =>
-  e instanceof Error ? e.message : fallback;
-/**
- * The timezones to choose from: this browser's list, with UTC first and the saved value always
- * present (some browsers leave UTC out, and a select can't show a value it lacks).
- */
-const timezones = (current?: string | null): string[] => {
-  const all =
-    (
-      Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
-    ).supportedValuesOf?.("timeZone") ?? [];
-  const list = ["UTC", ...all.filter((z) => z !== "UTC")];
-  return current && !list.includes(current) ? [current, ...list] : list;
-};
-const deviceZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 const LANGUAGES = [
   "en",
   "en-GB",
@@ -267,6 +281,12 @@ export function Settings({
             />
           ) : current.id === "general" ? (
             <GeneralPage menu={menu} page={current} />
+          ) : current.id === "teams" ? (
+            <TeamsPage menu={menu} page={current} />
+          ) : current.id === "office-hours" ? (
+            <OfficeHoursPage menu={menu} page={current} />
+          ) : current.id === "slas" ? (
+            <SlasPage menu={menu} page={current} />
           ) : current.id === "macros" ? (
             <Frame menu={menu} page={current}>
               <MacroManager
@@ -291,166 +311,6 @@ export type Profile = {
   signature: string;
   notifications: AlertPrefs;
 };
-type MenuState = ReturnType<typeof useSideMenu>;
-
-/** A settings page: its title and purpose, a Save button when it has one, and its cards. */
-function Frame({
-  menu,
-  page,
-  save,
-  children,
-}: {
-  menu: MenuState;
-  page: Page;
-  save?: {
-    dirty: boolean;
-    busy: boolean;
-    saved: boolean;
-    error: string;
-    onSave: () => void;
-  };
-  children: ReactNode;
-}) {
-  // A page with a Save button is a form (Enter saves); one without holds its own forms.
-  const body = (
-    <>
-      <header className="pg-top pg-settings-head">
-        <ShowMenuButton state={menu} />
-        <div>
-          <h2 id="settings-title">{page.label}</h2>
-          <p className="pg-muted">{page.description}</p>
-        </div>
-        {save && (
-          <div className="pg-settings-save">
-            <span role="status" className="pg-muted">
-              {save.busy ? "Saving…" : save.saved && !save.dirty ? "Saved" : ""}
-            </span>
-            <button
-              type="submit"
-              className="pg-primary"
-              disabled={!save.dirty || save.busy}
-            >
-              <Save size={14} aria-hidden="true" /> Save
-            </button>
-          </div>
-        )}
-      </header>
-      <div className="pg-settings-body">
-        {save?.error && (
-          <p role="alert" className="pg-attr-error">
-            {save.error}
-          </p>
-        )}
-        {children}
-      </div>
-    </>
-  );
-  return save ? (
-    <form
-      className="pg-settings-page"
-      aria-labelledby="settings-title"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (save.dirty && !save.busy) save.onSave();
-      }}
-    >
-      {body}
-    </form>
-  ) : (
-    <div
-      className="pg-settings-page"
-      aria-labelledby="settings-title"
-      role="region"
-    >
-      {body}
-    </div>
-  );
-}
-function Card({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  const id = "card-" + title.toLowerCase().replace(/[^a-z]+/g, "-");
-  return (
-    <section className="pg-settings-card" aria-labelledby={id}>
-      <h3 id={id}>{title}</h3>
-      {description && <p className="pg-muted">{description}</p>}
-      {children}
-    </section>
-  );
-}
-/** A labelled field with an optional explanation under it. */
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: (id: string, hintId?: string) => ReactNode;
-}) {
-  const id = "f-" + label.toLowerCase().replace(/[^a-z]+/g, "-");
-  return (
-    <div className="pg-settings-field">
-      <label htmlFor={id}>{label}</label>
-      {children(id, hint ? id + "-hint" : undefined)}
-      {hint && (
-        <small id={id + "-hint"} className="pg-muted">
-          {hint}
-        </small>
-      )}
-    </div>
-  );
-}
-/** Load, edit, save: a page's form state with dirty tracking. */
-function useForm<T>(
-  section: string,
-  toForm: (data: Record<string, unknown>) => T,
-) {
-  const [saved, setSaved] = useState<T | null>(null);
-  const [form, setForm] = useState<T | null>(null);
-  const [extra, setExtra] = useState<Record<string, unknown> | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    api<Record<string, unknown>>("settings?section=" + section)
-      .then((data) => {
-        const f = toForm(data);
-        setSaved(f);
-        setForm(f);
-        setExtra(data);
-      })
-      .catch((e) => setError(message(e, "This page could not be loaded.")));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section]);
-  const dirty = !!form && JSON.stringify(form) !== JSON.stringify(saved);
-  async function save(body: Record<string, unknown>) {
-    setBusy(true);
-    setError("");
-    try {
-      const data = await api<Record<string, unknown>>("settings", body);
-      const f = toForm(data);
-      setSaved(f);
-      setForm(f);
-      setExtra(data);
-      setDone(true);
-      return data;
-    } catch (e) {
-      setError(message(e, "Your changes could not be saved."));
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  }
-  return { form, setForm, extra, dirty, busy, done, error, save };
-}
-
 function SettingsHome({
   menu,
   pages,

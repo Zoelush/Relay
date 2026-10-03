@@ -7,7 +7,13 @@ import { command } from "../../server/conversations";
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
 test.use({ viewport: { width: 1440, height: 900 } });
 test.beforeAll(async () => {
-  relay = await startLocalRelay({ apiPort: 8936, hostPort: 8937 });
+  // Team settings edited in the Workload panel (without Settings); settings-helpdesk.spec.ts
+  // covers Settings › Teams & assignment.
+  relay = await startLocalRelay({
+    apiPort: 8936,
+    hostPort: 8937,
+    settings: false,
+  });
   // Grace is away, so Billing's queue waits for the owner.
   await tenant(relay.db.connect, "demo", (db) =>
     db.query(

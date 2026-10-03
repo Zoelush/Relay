@@ -742,7 +742,27 @@ export async function listTeams(db: Sql, w: string, principal: string) {
       })),
     });
   }
-  return { teams, canManage: await can(db, w, principal, "workspace.manage") };
+  const canManage = await can(db, w, principal, "workspace.manage");
+  // Settings › Teams & assignment: every teammate's own limits, for those who can change them.
+  const teammates = canManage
+    ? (
+        await db.query<{
+          id: string;
+          name: string;
+          conversation_limit: number | null;
+          ticket_limit: number | null;
+        }>(
+          "SELECT id,name,conversation_limit,ticket_limit FROM teammates WHERE workspace_id=$1 ORDER BY lower(name),id",
+          [w],
+        )
+      ).rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        conversationLimit: r.conversation_limit,
+        ticketLimit: r.ticket_limit,
+      }))
+    : undefined;
+  return { teams, canManage, teammates };
 }
 
 const PRESENCE = ["active", "away", "away_reassigning"] as const;

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased: Settings (S2a: teams, office hours, SLAs)
+
+- **A Helpdesk group in Settings,** for workspace managers:
+  - **Teams & assignment:**
+    - teams with members, assignment method (each explained), limits and away behaviour
+    - every teammate's own limits
+    - the Workload panel's "Edit team settings" leads here
+  - **Office hours:**
+    - calendars with weekly windows and holidays, published as new versions so running clocks keep their hours
+    - which hours the workspace, each brand and each team use
+  - **SLAs:**
+    - policies with targets in minutes, hours or days, business or all hours, pause rules and conditions
+    - new ones go to the bottom; move up and down, archive
+- **Idempotent saves:** saving teams, teammate limits, calendars and SLA policies now uses the idempotency key, so a retried save is applied once.
+- **No migration.** **Tests:**
+  - unit: `tests/settings-helpdesk.test.ts`
+  - browser: `tests/browser/settings-helpdesk.spec.ts`
+
+  Details: `docs/SETTINGS_STEP2.md`.
+
 ## Unreleased: Settings (S1: the frame and personal settings)
 
 - **A Settings area,** opened from a gear in the icon strip:

@@ -86,6 +86,11 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   const manageKnowledge = knowledge && (await has("knowledge.manage"));
   const pages: string[] = ["profile", "notifications", "appearance"];
   if (await has("workspace.manage")) pages.push("general");
+  const manage = await has("workspace.manage");
+  // Helpdesk (S2a): teams and routing, office hours and SLAs, each with its feature.
+  if (manage && (await flag(db, w, "routing_v1"))) pages.push("teams");
+  if (manage && (await flag(db, w, "sla_v1")))
+    pages.push("office-hours", "slas");
   if (await has("macros.use")) pages.push("macros");
   if (await flag(db, w, "agent_inbox_views_v1")) pages.push("views");
   if (manageKnowledge) {

@@ -145,7 +145,7 @@ const savedSort = (value: string): { sort: Sort; dir: "asc" | "desc" } => {
 };
 const countLabel = (n: number | undefined) =>
   n === undefined ? "…" : n >= 1000 ? "999+" : n.toLocaleString();
-function FilterEditor({
+export function FilterEditor({
   value,
   onChange,
   depth = 0,

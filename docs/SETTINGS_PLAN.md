@@ -19,7 +19,8 @@ Approved on 3 October 2026 ("Yes, go ahead with all four"):
 | Step | Scope |
 |---|---|
 | **S1: Frame and personal** | The gear, side menu, home of cards, page frame and addresses (`#settings/<page>`). Your profile (name, timezone, reply signature), Notifications (desktop and sound), Appearance (theme). Workspace › General (name, timezone, team language). Macros moved in. Links to saved views, help centers, websites and the AI index. |
-| **S2: Helpdesk** | Teams and assignment (members, routing method, limits; moved from the Workload panel), office hours, SLAs, ticket types (states and fields), tags, conversation attributes |
+| **S2a: Helpdesk, routing and time** | Teams and assignment (members, routing method, limits; moved from the Workload panel), office hours, SLAs |
+| **S2b: Helpdesk, data** | Tags and conversation attributes (new server code), then ticket types (states, transitions and fields) |
 | **S3: People and channels** | Teammates (a list with roles to change), roles and permissions, brands, messenger (appearance, greeting, identity verification, allowed websites, install snippet), customer portal |
 
 **Left out until their phase**, with TODOs in `server/settings.ts`:
@@ -31,4 +32,9 @@ Approved on 3 October 2026 ("Yes, go ahead with all four"):
 | Email and other channels | 12 |
 | AI agent settings | 08 |
 
-Handoffs: `docs/SETTINGS_STEP1.md` (S1).
+S2 was split on 3 October 2026 ("Yes, go ahead with all three"):
+- **Teams aren't deleted** until a later step adds archiving.
+- **Tags** are archived, never hard-deleted.
+- **An attribute's type** is fixed once created.
+
+Handoffs: `docs/SETTINGS_STEP1.md` (S1), `docs/SETTINGS_STEP2.md` (S2a).
