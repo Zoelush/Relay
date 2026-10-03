@@ -31,6 +31,7 @@ import {
   SlidersHorizontal,
   Timer,
   Users,
+  Bot,
   Zap,
 } from "lucide-react";
 import { api } from "./api";
@@ -61,6 +62,8 @@ type ViewsResponse = {
   views: View[];
   folders: Folder[];
   teams?: { id: string; name: string }[];
+  /** Whether the AI agent's view should exist (phase 08 A2a). */
+  ai?: boolean;
 };
 type Row = CardRow;
 const initial: ViewFilter = { field: "state", op: "eq", value: "open" };
@@ -74,6 +77,14 @@ const ANY_STATUS: ViewFilter = {
 const BUILTINS = ["mine", "mentions", "unassigned", "all"];
 /** Team inboxes are built-in views named `team:<team id>` (TEAM_INBOX on the server). */
 const TEAM_INBOX = "team:";
+/** The AI agent's built-in view (AI_VIEW on the server), while the agent is on. */
+const AI_VIEW = "ai:escalated";
+const AI_STATES: [string, string][] = [
+  ["pending", "pending (waiting on the customer)"],
+  ["escalated", "escalated to the team"],
+  ["needs_input", "needs teammate input"],
+  ["resolved", "resolved"],
+];
 const BUILTIN_ICONS: Record<string, ReactNode> = {
   mine: <Inbox size={16} />,
   mentions: <AtSign size={16} />,
@@ -222,7 +233,9 @@ export function FilterEditor({
                 ? true
                 : e.target.value === "sla"
                   ? "overdue"
-                  : "",
+                  : e.target.value === "ai_state"
+                    ? "escalated"
+                    : "",
           })
         }
       >
@@ -238,9 +251,14 @@ export function FilterEditor({
           "created_at",
           "sla",
           "ticket_type",
+          "ai_state",
         ].map((f) => (
           <option key={f} value={f}>
-            {f === "sla" ? "SLA" : f.replaceAll("_", " ")}
+            {f === "sla"
+              ? "SLA"
+              : f === "ai_state"
+                ? "AI agent state"
+                : f.replaceAll("_", " ")}
           </option>
         ))}
       </select>
@@ -279,6 +297,20 @@ export function FilterEditor({
         >
           <option value="overdue">Overdue</option>
           <option value="breached">Breached (ever)</option>
+        </select>
+      ) : value.field === "ai_state" ? (
+        <select
+          aria-label="AI agent state value"
+          value={Array.isArray(value.value) ? value.value[0] : String(value.value)}
+          onChange={(e) =>
+            onChange({ field: "ai_state", op: value.op === "ne" ? "ne" : "eq", value: e.target.value })
+          }
+        >
+          {AI_STATES.map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
         </select>
       ) : value.field === "state" ? (
         <select
@@ -360,6 +392,7 @@ export function InboxViews({
   const [views, setViews] = useState<View[]>([]),
     [folders, setFolders] = useState<Folder[]>([]),
     [myTeams, setMyTeams] = useState<string[] | null>(null),
+    [aiView, setAiView] = useState(false),
     [viewId, setViewId] = useState("");
   // Whether the teammate picked the current view. An automatic pick moves to "All" once it
   // exists: on a first visit the default views are created after the first list of views, and
@@ -432,6 +465,7 @@ export function InboxViews({
     setViews(withPending(data.views));
     setFolders(data.folders);
     setMyTeams(data.teams?.map((t) => t.id) ?? []);
+    setAiView(!!data.ai);
     const keep = chosen.current;
     setViewId((old) => pickView(old, data.views, keep));
   }, []);
@@ -443,6 +477,7 @@ export function InboxViews({
         setViews(withPending(data.views));
         setFolders(data.folders);
         setMyTeams(data.teams?.map((t) => t.id) ?? []);
+        setAiView(!!data.ai);
         const keep = chosen.current;
         setViewId((old) => pickView(old, data.views, keep));
       })
@@ -580,7 +615,8 @@ export function InboxViews({
     if (
       BUILTINS.every((b) => have.has(b)) &&
       teamInboxes.length === myTeams.length &&
-      myTeams.every((t) => teamInboxes.includes(t))
+      myTeams.every((t) => teamInboxes.includes(t)) &&
+      have.has(AI_VIEW) === aiView
     )
       return;
     toppedUp.current = true;
@@ -590,7 +626,7 @@ export function InboxViews({
         return refresh();
       })
       .catch(onError);
-  }, [views, myTeams, refresh, onJob, onError]);
+  }, [views, myTeams, aiView, refresh, onJob, onError]);
   // Keyboard navigation (J/K) and palette view switching arrive as window events from the inbox.
   useEffect(() => {
     const navigate = (e: Event) => {
@@ -729,6 +765,7 @@ export function InboxViews({
     teamViews = views
       .filter((v) => v.builtin?.startsWith(TEAM_INBOX))
       .sort((a, b) => a.position - b.position),
+    aiViews = views.filter((v) => v.builtin === AI_VIEW),
     customViews = views.filter((v) => !v.builtin);
   const viewEntry = (v: View, icon: ReactNode) => {
     const live = countMap.get(v.id) ?? v;
@@ -874,6 +911,13 @@ export function InboxViews({
             <MenuSection title="Team inboxes">
               <ul className="pg-menu-entries">
                 {teamViews.map((v) => viewEntry(v, <Users size={16} />))}
+              </ul>
+            </MenuSection>
+          )}
+          {aiViews.length > 0 && (
+            <MenuSection title="AI agent">
+              <ul className="pg-menu-entries">
+                {aiViews.map((v) => viewEntry(v, <Bot size={16} />))}
               </ul>
             </MenuSection>
           )}

@@ -105,6 +105,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   }
   if (await has("macros.use")) pages.push("macros");
   if (await flag(db, w, "agent_inbox_views_v1")) pages.push("views");
+  // The AI agent (phase 08 A2a): its handover choices, for workspace managers.
+  if (manage && (await flag(db, w, "ai_agent_v1"))) pages.push("ai-agent");
   if (manageKnowledge) {
     pages.push("help-centers");
     if (await flag(db, w, "knowledge_sync_v1")) pages.push("websites");
@@ -112,7 +114,7 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
     if (await flag(db, w, "knowledge_health_v1")) pages.push("content-health");
   }
   // TODO(phase 16): security, audit log, usage and billing. TODO(phase 15): API keys and
-  // webhooks. TODO(phase 12): email and other channels. TODO(phase 08): the AI agent.
+  // webhooks. TODO(phase 12): email and other channels. TODO(phase 08 B1): more AI agent pages.
   return { pages };
 }
 

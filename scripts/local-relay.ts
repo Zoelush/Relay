@@ -56,8 +56,10 @@ import {
 import { runAiReply } from "../server/ai-agent";
 import {
   standInAnswerModel,
+  standInClassifier,
   standInReranker,
   type AnswerModel,
+  type ClassifierPort,
   type RerankPort,
 } from "../server/ai-model";
 import { localIndex } from "./local-vectors";
@@ -108,7 +110,7 @@ export async function startLocalRelay(
     /** Its model and vector store; by default the test embedder and a local store. */
     index?: IndexEnvironment;
     /** The AI agent's models (phase 08); stand-ins by default. */
-    ai?: { model?: AnswerModel; rerank?: RerankPort };
+    ai?: { model?: AnswerModel; rerank?: RerankPort; classify?: ClassifierPort };
     /** The AI agent (phase 08), likewise on locally unless turned off. */
     aiAgent?: boolean;
     /** Messenger drafts (messenger settings M1), likewise on locally unless turned off. */
@@ -211,6 +213,7 @@ export async function startLocalRelay(
   env.ai = {
     model: options.ai?.model ?? standInAnswerModel(),
     rerank: options.ai?.rerank ?? standInReranker(),
+    classify: options.ai?.classify ?? standInClassifier(),
     index: env.knowledgeIndex!,
   };
   for (const w of ["demo", "other"])

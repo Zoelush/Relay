@@ -13,8 +13,7 @@ phase before starting work. Phase 04 has its own detailed plan in
 additions are marked inside each phase of `docs/BUILD_PHASES.md`.
 
 Current position: the messenger settings plan (`docs/MESSENGER_SETTINGS_PLAN.md`, asked for
-before phase 08 A2) is complete locally (`docs/MESSENGER_SETTINGS_STEP1.md` to `STEP5.md`); next is
-phase 08 A2. Uploaded messenger images live in `brand_assets` (`server/brand-assets.ts`); the config
+before phase 08 A2) is complete locally (`docs/MESSENGER_SETTINGS_STEP1.md` to `STEP5.md`). Uploaded messenger images live in `brand_assets` (`server/brand-assets.ts`); the config
 refers to one as `asset:<id>`, the boot turns it into Relay's address, and customers are served only
 images their brand's live messenger uses. The messenger has no colour of its own: its surfaces are neutral,
 and every colour comes from `palette()` in `lib/brand-colours.ts` (text on the brand colour, and the
@@ -26,7 +25,11 @@ booted while the flag is on). Its inbound rules are enforced in `server/conversa
 (`inboundRules`), not only in the messenger. Settings' live preview loads the app's own copy of the
 messenger page (`/messenger/frame.html?preview=1`); in preview mode it fetches and sends nothing.
 Phase 08 (the AI agent, `docs/AI_PLAN.md`):
-step A1 (answering core) is done locally (`docs/AI_STEP1.md`); next is A2 (escalation and handover). The agent answers only from
+steps A1 (answering core) and A2a (handover) are done locally (`docs/AI_STEP1.md`, `AI_STEP2.md`); next is A2b
+(escalation rules, never-handle topics, guidance). A handover's summary is an `internal_note` (never
+delivered); `conversations.ai_state` (pending, escalated, needs_input) is set only by the agent and a
+teammate's reply; the classifier (`ClassifierPort`) returns only "asks for a person" and sentiment,
+so no message can grant the agent anything. The agent answers only from
 passages `server/ai-retrieval.ts` allows, decided in PostgreSQL before ranking; the relevance gate
 and the reply check in `server/ai-agent.ts` are code, not prompt text; `ai_reply` part data reaches
 customers, so only sources and options go there (everything else in `ai_answers`). Models sit behind

@@ -368,7 +368,8 @@ test("the AI agent answers from content the customer may see, refuses below the 
       refusal.body,
       /couldn't find an answer.*connect you with someone/,
     );
-    assert.deepEqual(refusal.data, {});
+    // A2a: the refusal offers a person as a button.
+    assert.deepEqual(refusal.data, { options: ["Talk to a person"] });
     const [unknown] = await answers(unanswerable.conversationId);
     assert.equal(unknown.outcome, "unknown");
     assert.match(unknown.reason, /below the threshold/);

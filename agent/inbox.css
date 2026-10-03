@@ -1005,6 +1005,9 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-settings-label { font-weight:600; font-size:13px; }
 .pg-messenger-image-box { display:grid; place-items:center; width:56px; height:56px; border:1px solid var(--pg-border); border-radius:10px; background:var(--pg-sunken); overflow:hidden; font-size:12px; }
 .pg-messenger-image-box img { max-width:100%; max-height:100%; object-fit:contain; }
+.pg-card-ai { padding:1px 7px; border-radius:999px; background:var(--pg-chip); color:var(--pg-text-2); font-size:11px; white-space:nowrap; }
+.pg-card-ai[data-state="escalated"], .pg-card-ai[data-state="needs_input"] { background:var(--pg-info-bg); color:var(--pg-text); box-shadow:inset 0 0 0 1px var(--pg-info-line); }
+.pg-handover { white-space:pre-line; }
 .pg-colour-sample { display:grid; place-items:center; width:34px; height:34px; border-radius:8px; border:1px solid var(--pg-border); font-weight:600; }
 .pg-settings-tabs { display:flex; flex-wrap:wrap; gap:4px; }
 .pg-settings-tabs button { padding:5px 12px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-surface); color:var(--pg-text); font-size:13px; }

@@ -25,6 +25,7 @@ import {
   MessageCircle,
   DoorOpen,
   type LucideIcon,
+  Bot,
 } from "lucide-react";
 import { api } from "./api";
 import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
@@ -44,6 +45,7 @@ import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
+import { AiAgentPage } from "./settings-ai";
 import type { Directory } from "./timeline";
 import type { ThemeChoice } from "./theme";
 import {
@@ -215,6 +217,14 @@ const PAGES: Page[] = [
     icon: Sparkles,
     group: "Knowledge & AI",
     link: true,
+  },
+  {
+    id: "ai-agent",
+    label: "AI agent",
+    description:
+      "When the AI agent answers, and how it hands conversations to the team.",
+    icon: Bot,
+    group: "Knowledge & AI",
   },
   {
     id: "content-health",
@@ -398,6 +408,8 @@ export function Settings({
               brandId={messengerBrand}
               onBrand={setMessengerBrand}
             />
+          ) : current.id === "ai-agent" ? (
+            <AiAgentPage menu={menu} page={current} />
           ) : current.id === "portal" ? (
             <PortalPage menu={menu} page={current} />
           ) : current.id === "teams" ? (

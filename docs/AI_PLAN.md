@@ -5,7 +5,8 @@ Branch per step, behind `ai_agent_v1` (off by default; on for the local relay). 
 | Step | Scope |
 |---|---|
 | **A1: Answering core** | Hybrid retrieval (keyword and vector, fused and reranked), filtered by language, brand, audience and availability before ranking. The model ports. Answers only from retrieved passages, with every sentence citing one, and sources shown to the customer. A hard "I don't know, would you like a person?" below a relevance threshold. Clarifying questions. Replies in the messenger. Customer and article text always treated as data. |
-| **A2: Escalation and handover** | Escalation rules (data conditions) separate from escalation guidance (natural language). Triggers: asking for a person, two failed answers, negative sentiment, never-handle topics, humans-only segments, office hours. A handover summary part, then routing (phase 06). Out-of-hours behaviour. The AI conversation state (pending, resolved, needs teammate input, escalated) and inbox views by it. |
+| **A2a: Handover** (A2 split on 3 October 2026) | Triggers: asking for a person (a button or in words), failed answers, negative sentiment, office hours. A handover summary note for teammates, then routing to a handover team (phase 06). Out-of-hours behaviour (reply time, take a message, keep answering). The AI state (pending, escalated, needs teammate input) with an inbox view and filter. Settings › AI agent. |
+| **A2b: Escalation rules and guidance** | Escalation rules (data conditions on person, company or conversation; humans-only segments), never-handle topics, and escalation guidance (natural language), with their Settings sections. |
 | **A3: Resolution ledger** | "That helped" in the messenger. Resolution after a quiet window when the conversation was never escalated. One ledger row per resolution (conversation, answers, rule, time), reconcilable by a person reading the thread; billing (phase 16) reads it. |
 | **B1: Configuration** | Several agents (for example service and sales). Each has: identity per brand; versioned guidance with channel selectors (shapes language and decisions, never grants powers); content targeting (an article is used only if the customer passes both its help center audience and the agent's); language detection with an allowlist and fallback; formality and answer length. Settings pages. |
 | **B2: Safety and privacy** | A hostile-content corpus. Guarantees against disclosing other customers' data, internal content or the system prompt. Redaction of personal data before the model provider (workspace setting), with an audit of what was sent. Memory across a customer's conversations behind a workspace switch (off by default), recorded on the conversation. |
@@ -32,4 +33,10 @@ Acceptance criteria (phase brief):
    - C1 calibrates the threshold on the golden set
 4. **Email, SMS and voice** (per-channel formatting, spam filtering, human-in-the-loop email drafts) are interfaces with TODO(phase 12), since those channels don't exist yet.
 
-Handoffs: `docs/AI_STEP1.md` (A1).
+5. **A2a decisions** (3 October 2026):
+   - A2 is two steps
+   - a failing classifier leaves the agent answering with A1's safeguards rather than handing everything over
+   - Settings › AI agent starts in A2a (B1 adds to it)
+   - migration 0044 adds the AI state, handover settings and the escalation rules table
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a).

@@ -141,6 +141,8 @@ export function agentConversation(c: Conversation, personalData: boolean) {
     sla_breached,
   } = c;
   return {
+    // Where the AI agent stands with it (phase 08 A2a), or null.
+    ai_state: (c.ai_state as string | null | undefined) ?? null,
     sla_next_due_at: sla_next_due_at ?? null,
     sla_overdue: sla_overdue === true,
     sla_breached: sla_breached === true,
@@ -912,8 +914,10 @@ export async function command(
       }
       let metricsJobId: string | undefined;
       if (kind === "teammate_reply") {
+        // A teammate has picked up a conversation the AI agent handed over while the team was
+        // away (phase 08 A2a): it's with the team now.
         await db.query(
-          "UPDATE conversations SET last_teammate_reply_at=$3,first_response_ms=COALESCE(first_response_ms,(extract(epoch from ($3::timestamptz-created_at))*1000)::bigint) WHERE workspace_id=$1 AND id=$2",
+          "UPDATE conversations SET last_teammate_reply_at=$3,first_response_ms=COALESCE(first_response_ms,(extract(epoch from ($3::timestamptz-created_at))*1000)::bigint),ai_state=CASE WHEN ai_state='needs_input' THEN 'escalated' ELSE ai_state END WHERE workspace_id=$1 AND id=$2",
           [w, c.id, part.created_at],
         );
         await customerReply(db, w, c, part.seq);

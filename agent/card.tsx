@@ -20,7 +20,16 @@ export type CardRow = {
   updated_at?: string;
   sla_next_due_at?: string | null;
   sla_overdue?: boolean;
+  /** The AI agent's state (phase 08 A2a). */
+  ai_state?: string | null;
   preview?: MessagePreview | null;
+};
+/** How the AI agent's state reads on a card and in the header. */
+export const AI_STATE_LABELS: Record<string, string> = {
+  pending: "AI: waiting on customer",
+  escalated: "AI: escalated",
+  needs_input: "AI: needs teammate",
+  resolved: "AI: resolved",
 };
 /** Fixed for the virtual list's arithmetic (and J/K scrolling); keep in step with the CSS. */
 export const CARD_HEIGHT = 112;
@@ -141,6 +150,11 @@ export function ConversationCard({
             overdue={!!row.sla_overdue}
             chip
           />
+          {row.ai_state && AI_STATE_LABELS[row.ai_state] && (
+            <span className="pg-card-ai" data-state={row.ai_state}>
+              {AI_STATE_LABELS[row.ai_state]}
+            </span>
+          )}
           {row.priority && (
             <span className="pg-card-priority" title="Priority">
               <Flag size={12} aria-hidden="true" fill="currentColor" />

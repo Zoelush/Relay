@@ -171,7 +171,12 @@ import {
   resolveAssets,
   teammateAsset,
 } from "./brand-assets";
-import { aiAnswers, type AiEnvironment } from "./ai-agent";
+import {
+  aiAnswers,
+  changeAiSettings,
+  readAiSettings,
+  type AiEnvironment,
+} from "./ai-agent";
 import {
   indexStatus,
   rebuildIndex,
@@ -1185,6 +1190,7 @@ export async function handleApi(
             "/v1/agent/macros",
             "/v1/agent/context",
             "/v1/agent/ai-answers",
+            "/v1/agent/ai-settings",
             "/v1/agent/bulk",
             "/v1/agent/ticket-types",
             "/v1/agent/ticket-preview",
@@ -1246,6 +1252,7 @@ export async function handleApi(
               "/v1/agent/brands",
               "/v1/agent/messenger",
               "/v1/agent/messenger-assets",
+              "/v1/agent/ai-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1533,6 +1540,18 @@ export async function handleApi(
                 req.headers.get("idempotency-key") ?? "",
                 p,
                 () => portalSettings(db, workspace, principal, p),
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/ai-settings")
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeAiSettings(
+                db,
+                workspace,
+                principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
               ),
             ),
           );
@@ -1983,6 +2002,13 @@ export async function handleApi(
         });
         return new Response(file.body, { status: file.status, headers });
       }
+      if (url.pathname === "/v1/agent/ai-settings")
+        // Phase 08 A2a: the AI agent's handover choices.
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readAiSettings(db, workspace, principal),
+          ),
+        );
       if (url.pathname === "/v1/agent/ai-answers")
         // Phase 08: what the AI agent did with each customer message, and why.
         return json(

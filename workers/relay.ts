@@ -22,6 +22,7 @@ import {
 import { runAiReply, type AiEnvironment } from "../server/ai-agent";
 import {
   claudeAnswerModel,
+  claudeClassifier,
   workersAiReranker,
   type WorkersAiRerank,
 } from "../server/ai-model";
@@ -101,6 +102,8 @@ const aiAgent = (env: Env): AiEnvironment | undefined => {
     ? {
         model: claudeAnswerModel(env.ANTHROPIC_API_KEY),
         rerank: workersAiReranker(env.AI),
+        // Handover triggers (phase 08 A2a): Claude Haiku, with the same key.
+        classify: claudeClassifier(env.ANTHROPIC_API_KEY),
         index,
       }
     : undefined;

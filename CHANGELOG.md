@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased: AI agent (phase 08, A2a: handing over to the team)
+
+- **When the agent hands over:**
+  - the customer asks for a person (a new "Talk to a person" button, or in their own words, in five languages)
+  - two answers it couldn't give
+  - frustration (can be switched off)
+  - optionally, whenever the team is open
+- **At handover:**
+  - the customer is told
+  - teammates get an AI handover summary note the customer never sees
+  - the conversation goes to the chosen team and through routing, and the agent stays out
+- **Outside office hours:** say when the team is back, take a message, or keep answering until a teammate replies.
+- **The AI state** (pending, escalated, needs teammate input): shown on cards, with an "Escalated by AI" view and a saved-view filter.
+- **Settings › AI agent** for managers.
+- **Models:** classification by Claude Haiku 4.5 when deployed, a phrase-list stand-in locally. If it fails, the agent keeps answering with its safeguards.
+- **Migration** 0044 with rollback. **Tests:**
+  - unit: `tests/ai-handover.test.ts`
+  - browser: `tests/browser/ai-handover.spec.ts`
+
+  Details: `docs/AI_STEP2.md`.
+
 ## Unreleased: Messenger settings (M5: logo uploads)
 
 - **Uploads:** the Home screen logo, the launcher logo and Home's background image are uploaded in Settings › Messenger (PNG, JPG or GIF up to 1 MB), with Upload, Change, Remove and a preview.
