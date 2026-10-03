@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased: Settings (S3b: brands, the messenger, the customer portal)
+
+- **A Channels group in Settings,** for workspace managers:
+  - **Brands:** add and rename, with each brand's websites and conversation count.
+  - **Messenger,** per brand:
+    - colour (with a launcher preview), theme, side, shape and logo
+    - greeting, away message and language
+    - who can start conversations
+    - the exact websites it loads on
+    - identity verification (keys listed by id, never shown)
+    - a copyable install snippet
+  - **Customer portal:** who sees which requests, each brand's portal address, and custom domains.
+- **Idempotent saves:** brand and portal saves use the idempotency key.
+- **No migration.** **Tests:**
+  - unit: `tests/settings-channels.test.ts`
+  - browser: `tests/browser/settings-channels.spec.ts`
+
+  Details: `docs/SETTINGS_STEP5.md`.
+
 ## Unreleased: Settings (S3a: teammates, roles and permissions)
 
 - **Two Workspace pages in Settings,** for those who manage teammates:

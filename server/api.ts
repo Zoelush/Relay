@@ -90,6 +90,7 @@ import {
   saveRole,
   setTeammateRole,
 } from "./people-settings";
+import { listBrands, saveBrand } from "./channel-settings";
 import {
   indexStatus,
   rebuildIndex,
@@ -1084,6 +1085,7 @@ export async function handleApi(
             "/v1/agent/attributes",
             "/v1/agent/teammates",
             "/v1/agent/roles",
+            "/v1/agent/brands",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1114,6 +1116,7 @@ export async function handleApi(
               "/v1/agent/attributes",
               "/v1/agent/teammates",
               "/v1/agent/roles",
+              "/v1/agent/brands",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1379,7 +1382,28 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/portal-settings")
           return json(
             await tenant(env.connect, workspace, (db) =>
-              portalSettings(db, workspace, principal, p),
+              once(
+                db,
+                workspace,
+                "portal-settings:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () => portalSettings(db, workspace, principal, p),
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/brands")
+          // Settings (S3b): brands, their messenger and identity verification.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              once(
+                db,
+                workspace,
+                "brands:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () => saveBrand(db, workspace, principal, p),
+              ),
             ),
           );
         if (url.pathname === "/v1/agent/sla-policies") {
@@ -1764,6 +1788,12 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listTicketTypes(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/brands")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listBrands(db, workspace, principal, url.origin),
           ),
         );
       if (url.pathname === "/v1/agent/teammates")

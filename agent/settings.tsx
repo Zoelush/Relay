@@ -20,6 +20,9 @@ import {
   Ticket,
   UserCog,
   ShieldCheck,
+  Store,
+  MessageCircle,
+  DoorOpen,
   type LucideIcon,
 } from "lucide-react";
 import { api } from "./api";
@@ -39,6 +42,7 @@ import { MacroManager, type MacroList } from "./macros";
 import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
+import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
 import type { Directory } from "./timeline";
 import type { ThemeChoice } from "./theme";
 import {
@@ -147,6 +151,29 @@ const PAGES: Page[] = [
     group: "Helpdesk",
   },
   {
+    id: "brands",
+    label: "Brands",
+    description: "Your brands, each with its own messenger and portal.",
+    icon: Store,
+    group: "Channels",
+  },
+  {
+    id: "messenger",
+    label: "Messenger",
+    description:
+      "Each brand's messenger: look, greeting, websites, identity and install.",
+    icon: MessageCircle,
+    group: "Channels",
+  },
+  {
+    id: "portal",
+    label: "Customer portal",
+    description:
+      "Who sees which requests, portal addresses and custom domains.",
+    icon: DoorOpen,
+    group: "Channels",
+  },
+  {
     id: "macros",
     label: "Macros",
     description: "Saved replies and actions, your own or shared with the team.",
@@ -188,7 +215,14 @@ const PAGES: Page[] = [
     link: true,
   },
 ];
-const GROUPS = ["Personal", "Workspace", "Helpdesk", "Inbox", "Knowledge & AI"];
+const GROUPS = [
+  "Personal",
+  "Workspace",
+  "Helpdesk",
+  "Channels",
+  "Inbox",
+  "Knowledge & AI",
+];
 export const SETTINGS_PAGES = PAGES.map((p) => p.id);
 
 const LANGUAGES = [
@@ -245,6 +279,8 @@ export function Settings({
   onDirectory?: () => void;
 }) {
   const menu = useSideMenu("settings");
+  // The brand the Messenger page shows; the Brands page can open one directly.
+  const [messengerBrand, setMessengerBrand] = useState("default");
   const [allowed, setAllowed] = useState<string[] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -331,6 +367,28 @@ export function Settings({
             <TeammatesPage menu={menu} page={current} />
           ) : current.id === "roles" ? (
             <RolesPage menu={menu} page={current} />
+          ) : current.id === "brands" ? (
+            <BrandsPage
+              menu={menu}
+              page={current}
+              onMessenger={
+                visible.some((p) => p.id === "messenger")
+                  ? (id) => {
+                      setMessengerBrand(id);
+                      onPage("messenger");
+                    }
+                  : undefined
+              }
+            />
+          ) : current.id === "messenger" ? (
+            <MessengerPage
+              menu={menu}
+              page={current}
+              brandId={messengerBrand}
+              onBrand={setMessengerBrand}
+            />
+          ) : current.id === "portal" ? (
+            <PortalPage menu={menu} page={current} />
           ) : current.id === "teams" ? (
             <TeamsPage menu={menu} page={current} onChanged={onDirectory} />
           ) : current.id === "office-hours" ? (

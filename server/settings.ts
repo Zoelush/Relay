@@ -54,7 +54,7 @@ export function validTimezone(value: unknown) {
   }
 }
 /** A language tag for the team's language, such as en or pt-BR. */
-function validLanguage(value: unknown) {
+export function validLanguage(value: unknown) {
   if (typeof value !== "string" || value.length < 2 || value.length > 35)
     return invalid("Choose a language.");
   try {
@@ -97,6 +97,12 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if (manage) pages.push("tags", "attributes");
   if ((await flag(db, w, "tickets_v1")) && (await has("tickets.manage")))
     pages.push("ticket-types");
+  // Channels (S3b): brands, each brand's messenger, and the customer portal.
+  if (manage) {
+    pages.push("brands");
+    if (await flag(db, w, "messenger_v2")) pages.push("messenger");
+    if (await flag(db, w, "portal_v1")) pages.push("portal");
+  }
   if (await has("macros.use")) pages.push("macros");
   if (await flag(db, w, "agent_inbox_views_v1")) pages.push("views");
   if (manageKnowledge) {
