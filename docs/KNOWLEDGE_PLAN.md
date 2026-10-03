@@ -10,7 +10,8 @@ Branch per step, behind `knowledge_v1` (off by default). Approved on 1 October 2
 | **B2: Search and feedback** | Typo-tolerant, language-aware, ranked search with query logging; helpful/not helpful with a comment and a path into a conversation; the messenger's Help space switched on |
 | **C1a: Files and images** | PDF, document and text upload with text extraction (through the attachment scan), versions and removal; article images; the help center's logo, favicon and social image |
 | **C1b: Website sync** | Crawling a URL or sitemap on a schedule with robots rules, stable ids, content hashes and removal detection, behind `knowledge_sync_v1`; pages rendered through a `PageRenderer` interface; a source-adapter interface for other tools (Zendesk, Notion, Confluence and Guru each later) |
-| **C2: Chunking, embeddings and health** | Idempotent, resumable chunking and embedding on publish and change, recording the model and version per embedding; re-embedding 10,000 records without search going offline; the content health report (gaps interface for phase 14) |
+| **C2a: The AI index** | Idempotent, resumable chunking and embedding on publish and change, recording the model and version per embedding; re-embedding 10,000 records without search going offline; retrieval for phase 08 with access checked at query time; the AI index page with "Try a question" |
+| **C2b: Content health** | The content health report: never reviewed, not retrieved in 90 days, near-duplicates (gaps interface for phase 14) |
 
 Acceptance criteria: three locales rendered by the server with correct metadata (B1); a working redirect after a slug change (A2 and B1); re-embedding 10,000 records without search going offline (C2).
 
@@ -28,3 +29,4 @@ Acceptance criteria: three locales rendered by the server with correct metadata 
    - JavaScript rendering and outside tools as interfaces only (`PageRenderer`, `SourceAdapter`)
 
    Handoff: `docs/KNOWLEDGE_STEP6.md`.
+7. **Step C2** (approved on 3 October 2026, "Yes, go ahead with all four"): split into C2a (the AI index) and C2b (content health). Internal content is indexed too, for the inbox and the phase 10 copilot, with access checked in PostgreSQL at query time. The index page has a "Try a question" box. Near-duplicates in C2b are vector neighbours at a cosine similarity of 0.92 or more, checked nightly and on demand. Handoff for C2a: `docs/KNOWLEDGE_STEP7.md`.

@@ -44,6 +44,12 @@ import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
 import { processKnowledgeFile } from "../server/knowledge-files";
 import {
+  runIndex,
+  scheduleIndex,
+  type IndexEnvironment,
+} from "../server/knowledge-index";
+import { localIndex } from "./local-vectors";
+import {
   runSync,
   scheduleDueSyncs,
   type SyncEnvironment,
@@ -81,6 +87,10 @@ export async function startLocalRelay(
     helpCenter?: boolean;
     /** Website sync, likewise. */
     knowledgeSync?: boolean;
+    /** The AI index (phase 07, C2a), likewise on locally unless turned off. */
+    knowledgeIndex?: boolean;
+    /** Its model and vector store; by default the test embedder and a local store. */
+    index?: IndexEnvironment;
     /** Website sync's fetch policy and renderer (tests reach a local test site this way). */
     sync?: SyncEnvironment;
     longTimeline?: boolean;
@@ -173,6 +183,7 @@ export async function startLocalRelay(
     realtimeUrl: apiOrigin.replace("http", "ws") + "/realtime",
     notify: publish,
     sync: options.sync ?? {},
+    knowledgeIndex: options.index ?? localIndex(options.directory),
   };
   for (const w of ["demo", "other"])
     await tenant(db.connect, w, (sql) =>
@@ -421,6 +432,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_sync_v1'",
         [w, options.knowledgeSync !== false],
       );
+      // The AI index (phase 07, C2a).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_index_v1'",
+        [w, options.knowledgeIndex !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -545,6 +561,8 @@ export async function startLocalRelay(
       processKnowledgeFile(db.connect, env.attachments!, job);
   handlers["knowledge.sync.run"] = (job) =>
     runSync(db.connect, env.sync ?? {}, job);
+  handlers["knowledge.index"] = (job) =>
+    runIndex(db.connect, env.knowledgeIndex!, job);
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
@@ -559,15 +577,16 @@ export async function startLocalRelay(
           w,
           async (sql) =>
             (
-              await sql.query<{ id: string }>(
-                "SELECT id FROM jobs WHERE workspace_id=$1 AND state IN ('queued','running') AND (lease_until IS NULL OR lease_until<now()) ORDER BY created_at,id LIMIT 20",
+              await sql.query<{ id: string; kind: string }>(
+                "SELECT id,kind FROM jobs WHERE workspace_id=$1 AND state IN ('queued','running') AND (lease_until IS NULL OR lease_until<now()) ORDER BY created_at,id LIMIT 20",
                 [w],
               )
             ).rows,
         );
         for (const job of pending) {
           await runJob(db.connect, w, job.id, handlers);
-          await publishBatch(w, [""]);
+          // Indexing knowledge changes nothing a teammate's inbox shows: no workspace refresh.
+          if (job.kind !== "knowledge.index") await publishBatch(w, [""]);
         }
         const timers = await tenant(
           db.connect,
@@ -594,6 +613,8 @@ export async function startLocalRelay(
             w,
             routed.map((r) => r.conversationId),
           );
+        // Published knowledge waiting for the AI index (phase 07, C2a).
+        await scheduleIndex(db.connect, w);
         // Websites due a sync (phase 07, C1b), checked once a minute.
         if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
           lastSyncCheck.set(w, Date.now());

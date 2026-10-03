@@ -938,3 +938,20 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-message.from-team { background:var(--pg-team-bg); border-color:var(--pg-team-border); border-bottom-right-radius:4px; }
 .pg-bubble-row.team .pg-note { border-bottom-right-radius:4px; }
 @media (max-width: 850px) { .pg-bubble-row { max-width:92%; } }
+
+/* The AI index (phase 07, step C2a). */
+.pg-ai-index { max-width:880px; }
+.pg-index-card { display:flex; flex-direction:column; gap:8px; padding:14px 16px; border:1px solid var(--pg-border); border-radius:10px; background:var(--pg-surface); }
+.pg-index-card h3 { margin:0; font-size:14px; }
+.pg-index-card p { margin:0; }
+.pg-index-card dl { display:grid; grid-template-columns:auto 1fr; gap:4px 14px; margin:0; font-size:13px; }
+.pg-index-card dt { color:var(--pg-muted); }
+.pg-index-card dd { margin:0; }
+.pg-index-card progress { width:100%; accent-color:var(--pg-accent); }
+.pg-index-state { font-size:13px; color:var(--pg-text-2); }
+.pg-index-card form input { flex:1; min-width:200px; }
+.pg-index-results { margin:0; padding-left:20px; display:flex; flex-direction:column; gap:10px; }
+.pg-index-results header { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+.pg-index-results header button { border:0; background:none; padding:0; color:var(--pg-accent); font-weight:600; text-decoration:underline; cursor:pointer; }
+.pg-index-results header span { font-size:12px; }
+.pg-index-results p { margin:4px 0 0; font-size:13px; color:var(--pg-text-2); white-space:pre-wrap; }

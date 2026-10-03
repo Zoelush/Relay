@@ -4,6 +4,7 @@ import { feedbackSummary, indexRecord, normalize } from "./help-search";
 import { authorize, can } from "./policy";
 import { fileSummary, readyImages } from "./knowledge-files";
 import { pageSummary, syncAvailable } from "./knowledge-sync";
+import { indexEnabled } from "./knowledge-index";
 import {
   imageIds,
   normalizeDoc,
@@ -322,6 +323,8 @@ export async function listKnowledge(
     canManage: manage,
     // Phase 07 C1b: whether to offer the Websites tab.
     sync: manage && (await syncAvailable(db, w, principal)),
+    // The AI index page (phase 07, C2a) is for managers.
+    index: manage && (await indexEnabled(db, w)),
   };
 }
 
