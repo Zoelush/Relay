@@ -60,10 +60,13 @@ export function AccountMenu({
   account,
   theme,
   onTheme,
+  onProfile,
 }: {
   account: Account;
   theme: ThemeChoice;
   onTheme: (choice: ThemeChoice) => void;
+  /** Opens Settings › Your profile; without Settings, the read-only profile dialog opens. */
+  onProfile?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(false);
@@ -210,7 +213,8 @@ export function AccountMenu({
               className="pg-account-item"
               onClick={() => {
                 close(false);
-                setProfile(true);
+                if (onProfile) onProfile();
+                else setProfile(true);
               }}
             >
               <UserRound size={16} aria-hidden="true" />

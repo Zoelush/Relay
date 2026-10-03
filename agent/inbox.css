@@ -955,3 +955,45 @@ button.pg-account-item:not(:disabled):hover, a.pg-account-item:hover { backgroun
 .pg-index-results header button { border:0; background:none; padding:0; color:var(--pg-accent); font-weight:600; text-decoration:underline; cursor:pointer; }
 .pg-index-results header span { font-size:12px; }
 .pg-index-results p { margin:4px 0 0; font-size:13px; color:var(--pg-text-2); white-space:pre-wrap; }
+
+/* Settings (S1): the home page's cards, and each page's title, Save button and cards. */
+.pg-settings-group { margin:0 0 2px; padding:4px 10px; color:var(--pg-muted); font-size:11px; font-weight:600; letter-spacing:.8px; text-transform:uppercase; }
+.pg-settings-page { display:flex; flex-direction:column; flex:1; min-height:0; }
+.pg-settings-head { align-items:flex-start; padding:16px 24px; }
+.pg-settings-head > div:not(.pg-settings-save) { flex:1; min-width:0; }
+.pg-settings-head p { margin:3px 0 0; font-size:13px; }
+.pg-settings-save { display:flex; align-items:center; gap:10px; }
+.pg-primary { display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border:0; border-radius:8px; background:var(--pg-accent-fill); color:var(--pg-on-accent); font-weight:600; }
+.pg-primary:disabled { opacity:.45; }
+.pg-settings-body { flex:1; overflow:auto; padding:20px 24px 40px; display:flex; flex-direction:column; gap:16px; max-width:820px; }
+.pg-settings-card { display:flex; flex-direction:column; gap:12px; padding:16px 18px; border:1px solid var(--pg-border); border-radius:12px; background:var(--pg-surface); }
+.pg-settings-card h3 { margin:0; font-size:15px; }
+.pg-settings-card > p { margin:-6px 0 0; font-size:13px; }
+.pg-settings-field { display:flex; flex-direction:column; gap:5px; }
+.pg-settings-field label { font-size:13px; font-weight:600; }
+.pg-settings-field small { font-size:12px; }
+.pg-settings-field input, .pg-settings-field select, .pg-settings-field textarea { width:100%; max-width:480px; }
+.pg-settings-field textarea { font:inherit; color:inherit; background:var(--pg-surface); border:1px solid var(--pg-input-border); border-radius:5px; padding:7px; resize:vertical; }
+.pg-inbox input.pg-mono { font-family:ui-monospace, monospace; background:var(--pg-sunken); }
+.pg-settings-identity { display:flex; align-items:center; gap:12px; font-size:13px; }
+.pg-settings-identity .pg-avatar { min-width:44px; height:44px; font-size:15px; font-weight:700; }
+.pg-settings-toggle { display:flex; align-items:flex-start; gap:10px; cursor:pointer; }
+.pg-settings-toggle input { margin-top:3px; width:16px; height:16px; }
+.pg-settings-toggle span { display:flex; flex-direction:column; gap:2px; }
+.pg-settings-toggle small { font-size:12px; }
+.pg-settings-theme { max-width:360px; margin:0; }
+.pg-settings-theme button[aria-checked="true"] { background:var(--pg-surface); color:var(--pg-text); font-weight:600; box-shadow:0 1px 3px var(--pg-shadow-soft); }
+.pg-settings-stats { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; }
+.pg-settings-stats > div { display:flex; flex-direction:column; gap:2px; padding:12px 14px; border:1px solid var(--pg-border); border-radius:12px; background:var(--pg-surface); }
+.pg-settings-stats small { color:var(--pg-muted); font-size:12px; }
+.pg-settings-stats strong { font-size:22px; font-variant-numeric:tabular-nums; }
+.pg-settings-home-group h3 { margin:0 0 10px; font-size:13px; color:var(--pg-text-2); }
+.pg-settings-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px; }
+.pg-settings-tile { display:flex; align-items:flex-start; gap:12px; padding:14px; border:1px solid var(--pg-border); border-radius:12px; background:var(--pg-surface); color:inherit; text-align:left; }
+.pg-settings-tile:hover { background:var(--pg-hover); }
+.pg-settings-tile-icon { display:inline-grid; place-items:center; flex:none; width:34px; height:34px; border-radius:9px; background:var(--pg-chip); color:var(--pg-text-2); }
+.pg-settings-tile > span:last-child { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.pg-settings-tile strong { font-size:14px; }
+.pg-settings-tile small { color:var(--pg-muted); font-size:12px; line-height:1.4; }
+.pg-macros-embedded { display:flex; flex-direction:column; gap:12px; }
+@media (max-width: 760px) { .pg-settings-stats { grid-template-columns:1fr; } }

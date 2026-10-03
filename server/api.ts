@@ -73,6 +73,12 @@ import {
 } from "./routing";
 import { changeKnowledge, listKnowledge, readKnowledge } from "./knowledge";
 import {
+  readSettings,
+  saveSettings,
+  settingsEnabled,
+  settingsOverview,
+} from "./settings";
+import {
   indexStatus,
   rebuildIndex,
   tryRetrieval,
@@ -1061,6 +1067,7 @@ export async function handleApi(
             "/v1/agent/knowledge-source",
             "/v1/agent/knowledge-index",
             "/v1/agent/knowledge-retrieve",
+            "/v1/agent/settings",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1086,6 +1093,7 @@ export async function handleApi(
               "/v1/agent/knowledge-files",
               "/v1/agent/knowledge-sources",
               "/v1/agent/knowledge-index",
+              "/v1/agent/settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1218,6 +1226,20 @@ export async function handleApi(
                 req.headers.get("idempotency-key") ?? "",
                 p,
                 () => changeKnowledge(db, workspace, principal, p),
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/settings")
+          // Settings (S1): your profile, notifications, and the workspace's General page.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              once(
+                db,
+                workspace,
+                "settings:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () => saveSettings(db, workspace, principal, p),
               ),
             ),
           );
@@ -1707,6 +1729,19 @@ export async function handleApi(
             listSources(db, workspace, principal),
           ),
         );
+      if (url.pathname === "/v1/agent/settings") {
+        const section = url.searchParams.get("section") ?? "overview";
+        return json(
+          await tenant(
+            env.connect,
+            workspace,
+            (db): Promise<Record<string, unknown>> =>
+              section === "overview"
+                ? settingsOverview(db, workspace, principal)
+                : readSettings(db, workspace, principal, section),
+          ),
+        );
+      }
       if (url.pathname === "/v1/agent/knowledge-index")
         return json(
           await tenant(env.connect, workspace, (db) =>
@@ -1992,7 +2027,28 @@ export async function handleApi(
                 )
               ).rows.length,
               attachments: !!env.attachments,
+              // Settings (S1), when the workspace has it.
+              settings: await settingsEnabled(db, workspace),
             },
+            // Your own preferences: the signature added to replies, and how you're notified.
+            profile: (
+              await db.query<{
+                signature: string;
+                notification_prefs: unknown;
+              }>(
+                "SELECT signature,notification_prefs FROM teammates WHERE workspace_id=$1 AND id=$2",
+                [workspace, t.id],
+              )
+            ).rows.map((r) => ({
+              signature: r.signature,
+              notifications: {
+                desktop:
+                  (r.notification_prefs as { desktop?: boolean })?.desktop ===
+                  true,
+                sound:
+                  (r.notification_prefs as { sound?: boolean })?.sound === true,
+              },
+            }))[0],
           };
         }),
       );

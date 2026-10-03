@@ -517,19 +517,22 @@ export function MacroManager({
   dir,
   onChanged,
   onClose,
+  embedded,
 }: {
   list: MacroList | null;
   dir: Directory;
   onChanged: () => void;
   onClose: () => void;
+  /** Inside the Settings › Macros page instead of a dialog (the page has the title). */
+  embedded?: boolean;
 }) {
   const [editing, setEditing] = useState<Macro | "new" | null>(null);
   const group = (shared: boolean) =>
     (list?.macros ?? []).filter((m) => m.shared === shared);
-  return (
-    <Dialog label="Macros" onClose={onClose} wide>
+  const content = (
+    <>
       <header className="pg-notifications-head">
-        <h2>Macros</h2>
+        {embedded ? <span /> : <h2>Macros</h2>}
         {!editing && (
           <button onClick={() => setEditing("new")}>New macro</button>
         )}
@@ -577,6 +580,13 @@ export function MacroManager({
           </section>
         ))
       )}
+    </>
+  );
+  return embedded ? (
+    <div className="pg-macros-embedded">{content}</div>
+  ) : (
+    <Dialog label="Macros" onClose={onClose} wide>
+      {content}
     </Dialog>
   );
 }

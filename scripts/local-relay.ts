@@ -87,6 +87,8 @@ export async function startLocalRelay(
     helpCenter?: boolean;
     /** Website sync, likewise. */
     knowledgeSync?: boolean;
+    /** The Settings area, likewise on locally unless turned off. */
+    settings?: boolean;
     /** The AI index (phase 07, C2a), likewise on locally unless turned off. */
     knowledgeIndex?: boolean;
     /** Its model and vector store; by default the test embedder and a local store. */
@@ -431,6 +433,11 @@ export async function startLocalRelay(
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_sync_v1'",
         [w, options.knowledgeSync !== false],
+      );
+      // The Settings area (S1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='settings_v1'",
+        [w, options.settings !== false],
       );
       // The AI index (phase 07, C2a).
       await sql.query(

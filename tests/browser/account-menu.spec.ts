@@ -5,7 +5,12 @@ import { tenant } from "../../server/db";
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
 test.use({ viewport: { width: 1440, height: 900 } });
 test.beforeAll(async () => {
-  relay = await startLocalRelay({ apiPort: 8958, hostPort: 8959 });
+  // "Your profile" as the read-only dialog (without Settings); settings.spec.ts covers Settings.
+  relay = await startLocalRelay({
+    apiPort: 8958,
+    hostPort: 8959,
+    settings: false,
+  });
 });
 test.afterAll(async () => {
   await relay?.close();

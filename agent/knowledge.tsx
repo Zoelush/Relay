@@ -119,12 +119,15 @@ const AREAS = [
 
 export function Knowledge({
   teammates,
+  initialTab = "content",
 }: {
   teammates: { id: string; name: string; deleted?: boolean }[];
+  /** The page to open on (Settings links straight to help centers, websites or the AI index). */
+  initialTab?: "content" | "help" | "websites" | "index";
 }) {
   const [records, setRecords] = useState<Summary[]>([]);
   const [tab, setTab] = useState<"content" | "help" | "websites" | "index">(
-    "content",
+    initialTab,
   );
   const menu = useSideMenu("knowledge");
   const [canManage, setCanManage] = useState(false);
