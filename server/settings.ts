@@ -26,7 +26,7 @@ export async function settingsEnabled(db: Sql, w: string) {
     ).rows.length > 0
   );
 }
-async function requireSettings(db: Sql, w: string) {
+export async function requireSettings(db: Sql, w: string) {
   assert(
     await settingsEnabled(db, w),
     "SETTINGS_DISABLED",
@@ -91,6 +91,10 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if (manage && (await flag(db, w, "routing_v1"))) pages.push("teams");
   if (manage && (await flag(db, w, "sla_v1")))
     pages.push("office-hours", "slas");
+  // Helpdesk data (S2b): tags and conversation attributes; ticket types with tickets.
+  if (manage) pages.push("tags", "attributes");
+  if ((await flag(db, w, "tickets_v1")) && (await has("tickets.manage")))
+    pages.push("ticket-types");
   if (await has("macros.use")) pages.push("macros");
   if (await flag(db, w, "agent_inbox_views_v1")) pages.push("views");
   if (manageKnowledge) {

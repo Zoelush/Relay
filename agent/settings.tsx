@@ -15,6 +15,9 @@ import {
   Users,
   Clock,
   Timer,
+  Tag,
+  SlidersHorizontal,
+  Ticket,
   type LucideIcon,
 } from "lucide-react";
 import { api } from "./api";
@@ -32,6 +35,7 @@ import {
 } from "./settings-ui";
 import { MacroManager, type MacroList } from "./macros";
 import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
+import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import type { Directory } from "./timeline";
 import type { ThemeChoice } from "./theme";
 import {
@@ -101,6 +105,28 @@ const PAGES: Page[] = [
     label: "SLAs",
     description: "Response and resolution targets, and when they apply.",
     icon: Timer,
+    group: "Helpdesk",
+  },
+  {
+    id: "tags",
+    label: "Tags",
+    description: "Tags for grouping conversations: add, rename and archive.",
+    icon: Tag,
+    group: "Helpdesk",
+  },
+  {
+    id: "attributes",
+    label: "Attributes",
+    description:
+      "Details teammates fill in on conversations, such as an order number.",
+    icon: SlidersHorizontal,
+    group: "Helpdesk",
+  },
+  {
+    id: "ticket-types",
+    label: "Ticket types",
+    description: "Each type's states, the moves between them, and its fields.",
+    icon: Ticket,
     group: "Helpdesk",
   },
   {
@@ -187,6 +213,7 @@ export function Settings({
   macros,
   onLink,
   onProfile,
+  onDirectory,
 }: {
   page: string;
   onPage: (page: string) => void;
@@ -197,6 +224,8 @@ export function Settings({
   onLink: (target: Link) => void;
   /** Your profile changed: the app updates your name, signature and alerts. */
   onProfile: (profile: Profile) => void;
+  /** Teams or tags changed: the app reloads its directory of names. */
+  onDirectory?: () => void;
 }) {
   const menu = useSideMenu("settings");
   const [allowed, setAllowed] = useState<string[] | null>(null);
@@ -282,11 +311,17 @@ export function Settings({
           ) : current.id === "general" ? (
             <GeneralPage menu={menu} page={current} />
           ) : current.id === "teams" ? (
-            <TeamsPage menu={menu} page={current} />
+            <TeamsPage menu={menu} page={current} onChanged={onDirectory} />
           ) : current.id === "office-hours" ? (
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "tags" ? (
+            <TagsPage menu={menu} page={current} onChanged={onDirectory} />
+          ) : current.id === "attributes" ? (
+            <AttributesPage menu={menu} page={current} />
+          ) : current.id === "ticket-types" ? (
+            <TicketTypesPage menu={menu} page={current} />
           ) : current.id === "macros" ? (
             <Frame menu={menu} page={current}>
               <MacroManager

@@ -37,4 +37,4 @@ S2 was split on 3 October 2026 ("Yes, go ahead with all three"):
 - **Tags** are archived, never hard-deleted.
 - **An attribute's type** is fixed once created.
 
-Handoffs: `docs/SETTINGS_STEP1.md` (S1), `docs/SETTINGS_STEP2.md` (S2a).
+Handoffs: `docs/SETTINGS_STEP1.md` (S1), `docs/SETTINGS_STEP2.md` (S2a), `docs/SETTINGS_STEP3.md` (S2b).

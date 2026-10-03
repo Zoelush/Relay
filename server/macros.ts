@@ -103,12 +103,12 @@ export function validateActions(input: unknown): MacroAction[] {
 
 /** Checks every teammate, team, tag and attribute an action names exists in this workspace. */
 export async function checkTargets(db: Sql, w: string, actions: MacroAction[]) {
-  const exists = async (table: string, id: string) =>
+  const exists = async (table: string, id: string, where = "") =>
     (
-      await db.query(`SELECT 1 FROM ${table} WHERE workspace_id=$1 AND id=$2`, [
-        w,
-        id,
-      ])
+      await db.query(
+        `SELECT 1 FROM ${table} WHERE workspace_id=$1 AND id=$2${where}`,
+        [w, id],
+      )
     ).rows.length > 0;
   for (const a of actions) {
     const missing =
@@ -116,10 +116,16 @@ export async function checkTargets(db: Sql, w: string, actions: MacroAction[]) {
         a.teammateId &&
         !(await exists("teammates", a.teammateId))) ||
       (a.type === "assign" && a.teamId && !(await exists("teams", a.teamId))) ||
-      ((a.type === "tag_add" || a.type === "tag_remove") &&
-        !(await exists("tags", a.tagId))) ||
+      // An archived tag can still be removed, but not added.
+      (a.type === "tag_add" &&
+        !(await exists("tags", a.tagId, " AND archived_at IS NULL"))) ||
+      (a.type === "tag_remove" && !(await exists("tags", a.tagId))) ||
       (a.type === "attribute_set" &&
-        !(await exists("attribute_definitions", a.attributeId))) ||
+        !(await exists(
+          "attribute_definitions",
+          a.attributeId,
+          " AND archived_at IS NULL",
+        ))) ||
       (a.type === "ticket_link" &&
         !(
           await db.query(

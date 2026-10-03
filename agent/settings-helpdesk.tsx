@@ -47,7 +47,16 @@ const fromLimit = (n: number | null) => (n === null ? "" : String(n));
 /* ------------------------------------------------------------------------------------------ */
 /* Teams & assignment                                                                           */
 
-export function TeamsPage({ menu, page }: { menu: MenuState; page: Page }) {
+export function TeamsPage({
+  menu,
+  page,
+  onChanged,
+}: {
+  menu: MenuState;
+  page: Page;
+  /** A team was saved: the app refreshes its directory, so assignment pickers follow. */
+  onChanged?: () => void;
+}) {
   const [teams, setTeams] = useState<Team[] | null>(null);
   const [teammates, setTeammates] = useState<TeammateLimits[]>([]);
   const [editing, setEditing] = useState<Team | "new" | null>(null);
@@ -119,6 +128,7 @@ export function TeamsPage({ menu, page }: { menu: MenuState; page: Page }) {
           team={editing === "new" ? null : editing}
           teammates={teammates}
           onSaved={(name, assigned) => {
+            onChanged?.();
             setEditing(null);
             setNotice(
               `Saved ${name}.` +

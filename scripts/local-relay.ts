@@ -262,6 +262,11 @@ export async function startLocalRelay(
         "INSERT INTO tags(workspace_id,id,name) VALUES($1,'vip','VIP'),($1,'refund','Refund') ON CONFLICT DO NOTHING",
         [w],
       );
+      // An archived tag (Settings S2b): kept for history, left out of pickers.
+      await sql.query(
+        "INSERT INTO tags(workspace_id,id,name,archived_at) VALUES($1,'legacy','Legacy',now()) ON CONFLICT DO NOTHING",
+        [w],
+      );
       // Two sample customer ticket types, with their own fields (kept out of the general
       // attributes above, which stay usable on any conversation).
       await sql.query(

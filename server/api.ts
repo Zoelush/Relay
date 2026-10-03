@@ -79,6 +79,12 @@ import {
   settingsOverview,
 } from "./settings";
 import {
+  listAttributes,
+  listTags,
+  saveAttribute,
+  saveTag,
+} from "./workspace-data";
+import {
   indexStatus,
   rebuildIndex,
   tryRetrieval,
@@ -1068,6 +1074,8 @@ export async function handleApi(
             "/v1/agent/knowledge-index",
             "/v1/agent/knowledge-retrieve",
             "/v1/agent/settings",
+            "/v1/agent/tags",
+            "/v1/agent/attributes",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1094,6 +1102,8 @@ export async function handleApi(
               "/v1/agent/knowledge-sources",
               "/v1/agent/knowledge-index",
               "/v1/agent/settings",
+              "/v1/agent/tags",
+              "/v1/agent/attributes",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1418,9 +1428,38 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/ticket-types")
           return json(
             await tenant(env.connect, workspace, (db) =>
-              saveTicketType(db, workspace, principal, p),
+              once(
+                db,
+                workspace,
+                "ticket-types:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () => saveTicketType(db, workspace, principal, p),
+              ),
             ),
           );
+        if (
+          url.pathname === "/v1/agent/tags" ||
+          url.pathname === "/v1/agent/attributes"
+        ) {
+          // Settings (S2b): tags and conversation attributes, archived and never deleted.
+          const tags = url.pathname === "/v1/agent/tags";
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              once(
+                db,
+                workspace,
+                (tags ? "tags:" : "attributes:") + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () =>
+                  tags
+                    ? saveTag(db, workspace, principal, p)
+                    : saveAttribute(db, workspace, principal, p),
+              ),
+            ),
+          );
+        }
         if (url.pathname === "/v1/agent/bulk") {
           const key = req.headers.get("idempotency-key") ?? "";
           const result = await tenant(
@@ -1692,6 +1731,18 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listTicketTypes(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/tags")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listTags(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/attributes")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listAttributes(db, workspace, principal),
           ),
         );
       if (url.pathname === "/v1/agent/calendars")
@@ -1991,13 +2042,20 @@ export async function handleApi(
             )
           ).rows;
           // Workspace directory for names in the timeline and targets in the command palette.
-          const directory = async (table: "teammates" | "teams" | "tags") =>
+          const directory = async (table: "teammates" | "teams") =>
             (
               await db.query<{ id: string; name: string }>(
                 `SELECT id,name FROM ${table} WHERE workspace_id=$1 ORDER BY name,id LIMIT 500`,
                 [workspace],
               )
             ).rows;
+          // Archived tags keep their names in history; pickers leave them out.
+          const tags = (
+            await db.query<{ id: string; name: string; archived: boolean }>(
+              "SELECT id,name,archived_at IS NOT NULL AS archived FROM tags WHERE workspace_id=$1 ORDER BY name,id LIMIT 500",
+              [workspace],
+            )
+          ).rows.map((t) => (t.archived ? t : { id: t.id, name: t.name }));
           // The account menu: the teammate's role and the workspace's name.
           const account = (
             await db.query<{ role: string; workspace_name: string }>(
@@ -2021,7 +2079,7 @@ export async function handleApi(
             },
             teammates: await directory("teammates"),
             teams: await directory("teams"),
-            tags: await directory("tags"),
+            tags,
             storage: {
               engine: "postgresql",
               transport: env.storageTransport ?? "hyperdrive",

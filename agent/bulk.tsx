@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { activeTags, tagLabel } from "./timeline";
 
 type Named = { id: string; name: string };
 export type Directory = {
   teammates: Named[];
   teams: Named[];
-  tags: Named[];
+  tags: (Named & { archived?: boolean })[];
   ticketStates?: Named[];
   trackers?: Named[];
 };
@@ -294,12 +295,12 @@ export function BulkBar({
           )}
           {select(
             "Add tag",
-            dir.tags.map((t) => [t.id, t.name]),
+            activeTags(dir).map((t) => [t.id, t.name]),
             (v) => ({ type: "tag_add", tagId: v }),
           )}
           {select(
             "Remove tag",
-            dir.tags.map((t) => [t.id, t.name]),
+            dir.tags.map((t) => [t.id, tagLabel(t)]),
             (v) => ({ type: "tag_remove", tagId: v }),
           )}
           {select(

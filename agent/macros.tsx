@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, InboxError } from "./api";
 import { VARIABLE_LABELS } from "./variables";
 import type { ComposerHandle } from "./composer";
-import type { Directory } from "./timeline";
+import { activeTags, tagLabel, type Directory } from "./timeline";
 import { MACRO_VARIABLES, type RichDoc } from "../lib/rich-doc";
 
 const Composer = lazy(() =>
@@ -195,7 +195,7 @@ const blankAction = (
       return { type, teammateId: dir.teammates[0]?.id };
     case "tag_add":
     case "tag_remove":
-      return { type, tagId: dir.tags[0]?.id ?? "" };
+      return { type, tagId: activeTags(dir)[0]?.id ?? "" };
     case "priority":
       return { type, value: true };
     case "snooze":
@@ -274,11 +274,19 @@ function ActionRow({
           value={action.tagId}
           onChange={(e) => onChange({ ...action, tagId: e.target.value })}
         >
-          {dir.tags.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
+          {/* Adding offers active tags; removing (or a tag already chosen) any tag. */}
+          {dir.tags
+            .filter(
+              (t) =>
+                !t.archived ||
+                action.type === "tag_remove" ||
+                t.id === action.tagId,
+            )
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {tagLabel(t)}
+              </option>
+            ))}
         </select>
       )}
       {action.type === "priority" && (
