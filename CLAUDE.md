@@ -13,8 +13,10 @@ phase before starting work. Phase 04 has its own detailed plan in
 additions are marked inside each phase of `docs/BUILD_PHASES.md`.
 
 Current position: the messenger settings plan (`docs/MESSENGER_SETTINGS_PLAN.md`, asked for
-before phase 08 A2) is done locally to M4 (`docs/MESSENGER_SETTINGS_STEP1.md` to `STEP4.md`); next is
-M5 (logo uploads), then phase 08 A2. The messenger has no colour of its own: its surfaces are neutral,
+before phase 08 A2) is complete locally (`docs/MESSENGER_SETTINGS_STEP1.md` to `STEP5.md`); next is
+phase 08 A2. Uploaded messenger images live in `brand_assets` (`server/brand-assets.ts`); the config
+refers to one as `asset:<id>`, the boot turns it into Relay's address, and customers are served only
+images their brand's live messenger uses. The messenger has no colour of its own: its surfaces are neutral,
 and every colour comes from `palette()` in `lib/brand-colours.ts` (text on the brand colour, and the
 brand colour as links, kept at 4.5:1); `tests/messenger-colours.test.ts` fails on a fixed colour on a
 brand fill. Settings › Messenger follows Intercom's layout (tabs, one-at-a-time sections); browser

@@ -121,7 +121,7 @@ export async function uploadKnowledgeFile(
   return { fileId: prepared.fileId, recordId: prepared.recordId };
 }
 /** Polls the job until it finishes (up to about five minutes for a long document). */
-async function waitForJob(jobId: string) {
+export async function waitForJob(jobId: string) {
   for (let i = 0; i < 200; i++) {
     const job = await api<{
       state: string;

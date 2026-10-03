@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased: Messenger settings (M5: logo uploads)
+
+- **Uploads:** the Home screen logo, the launcher logo and Home's background image are uploaded in Settings › Messenger (PNG, JPG or GIF up to 1 MB), with Upload, Change, Remove and a preview.
+- **Checks:**
+  - SVG is refused
+  - each file's real type is checked and it is virus-scanned before use
+  - the reason is shown when an image is refused
+- **Who sees them:** customers see an image only once it is set live, served by Relay. The preview shows drafts at once.
+- **Kept and tidied:** images set as addresses keep working until replaced. Earlier versions keep their images, and unused uploads are tidied after a day.
+- **Content security policy:** the install guide and the launcher logo say which policy entries a site needs for Relay.
+- **Migration** 0043 with rollback. **Tests:**
+  - unit: `tests/brand-assets.test.ts`
+  - browser: `tests/browser/messenger-assets.spec.ts`
+
+  Details: `docs/MESSENGER_SETTINGS_STEP5.md`.
+
 ## Unreleased: Messenger settings (M4: Intercom's layout and the brand's colours)
 
 - **Settings › Messenger laid out as Intercom's:**

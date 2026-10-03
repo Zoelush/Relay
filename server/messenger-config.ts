@@ -1,6 +1,7 @@
 import { INTERFACE_LANGUAGES } from "../lib/messenger-languages";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize } from "./policy";
+import { checkAssets, isAssetRef } from "./brand-assets";
 import { requireSettings, validLanguage } from "./settings";
 import {
   messengerOf,
@@ -122,7 +123,7 @@ export type Look = {
     text: "light" | "dark";
     fade: boolean;
   };
-  /** An image in the launcher instead of the ✦ (https). */
+  /** An image in the launcher instead of the ✦: uploaded ("asset:<id>", M5) or https. */
   launcherLogo: string;
   /** The launcher's distance from the side and bottom on computers and tablets, in pixels. */
   launcherSpacing: { side: number; bottom: number };
@@ -328,12 +329,12 @@ function validLook(input: unknown): Look {
   if (background === "gradient" && colors.length < 2)
     invalid("A gradient needs two or three colours.");
   const image = str(h.image, 500, "the background image address");
-  if (background === "image" && !https(image))
+  if (background === "image" && !https(image) && !isAssetRef(image))
     invalid("The background image needs an https:// address.");
   if (h.text !== "light" && h.text !== "dark")
     invalid("Choose light or dark text for Home's background.");
   const launcherLogo = str(l.launcherLogo, 500, "the launcher logo address");
-  if (launcherLogo && !https(launcherLogo))
+  if (launcherLogo && !https(launcherLogo) && !isAssetRef(launcherLogo))
     invalid("The launcher logo needs an https:// image address.");
   const spacing = (l.launcherSpacing ?? {}) as Record<string, unknown>;
   const px = (v: unknown, what: string) => {
@@ -473,7 +474,12 @@ export async function messengerV3(db: Sql, w: string) {
     ).rows.length > 0
   );
 }
-async function manage(db: Sql, w: string, principal: string, brandId: unknown) {
+export async function manage(
+  db: Sql,
+  w: string,
+  principal: string,
+  brandId: unknown,
+) {
   const t = await authorize(db, w, principal, "workspace.manage");
   await requireSettings(db, w);
   assert(
@@ -634,11 +640,14 @@ export async function changeMessenger(
     );
   if (p.action === "save") {
     fresh();
-    await setDraft(validConfig(p.config));
+    const config = validConfig(p.config);
+    await checkAssets(db, w, brand.id, config);
+    await setDraft(config);
   } else if (p.action === "publish") {
     fresh();
     // Re-checked: a draft saved before a rule changed must still be valid to go live.
     const config = validConfig(draft.config);
+    await checkAssets(db, w, brand.id, config);
     const version = ((await latest(db, w, brand.id))?.version ?? 0) + 1;
     await db.query(
       "INSERT INTO messenger_versions(workspace_id,brand_id,version,config,published_by) VALUES($1,$2,$3,$4,$5)",

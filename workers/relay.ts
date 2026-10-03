@@ -4,6 +4,7 @@ import {
   scheduleInboxProjection,
 } from "../server/inbox-views";
 import { processKnowledgeFile } from "../server/knowledge-files";
+import { processBrandAsset } from "../server/brand-assets";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
   runIndex,
@@ -428,6 +429,8 @@ const relayWorker = {
     if (runtime.attachments)
       handlers["knowledge.file.process"] = (job) =>
         processKnowledgeFile(runtime.connect, runtime.attachments!, job);
+      handlers["messenger.asset.process"] = (job) =>
+        processBrandAsset(runtime.connect, runtime.attachments!, job);
     // Website sync (phase 07, C1b). TODO(phase 17): a Browser Rendering renderer for JavaScript sites.
     handlers["knowledge.sync.run"] = (job) => runSync(runtime.connect, {}, job);
     // The AI index (phase 07, C2a), when its bindings exist.

@@ -43,6 +43,7 @@ import { drainAll } from "../server/routing";
 import { saveTicketType } from "../server/tickets";
 import { CoalescedPublisher } from "../server/publication";
 import { processKnowledgeFile } from "../server/knowledge-files";
+import { processBrandAsset } from "../server/brand-assets";
 import {
   runIndex,
   scheduleIndex,
@@ -622,6 +623,8 @@ export async function startLocalRelay(
   if (env.attachments)
     handlers["knowledge.file.process"] = (job) =>
       processKnowledgeFile(db.connect, env.attachments!, job);
+    handlers["messenger.asset.process"] = (job) =>
+      processBrandAsset(db.connect, env.attachments!, job);
   handlers["knowledge.sync.run"] = (job) =>
     runSync(db.connect, env.sync ?? {}, job);
   handlers["knowledge.index"] = (job) =>
@@ -991,13 +994,15 @@ export async function startLocalRelay(
         { headers: { "content-type": "text/css" } },
       );
     const baseline = url.searchParams.has("baseline");
+    // The test site allows images from Relay, as the install guide asks for an uploaded launcher
+    // logo (messenger M5).
     const body = `<article><p>Relay / integration test</p><h1>A deliberately unfriendly host page</h1><p>This page applies aggressive styles to every element, button and iframe. Relay's controls stay inside their own document and shadow root.</p><button id="open-support">Open support</button><button id="notifications">Enable reply notifications</button><p><a href="/agent">Open the local agent inbox</a></p><p id="anchor">This paragraph must not move when the messenger boots or opens.</p></article>${baseline ? "" : `<script src="/demo/boot.js${url.searchParams.get("user") ? "?user=" + encodeURIComponent(url.searchParams.get("user")!) : ""}" defer></script><script src="${apiOrigin}/messenger/loader.js" async></script>`}`;
     return new Response(
       `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relay hostile host</title><link rel="stylesheet" href="/demo/hostile.css"></head><body>${body}</body></html>`,
       {
         headers: {
           "content-type": "text/html",
-          "content-security-policy": `default-src 'none'; script-src 'self' ${apiOrigin}; style-src 'self' ${apiOrigin}; frame-src ${apiOrigin}; connect-src 'self' ${apiOrigin} ${apiOrigin.replace("http", "ws")}; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`,
+          "content-security-policy": `default-src 'none'; script-src 'self' ${apiOrigin}; style-src 'self' ${apiOrigin}; frame-src ${apiOrigin}; connect-src 'self' ${apiOrigin} ${apiOrigin.replace("http", "ws")}; img-src 'self' ${apiOrigin}; object-src 'none'; base-uri 'none'; form-action 'none'`,
         },
       },
     );

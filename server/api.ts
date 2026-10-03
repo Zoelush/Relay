@@ -135,8 +135,10 @@ export async function bootBrand(
   db: Sql,
   w: string,
   b: { id: string; name: string; settings: Record<string, unknown> },
+  /** Where uploaded images are served from (messenger M5): this API's origin. */
+  apiOrigin = "",
 ) {
-  const { messenger3, ...settings } = b.settings;
+  const { messenger3, ...settings } = resolveAssets(b.settings, apiOrigin, w);
   if (!messenger3 || !(await messengerV3(db, w)))
     return { id: b.id, name: b.name, ...settings };
   const m3 = messenger3 as { look?: { showTeammates?: boolean } };
@@ -161,6 +163,14 @@ export async function bootBrand(
   return { id: b.id, name: b.name, ...settings, messenger3: { ...m3, team } };
 }
 import { changeHealth, knowledgeHealth } from "./knowledge-health";
+import {
+  completeBrandAsset,
+  deleteAssetObjects,
+  liveAsset,
+  prepareBrandAsset,
+  resolveAssets,
+  teammateAsset,
+} from "./brand-assets";
 import { aiAnswers, type AiEnvironment } from "./ai-agent";
 import {
   indexStatus,
@@ -1086,7 +1096,7 @@ export async function handleApi(
                     locale,
                   },
                   expires,
-                  brand: await bootBrand(db, p.workspaceId, b),
+                  brand: await bootBrand(db, p.workspaceId, b, url.origin),
                   // A verified customer's first name, for the welcome greeting (messenger M1).
                   ...(verified &&
                   typeof p.user?.name === "string" &&
@@ -1201,6 +1211,7 @@ export async function handleApi(
             "/v1/agent/roles",
             "/v1/agent/brands",
             "/v1/agent/messenger",
+            "/v1/agent/messenger-asset",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1234,6 +1245,7 @@ export async function handleApi(
               "/v1/agent/roles",
               "/v1/agent/brands",
               "/v1/agent/messenger",
+              "/v1/agent/messenger-assets",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1524,6 +1536,42 @@ export async function handleApi(
               ),
             ),
           );
+        if (url.pathname === "/v1/agent/messenger-assets") {
+          // Messenger M5: uploading the Home logo, launcher logo and Home background.
+          assert(
+            env.attachments,
+            "ATTACHMENTS_UNAVAILABLE",
+            "Image uploads are unavailable.",
+            503,
+          );
+          const storage = env.attachments;
+          const result = await tenant(env.connect, workspace, (db) =>
+            once(
+              db,
+              workspace,
+              "messenger-assets:" + principal,
+              req.headers.get("idempotency-key") ?? "",
+              p,
+              (): Promise<Record<string, unknown>> =>
+                p.op === "prepare"
+                  ? prepareBrandAsset(db, workspace, principal, storage, p)
+                  : p.op === "complete"
+                    ? completeBrandAsset(db, workspace, principal, p)
+                    : Promise.reject(
+                        new DomainError(
+                          "INVALID_ASSET",
+                          "Choose prepare or complete.",
+                          400,
+                        ),
+                      ),
+            ),
+          );
+          // Tidied uploads' objects go only after their rows' removal committed; keys stay here.
+          const { removedKeys, ...reply } = result;
+          await deleteAssetObjects(storage, removedKeys);
+          if ("jobId" in reply) await env.dispatchJobs?.(workspace);
+          return json(reply, "jobId" in reply ? 202 : 200);
+        }
         if (url.pathname === "/v1/agent/messenger")
           // Messenger settings (M1): the draft, publishing and earlier versions.
           return json(
@@ -1871,6 +1919,22 @@ export async function handleApi(
         "Request signature does not match.",
         401,
       );
+      if (url.pathname === "/v1/agent/messenger-asset") {
+        // Messenger M5: an uploaded image for Settings' preview, drafts included.
+        assert(
+          env.attachments?.readClean,
+          "ATTACHMENTS_UNAVAILABLE",
+          "Images are unavailable.",
+          503,
+        );
+        const file = await tenant(env.connect, workspace, (db) =>
+          teammateAsset(db, workspace, principal, url.searchParams.get("id") ?? ""),
+        );
+        return fileResponse(env.attachments, file, {
+          download: false,
+          cache: "private, max-age=300",
+        });
+      }
       if (url.pathname === "/v1/agent/knowledge-file") {
         assert(
           env.attachments?.readClean,
@@ -2464,6 +2528,22 @@ export async function handleApi(
         "conversationId" in result ? String(result.conversationId) : "",
       );
       return json(result);
+    }
+    if (url.pathname === "/v1/messenger/brand-asset" && req.method === "GET") {
+      // Messenger M5: an uploaded image, only while its brand's published messenger uses it. The
+      // launcher shows it on the customer's own site, so it is public like the logo it replaces.
+      const w = url.searchParams.get("w") ?? "",
+        id = url.searchParams.get("id") ?? "";
+      if (!w || !/^[0-9a-f-]{36}$/.test(id) || !env.attachments?.readClean)
+        return new Response("Not found", { status: 404 });
+      const file = await tenant(env.connect, w, (db) => liveAsset(db, w, id));
+      if (!file) return new Response("Not found", { status: 404 });
+      const response = await fileResponse(env.attachments, file, {
+        download: false,
+        cache: "public, max-age=3600",
+      });
+      response.headers.set("cross-origin-resource-policy", "cross-origin");
+      return response;
     }
     if (url.pathname === "/v1/messenger/help/file" && req.method === "GET") {
       // An image in a help article. An <img> cannot send the session token, so the article

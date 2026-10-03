@@ -22,6 +22,7 @@ import {
 } from "./messenger-install";
 import { INTERFACE_LANGUAGES as INTERFACE } from "../lib/messenger-languages";
 import { HEX, onColour, palette, type Palette } from "../lib/brand-colours";
+import { ImageField, imageSource } from "./messenger-assets";
 import type {
   AudienceConfig,
   HomeCard,
@@ -1056,36 +1057,22 @@ export function MessengerDrafts({
             </>
           )}
         </div>
-        <Field
+        <ImageField
           label="Home screen logo"
-          hint="An https:// image address, shown at the top of the messenger."
-        >
-          {(id, hint) => (
-            <input
-              id={id}
-              aria-describedby={hint}
-              maxLength={500}
-              value={form.logo}
-              placeholder="https://example.com/logo.png"
-              onChange={(e) => set("logo", e.target.value)}
-            />
-          )}
-        </Field>
-        <Field
+          hint="Shown at the top of the messenger. PNG, JPG or GIF up to 1 MB; a square image works best."
+          brandId={brand.id}
+          purpose="home_logo"
+          value={form.logo}
+          onChange={(v) => set("logo", v)}
+        />
+        <ImageField
           label="Launcher logo"
-          hint="An https:// image shown in the launcher instead of ✦; 72 × 72 pixels with a transparent background works best. Your site's content policy must allow its address."
-        >
-          {(id, hint) => (
-            <input
-              id={id}
-              aria-describedby={hint}
-              maxLength={500}
-              placeholder="https://example.com/launcher.png"
-              value={form.look.launcherLogo}
-              onChange={(e) => setLook({ launcherLogo: e.target.value })}
-            />
-          )}
-        </Field>
+          hint={`Shown in the launcher instead of ✦; 72 × 72 pixels with a transparent background works best. If your site sets a content security policy, add ${data.apiOrigin} to its img-src.`}
+          brandId={brand.id}
+          purpose="launcher_logo"
+          value={form.look.launcherLogo}
+          onChange={(v) => setLook({ launcherLogo: v })}
+        />
         <Field label="Home background">
           {(id) => (
             <select
@@ -1167,21 +1154,14 @@ export function MessengerDrafts({
           </div>
         )}
         {form.look.header.background === "image" && (
-          <Field
+          <ImageField
             label="Background image"
-            hint="An https:// image address. It covers the welcome."
-          >
-            {(id, hint) => (
-              <input
-                id={id}
-                aria-describedby={hint}
-                maxLength={500}
-                placeholder="https://example.com/background.jpg"
-                value={form.look.header.image}
-                onChange={(e) => setHeader({ image: e.target.value })}
-              />
-            )}
-          </Field>
+            hint="It covers the welcome. PNG, JPG or GIF up to 1 MB."
+            brandId={brand.id}
+            purpose="home_background"
+            value={form.look.header.image}
+            onChange={(v) => setHeader({ image: v })}
+          />
         )}
         {form.look.header.background !== "none" && (
           <>
@@ -2032,7 +2012,15 @@ function Preview({
   }, [channel]);
   useEffect(() => {
     if (!ready) return;
-    const { audiences, home, welcome, notice, look, general, ...base } = config;
+    const { audiences, home, welcome, notice, general, ...rest } = config;
+    // Uploaded images come through the agent app, drafts included (messenger M5).
+    const image = (v: string) => imageSource(v, location.origin);
+    const { look: draftLook, ...base } = { ...rest, logo: image(config.logo) };
+    const look = {
+      ...draftLook,
+      launcherLogo: image(draftLook.launcherLogo),
+      header: { ...draftLook.header, image: image(draftLook.header.image) },
+    };
     frame.current?.contentWindow?.postMessage(
       {
         relay: channel,
@@ -2171,8 +2159,8 @@ function Preview({
               Math.min(spacing.side, 120) / 2 + 6,
           }}
         >
-          {/^https:\/\//.test(config.look.launcherLogo) ? (
-            <img src={config.look.launcherLogo} alt="" />
+          {imageSource(config.look.launcherLogo) ? (
+            <img src={imageSource(config.look.launcherLogo)} alt="" />
           ) : (
             "✦"
           )}

@@ -358,6 +358,13 @@ export function InstallCard({
         label="Install snippet"
         code={installCode(framework, signedIn, { api, workspaceId, brandId })}
       />
+      <p className="pg-muted pg-settings-small" data-testid="install-csp">
+        If your site sets a content security policy, allow Relay in it:{" "}
+        <code>script-src</code>, <code>style-src</code>, <code>frame-src</code>,{" "}
+        <code>connect-src</code> (with its <code>wss://</code> address too)
+        and, for an uploaded launcher logo, <code>img-src</code> need{" "}
+        <code>{api}</code>.
+      </p>
     </Card>
   );
 }

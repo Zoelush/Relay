@@ -1,4 +1,5 @@
 import { DEFAULT_COLOR } from "../lib/brand-colours";
+import { isAssetRef } from "./brand-assets";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize } from "./policy";
 import { requireSettings, validLanguage } from "./settings";
@@ -115,7 +116,8 @@ export function websiteOrigin(value: unknown) {
 /** Checks and normalises a brand's messenger fields (Settings S3b; drafts in M1 use it too). */
 export function validMessenger(m: Record<string, unknown>): Messenger {
   const logo = text(m.logo, 500, "the logo address");
-  if (logo) {
+  // Messenger M5: an uploaded image ("asset:<id>"), checked against the brand's uploads on save.
+  if (logo && !isAssetRef(logo)) {
     let ok = false;
     try {
       ok = new URL(logo).protocol === "https:";
