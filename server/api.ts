@@ -73,6 +73,12 @@ import {
 } from "./routing";
 import { changeKnowledge, listKnowledge, readKnowledge } from "./knowledge";
 import {
+  indexStatus,
+  rebuildIndex,
+  tryRetrieval,
+  type IndexEnvironment,
+} from "./knowledge-index";
+import {
   changeSource,
   listSources,
   readSource,
@@ -145,6 +151,8 @@ export interface ApiEnvironment {
   dispatchJobs?: (workspace: string) => Promise<void>;
   /** Website sync (phase 07 C1b): fetch policy and page renderer. */
   sync?: SyncEnvironment;
+  /** The AI index (phase 07 C2a): embedding models and the vector store. */
+  knowledgeIndex?: IndexEnvironment;
 }
 export type Session = {
   workspace: string;
@@ -1051,6 +1059,8 @@ export async function handleApi(
             "/v1/agent/knowledge-file",
             "/v1/agent/knowledge-sources",
             "/v1/agent/knowledge-source",
+            "/v1/agent/knowledge-index",
+            "/v1/agent/knowledge-retrieve",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1075,6 +1085,7 @@ export async function handleApi(
               "/v1/agent/knowledge",
               "/v1/agent/knowledge-files",
               "/v1/agent/knowledge-sources",
+              "/v1/agent/knowledge-index",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1210,6 +1221,26 @@ export async function handleApi(
               ),
             ),
           );
+        if (url.pathname === "/v1/agent/knowledge-index") {
+          // Phase 07 C2a: re-embed everything beside the active index version.
+          assert(
+            p.action === "rebuild",
+            "INVALID_ACTION",
+            "Choose an index action.",
+          );
+          const result = await tenant(env.connect, workspace, (db) =>
+            once(
+              db,
+              workspace,
+              "knowledge-index:" + principal,
+              req.headers.get("idempotency-key") ?? "",
+              p,
+              () => rebuildIndex(db, workspace, principal, env.knowledgeIndex),
+            ),
+          );
+          await env.dispatchJobs?.(workspace);
+          return json(result, 202);
+        }
         if (url.pathname === "/v1/agent/knowledge-sources") {
           // Phase 07 C1b: websites synced into knowledge.
           const result = await tenant(env.connect, workspace, (db) =>
@@ -1674,6 +1705,23 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listSources(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/knowledge-index")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            indexStatus(db, workspace, principal, env.knowledgeIndex),
+          ),
+        );
+      if (url.pathname === "/v1/agent/knowledge-retrieve")
+        return json(
+          await tryRetrieval(
+            env.connect,
+            env.knowledgeIndex,
+            workspace,
+            principal,
+            url.searchParams.get("q") ?? "",
+            url.searchParams.get("purpose") ?? "ai",
           ),
         );
       if (url.pathname === "/v1/agent/knowledge-source")

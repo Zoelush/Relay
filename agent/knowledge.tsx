@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Globe, LifeBuoy } from "lucide-react";
+import { FileText, Globe, LifeBuoy, Sparkles } from "lucide-react";
 import { api, InboxError } from "./api";
 import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
 import { ArticleEditor } from "./article-editor";
 import { HelpCenters } from "./help-centers";
 import { PagePanel, Websites } from "./knowledge-sources";
+import { AiIndex } from "./knowledge-index";
 import {
   DOCUMENT_ACCEPT,
   FileButton,
@@ -113,6 +114,7 @@ const AREAS = [
   ["content", "Content", FileText],
   ["help", "Help centers", LifeBuoy],
   ["websites", "Websites", Globe],
+  ["index", "AI index", Sparkles],
 ] as const;
 
 export function Knowledge({
@@ -121,10 +123,13 @@ export function Knowledge({
   teammates: { id: string; name: string; deleted?: boolean }[];
 }) {
   const [records, setRecords] = useState<Summary[]>([]);
-  const [tab, setTab] = useState<"content" | "help" | "websites">("content");
+  const [tab, setTab] = useState<"content" | "help" | "websites" | "index">(
+    "content",
+  );
   const menu = useSideMenu("knowledge");
   const [canManage, setCanManage] = useState(false);
   const [syncOn, setSyncOn] = useState(false);
+  const [indexOn, setIndexOn] = useState(false);
   const [source, setSource] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -140,14 +145,18 @@ export function Knowledge({
     if (source) q.set("source", source);
     if (query.trim()) q.set("q", query.trim());
     const timer = setTimeout(() => {
-      api<{ records: Summary[]; canManage: boolean; sync: boolean }>(
-        "knowledge?" + q,
-      )
+      api<{
+        records: Summary[];
+        canManage: boolean;
+        sync: boolean;
+        index: boolean;
+      }>("knowledge?" + q)
         .then((d) => {
           if (!live) return;
           setRecords(d.records);
           setCanManage(d.canManage);
           setSyncOn(d.sync);
+          setIndexOn(d.index);
           setError("");
         })
         .catch(
@@ -205,7 +214,11 @@ export function Knowledge({
             <ul className="pg-menu-entries">
               {AREAS.filter(
                 ([id]) =>
-                  id === "content" || (canManage && (id === "help" || syncOn)),
+                  id === "content" ||
+                  (canManage &&
+                    (id === "help" ||
+                      (id === "websites" && syncOn) ||
+                      (id === "index" && indexOn))),
               ).map(([id, label, Icon]) => (
                 <li key={id}>
                   <button
@@ -270,6 +283,13 @@ export function Knowledge({
             <HelpCenters />
           ) : tab === "websites" && syncOn ? (
             <Websites />
+          ) : tab === "index" && indexOn ? (
+            <AiIndex
+              onOpen={(id) => {
+                setTab("content");
+                setSelected(id);
+              }}
+            />
           ) : (
             <div className="pg-columns">
               <section className="pg-list" aria-label="Knowledge records">

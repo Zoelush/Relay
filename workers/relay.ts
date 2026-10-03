@@ -5,6 +5,15 @@ import {
 } from "../server/inbox-views";
 import { processKnowledgeFile } from "../server/knowledge-files";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
+import {
+  runIndex,
+  scheduleIndex,
+  vectorizeStore,
+  workersAiEmbedder,
+  type IndexEnvironment,
+  type VectorizeIndex,
+  type WorkersAi,
+} from "../server/knowledge-index";
 import { purgeDrafts } from "../server/drafts";
 import { purgeHelpSearches } from "../server/help-search";
 import { purgeInlineImages } from "../server/attachments";
@@ -53,7 +62,22 @@ interface Env extends Partial<StorageEnv> {
   JOBS_DLQ: Queue<WorkMessage>;
   WORKSPACE_REGISTRY: KVNamespace;
   DEAD_LETTER_QUEUE_NAME: string;
+  /**
+   * The AI index (phase 07, C2a): Workers AI for embeddings and a Vectorize index (cosine,
+   * 1,024 dimensions). Both optional; without them the index can't run and its flag stays off.
+   * TODO(phase 17): provision both and add them to the generated Worker config.
+   */
+  AI?: WorkersAi;
+  KNOWLEDGE_VECTORS?: VectorizeIndex;
 }
+/** The AI index's model and store, when both bindings exist. */
+const knowledgeIndex = (env: Env): IndexEnvironment | undefined =>
+  env.AI && env.KNOWLEDGE_VECTORS
+    ? {
+        embedders: [workersAiEmbedder(env.AI)],
+        vectors: vectorizeStore(env.KNOWLEDGE_VECTORS),
+      }
+    : undefined;
 async function scheduleClock(env: Env, w: string, id: string) {
   const row = await tenant(
     hyperdriveConnection(env.HYPERDRIVE),
@@ -117,6 +141,7 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
   return {
     connect,
     attachments,
+    knowledgeIndex: knowledgeIndex(env),
     sessionSecret: env.SESSION_SECRET,
     identityMaster: env.IDENTITY_MASTER,
     bridgeSecret: env.BRIDGE_SECRET,
@@ -378,6 +403,10 @@ const relayWorker = {
         processKnowledgeFile(runtime.connect, runtime.attachments!, job);
     // Website sync (phase 07, C1b). TODO(phase 17): a Browser Rendering renderer for JavaScript sites.
     handlers["knowledge.sync.run"] = (job) => runSync(runtime.connect, {}, job);
+    // The AI index (phase 07, C2a), when its bindings exist.
+    if (runtime.knowledgeIndex)
+      handlers["knowledge.index"] = (job) =>
+        runIndex(runtime.connect, runtime.knowledgeIndex!, job);
     for (const message of batch.messages) {
       const work = message.body;
       try {
@@ -421,6 +450,9 @@ const relayWorker = {
             await scheduleClock(env, work.workspace, c.id);
           // Websites due a sync (phase 07, C1b).
           await scheduleDueSyncs(runtime.connect, work.workspace);
+          // Published knowledge waiting for the AI index (phase 07, C2a).
+          if (runtime.knowledgeIndex)
+            await scheduleIndex(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(

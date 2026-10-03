@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased: knowledge step C2a (the AI index)
+
+- **Published knowledge is indexed by meaning:**
+  - split into passages along article headings (paragraphs for files and synced pages)
+  - embedded by a model and stored in a vector store
+  - kept up to date by itself: a database trigger marks every change to what a record publishes, and a background job indexes it, re-embedding only passages whose text changed
+  - behind a new `knowledge_index_v1` flag, off by default
+- **Index versions:**
+  - each records its model, version and dimensions
+  - "Re-embed everything" builds a new version beside the current one and switches over at once, so search never goes offline
+  - acceptance check: 10,000 records re-embedded with 1,266 searches during it, none failing (`scripts/reembed-load.ts`)
+- **Retrieval for the AI agent (phase 08) and the inbox:**
+  - access (AI agent or inbox, audience, published state) is checked in PostgreSQL at query time, so internal or unpublished content never reaches a customer-facing search
+  - each retrieval is counted for the coming health report
+- **The AI index page** in Knowledge, for managers:
+  - what the index holds and what waits
+  - re-embed progress and errors
+  - "Try a question" as the AI agent or the inbox
+- **Models and stores:**
+  - when deployed: Workers AI `bge-m3` and Cloudflare Vectorize (optional bindings, not provisioned yet)
+  - locally: a deterministic test model and a vector store saved in the relay's data folder
+- **Migration** 0036 with rollback. **Tests:**
+  - unit: `tests/knowledge-index.test.ts`
+  - browser: `tests/browser/knowledge-index.spec.ts`
+
+  Details: `docs/KNOWLEDGE_STEP7.md`.
+
 ## Unreleased: conversation cards, header, composer and details card
 
 - **Conversation cards** in the list:
