@@ -1,4 +1,8 @@
-import { tenant, type Connect, type Sql } from "./db";
+import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
+import { authorize } from "./policy";
+import { requireSettings } from "./settings";
+import { afterChange } from "./routing";
+import { availabilityFor } from "./office-hours";
 import { enqueueJob, type Job } from "./jobs";
 import {
   access,
@@ -12,6 +16,8 @@ import type { IndexEnvironment } from "./knowledge-index";
 import {
   PROMPT_VERSION,
   type AnswerModel,
+  type Classification,
+  type ClassifierPort,
   type ModelReply,
   type RerankPort,
   type Turn,
@@ -38,13 +44,23 @@ import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
  * The reply is re-checked when written: if a teammate replied or took the conversation while the
  * agent worked, or the customer wrote again, nothing is sent.
  *
- * TODO(phase 08 A2): escalation, handover summaries, routing after handover and the AI state.
+ * Handing over (step A2a; docs/AI_STEP2.md). Before answering, and after two answers it couldn't
+ * give, the agent may hand the conversation to the team instead: the customer asked for a person
+ * (the "Talk to a person" button, or in their own words), their sentiment turned negative, two
+ * answers failed, or the agent only answers outside office hours and the team is open. A handover
+ * tells the customer, writes an internal summary note for the teammate (never delivered to the
+ * customer), moves the conversation to the agent's handover team so routing (phase 06) assigns
+ * it, and sets the conversation's AI state. Outside office hours the agent takes a message,
+ * promises when the team is back, or keeps answering until a teammate replies.
+ * TODO(phase 08 A2b): escalation rules, never-handle topics and escalation guidance.
  * TODO(phase 08 B1): several agents, guidance, content targeting and language detection.
  */
 export type AiEnvironment = {
   model: AnswerModel;
   rerank: RerankPort;
   index: IndexEnvironment;
+  /** Reads messages for handover triggers (A2a). Without it, only the fixed triggers apply. */
+  classify?: ClassifierPort;
 };
 export const DEFAULT_AGENT = "default";
 /** At most this many earlier messages go to the model. */
@@ -56,33 +72,88 @@ const HISTORY = 10;
 const GIVE_UP_AFTER = 3;
 
 /** Fixed replies, never written by the model. */
-const STRINGS: Record<string, { unknown: string; greeting: string }> = {
+type Strings = {
+  unknown: string;
+  greeting: string;
+  /** The button under a reply the agent couldn't give (A2a). */
+  person: string;
+  handover: string;
+  /** Outside office hours: take a message, promise when the team is back, or keep answering. */
+  away: string;
+  awayUntil: string;
+  awayContinue: string;
+};
+const STRINGS: Record<string, Strings> = {
   en: {
     unknown:
       "I'm sorry, I couldn't find an answer to that in our help content. Would you like me to connect you with someone from the team?",
     greeting: "Hi! What can I help you with?",
+    person: "Talk to a person",
+    handover:
+      "I'm connecting you with someone from the team. They'll reply here.",
+    away: "Our team is away right now. They'll reply here as soon as they're back.",
+    awayUntil:
+      "Our team is away right now and back {when}. They'll reply here then.",
+    awayContinue:
+      "Our team is away right now; they'll reply here when they're back. Until then, I'm happy to keep helping.",
   },
   fr: {
     unknown:
       "Désolé, je n'ai pas trouvé de réponse dans notre aide. Voulez-vous que je vous mette en relation avec quelqu'un de l'équipe ?",
     greeting: "Bonjour ! Comment puis-je vous aider ?",
+    person: "Parler à quelqu'un",
+    handover:
+      "Je vous mets en relation avec quelqu'un de l'équipe. Il vous répondra ici.",
+    away: "Notre équipe est absente pour le moment. Elle vous répondra ici dès son retour.",
+    awayUntil:
+      "Notre équipe est absente pour le moment et revient {when}. Elle vous répondra ici.",
+    awayContinue:
+      "Notre équipe est absente pour le moment et vous répondra ici à son retour. D'ici là, je peux continuer à vous aider.",
   },
   es: {
     unknown:
       "Lo siento, no encontré una respuesta en nuestra ayuda. ¿Quieres que te ponga en contacto con alguien del equipo?",
     greeting: "¡Hola! ¿En qué puedo ayudarte?",
+    person: "Hablar con una persona",
+    handover:
+      "Te pongo en contacto con alguien del equipo. Te responderá aquí.",
+    away: "Nuestro equipo no está disponible ahora. Te responderá aquí en cuanto vuelva.",
+    awayUntil:
+      "Nuestro equipo no está disponible ahora y vuelve {when}. Te responderá aquí.",
+    awayContinue:
+      "Nuestro equipo no está disponible ahora y te responderá aquí cuando vuelva. Mientras tanto, puedo seguir ayudándote.",
   },
   de: {
     unknown:
       "Leider habe ich dazu in unserer Hilfe keine Antwort gefunden. Soll ich Sie mit jemandem aus dem Team verbinden?",
     greeting: "Hallo! Wie kann ich helfen?",
+    person: "Mit einer Person sprechen",
+    handover:
+      "Ich verbinde Sie mit jemandem aus dem Team. Sie erhalten die Antwort hier.",
+    away: "Unser Team ist gerade nicht da. Sie erhalten die Antwort hier, sobald es zurück ist.",
+    awayUntil:
+      "Unser Team ist gerade nicht da und ab {when} zurück. Sie erhalten die Antwort dann hier.",
+    awayContinue:
+      "Unser Team ist gerade nicht da und antwortet hier, sobald es zurück ist. Bis dahin helfe ich gern weiter.",
   },
   pt: {
     unknown:
       "Desculpe, não encontrei uma resposta na nossa ajuda. Quer que eu o ponha em contacto com alguém da equipa?",
     greeting: "Olá! Como posso ajudar?",
+    person: "Falar com uma pessoa",
+    handover:
+      "Vou pô-lo em contacto com alguém da equipa. A resposta chega aqui.",
+    away: "A nossa equipa não está disponível agora. A resposta chega aqui assim que voltar.",
+    awayUntil:
+      "A nossa equipa não está disponível agora e volta {when}. A resposta chega aqui.",
+    awayContinue:
+      "A nossa equipa não está disponível agora e responde aqui quando voltar. Até lá, posso continuar a ajudar.",
   },
 };
+/** The "Talk to a person" button's words in every language, as the customer sends them. */
+const PERSON_LABELS = new Set(
+  Object.values(STRINGS).map((t) => t.person.toLowerCase()),
+);
 const strings = (locale: string) =>
   STRINGS[locale] ?? STRINGS[locale.split("-")[0]] ?? STRINGS.en;
 
@@ -107,8 +178,14 @@ async function agentOf(db: Sql, w: string) {
       name: string;
       enabled: boolean;
       confidence_threshold: number;
+      handover_team_id: string | null;
+      answer_hours: "always" | "outside_office_hours";
+      out_of_hours: "continue" | "take_message" | "reply_time";
+      failed_limit: number;
+      escalate_on_sentiment: boolean;
+      version: string;
     }>(
-      "SELECT id,name,enabled,confidence_threshold FROM ai_agents WHERE workspace_id=$1 AND id=$2",
+      "SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,version::text AS version FROM ai_agents WHERE workspace_id=$1 AND id=$2",
       [w, DEFAULT_AGENT],
     )
   ).rows[0];
@@ -142,6 +219,12 @@ export async function queueAiReply(
   if (!(await aiEnabled(db, w))) return null;
   const agent = await agentOf(db, w);
   if (!agent.enabled || (await teammateInvolved(db, w, c))) return null;
+  // Handed over (A2a): nothing to queue, unless it keeps answering while the team is away.
+  if (
+    c.ai_state === "escalated" ||
+    (c.ai_state === "needs_input" && agent.out_of_hours !== "continue")
+  )
+    return null;
   return enqueueJob(db, w, "ai.reply", { conversationId: c.id, partId }, {});
 }
 
@@ -161,6 +244,13 @@ async function skipReason(db: Sql, w: string, c: Conversation, partId: string) {
   if (!agent.enabled) return "The AI agent is off.";
   if (await teammateInvolved(db, w, c))
     return "A teammate has taken the conversation on.";
+  // Handed over (A2a): the agent stays out, unless the team was away and the agent was set to
+  // keep answering until a teammate replies.
+  if (
+    c.ai_state === "escalated" ||
+    (c.ai_state === "needs_input" && agent.out_of_hours !== "continue")
+  )
+    return "The conversation was handed to the team.";
   const question = (
     await db.query<{ seq: string }>(
       "SELECT seq FROM conversation_parts WHERE workspace_id=$1 AND id=$2",
@@ -383,14 +473,58 @@ export async function runAiReply(
   const locale = ctx.chain[0] ?? "en";
   const text = strings(locale);
 
+  // Handover triggers checked before answering (A2a). The button's own words need no model.
+  let trigger: Trigger | null = PERSON_LABELS.has(
+    ctx.question.trim().toLowerCase(),
+  )
+    ? "asked_for_person"
+    : null;
+  let note = "";
+  if (!trigger && ctx.agent.answer_hours === "outside_office_hours") {
+    const hours = await tenant(connect, w, (db) =>
+      availabilityFor(
+        db,
+        w,
+        {
+          brandId: ctx.c.brand_id,
+          teamId: ctx.agent.handover_team_id ?? ctx.c.team_id,
+        },
+        locale,
+      ),
+    );
+    // With no office hours set, there's no "inside" them: the agent answers.
+    if (hours?.open) trigger = "office_hours";
+  }
+  if (!trigger && env.classify) {
+    let seen: Classification | null = null;
+    try {
+      seen = await env.classify.classify({
+        message: ctx.question,
+        history: ctx.history,
+        locale,
+      });
+    } catch {
+      // Decision (docs/AI_STEP2.md): a failing classifier doesn't hand everything over. The agent
+      // answers with A1's safeguards, and two failed answers still hand over.
+      note = " The classifier was unavailable, so only the fixed handover triggers applied.";
+    }
+    if (seen?.wantsHuman) trigger = "asked_for_person";
+    else if (seen?.sentiment === "negative" && ctx.agent.escalate_on_sentiment)
+      trigger = "negative_sentiment";
+  }
+
   let retrieval: Retrieval = { passages: [], candidates: [], topScore: 0 };
-  let outcome: "answered" | "clarified" | "unknown" | "failed";
+  let outcome: "answered" | "clarified" | "unknown" | "failed" | "escalated";
   let reason: string;
   let body: string;
   let data: Record<string, unknown> = {};
   let cited: string[] = [];
   let model: string | null = null;
-  if (!searchable(ctx.question)) {
+  if (trigger) {
+    outcome = "escalated";
+    reason = TRIGGERS[trigger] + "." + note;
+    body = "";
+  } else if (!searchable(ctx.question)) {
     outcome = "clarified";
     reason = "Nothing to search for (a greeting).";
     body = text.greeting;
@@ -465,6 +599,26 @@ export async function runAiReply(
     }
   }
 
+  if (outcome === "unknown" || outcome === "failed") {
+    // Too many answers it couldn't give: hand over instead of saying so again (A2a).
+    const failed = await tenant(connect, w, async (db) =>
+      Number(
+        (
+          await db.query<{ n: string }>(
+            "SELECT count(*) AS n FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 AND outcome IN ('unknown','failed')",
+            [w, ctx.c.id],
+          )
+        ).rows[0].n,
+      ),
+    );
+    if (failed + 1 >= ctx.agent.failed_limit) {
+      trigger = "failed_answers";
+      reason = `${reason} ${TRIGGERS.failed_answers} (${failed + 1}).`;
+      outcome = "escalated";
+    } else data = { options: [text.person] };
+  }
+  if (note && outcome !== "escalated") reason += note;
+
   // Written only if nothing changed while the agent worked.
   const written = await tenant(connect, w, async (db) => {
     const c = await conversation(db, w, conversationId, true);
@@ -482,22 +636,42 @@ export async function runAiReply(
       });
       return null;
     }
-    const part = await append(
-      db,
-      w,
-      c,
-      { type: "ai", id: ctx.agent.id },
-      "ai_reply",
-      body,
-      data,
-    );
-    await customerReply(db, w, c, part.seq);
-    await syncUnread(db, w, c);
+    let replyPartId: string;
+    let team: string | null = null;
+    if (trigger) {
+      const handed = await handOver(db, w, c, {
+        agent: ctx.agent,
+        trigger,
+        reason,
+        text,
+        locale,
+      });
+      replyPartId = handed.replyPartId;
+      team = handed.team;
+    } else {
+      const part = await append(
+        db,
+        w,
+        c,
+        { type: "ai", id: ctx.agent.id },
+        "ai_reply",
+        body,
+        data,
+      );
+      replyPartId = part.id;
+      await customerReply(db, w, c, part.seq);
+      // Waiting on the customer, unless handed over already (kept answering while the team's away).
+      await db.query(
+        "UPDATE conversations SET ai_state='pending' WHERE workspace_id=$1 AND id=$2 AND (ai_state IS NULL OR ai_state='pending')",
+        [w, c.id],
+      );
+      await syncUnread(db, w, c);
+    }
     await record(db, w, {
       agentId: ctx.agent.id,
       conversationId: c.id,
       partId,
-      replyPartId: part.id,
+      replyPartId,
       outcome,
       reason,
       threshold: ctx.agent.confidence_threshold,
@@ -505,14 +679,256 @@ export async function runAiReply(
       cited,
       model,
       latency: Date.now() - started,
+      trigger,
+      handoverTeamId: team,
     });
-    return part.id;
+    return replyPartId;
   });
   return {
     done: true,
     result: written ? { outcome, replyPartId: written } : { skipped: true },
   };
 }
+
+/** Why the agent handed a conversation over (A2a; rules, topics and guidance join in A2b). */
+export type Trigger =
+  | "asked_for_person"
+  | "failed_answers"
+  | "negative_sentiment"
+  | "office_hours";
+const TRIGGERS: Record<Trigger, string> = {
+  asked_for_person: "The customer asked for a person",
+  failed_answers: "The agent couldn't answer too many times",
+  negative_sentiment: "The customer seemed frustrated",
+  office_hours:
+    "The agent answers only outside office hours, and the team is open",
+};
+
+/**
+ * Hands the conversation to the team: the customer is told (by office hours and the agent's
+ * out-of-hours choice), a summary note goes to teammates only, the conversation moves to the
+ * handover team for routing, and the AI state says where it stands. A conversation already
+ * handed over while the team was away only gets the away message again.
+ */
+async function handOver(
+  db: Sql,
+  w: string,
+  c: Conversation,
+  h: {
+    agent: Awaited<ReturnType<typeof agentOf>>;
+    trigger: Trigger;
+    reason: string;
+    text: Strings;
+    locale: string;
+  },
+) {
+  const already = c.ai_state === "needs_input";
+  const team = h.agent.handover_team_id
+    ? ((
+        await db.query<{ id: string }>(
+          "SELECT id FROM teams WHERE workspace_id=$1 AND id=$2",
+          [w, h.agent.handover_team_id],
+        )
+      ).rows[0]?.id ?? null)
+    : null;
+  const hours = await availabilityFor(
+    db,
+    w,
+    { brandId: c.brand_id, teamId: team ?? c.team_id },
+    h.locale,
+  );
+  const away = !!hours && !hours.open;
+  const body = !away
+    ? h.text.handover
+    : h.agent.out_of_hours === "continue"
+      ? h.text.awayContinue
+      : h.agent.out_of_hours === "reply_time" && hours?.nextOpenLabel
+        ? h.text.awayUntil.replace("{when}", hours.nextOpenLabel)
+        : h.text.away;
+  const reply = await append(
+    db,
+    w,
+    c,
+    { type: "ai", id: h.agent.id },
+    "ai_reply",
+    body,
+    { handover: true },
+  );
+  await customerReply(db, w, c, reply.seq);
+  if (!already) {
+    // For teammates only: an internal note is never delivered to the customer.
+    await append(
+      db,
+      w,
+      c,
+      { type: "ai", id: h.agent.id },
+      "internal_note",
+      await summary(db, w, c, h.reason),
+      { aiHandover: { trigger: h.trigger, teamId: team } },
+      "internal",
+    );
+    const before = { assigned: c.assigned, status: c.status, team_id: c.team_id };
+    if (team && c.team_id !== team) {
+      await append(
+        db,
+        w,
+        c,
+        { type: "ai", id: h.agent.id },
+        "assignment_change",
+        "",
+        {
+          before: { teammate: c.assigned, team: c.team_id },
+          after: { teammate: c.assigned, team },
+        },
+        "internal",
+      );
+      await db.query(
+        "UPDATE conversations SET team_id=$3 WHERE workspace_id=$1 AND id=$2",
+        [w, c.id, team],
+      );
+      c.team_id = team;
+    }
+    await db.query(
+      "UPDATE conversations SET ai_state=$3 WHERE workspace_id=$1 AND id=$2",
+      [w, c.id, away ? "needs_input" : "escalated"],
+    );
+    // Routing (phase 06) assigns it from the team's queue, as any team conversation.
+    await afterChange(db, w, c.id, before);
+  }
+  await syncUnread(db, w, c);
+  return { replyPartId: reply.id, team };
+}
+
+/**
+ * The handover note: why, what the customer asked, and what the agent replied, built from the
+ * conversation itself (no model writes it, so it can't invent anything).
+ */
+async function summary(db: Sql, w: string, c: Conversation, reason: string) {
+  const parts = (
+    await db.query<{ kind: string; body: string; data: Record<string, unknown> }>(
+      `SELECT kind,body,data FROM conversation_parts WHERE workspace_id=$1 AND conversation_id=$2
+       AND audience='public' AND kind IN ('customer_message','ai_reply') ORDER BY seq`,
+      [w, c.id],
+    )
+  ).rows;
+  const quote = (t: string) =>
+    "“" + (t.length > 300 ? t.slice(0, 299) + "…" : t).replace(/\s+/g, " ").trim() + "”";
+  const asked = parts.filter((p) => p.kind === "customer_message" && p.body.trim());
+  const outcomes = (
+    await db.query<{ outcome: string; n: string }>(
+      "SELECT outcome,count(*) AS n FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 AND outcome IN ('answered','clarified','unknown','failed') GROUP BY outcome",
+      [w, c.id],
+    )
+  ).rows;
+  const count = (o: string) => Number(outcomes.find((x) => x.outcome === o)?.n ?? 0);
+  const sources = [
+    ...new Set(
+      parts.flatMap((p) =>
+        p.kind === "ai_reply" && Array.isArray(p.data.sources)
+          ? (p.data.sources as { title?: string }[]).map((x) => String(x.title ?? ""))
+          : [],
+      ),
+    ),
+  ].filter(Boolean);
+  const replies = [
+    count("answered") && `${count("answered")} answered`,
+    count("clarified") && `${count("clarified")} clarifying`,
+    count("unknown") + count("failed") &&
+      `${count("unknown") + count("failed")} couldn't answer`,
+  ].filter(Boolean);
+  return [
+    `Handed over by the AI agent. ${reason}`,
+    asked.length ? `First message: ${quote(asked[0].body)}` : "",
+    asked.length > 1 ? `Latest message: ${quote(asked.at(-1)!.body)}` : "",
+    `AI replies: ${replies.length ? replies.join(", ") : "none"}.`,
+    sources.length ? `Sources used: ${sources.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Settings › AI agent (A2a): the handover choices                                             */
+
+/** The agent's handover settings and the teams to choose from, for workspace managers. */
+export async function readAiSettings(db: Sql, w: string, principal: string) {
+  await authorize(db, w, principal, "workspace.manage");
+  await requireSettings(db, w);
+  assert(
+    await aiEnabled(db, w),
+    "AI_AGENT_DISABLED",
+    "The AI agent is not enabled for this workspace.",
+    404,
+  );
+  const a = await agentOf(db, w);
+  const teams = (
+    await db.query<{ id: string; name: string }>(
+      "SELECT id,name FROM teams WHERE workspace_id=$1 ORDER BY name,id",
+      [w],
+    )
+  ).rows;
+  return {
+    agent: {
+      id: a.id,
+      name: a.name,
+      enabled: a.enabled,
+      handoverTeamId: a.handover_team_id,
+      answerHours: a.answer_hours,
+      outOfHours: a.out_of_hours,
+      failedLimit: a.failed_limit,
+      escalateOnSentiment: a.escalate_on_sentiment,
+      version: a.version,
+    },
+    teams,
+  };
+}
+/** Saves them, from the version the page loaded (or refused as changed elsewhere). */
+export async function saveAiSettings(
+  db: Sql,
+  w: string,
+  principal: string,
+  p: Record<string, unknown>,
+) {
+  const current = await readAiSettings(db, w, principal);
+  if (String(p.version ?? "") !== current.agent.version)
+    throw new DomainError(
+      "AI_SETTINGS_CONFLICT",
+      "These settings changed elsewhere. Reload to see the latest, then try again.",
+      409,
+    );
+  const invalid = (message: string): never => {
+    throw new DomainError("INVALID_AI_SETTINGS", message, 400);
+  };
+  const team =
+    p.handoverTeamId === null || p.handoverTeamId === "" || p.handoverTeamId === undefined
+      ? null
+      : String(p.handoverTeamId);
+  if (team && !current.teams.some((t) => t.id === team))
+    invalid("Choose one of your teams, or no team.");
+  if (!["always", "outside_office_hours"].includes(String(p.answerHours)))
+    invalid("Choose when the agent answers.");
+  if (!["continue", "take_message", "reply_time"].includes(String(p.outOfHours)))
+    invalid("Choose what the agent does outside office hours.");
+  const limit = Number(p.failedLimit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 5)
+    invalid("Hand over after 1 to 5 answers the agent couldn't give.");
+  if (typeof p.enabled !== "boolean" || typeof p.escalateOnSentiment !== "boolean")
+    invalid("Choose on or off.");
+  await db.query(
+    `UPDATE ai_agents SET enabled=$3,handover_team_id=$4,answer_hours=$5,out_of_hours=$6,failed_limit=$7,escalate_on_sentiment=$8,
+     version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+    [w, DEFAULT_AGENT, p.enabled, team, p.answerHours, p.outOfHours, limit, p.escalateOnSentiment],
+  );
+  return readAiSettings(db, w, principal);
+}
+/** The settings route: saves are idempotent on the request's key. */
+export const changeAiSettings = (
+  db: Sql,
+  w: string,
+  principal: string,
+  key: string,
+  p: Record<string, unknown>,
+) => once(db, w, "ai-settings:" + principal, key, p, () => saveAiSettings(db, w, principal, p));
 
 async function record(
   db: Sql,
@@ -529,11 +945,13 @@ async function record(
     cited?: string[];
     model?: string | null;
     latency?: number;
+    trigger?: Trigger | null;
+    handoverTeamId?: string | null;
   },
 ) {
   await db.query(
-    `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
+    `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms,trigger,handover_team_id)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
     [
       w,
       crypto.randomUUID(),
@@ -555,6 +973,8 @@ async function record(
       a.model ?? null,
       PROMPT_VERSION,
       a.latency ?? null,
+      a.trigger ?? null,
+      a.handoverTeamId ?? null,
     ],
   );
   if (a.retrieval?.passages.length && a.outcome !== "skipped")
@@ -588,8 +1008,9 @@ export async function aiAnswers(
       model: string | null;
       prompt_version: string;
       created_at: string;
+      trigger: string | null;
     }>(
-      "SELECT question_part_id,reply_part_id,outcome,reason,top_score,threshold,cited,model,prompt_version,created_at FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at",
+      "SELECT question_part_id,reply_part_id,outcome,reason,top_score,threshold,cited,model,prompt_version,created_at,trigger FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at",
       [w, c.id],
     )
   ).rows.map((a) => ({
@@ -602,6 +1023,7 @@ export async function aiAnswers(
     cited: a.cited,
     model: a.model,
     promptVersion: a.prompt_version,
+    trigger: a.trigger,
     at: new Date(a.created_at).toISOString(),
   }));
   return { answers };

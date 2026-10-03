@@ -217,8 +217,10 @@ function Message({
         <header>
           {internal && <LockKeyhole size={13} />}
           <strong>
-            {internal
-              ? "Internal note · Team only"
+            {p.data.aiHandover
+              ? "AI handover summary · Team only"
+              : internal
+                ? "Internal note · Team only"
               : p.author_type === "contact"
                 ? "Customer"
                 : (p.data.authorName ??
@@ -233,7 +235,8 @@ function Message({
         ) : p.data.doc ? (
           <RichText doc={p.data.doc} fallback={p.body} image={agentImage} />
         ) : (
-          <p>{p.body}</p>
+          // An AI handover summary keeps its lines (phase 08 A2a).
+          <p className={p.data.aiHandover ? "pg-handover" : undefined}>{p.body}</p>
         )}
         {p.kind === "ai_reply" && <AiReplyDetails p={p} />}
         {p.kind === "attachment" && p.data.attachmentId && (
@@ -269,6 +272,7 @@ const OUTCOMES: Record<string, string> = {
   clarified: "Asked to clarify",
   unknown: "Said it didn't know",
   failed: "The model failed",
+  escalated: "Handed to the team",
 };
 /**
  * Under an AI agent's reply (phase 08): the sources it cited, and on request why it answered as it

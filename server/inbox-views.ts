@@ -23,7 +23,8 @@ export type ViewFilter =
         | "created_at"
         | "mentioned"
         | "sla"
-        | "ticket_type";
+        | "ticket_type"
+        | "ai_state";
       op: "eq" | "ne" | "in" | "gte" | "lte";
       value: string | boolean | string[];
     };
@@ -49,7 +50,10 @@ const columns: Record<string, string> = {
   priority: "priority",
   brand: "brand_id",
   created_at: "created_at",
+  // The AI agent's state (phase 08 A2a): pending, escalated, needs_input or resolved.
+  ai_state: "ai_state",
 };
+const AI_STATES = ["pending", "escalated", "needs_input", "resolved"];
 export function validateFilter(
   input: unknown,
   depth = 0,
@@ -102,6 +106,15 @@ export function validateFilter(
       p.op === "eq" && typeof p.value === "string" && p.value.length <= 200,
       "INVALID_FILTER",
       "Choose a teammate who was mentioned.",
+    );
+  else if (p.field === "ai_state")
+    assert(
+      ["eq", "ne", "in"].includes(String(p.op)) &&
+        (Array.isArray(p.value) ? p.value : [p.value]).every((v) =>
+          AI_STATES.includes(String(v)),
+        ),
+      "INVALID_FILTER",
+      "Choose an AI agent state: pending, escalated, needs teammate input or resolved.",
     );
   else if (p.field === "priority")
     assert(
@@ -298,6 +311,7 @@ export async function seedInboxViews(db: Sql, w: string, t: Teammate) {
     );
   }
   await seedTeamInboxes(db, w, t);
+  await seedAiView(db, w, t);
 }
 /** Team inboxes are built-in views named `team:<team id>`, one for each team the teammate is on. */
 export const TEAM_INBOX = "team:";
@@ -364,6 +378,40 @@ export async function visibleView(
   assert(v, "VIEW_NOT_FOUND", "View unavailable.", 404);
   return v;
 }
+/** The AI agent's view (phase 08 A2a): a built-in view while the agent is on. */
+export const AI_VIEW = "ai:escalated";
+const aiOn = async (db: Sql, w: string) =>
+  (
+    await db.query(
+      "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='ai_agent_v1' AND enabled",
+      [w],
+    )
+  ).rows.length > 0;
+/**
+ * "Escalated by AI": conversations the agent handed to the team, including those handed over
+ * while the team was away. Archived while the agent is off.
+ */
+async function seedAiView(db: Sql, w: string, t: Teammate) {
+  if (!(await aiOn(db, w))) {
+    await db.query(
+      "UPDATE inbox_views SET archived=true,set_id=NULL,revision=revision+1 WHERE workspace_id=$1 AND owner_id=$2 AND builtin=$3 AND NOT archived",
+      [w, t.id, AI_VIEW],
+    );
+    return;
+  }
+  const filter = JSON.stringify({
+    field: "ai_state",
+    op: "in",
+    value: ["escalated", "needs_input"],
+  });
+  await db.query(
+    `INSERT INTO inbox_views(workspace_id,id,owner_id,name,filter,builtin,position,sort) VALUES($1,$2,$3,'Escalated by AI',$4,$5,$6,'activity')
+     ON CONFLICT(workspace_id,owner_id,builtin) WHERE builtin IS NOT NULL DO UPDATE SET archived=false,
+       set_id=CASE WHEN inbox_views.archived OR inbox_views.filter<>EXCLUDED.filter THEN NULL ELSE inbox_views.set_id END,filter=EXCLUDED.filter,revision=inbox_views.revision+1
+     WHERE inbox_views.archived OR inbox_views.filter<>EXCLUDED.filter`,
+    [w, crypto.randomUUID(), t.id, filter, AI_VIEW, BUILTIN_VIEWS.length],
+  );
+}
 export async function viewSnapshot(db: Sql, w: string, t: Teammate) {
   const views = (
     await db.query(
@@ -378,7 +426,13 @@ export async function viewSnapshot(db: Sql, w: string, t: Teammate) {
     )
   ).rows;
   // The client compares these with its team inboxes and runs initialize when they differ.
-  return { views, folders, teams: await myTeams(db, w, t.id) };
+  return {
+    views,
+    folders,
+    teams: await myTeams(db, w, t.id),
+    // Whether "Escalated by AI" should be there, so the client can run initialize if not.
+    ai: await aiOn(db, w),
+  };
 }
 export async function mutateView(
   db: Sql,
