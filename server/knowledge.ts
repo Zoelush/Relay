@@ -325,6 +325,15 @@ export async function listKnowledge(
     sync: manage && (await syncAvailable(db, w, principal)),
     // The AI index page (phase 07, C2a) is for managers.
     index: manage && (await indexEnabled(db, w)),
+    // The content health report (phase 07, C2b) is for managers too.
+    health:
+      manage &&
+      (
+        await db.query(
+          "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='knowledge_health_v1' AND enabled",
+          [w],
+        )
+      ).rows.length > 0,
   };
 }
 

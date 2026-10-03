@@ -151,7 +151,7 @@ test("build the help center tree, rename slugs, add a language, and old links re
   // The article's own address, from the Content tab.
   await page
     .getByRole("navigation", { name: "Knowledge areas" })
-    .getByRole("button", { name: "Content" })
+    .getByRole("button", { name: "Content", exact: true })
     .click();
   await page
     .getByRole("region", { name: "Knowledge records" })

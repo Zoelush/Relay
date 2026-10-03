@@ -46,6 +46,11 @@ export type VectorStorePort = {
     items: { id: string; values: number[] }[],
   ): Promise<void>;
   remove(namespace: string, ids: string[]): Promise<void>;
+  /** Stored vectors by id (missing ids are left out): the duplicate check reads these (C2b). */
+  get(
+    namespace: string,
+    ids: string[],
+  ): Promise<{ id: string; values: number[] }[]>;
   /** The nearest vectors by cosine similarity, best first. */
   query(
     namespace: string,
@@ -160,6 +165,13 @@ export function memoryVectorStore(
       if (!s.size) spaces.delete(ns);
       save();
     },
+    async get(ns, ids) {
+      const s = spaces.get(ns);
+      return ids.flatMap((id) => {
+        const values = s?.get(id);
+        return values ? [{ id, values }] : [];
+      });
+    },
     async query(ns, vector, topK) {
       const s = spaces.get(ns);
       if (!s) return [];
@@ -222,6 +234,9 @@ export type VectorizeIndex = {
     vectors: { id: string; values: number[]; namespace?: string }[],
   ): Promise<unknown>;
   deleteByIds(ids: string[]): Promise<unknown>;
+  getByIds(
+    ids: string[],
+  ): Promise<{ id: string; values: number[] | Float32Array | Float64Array }[]>;
   query(
     vector: number[],
     options: { topK: number; namespace?: string; returnValues?: boolean },
@@ -248,6 +263,14 @@ export function vectorizeStore(index: VectorizeIndex): VectorStorePort {
       ),
     remove: (_namespace, ids) =>
       inBatches(ids, 1000, (b) => index.deleteByIds(b)),
+    async get(_namespace, ids) {
+      // Ids are unique across namespaces; Vectorize returns at most 20 per call.
+      const out: { id: string; values: number[] }[] = [];
+      for (let i = 0; i < ids.length; i += 20)
+        for (const v of await index.getByIds(ids.slice(i, i + 20)))
+          out.push({ id: v.id, values: Array.from(v.values) });
+      return out;
+    },
     async query(namespace, vector, topK) {
       const result = await index.query(vector, {
         topK: Math.min(topK, 100),

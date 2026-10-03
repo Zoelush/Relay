@@ -109,6 +109,7 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
     pages.push("help-centers");
     if (await flag(db, w, "knowledge_sync_v1")) pages.push("websites");
     if (await flag(db, w, "knowledge_index_v1")) pages.push("ai-index");
+    if (await flag(db, w, "knowledge_health_v1")) pages.push("content-health");
   }
   // TODO(phase 16): security, audit log, usage and billing. TODO(phase 15): API keys and
   // webhooks. TODO(phase 12): email and other channels. TODO(phase 08): the AI agent.

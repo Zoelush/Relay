@@ -30,3 +30,10 @@ Acceptance criteria: three locales rendered by the server with correct metadata 
 
    Handoff: `docs/KNOWLEDGE_STEP6.md`.
 7. **Step C2** (approved on 3 October 2026, "Yes, go ahead with all four"): split into C2a (the AI index) and C2b (content health). Internal content is indexed too, for the inbox and the phase 10 copilot, with access checked in PostgreSQL at query time. The index page has a "Try a question" box. Near-duplicates in C2b are vector neighbours at a cosine similarity of 0.92 or more, checked nightly and on demand. Handoff for C2a: `docs/KNOWLEDGE_STEP7.md`.
+8. **Step C2b** (approved on 3 October 2026, "Yes, go ahead with all four"):
+   - "not retrieved in 90 days" counts from the first AI index
+   - near-duplicates come from stored vectors (`VectorStorePort.get`), in a job that can resume
+   - behind `knowledge_health_v1`
+   - "never reviewed" only
+
+   Handoff: `docs/KNOWLEDGE_STEP8.md`. The phase 07 plan is complete.

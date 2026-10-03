@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased: Phase 07 C2b (content health)
+
+- **A Content health report** in Knowledge, linked from Settings, for knowledge managers. It is behind a new `knowledge_health_v1` flag, off by default. It shows:
+  - **Never reviewed:** published content nobody has marked reviewed, with Mark reviewed.
+  - **Not retrieved in 90 days:** content the AI agent or inbox can use that no search returned in 90 days. Retrievals count from the first AI index, and the report says from when.
+  - **Near-duplicates:** pairs with passages 92% or more alike, found from the AI index's stored vectors nightly or with Check now. "Not duplicates" hides a pair until either record changes.
+  - **Topics with no content:** an interface for reporting (phase 14).
+- **The vector store interface** gains `get`, to read stored vectors back.
+- **Migration** 0039 with rollback. **Seed:** an internal snippet that nearly repeats the seeded article. **Tests:**
+  - unit: `tests/knowledge-health.test.ts`
+  - browser: `tests/browser/knowledge-health.spec.ts`
+
+  Details: `docs/KNOWLEDGE_STEP8.md`.
+
 ## Unreleased: Settings (S3b: brands, the messenger, the customer portal)
 
 - **A Channels group in Settings,** for workspace managers:

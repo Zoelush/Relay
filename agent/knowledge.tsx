@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Globe, LifeBuoy, Sparkles } from "lucide-react";
+import { FileText, Globe, HeartPulse, LifeBuoy, Sparkles } from "lucide-react";
 import { api, InboxError } from "./api";
 import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
 import { ArticleEditor } from "./article-editor";
 import { HelpCenters } from "./help-centers";
 import { PagePanel, Websites } from "./knowledge-sources";
 import { AiIndex } from "./knowledge-index";
+import { ContentHealth } from "./knowledge-health";
 import {
   DOCUMENT_ACCEPT,
   FileButton,
@@ -115,7 +116,9 @@ const AREAS = [
   ["help", "Help centers", LifeBuoy],
   ["websites", "Websites", Globe],
   ["index", "AI index", Sparkles],
+  ["health", "Content health", HeartPulse],
 ] as const;
+type Tab = (typeof AREAS)[number][0];
 
 export function Knowledge({
   teammates,
@@ -123,16 +126,15 @@ export function Knowledge({
 }: {
   teammates: { id: string; name: string; deleted?: boolean }[];
   /** The page to open on (Settings links straight to help centers, websites or the AI index). */
-  initialTab?: "content" | "help" | "websites" | "index";
+  initialTab?: Tab;
 }) {
   const [records, setRecords] = useState<Summary[]>([]);
-  const [tab, setTab] = useState<"content" | "help" | "websites" | "index">(
-    initialTab,
-  );
+  const [tab, setTab] = useState<Tab>(initialTab);
   const menu = useSideMenu("knowledge");
   const [canManage, setCanManage] = useState(false);
   const [syncOn, setSyncOn] = useState(false);
   const [indexOn, setIndexOn] = useState(false);
+  const [healthOn, setHealthOn] = useState(false);
   const [source, setSource] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -153,6 +155,7 @@ export function Knowledge({
         canManage: boolean;
         sync: boolean;
         index: boolean;
+        health: boolean;
       }>("knowledge?" + q)
         .then((d) => {
           if (!live) return;
@@ -160,6 +163,7 @@ export function Knowledge({
           setCanManage(d.canManage);
           setSyncOn(d.sync);
           setIndexOn(d.index);
+          setHealthOn(d.health);
           setError("");
         })
         .catch(
@@ -221,7 +225,8 @@ export function Knowledge({
                   (canManage &&
                     (id === "help" ||
                       (id === "websites" && syncOn) ||
-                      (id === "index" && indexOn))),
+                      (id === "index" && indexOn) ||
+                      (id === "health" && healthOn))),
               ).map(([id, label, Icon]) => (
                 <li key={id}>
                   <button
@@ -286,6 +291,13 @@ export function Knowledge({
             <HelpCenters />
           ) : tab === "websites" && syncOn ? (
             <Websites />
+          ) : tab === "health" && healthOn ? (
+            <ContentHealth
+              onOpen={(id) => {
+                setTab("content");
+                setSelected(id);
+              }}
+            />
           ) : tab === "index" && indexOn ? (
             <AiIndex
               onOpen={(id) => {
