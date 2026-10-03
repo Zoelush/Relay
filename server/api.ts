@@ -85,6 +85,12 @@ import {
   saveTag,
 } from "./workspace-data";
 import {
+  listRoles,
+  listTeammates,
+  saveRole,
+  setTeammateRole,
+} from "./people-settings";
+import {
   indexStatus,
   rebuildIndex,
   tryRetrieval,
@@ -1076,6 +1082,8 @@ export async function handleApi(
             "/v1/agent/settings",
             "/v1/agent/tags",
             "/v1/agent/attributes",
+            "/v1/agent/teammates",
+            "/v1/agent/roles",
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
@@ -1104,6 +1112,8 @@ export async function handleApi(
               "/v1/agent/settings",
               "/v1/agent/tags",
               "/v1/agent/attributes",
+              "/v1/agent/teammates",
+              "/v1/agent/roles",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1439,6 +1449,29 @@ export async function handleApi(
             ),
           );
         if (
+          url.pathname === "/v1/agent/teammates" ||
+          url.pathname === "/v1/agent/roles"
+        ) {
+          // Settings (S3a): a teammate's role, and the roles themselves.
+          const teammates = url.pathname === "/v1/agent/teammates";
+          const result = await tenant(env.connect, workspace, (db) =>
+            once(
+              db,
+              workspace,
+              (teammates ? "teammates:" : "roles:") + principal,
+              req.headers.get("idempotency-key") ?? "",
+              p,
+              () =>
+                teammates
+                  ? setTeammateRole(db, workspace, principal, p)
+                  : saveRole(db, workspace, principal, p),
+            ),
+          );
+          // Permissions changed: open inboxes re-read what each teammate may do.
+          await env.notify?.(workspace, "");
+          return json(result);
+        }
+        if (
           url.pathname === "/v1/agent/tags" ||
           url.pathname === "/v1/agent/attributes"
         ) {
@@ -1731,6 +1764,18 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             listTicketTypes(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/teammates")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listTeammates(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/roles")
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listRoles(db, workspace, principal),
           ),
         );
       if (url.pathname === "/v1/agent/tags")

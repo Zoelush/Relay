@@ -18,6 +18,8 @@ import {
   Tag,
   SlidersHorizontal,
   Ticket,
+  UserCog,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import { api } from "./api";
@@ -36,6 +38,7 @@ import {
 import { MacroManager, type MacroList } from "./macros";
 import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
+import { RolesPage, TeammatesPage } from "./settings-people";
 import type { Directory } from "./timeline";
 import type { ThemeChoice } from "./theme";
 import {
@@ -82,6 +85,20 @@ const PAGES: Page[] = [
     label: "General",
     description: "Your workspace's name, timezone and team language.",
     icon: Building2,
+    group: "Workspace",
+  },
+  {
+    id: "teammates",
+    label: "Teammates",
+    description: "Everyone in the workspace, and the role each one has.",
+    icon: UserCog,
+    group: "Workspace",
+  },
+  {
+    id: "roles",
+    label: "Roles & permissions",
+    description: "What each role lets a teammate do, and roles of your own.",
+    icon: ShieldCheck,
     group: "Workspace",
   },
   {
@@ -310,6 +327,10 @@ export function Settings({
             />
           ) : current.id === "general" ? (
             <GeneralPage menu={menu} page={current} />
+          ) : current.id === "teammates" ? (
+            <TeammatesPage menu={menu} page={current} />
+          ) : current.id === "roles" ? (
+            <RolesPage menu={menu} page={current} />
           ) : current.id === "teams" ? (
             <TeamsPage menu={menu} page={current} onChanged={onDirectory} />
           ) : current.id === "office-hours" ? (

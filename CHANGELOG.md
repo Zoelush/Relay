@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased: Settings (S3a: teammates, roles and permissions)
+
+- **Two Workspace pages in Settings,** for those who manage teammates:
+  - **Teammates:** everyone with their role, status, seat and teams. Change a teammate's role.
+  - **Roles & permissions:**
+    - every permission grouped and explained
+    - custom roles created, renamed and deleted when unused
+    - admin and agent editable; owner fixed with every permission
+- **Safeguards:**
+  - nobody hands out or takes away more than their own permissions
+  - nobody changes their own role or edits the role they hold
+  - the workspace always keeps an owner
+- **Saves are idempotent** on the key.
+- **No migration.** **Seed:** a "Team lead" role. **Tests:**
+  - unit: `tests/settings-people.test.ts`
+  - browser: `tests/browser/settings-people.spec.ts`
+
+  Details: `docs/SETTINGS_STEP4.md`.
+
 ## Unreleased: Settings (S2b: tags, attributes, ticket types)
 
 - **Three more Helpdesk pages in Settings:**

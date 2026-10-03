@@ -86,6 +86,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   const manageKnowledge = knowledge && (await has("knowledge.manage"));
   const pages: string[] = ["profile", "notifications", "appearance"];
   if (await has("workspace.manage")) pages.push("general");
+  // People (S3a): teammates' roles, and the roles themselves.
+  if (await has("teammates.manage")) pages.push("teammates", "roles");
   const manage = await has("workspace.manage");
   // Helpdesk (S2a): teams and routing, office hours and SLAs, each with its feature.
   if (manage && (await flag(db, w, "routing_v1"))) pages.push("teams");
