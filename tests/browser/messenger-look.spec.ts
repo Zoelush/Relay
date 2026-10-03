@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
+import { section, setLive } from "./messenger-sections";
 
 /** Messenger settings M2 (docs/MESSENGER_SETTINGS_STEP2.md): the look and the live preview. */
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
@@ -45,8 +46,10 @@ test("the preview shows the draft as it's edited, for visitors and users, light 
   await expect(p.getByRole("heading", { level: 1 })).toHaveText("Hi 👋");
 
   // Edits show in the preview before anything is saved.
+  await section(page, "Widget", "Set your welcome message");
   await page.getByLabel("Greeting (English)").fill("Welcome {first_name} 👋");
   await expect(p.getByRole("heading", { level: 1 })).toHaveText("Welcome 👋");
+  await section(page, "Widget", "Messenger theme and branding", "Appearance");
   await page
     .getByLabel("Home background", { exact: true })
     .selectOption({ label: "A gradient" });
@@ -57,21 +60,25 @@ test("the preview shows the draft as it's edited, for visitors and users, light 
       .locator(".intro.hero")
       .evaluate((el) => getComputedStyle(el).backgroundImage),
   ).toContain("linear-gradient");
+  await section(page, "Widget", "Teammate avatars");
   await page.getByRole("checkbox", { name: /Show teammates on Home/ }).check();
   await expect(
     p.getByRole("list", { name: "The team" }).getByRole("listitem"),
   ).toHaveCount(3);
 
-  // A different colour in the dark theme, seen with the preview set to dark.
+  // A different colour in the dark theme: choosing the dark theme's colours shows the preview dark.
+  await section(page, "Widget", "Messenger theme and branding");
   await page
-    .getByRole("checkbox", { name: /different colour in the dark theme/ })
-    .check();
-  await page.getByLabel("Dark theme colour", { exact: true }).fill("#2bb88a");
-  const start = p.locator(".primary.start");
-  await page
-    .getByRole("radiogroup", { name: "Preview theme" })
-    .getByRole("radio", { name: "Dark" })
+    .getByRole("tablist", { name: "Theme colours" })
+    .getByRole("tab", { name: "Dark theme" })
     .click();
+  await page
+    .getByRole("checkbox", { name: /Use the light theme's primary colour/ })
+    .uncheck();
+  await page
+    .getByLabel("Primary colour (dark theme)", { exact: true })
+    .fill("#2bb88a");
+  const start = p.locator(".primary.start");
   await expect(start).toHaveCSS("background-color", "rgb(43, 184, 138)");
   await page
     .getByRole("radiogroup", { name: "Preview theme" })
@@ -80,7 +87,11 @@ test("the preview shows the draft as it's edited, for visitors and users, light 
   await expect(start).toHaveCSS("background-color", "rgb(8, 122, 87)");
 
   // Users: their name in the welcome, and Tickets among the spaces.
-  await page.getByRole("radio", { name: "Users" }).click();
+  await page
+    .getByRole("radiogroup", { name: "Preview audience" })
+    .getByRole("radio", { name: "Users" })
+    .click();
+  await section(page, "Widget", "Spaces", "Content");
   await page.getByRole("checkbox", { name: /^Tickets/ }).check();
   await expect(p.getByRole("heading", { level: 1 })).toHaveText(
     "Welcome Alex 👋",
@@ -90,11 +101,12 @@ test("the preview shows the draft as it's edited, for visitors and users, light 
   ).toBeVisible();
 
   // The launcher: spacing and side, drawn beside the preview.
+  await section(page, "Widget", "Launcher position", "Appearance");
   await page.getByLabel("Side spacing (px)").fill("60");
   await page.getByLabel("Bottom spacing (px)").fill("40");
   expect(calls).toEqual([]);
 
-  await page.getByRole("button", { name: "Publish" }).click();
+  await setLive(page);
   await expect(notice(page)).toContainText("Published version 1.");
   const live = (
     await sql(
@@ -150,6 +162,7 @@ test("a launcher logo that isn't https is refused with the reason, and nothing i
   const before = (
     await sql("SELECT count(*)::int AS n FROM messenger_versions")
   )[0].n;
+  await section(page, "Widget", "Messenger theme and branding", "Appearance");
   await page
     .getByLabel("Launcher logo")
     .fill("http://cdn.example.com/launcher.png");
@@ -157,7 +170,7 @@ test("a launcher logo that isn't https is refused with the reason, and nothing i
   await expect(
     page.getByRole("img", { name: "Launcher preview" }),
   ).toContainText("✦");
-  await page.getByRole("button", { name: "Publish" }).click();
+  await setLive(page);
   await expect(page.getByRole("alert")).toContainText(
     "The launcher logo needs an https:// image address.",
   );

@@ -294,7 +294,7 @@ export function InstallCard({
   return (
     <Card
       title="Install"
-      description="Add the messenger to every page of the websites listed above. Single-page apps need nothing more: the messenger follows navigation."
+      description="Add the messenger to every page of the websites listed under General › Keep your Messenger secure. Single-page apps need nothing more: the messenger follows navigation."
     >
       <div
         className="pg-settings-install-status"

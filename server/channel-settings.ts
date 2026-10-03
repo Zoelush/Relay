@@ -1,3 +1,4 @@
+import { DEFAULT_COLOR } from "../lib/brand-colours";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize } from "./policy";
 import { requireSettings, validLanguage } from "./settings";
@@ -27,7 +28,7 @@ export type Messenger = {
   allowedOrigins: string[];
 };
 export const DEFAULTS: Messenger = {
-  color: "#087a57",
+  color: DEFAULT_COLOR,
   theme: "auto",
   position: "right",
   shape: "rounded",
@@ -124,7 +125,7 @@ export function validMessenger(m: Record<string, unknown>): Messenger {
     if (!ok) invalid("The logo needs an https:// image address.");
   }
   if (typeof m.color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(m.color))
-    invalid("Choose a colour such as #087a57.");
+    invalid("Choose the primary colour as six-digit hex, such as #1d4ed8.");
   if (!Array.isArray(m.allowedOrigins) || m.allowedOrigins.length > 50)
     invalid("List up to 50 websites.");
   const origins = [

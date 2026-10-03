@@ -1,5 +1,6 @@
 import { tenant, type Connect } from "./db";
 import { portalScope } from "./portal";
+import { palette } from "../lib/brand-colours";
 
 export async function messengerAsset(
   request: Request,
@@ -30,14 +31,11 @@ export async function messengerAsset(
     "referrer-policy": "no-referrer",
   });
   if (url.pathname.endsWith("theme.css")) {
-    const color =
-      typeof b.settings.color === "string" &&
-      /^#[0-9a-fA-F]{6}$/.test(b.settings.color)
-        ? b.settings.color
-        : "#087a57";
+    // The launcher in the brand's colour, with readable text on it (messenger settings M4).
+    const { light } = palette(b.settings.color);
     headers.set("content-type", "text/css");
     return new Response(
-      `:root{--accent:${color}}:host button{background:${color}}`,
+      `:host{--relay-accent:${light.accent};--relay-on-accent:${light.onAccent}}`,
       { headers },
     );
   }

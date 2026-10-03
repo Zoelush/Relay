@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased: Messenger settings (M4: Intercom's layout and the brand's colours)
+
+- **Settings › Messenger laid out as Intercom's:**
+  - Widget (Content, Appearance), Conversations, General, Install and Security tabs
+  - sections that open one at a time and say what's set when closed
+  - Visitors/Users inside the sections that differ by audience
+  - the preview beside them, with its space, audience and theme, following the open section
+  - "Save and set live" beside "Save draft"
+- **No permanent green:**
+  - the messenger's surfaces are neutral in both themes
+  - buttons, messages, links, teammates' initials and the launcher take the brand's light and dark primary colours
+  - text on them is black or white, whichever reads better
+  - links are adjusted just enough to read at 4.5:1
+- **No migration.** **Tests:**
+  - unit: `tests/messenger-colours.test.ts`
+  - browser: `tests/browser/messenger-layout.spec.ts`, and the M1–M3 browser tests updated for the layout
+
+  Details: `docs/MESSENGER_SETTINGS_STEP4.md`.
+
 ## Unreleased: Messenger settings (M3: rules, languages, privacy, install)
 
 - **Conversation rules for visitors and users, enforced by the server:**

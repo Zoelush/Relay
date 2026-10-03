@@ -307,6 +307,8 @@ export function MessengerPage({
         onIdentity={load}
         notice={drafts.notice}
         setNotice={drafts.setNotice}
+        view={drafts.view}
+        setView={drafts.setView}
       />
     );
   if (!data || !brand || drafts.state === undefined)

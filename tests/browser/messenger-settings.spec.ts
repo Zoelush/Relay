@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Browser } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
+import { audience, section, setLive } from "./messenger-sections";
 
 /** Messenger settings M1 (docs/MESSENGER_SETTINGS_STEP1.md): drafts, audiences, Home, welcome. */
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
@@ -64,25 +65,32 @@ test("a draft of the Home screen, welcome, notice and audiences is saved, publis
   );
 
   // Visitors: "Ask a question", and no launcher on checkout pages.
+  await section(page, "Conversations", "Start conversation button text");
   await page.getByRole("radio", { name: "Ask a question" }).check();
+  await section(page, "Widget", "Show the Messenger launcher", "Content");
   await page.getByLabel("Show the launcher").selectOption("except_matching");
   await page.getByRole("button", { name: "Add page rule" }).click();
   await page.getByLabel("Rule 1 text").fill("/checkout");
   // Users: Tickets as a space, and "Contact support".
-  await page.getByRole("radio", { name: "Users" }).click();
+  await section(page, "Widget", "Spaces");
+  await audience(page, "Users");
   await page.getByRole("checkbox", { name: /^Tickets/ }).check();
+  await section(page, "Conversations", "Start conversation button text");
   await page.getByRole("radio", { name: "Contact support" }).check();
   // Home: a status link for everyone.
+  await section(page, "Widget", "Customize Home with cards");
   await page.getByLabel("New card kind").selectOption({ label: "Link" });
   await page.getByRole("button", { name: "Add card" }).click();
   await page.getByLabel("Link 3: title").fill("System status");
   await page.getByLabel("Link 3: text").fill("All systems normal");
   await page.getByLabel("Link 3: address").fill("https://status.example.com");
   // Welcome and a notice.
+  await section(page, "Widget", "Set your welcome message");
   await page.getByLabel("Greeting (English)").fill("Hello {first_name} 👋");
   await page
     .getByLabel("Introduction (English)")
     .fill("Ask us anything about your order.");
+  await section(page, "Conversations", "Special notice");
   await page.getByRole("checkbox", { name: "Show the notice" }).check();
   await page
     .getByLabel("Notice (English)", { exact: true })
@@ -90,7 +98,7 @@ test("a draft of the Home screen, welcome, notice and audiences is saved, publis
 
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(notice(page)).toContainText(
-    "Draft saved. Publish to put it live.",
+    "Draft saved. Save and set live to put it live.",
   );
   await expect(page.getByTestId("publish-state")).toHaveText(
     "Draft saved, not published yet.",
@@ -104,7 +112,7 @@ test("a draft of the Home screen, welcome, notice and audiences is saved, publis
   await expect(visitor.frame.getByRole("note")).toHaveCount(0);
   await visitor.page.close();
 
-  await page.getByRole("button", { name: "Publish" }).click();
+  await setLive(page);
   await expect(notice(page)).toContainText("Published version 1.");
   await expect(page.getByTestId("publish-state")).toHaveText(
     "Live: version 1, as published.",
@@ -170,6 +178,7 @@ test("an unusable draft is refused with the reason and nothing goes live; an ear
   page,
 }) => {
   await settings(page);
+  await section(page, "Widget", "Customize Home with cards");
   await page.getByLabel("New card kind").selectOption({ label: "Link" });
   await page.getByRole("button", { name: "Add card" }).click();
   const last = page
@@ -186,14 +195,15 @@ test("an unusable draft is refused with the reason and nothing goes live; an ear
   const live = await sql("SELECT count(*)::int AS n FROM messenger_versions");
   // Fixed and published, then the earlier version is restored into the draft.
   await last.getByPlaceholder("https://").fill("https://example.com");
-  await page.getByRole("button", { name: "Publish" }).click();
+  await setLive(page);
   await expect(notice(page)).toContainText(/Published version \d+/);
   expect(
     (await sql("SELECT count(*)::int AS n FROM messenger_versions"))[0].n,
   ).toBe(live[0].n + 1);
   // A second version, then the first of the two restored.
+  await section(page, "Widget", "Set your welcome message");
   await page.getByLabel("Introduction (English)").fill("We're here to help.");
-  await page.getByRole("button", { name: "Publish" }).click();
+  await setLive(page);
   await expect(notice(page)).toContainText(/Published version \d+/);
   const versions = page.getByLabel("Earlier version");
   await versions.selectOption({ index: 2 });

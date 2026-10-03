@@ -201,7 +201,7 @@ test("channel settings: brands are added and renamed, a brand's messenger is val
       [{ allowedOrigins: ["https://*.shop.test"] }, "isn't a website address"],
       [{ allowedOrigins: ["https://shop.test/support"] }, "with no path"],
       [{ allowedOrigins: ["http://shop.test"] }, "isn't a website address"],
-      [{ color: "red" }, "Choose a colour"],
+      [{ color: "red" }, "Choose the primary colour"],
       [{ logo: "http://cdn.shop.test/logo.png" }, "https://"],
       [{ theme: "neon" }, "Choose a theme"],
       [{ teamIntroduction: " " }, "Write a greeting"],
