@@ -262,6 +262,17 @@ export async function startLocalRelay(
         "INSERT INTO tags(workspace_id,id,name) VALUES($1,'vip','VIP'),($1,'refund','Refund') ON CONFLICT DO NOTHING",
         [w],
       );
+      // A custom role (Settings S3a), held by nobody yet.
+      await sql.query(
+        "INSERT INTO roles(workspace_id,id,name) VALUES($1,'team_lead','Team lead') ON CONFLICT DO NOTHING",
+        [w],
+      );
+      await sql.query(
+        `INSERT INTO role_capabilities(workspace_id,role_id,capability)
+        SELECT $1,'team_lead',c FROM unnest(ARRAY['conversations.read','conversations.reply','conversations.note','conversations.manage','conversations.assign','contacts.personal_data','macros.use','macros.create','macros.edit','tickets.manage']) c
+        ON CONFLICT DO NOTHING`,
+        [w],
+      );
       // An archived tag (Settings S2b): kept for history, left out of pickers.
       await sql.query(
         "INSERT INTO tags(workspace_id,id,name,archived_at) VALUES($1,'legacy','Legacy',now()) ON CONFLICT DO NOTHING",

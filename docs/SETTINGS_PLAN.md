@@ -37,4 +37,10 @@ S2 was split on 3 October 2026 ("Yes, go ahead with all three"):
 - **Tags** are archived, never hard-deleted.
 - **An attribute's type** is fixed once created.
 
-Handoffs: `docs/SETTINGS_STEP1.md` (S1), `docs/SETTINGS_STEP2.md` (S2a), `docs/SETTINGS_STEP3.md` (S2b).
+S3 was split on 3 October 2026 ("Yes, go ahead with all four"):
+- **S3a, people:** teammates and their roles; roles and permissions. It needs `teammates.manage`.
+- **S3b, channels:** brands, the messenger and the customer portal. It needs `workspace.manage`.
+- **Inviting and removing teammates** wait for phase 16.
+- **Identity verification keys** are created and rotated by an operator until phase 16 security; S3b shows enforcement and key status.
+
+Handoffs: `docs/SETTINGS_STEP1.md` (S1), `docs/SETTINGS_STEP2.md` (S2a), `docs/SETTINGS_STEP3.md` (S2b), `docs/SETTINGS_STEP4.md` (S3a).
