@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased: Phase 08 A1 (the AI agent's answering core)
+
+- **The AI agent answers customers in the messenger,** behind a new `ai_agent_v1` flag, off by default. It answers in conversations no teammate has taken on:
+  - only from help content the customer may see, decided before anything is ranked
+  - each answer's sources are listed, linking to the help center
+  - when the content doesn't cover a question, it says so and offers a person, without asking the model
+  - it asks which one is meant when a short question matches two articles
+- **Retrieval** combines keyword and vector search over the AI index's passages, fused and reranked.
+- **Every attempt is recorded for teammates:** passages, scores, outcome, reason, model and prompt version, shown under each AI reply as "Why this reply".
+- **Models:**
+  - deployed: Claude Sonnet 5.5 through Anthropic's API (key as a Worker secret), with Workers AI reranking
+  - locally and in tests: deterministic stand-ins
+- **Customer and article text** are kept as data in the prompt; model replies are parsed and checked, and an answer citing nothing it was given is refused.
+- **Migration** 0040 with rollback. **Tests:**
+  - unit: `tests/ai-agent.test.ts`
+  - browser: `tests/browser/ai-agent.spec.ts`
+
+  Details: `docs/AI_STEP1.md`.
+
 ## Unreleased: Phase 07 C2b (content health)
 
 - **A Content health report** in Knowledge, linked from Settings, for knowledge managers. It is behind a new `knowledge_health_v1` flag, off by default. It shows:

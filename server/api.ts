@@ -92,6 +92,7 @@ import {
 } from "./people-settings";
 import { listBrands, saveBrand } from "./channel-settings";
 import { changeHealth, knowledgeHealth } from "./knowledge-health";
+import { aiAnswers, type AiEnvironment } from "./ai-agent";
 import {
   indexStatus,
   rebuildIndex,
@@ -171,6 +172,8 @@ export interface ApiEnvironment {
   dispatchJobs?: (workspace: string) => Promise<void>;
   /** Website sync (phase 07 C1b): fetch policy and page renderer. */
   sync?: SyncEnvironment;
+  /** The AI agent (phase 08): the answering model, the reranker and the AI index. */
+  ai?: AiEnvironment;
   /** The AI index (phase 07 C2a): embedding models and the vector store. */
   knowledgeIndex?: IndexEnvironment;
 }
@@ -1063,6 +1066,7 @@ export async function handleApi(
             "/v1/agent/notifications",
             "/v1/agent/macros",
             "/v1/agent/context",
+            "/v1/agent/ai-answers",
             "/v1/agent/bulk",
             "/v1/agent/ticket-types",
             "/v1/agent/ticket-preview",
@@ -1791,6 +1795,18 @@ export async function handleApi(
         });
         return new Response(file.body, { status: file.status, headers });
       }
+      if (url.pathname === "/v1/agent/ai-answers")
+        // Phase 08: what the AI agent did with each customer message, and why.
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            aiAnswers(
+              db,
+              workspace,
+              principal,
+              url.searchParams.get("conversation") ?? "",
+            ),
+          ),
+        );
       if (url.pathname === "/v1/agent/context")
         return json(
           await tenant(env.connect, workspace, (db) =>

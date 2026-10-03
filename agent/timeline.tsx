@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { LockKeyhole, Paperclip } from "lucide-react";
+import { LockKeyhole, Paperclip, Sparkles } from "lucide-react";
+import { api } from "./api";
 import { RichText } from "../lib/rich-view";
 import { initials } from "./card";
 
@@ -10,6 +11,7 @@ export type TimelinePart = {
   body: string;
   author_type: string;
   author_id?: string;
+  conversation_id?: string;
   supersedes_id?: string;
   created_at: string;
   data: Record<string, unknown> & {
@@ -233,6 +235,7 @@ function Message({
         ) : (
           <p>{p.body}</p>
         )}
+        {p.kind === "ai_reply" && <AiReplyDetails p={p} />}
         {p.kind === "attachment" && p.data.attachmentId && (
           <a
             href={
@@ -248,6 +251,92 @@ function Message({
           </a>
         )}
       </article>
+    </div>
+  );
+}
+
+type AiAnswer = {
+  replyPartId: string | null;
+  outcome: string;
+  reason: string;
+  topScore: number | null;
+  threshold: number;
+  model: string | null;
+  promptVersion: string;
+};
+const OUTCOMES: Record<string, string> = {
+  answered: "Answered from content",
+  clarified: "Asked to clarify",
+  unknown: "Said it didn't know",
+  failed: "The model failed",
+};
+/**
+ * Under an AI agent's reply (phase 08): the sources it cited, and on request why it answered as it
+ * did (what it found, how relevant, against which threshold, with which model and prompt).
+ */
+function AiReplyDetails({ p }: { p: TimelinePart }) {
+  const [answer, setAnswer] = useState<AiAnswer | null | undefined>();
+  const [open, setOpen] = useState(false);
+  const sources = Array.isArray(p.data.sources)
+    ? (p.data.sources as { title: string }[])
+    : [];
+  async function show() {
+    setOpen((x) => !x);
+    if (answer !== undefined || !p.conversation_id) return;
+    try {
+      const r = await api<{ answers: AiAnswer[] }>(
+        "ai-answers?conversation=" + encodeURIComponent(p.conversation_id),
+      );
+      setAnswer(r.answers.find((a) => a.replyPartId === p.id) ?? null);
+    } catch {
+      setAnswer(null);
+    }
+  }
+  return (
+    <div className="pg-ai-details">
+      {sources.length > 0 && (
+        <p className="pg-ai-sources">
+          Sources: {sources.map((s) => s.title || "Untitled").join(" · ")}
+        </p>
+      )}
+      <button
+        type="button"
+        className="pg-link-button"
+        aria-expanded={open}
+        onClick={() => void show()}
+      >
+        <Sparkles size={12} aria-hidden="true" /> Why this reply
+      </button>
+      {open && (
+        <dl className="pg-ai-why">
+          {answer === undefined ? (
+            <dd>Loading…</dd>
+          ) : answer === null ? (
+            <dd>No details recorded.</dd>
+          ) : (
+            <>
+              <dt>Outcome</dt>
+              <dd>{OUTCOMES[answer.outcome] ?? answer.outcome}</dd>
+              <dt>Why</dt>
+              <dd>{answer.reason}</dd>
+              {answer.topScore !== null && (
+                <>
+                  <dt>Best match</dt>
+                  <dd>
+                    {answer.topScore.toFixed(2)} (answers need{" "}
+                    {answer.threshold.toFixed(2)})
+                  </dd>
+                </>
+              )}
+              <dt>Model</dt>
+              <dd>
+                {answer.model ?? "None (not asked)"} · prompt{" "}
+                {answer.promptVersion}
+              </dd>
+            </>
+          )}
+        </dl>
+      )}
     </div>
   );
 }

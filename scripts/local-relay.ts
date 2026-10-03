@@ -52,6 +52,13 @@ import {
   runDuplicates,
   scheduleDuplicateCheck,
 } from "../server/knowledge-health";
+import { runAiReply } from "../server/ai-agent";
+import {
+  standInAnswerModel,
+  standInReranker,
+  type AnswerModel,
+  type RerankPort,
+} from "../server/ai-model";
 import { localIndex } from "./local-vectors";
 import {
   runSync,
@@ -99,6 +106,10 @@ export async function startLocalRelay(
     knowledgeHealth?: boolean;
     /** Its model and vector store; by default the test embedder and a local store. */
     index?: IndexEnvironment;
+    /** The AI agent's models (phase 08); stand-ins by default. */
+    ai?: { model?: AnswerModel; rerank?: RerankPort };
+    /** The AI agent (phase 08), likewise on locally unless turned off. */
+    aiAgent?: boolean;
     /** Website sync's fetch policy and renderer (tests reach a local test site this way). */
     sync?: SyncEnvironment;
     longTimeline?: boolean;
@@ -192,6 +203,12 @@ export async function startLocalRelay(
     notify: publish,
     sync: options.sync ?? {},
     knowledgeIndex: options.index ?? localIndex(options.directory),
+  };
+  // The AI agent (phase 08): offline stand-ins locally, unless a test passes its own.
+  env.ai = {
+    model: options.ai?.model ?? standInAnswerModel(),
+    rerank: options.ai?.rerank ?? standInReranker(),
+    index: env.knowledgeIndex!,
   };
   for (const w of ["demo", "other"])
     await tenant(db.connect, w, (sql) =>
@@ -466,6 +483,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_index_v1'",
         [w, options.knowledgeIndex !== false],
       );
+      // The AI agent (phase 08).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='ai_agent_v1'",
+        [w, options.aiAgent !== false],
+      );
       // Content health (phase 07, C2b).
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_health_v1'",
@@ -599,6 +621,7 @@ export async function startLocalRelay(
     runIndex(db.connect, env.knowledgeIndex!, job);
   handlers["knowledge.duplicates"] = (job) =>
     runDuplicates(db.connect, env.knowledgeIndex!, job);
+  handlers["ai.reply"] = (job) => runAiReply(db.connect, env.ai!, job);
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,

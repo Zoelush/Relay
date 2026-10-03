@@ -28,6 +28,7 @@ import { resolveContact } from "./people";
 import { customerReply, refreshCustomerUnread } from "./unread";
 import { enqueueJob } from "./jobs";
 import { customerVisiblePart } from "./delivery-policy";
+import { queueAiReply } from "./ai-agent";
 
 export type Actor = (
   | { type: "teammate"; principal: string }
@@ -634,7 +635,7 @@ export async function command(
         "INSERT INTO conversation_cycles(workspace_id,conversation_id,opened_seq,opened_at) VALUES($1,$2,$3,$4)",
         [w, id, opened.seq, opened.created_at],
       );
-      await append(
+      const first = await append(
         db,
         w,
         c,
@@ -646,6 +647,8 @@ export async function command(
         "customer_message",
         p.text.trim(),
       );
+      // The AI agent (phase 08) answers when it's on and no teammate has the conversation.
+      await queueAiReply(db, w, c, first.id);
       // For the teammate only: what the customer searched or read first (never delivered to them).
       if (help?.searched || help?.article)
         await append(
@@ -847,11 +850,13 @@ export async function command(
           "DELETE FROM conversation_drafts WHERE workspace_id=$1 AND conversation_id=$2 AND teammate_id=$3 AND mode=$4",
           [w, c.id, who.id, p.action],
         );
-      if (kind === "customer_message")
+      if (kind === "customer_message") {
         await db.query(
           "UPDATE conversations SET last_contact_reply_at=$3 WHERE workspace_id=$1 AND id=$2",
           [w, c.id, part.created_at],
         );
+        await queueAiReply(db, w, c, part.id);
+      }
       let metricsJobId: string | undefined;
       if (kind === "teammate_reply") {
         await db.query(

@@ -15,6 +15,8 @@ test.beforeAll(async () => {
     apiPort: 8906,
     hostPort: 8907,
     inboxViews: true,
+    // The AI agent (phase 08) would reply and become the cards' latest message.
+    aiAgent: false,
   });
 });
 test.afterAll(async () => {
