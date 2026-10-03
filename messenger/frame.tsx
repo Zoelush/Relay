@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { language } from "./strings";
 import { HelpSpace } from "./help";
 import { RichText } from "../lib/rich-view";
+import { palette, paletteVariables } from "../lib/brand-colours";
 import "./frame.css";
 
 type Part = {
@@ -163,6 +164,8 @@ type Init = {
   open: boolean;
   /** Settings' live preview (messenger M2): nothing is sent or fetched. */
   preview?: boolean;
+  /** The preview's chosen space (messenger M4); ignored outside the preview. */
+  page?: string;
 };
 const query = new URLSearchParams(location.search),
   parentOrigin = query.get("parent") ?? "",
@@ -182,7 +185,7 @@ const sound = () => {
   osc.stop(ctx.currentTime + 0.15);
   osc.onended = () => void ctx.close();
 };
-function Messenger({ boot, api, open: initialOpen, preview }: Init) {
+function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
   const { strings: t, locale, dir } = language(boot.locale, boot.brand.locale);
   // Messenger settings M1: what this customer's audience (visitor or verified user) sees.
   const m3 = boot.brand.messenger3;
@@ -191,7 +194,10 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
   const direct = aud
     ? aud.launchToConversation
     : !!boot.brand.directConversation;
-  const [space, setSpace] = useState<string>(direct ? "messages" : "home"),
+  const shown = preview && page ? page : null;
+  const [space, setSpace] = useState<string>(
+      shown ?? (direct ? "messages" : "home"),
+    ),
     [composing, setComposing] = useState(direct),
     // Phase 07 B2: the last search's signed receipt ("search before contacting"), and the
     // article a "Talk to us" came from.
@@ -353,15 +359,22 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
       );
     setTimeout(() => input.current?.focus(), 0);
   }
-  // The brand's colours, light and dark (messenger M2), from the boot: a draft shows at once.
-  const brandColor = /^#[0-9a-fA-F]{6}$/.test(String(boot.brand.color))
-    ? String(boot.brand.color)
-    : "#087a57";
-  const darkColor = boot.brand.messenger3?.look?.darkColor ?? brandColor;
+  // The brand's colours, light and dark (messenger M2), from the boot: a draft shows at once. Text
+  // on them, and links in them, are worked out to stay readable (M4, lib/brand-colours.ts).
+  const brandColor = String(boot.brand.color ?? "");
+  const darkColor = boot.brand.messenger3?.look?.darkColor ?? null;
   useEffect(() => {
-    document.documentElement.style.setProperty("--accent-light", brandColor);
-    document.documentElement.style.setProperty("--accent-dark", darkColor);
+    for (const [name, value] of Object.entries(
+      paletteVariables(palette(brandColor, darkColor)),
+    ))
+      document.documentElement.style.setProperty(name, value);
   }, [brandColor, darkColor]);
+  // Settings' preview follows the page chosen beside it (M4).
+  const [lastShown, setLastShown] = useState(shown);
+  if (shown !== lastShown) {
+    setLastShown(shown);
+    if (shown) setSpace(shown);
+  }
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = dir;
@@ -387,7 +400,7 @@ function Messenger({ boot, api, open: initialOpen, preview }: Init) {
       if (data.type === "close") setVisible(false);
       if (data.type === "open") {
         setVisible(true);
-        if (["home", "messages", "help"].includes(data.space))
+        if (["home", "messages", "help", "tickets"].includes(data.space))
           setSpace(data.space);
         setTimeout(
           () => document.querySelector<HTMLButtonElement>(".close")?.focus(),

@@ -12,9 +12,13 @@ phase before starting work. Phase 04 has its own detailed plan in
 `docs/INTERCOM_GAP_AUDIT.md` compares Intercom with Relay (October 2026); its
 additions are marked inside each phase of `docs/BUILD_PHASES.md`.
 
-Current position: the messenger settings plan (`docs/MESSENGER_SETTINGS_PLAN.md`, M1–M3, asked for
-before phase 08 A2) is complete locally (`docs/MESSENGER_SETTINGS_STEP1.md` to `STEP3.md`); next is
-phase 08 A2. With `messenger_v3` on, a brand's messenger is a draft published as versions
+Current position: the messenger settings plan (`docs/MESSENGER_SETTINGS_PLAN.md`, asked for
+before phase 08 A2) is done locally to M4 (`docs/MESSENGER_SETTINGS_STEP1.md` to `STEP4.md`); next is
+M5 (logo uploads), then phase 08 A2. The messenger has no colour of its own: its surfaces are neutral,
+and every colour comes from `palette()` in `lib/brand-colours.ts` (text on the brand colour, and the
+brand colour as links, kept at 4.5:1); `tests/messenger-colours.test.ts` fails on a fixed colour on a
+brand fill. Settings › Messenger follows Intercom's layout (tabs, one-at-a-time sections); browser
+tests open sections with `tests/browser/messenger-sections.ts`. With `messenger_v3` on, a brand's messenger is a draft published as versions
 (`server/messenger-config.ts`); publishing writes `brands.settings` (the `messenger3` key is only
 booted while the flag is on). Its inbound rules are enforced in `server/conversations.ts`
 (`inboundRules`), not only in the messenger. Settings' live preview loads the app's own copy of the

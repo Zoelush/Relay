@@ -21,8 +21,8 @@ button {
   width: 58px;
   height: 58px;
   border-radius: 20px;
-  background: #087a57;
-  color: white;
+  background: var(--relay-accent, #3b3b42);
+  color: var(--relay-on-accent, #ffffff);
   box-shadow: 0 5px 24px #0003;
   cursor: pointer;
   font:
@@ -78,7 +78,7 @@ iframe {
   max-width: calc(100vw - 32px);
   border: 0;
   border-radius: 22px;
-  background: #fafaf7;
+  background: #f6f6f7;
   box-shadow: 0 14px 64px #001b2533;
   color-scheme: normal;
 }
@@ -91,11 +91,11 @@ iframe[data-position="left"] {
   z-index: 2147483647;
   inset-inline-end: 35px;
   bottom: 130px;
-  background: white;
-  color: #183c34;
+  background: #ffffff;
+  color: #1b1b1f;
   width: 300px;
   padding: 20px;
-  border: 1px solid #dfe8e2;
+  border: 1px solid #e4e4e8;
   border-radius: 16px;
   box-shadow: 0 8px 40px #0003;
   font:
@@ -108,8 +108,8 @@ iframe[data-position="left"] {
   font:
     14px system-ui,
     sans-serif;
-  background: #087a57;
-  color: white;
+  background: var(--relay-accent, #3b3b42);
+  color: var(--relay-on-accent, #ffffff);
   border-radius: 8px;
   padding: 10px;
   margin-top: 8px;

@@ -324,7 +324,7 @@ function validLook(input: unknown): Look {
     );
   const colors = (Array.isArray(h.colors) ? h.colors : []).map(String);
   if (!colors.length || colors.length > 3 || !colors.every((x) => HEX.test(x)))
-    invalid("Home's background takes one to three colours such as #087a57.");
+    invalid("Home's background takes one to three colours such as #1d4ed8.");
   if (background === "gradient" && colors.length < 2)
     invalid("A gradient needs two or three colours.");
   const image = str(h.image, 500, "the background image address");

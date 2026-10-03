@@ -2,6 +2,7 @@ import { test, expect, type Page, type Browser } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
 import { command } from "../../server/conversations";
+import { section, setLive, tab } from "./messenger-sections";
 
 /** Messenger settings M3 (docs/MESSENGER_SETTINGS_STEP3.md): rules, languages, privacy, install. */
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
@@ -55,6 +56,7 @@ test("rules, a privacy notice and French are published; the customer continues t
 }) => {
   await settings(page);
   // Visitors: one conversation at a time, no replies once closed.
+  await section(page, "General", "Control inbound volume");
   await page
     .getByRole("checkbox", { name: /One open conversation at a time/ })
     .check();
@@ -62,7 +64,9 @@ test("rules, a privacy notice and French are published; the customer continues t
     .getByRole("checkbox", { name: /No replies to closed conversations/ })
     .check();
   // Everyone: French, and a privacy notice.
+  await section(page, "General", "Supported languages");
   await page.getByRole("checkbox", { name: "French", exact: true }).check();
+  await section(page, "General", "Configure privacy settings");
   await page.getByRole("checkbox", { name: /Show a privacy notice/ }).check();
   await page
     .getByLabel("Privacy policy address")
@@ -70,7 +74,7 @@ test("rules, a privacy notice and French are published; the customer continues t
   await page
     .getByLabel("Privacy notice (English)")
     .fill("We use your messages to help you.");
-  await page.getByRole("button", { name: "Publish" }).click();
+  await setLive(page);
   await expect(notice(page)).toContainText("Published version 1.");
 
   // A visitor: the privacy notice when starting, then their open conversation is continued.
@@ -160,6 +164,7 @@ test("rules, a privacy notice and French are published; the customer continues t
   // Settings (reloaded): where the messenger ran, per-framework snippets, and the identity guide.
   await page.reload();
   await expect(page.getByTestId("publish-state")).toBeVisible({ timeout: 15000 });
+  await tab(page, "Install");
   await expect(page.getByRole("list", { name: "Seen on" })).toContainText(
     relay.hostOrigin,
   );
@@ -173,6 +178,7 @@ test("rules, a privacy notice and French are published; the customer continues t
     "export function RelayMessenger({ user, relayToken })",
   );
   await expect(snippet).toContainText("jwt: relayToken");
+  await tab(page, "Security");
   await page
     .getByRole("tablist", { name: "Server language" })
     .getByRole("tab", { name: "Python" })
@@ -189,6 +195,7 @@ test("an http privacy policy address is refused with the reason, and nothing is 
   const before = (
     await sql("SELECT count(*)::int AS n FROM messenger_versions")
   )[0].n;
+  await section(page, "General", "Configure privacy settings");
   await page.getByRole("checkbox", { name: /Show a privacy notice/ }).check();
   await page
     .getByLabel("Privacy policy address")

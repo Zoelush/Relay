@@ -7,16 +7,19 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #183c34;
-  background: #f8faf8;
+  color: var(--text);
+  background: var(--bg);
   font-size: 14px;
   color-scheme: light;
-  --accent: var(--accent-light, #087a57);
-  --bg: #f8faf8;
-  --surface: white;
-  --text: #183c34;
-  --muted: #6e8079;
-  --border: #dfe8e2;
+  /* Messenger settings M4: neutral surfaces; every colour comes from the brand (lib/brand-colours.ts). */
+  --accent: var(--accent-light, #3b3b42);
+  --on-accent: var(--on-accent-light, #ffffff);
+  --accent-text: var(--accent-text-light, var(--accent));
+  --bg: #f6f6f7;
+  --surface: #ffffff;
+  --text: #1b1b1f;
+  --muted: #6b6b74;
+  --border: #e4e4e8;
 }
 * {
   box-sizing: border-box;
@@ -74,7 +77,7 @@ header {
   letter-spacing: -0.5px;
 }
 .brand-mark {
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 26px;
 }
 .brand img {
@@ -134,7 +137,7 @@ h2 {
 .primary {
   border: 0;
   border-radius: 12px;
-  color: white;
+  color: var(--on-accent);
   background: var(--accent);
   padding: 14px 18px;
   font-weight: 600;
@@ -298,7 +301,7 @@ h2 {
 }
 .outgoing p {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border-color: transparent;
   border-radius: 14px 14px 3px 14px;
 }
@@ -342,7 +345,7 @@ textarea {
   height: 38px;
   width: 38px;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   font-size: 22px;
 }
 .preferences {
@@ -381,7 +384,7 @@ nav button span {
   line-height: 1.1;
 }
 nav button[aria-current] {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 footer {
@@ -418,22 +421,26 @@ footer strong {
   clip-path: inset(50%);
 }
 :root[data-theme="dark"] {
-  --accent: var(--accent-dark, var(--accent-light, #087a57));
-  --bg: #152722;
-  --surface: #1e352d;
-  --text: #eff8f2;
-  --muted: #adbbb4;
-  --border: #385045;
+  --accent: var(--accent-dark, var(--accent-light, #3b3b42));
+  --on-accent: var(--on-accent-dark, var(--on-accent-light, #ffffff));
+  --accent-text: var(--accent-text-dark, var(--accent));
+  --bg: #1b1b1f;
+  --surface: #26262b;
+  --text: #f3f3f5;
+  --muted: #a8a8b2;
+  --border: #3d3d44;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-theme="auto"] {
-    --accent: var(--accent-dark, var(--accent-light, #087a57));
-    --bg: #152722;
-    --surface: #1e352d;
-    --text: #eff8f2;
-    --muted: #adbbb4;
-    --border: #385045;
+    --accent: var(--accent-dark, var(--accent-light, #3b3b42));
+    --on-accent: var(--on-accent-dark, var(--on-accent-light, #ffffff));
+    --accent-text: var(--accent-text-dark, var(--accent));
+    --bg: #1b1b1f;
+    --surface: #26262b;
+    --text: #f3f3f5;
+    --muted: #a8a8b2;
+    --border: #3d3d44;
     color-scheme: dark;
   }
 }
@@ -465,7 +472,7 @@ footer strong {
 .attachment button {
   background: transparent;
   border: 0;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -488,14 +495,14 @@ footer strong {
 .rich-image img { display: block; max-width: 100%; max-height: 280px; border-radius: 8px; }
 .rich-image-loading { display: block; width: 160px; height: 90px; border-radius: 8px; background: rgba(0,0,0,.06); }
 /* Phase 06 step C: place in line and when the team is next open. */
-.queue { margin: 6px 16px 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent, #087a57) 10%, transparent); font-size: 13px; }
+.queue { margin: 6px 16px 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, transparent); font-size: 13px; }
 
 /* The Help space (phase 07, step B2): the messenger's own theme variables. */
 .help-space { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
 .help-search { display: flex; gap: 6px; }
 .help-search input { flex: 1; min-width: 0; font: inherit; padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); }
 .help-search button, .help-feedback button { font: inherit; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
-.help-feedback button.help-talk { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+.help-feedback button.help-talk { background: var(--accent); color: var(--on-accent); border-color: var(--accent-text); font-weight: 600; }
 .help-back { align-self: flex-start; background: none; border: 0; padding: 4px 0; color: var(--muted); }
 .help-back:hover { color: var(--text); }
 .help-collections, .help-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -536,7 +543,7 @@ footer strong {
   font-size: 12px;
 }
 .message .sources a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .message .options {
   display: flex;
@@ -551,7 +558,7 @@ footer strong {
   border-radius: 999px;
   border: 1px solid var(--accent);
   background: var(--surface);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Messenger settings M1: the special notice and the welcome's introduction. */
@@ -581,7 +588,7 @@ footer strong {
   margin-top: -28px;
 }
 .intro.hero[data-text="dark"] {
-  color: #10221c;
+  color: #111114;
 }
 .intro.hero .eyebrow,
 .intro.hero p,
@@ -612,7 +619,7 @@ footer strong {
   border-radius: 50%;
   border: 2px solid var(--surface);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 600;
 }
@@ -625,7 +632,7 @@ footer strong {
   color: var(--muted);
 }
 .privacy a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .closed-note {
   display: flex;
