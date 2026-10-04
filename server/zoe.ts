@@ -306,6 +306,15 @@ export async function zoeOverview(db: Sql, w: string, principal: string) {
       topics: agent.never_handle.length,
       guidance: agent.escalation_guidance.length,
     },
+    // Z2: how she sounds, and how much answer guidance is on.
+    voice: {
+      tone: agent.tone,
+      length: agent.answer_length,
+      formality: agent.formality,
+      guidelines: agent.answer_guidance.filter((g) => g.enabled).length,
+      version: agent.guidance_version,
+      languages: agent.languages.length,
+    },
     content: counts.content,
     gaps: await gaps(db, w, 6),
     articles: await mostUsed(db, w, 6),
@@ -316,14 +325,25 @@ export async function zoeOverview(db: Sql, w: string, principal: string) {
 export async function zoePerformance(db: Sql, w: string, principal: string) {
   await zoeAccess(db, w, principal);
   const from = since();
+  // Spam she left alone (Z2) is a skipped answer with the trigger "spam": counted on its own.
   const outcomes = Object.fromEntries(
     (
       await db.query<{ outcome: string; n: number }>(
-        "SELECT outcome,count(*)::int AS n FROM ai_answers WHERE workspace_id=$1 AND created_at>=$2 GROUP BY outcome",
+        `SELECT CASE WHEN outcome='skipped' AND trigger='spam' THEN 'spam' ELSE outcome END AS outcome,count(*)::int AS n
+         FROM ai_answers WHERE workspace_id=$1 AND created_at>=$2 GROUP BY 1`,
         [w, from],
       )
     ).rows.map((r) => [r.outcome, r.n]),
   );
+  // The languages she replied in (Z2).
+  const languages = (
+    await db.query<{ language: string; n: number }>(
+      `SELECT language,count(*)::int AS n FROM ai_answers
+       WHERE workspace_id=$1 AND created_at>=$2 AND language IS NOT NULL AND outcome<>'skipped'
+       GROUP BY language ORDER BY count(*) DESC,language`,
+      [w, from],
+    )
+  ).rows.map((r) => ({ language: r.language, count: r.n }));
   const triggers = (
     await db.query<{ trigger: string; n: number }>(
       "SELECT trigger,count(*)::int AS n FROM ai_answers WHERE workspace_id=$1 AND created_at>=$2 AND outcome='escalated' AND trigger IS NOT NULL GROUP BY trigger ORDER BY count(*) DESC,trigger",
@@ -356,8 +376,10 @@ export async function zoePerformance(db: Sql, w: string, principal: string) {
       failed: outcomes.failed ?? 0,
       escalated: outcomes.escalated ?? 0,
       skipped: outcomes.skipped ?? 0,
+      spam: outcomes.spam ?? 0,
     },
     triggers,
+    languages,
     resolutions: {
       confirmed: ledger.confirmed,
       quiet: ledger.quiet,

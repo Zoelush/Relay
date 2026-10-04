@@ -20,6 +20,14 @@ import {
   type Topic,
 } from "./ai-escalation";
 import { greetingFor, listIdentities } from "./zoe";
+import { applicableGuidance, draftStyle, guidanceAt } from "./zoe-guidance";
+import { chooseLanguage, detectLanguage, type LanguageChoice } from "./ai-language";
+import {
+  ALL_LANGUAGES,
+  languageName,
+  type Guideline,
+  type Voice,
+} from "../lib/zoe-voice";
 import { enqueueJob, type Job } from "./jobs";
 import {
   access,
@@ -32,6 +40,8 @@ import { customerReply } from "./unread";
 import type { IndexEnvironment } from "./knowledge-index";
 import {
   PROMPT_VERSION,
+  guidanceLine,
+  styleLines,
   type AnswerModel,
   type Classification,
   type ClassifierPort,
@@ -72,7 +82,12 @@ import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
  * Step A2b (docs/AI_STEP3.md) adds escalation rules (conditions on the customer and conversation,
  * checked in code first), never-handle topics (keywords in code, and meaning by the classifier)
  * and escalation guidance (applied by the classifier, which can only decide to hand over).
- * TODO(phase 08 B1): several agents, guidance, content targeting and language detection.
+ * Step Z2 (docs/AI_STEP6.md): her voice (tone, length, formality) and the workspace's answer
+ * guidance go to the model as data under her rules; spam guidance goes to the classifier, and a
+ * message it matches is left alone; she answers in the language the customer writes in
+ * (`server/ai-language.ts`), among the languages the workspace allows. Every answer records the
+ * language and the guidance version it was given.
+ * TODO(phase 08 Z3): several agents (specialists) and content targeting.
  */
 export type AiEnvironment = {
   model: AnswerModel;
@@ -90,7 +105,12 @@ const HISTORY = 10;
  */
 const GIVE_UP_AFTER = 3;
 
-/** Fixed replies, never written by the model. */
+/**
+ * Fixed replies, never written by the model, in her nine languages (the messenger's; Z2 added
+ * Brazilian Portuguese, Italian, Dutch and Arabic). As written they use each language's usual
+ * register for support (vous, tú, Sie, o, você, tu, je); `FORMAL` and `INFORMAL` switch the
+ * replies that address the customer (Z2). A native speaker should check the Z2 additions.
+ */
 type Strings = {
   unknown: string;
   greeting: string;
@@ -186,13 +206,161 @@ const STRINGS: Record<string, Strings> = {
     thanks:
       "Ainda bem que ajudou! Se precisar de mais alguma coisa, escreva aqui.",
   },
+  "pt-BR": {
+    unknown:
+      "Desculpe, não encontrei uma resposta para isso na nossa ajuda. Quer que eu coloque você em contato com alguém da equipe?",
+    greeting: "Olá! Como posso ajudar?",
+    person: "Falar com uma pessoa",
+    handover:
+      "Vou colocar você em contato com alguém da equipe. A resposta vai chegar aqui.",
+    away: "Nossa equipe não está disponível agora. A resposta vai chegar aqui assim que ela voltar.",
+    awayUntil:
+      "Nossa equipe não está disponível agora e volta {when}. A resposta vai chegar aqui.",
+    awayContinue:
+      "Nossa equipe não está disponível agora e vai responder aqui quando voltar. Enquanto isso, posso continuar ajudando você.",
+    helped: "Isso ajudou",
+    thanks: "Que bom que ajudou! Se precisar de mais alguma coisa, é só escrever aqui.",
+  },
+  it: {
+    unknown:
+      "Mi dispiace, non ho trovato una risposta nella nostra guida. Vuoi che ti metta in contatto con qualcuno del team?",
+    greeting: "Ciao! Come posso aiutarti?",
+    person: "Parla con una persona",
+    handover: "Ti metto in contatto con qualcuno del team. Ti risponderà qui.",
+    away: "Il nostro team non è disponibile in questo momento. Ti risponderà qui appena torna.",
+    awayUntil:
+      "Il nostro team non è disponibile in questo momento e torna {when}. Ti risponderà qui.",
+    awayContinue:
+      "Il nostro team non è disponibile in questo momento e ti risponderà qui al suo ritorno. Nel frattempo, posso continuare ad aiutarti.",
+    helped: "Mi è stato utile",
+    thanks: "Felice di aver aiutato! Se ti serve altro, scrivici qui.",
+  },
+  nl: {
+    unknown:
+      "Sorry, ik heb daar in onze hulp geen antwoord op gevonden. Wil je dat ik je in contact breng met iemand van het team?",
+    greeting: "Hoi! Waarmee kan ik je helpen?",
+    person: "Met een persoon praten",
+    handover: "Ik breng je in contact met iemand van het team. Je krijgt hier antwoord.",
+    away: "Ons team is er nu niet. Je krijgt hier antwoord zodra het terug is.",
+    awayUntil: "Ons team is er nu niet en is {when} terug. Je krijgt dan hier antwoord.",
+    awayContinue:
+      "Ons team is er nu niet en antwoordt hier zodra het terug is. Tot die tijd help ik je graag verder.",
+    helped: "Dit heeft geholpen",
+    thanks: "Fijn dat het heeft geholpen! Als je nog iets nodig hebt, schrijf het hier.",
+  },
+  ar: {
+    unknown:
+      "عذرًا، لم أجد إجابة عن ذلك في محتوى المساعدة لدينا. هل تريد أن أوصلك بأحد أعضاء الفريق؟",
+    greeting: "مرحبًا! كيف يمكنني مساعدتك؟",
+    person: "التحدث إلى شخص",
+    handover: "سأوصلك بأحد أعضاء الفريق. سيصلك الرد هنا.",
+    away: "فريقنا غير متاح الآن. سيصلك الرد هنا فور عودته.",
+    awayUntil: "فريقنا غير متاح الآن ويعود {when}. سيصلك الرد هنا.",
+    awayContinue:
+      "فريقنا غير متاح الآن وسيرد هنا عند عودته. حتى ذلك الحين، يسعدني أن أواصل مساعدتك.",
+    helped: "هذا ساعدني",
+    thanks: "يسعدني أن ذلك ساعد! إذا احتجت إلى أي شيء آخر، فاكتب هنا.",
+  },
+};
+/** The formal register, where a language's usual one is informal (Z2). */
+const FORMAL: Record<string, Partial<Strings>> = {
+  es: {
+    unknown:
+      "Lo siento, no encontré una respuesta en nuestra ayuda. ¿Quiere que le ponga en contacto con alguien del equipo?",
+    greeting: "¡Hola! ¿En qué puedo ayudarle?",
+    handover: "Le pongo en contacto con alguien del equipo. Le responderá aquí.",
+    away: "Nuestro equipo no está disponible ahora. Le responderá aquí en cuanto vuelva.",
+    awayUntil:
+      "Nuestro equipo no está disponible ahora y vuelve {when}. Le responderá aquí.",
+    awayContinue:
+      "Nuestro equipo no está disponible ahora y le responderá aquí cuando vuelva. Mientras tanto, puedo seguir ayudándole.",
+    thanks: "¡Me alegra haber ayudado! Si necesita algo más, escríbanos aquí.",
+  },
+  "pt-BR": {
+    unknown:
+      "Desculpe, não encontrei uma resposta para isso na nossa ajuda. Deseja falar com alguém da equipe?",
+    handover:
+      "Vou encaminhar sua conversa para alguém da equipe. A resposta chegará aqui.",
+    away: "Nossa equipe não está disponível no momento. A resposta chegará aqui assim que ela retornar.",
+    awayUntil:
+      "Nossa equipe não está disponível no momento e retorna {when}. A resposta chegará aqui.",
+    awayContinue:
+      "Nossa equipe não está disponível no momento e responderá aqui quando retornar. Enquanto isso, posso continuar ajudando.",
+    thanks: "Que bom que ajudou! Se precisar de mais alguma coisa, basta escrever aqui.",
+  },
+  it: {
+    unknown:
+      "Mi dispiace, non ho trovato una risposta nella nostra guida. Vuole che la metta in contatto con qualcuno del team?",
+    greeting: "Buongiorno! Come posso aiutarla?",
+    handover: "La metto in contatto con qualcuno del team. Le risponderà qui.",
+    away: "Il nostro team non è disponibile in questo momento. Le risponderà qui appena torna.",
+    awayUntil:
+      "Il nostro team non è disponibile in questo momento e torna {when}. Le risponderà qui.",
+    awayContinue:
+      "Il nostro team non è disponibile in questo momento e le risponderà qui al suo ritorno. Nel frattempo, posso continuare ad aiutarla.",
+    thanks: "Felice di aver aiutato! Se le serve altro, ci scriva qui.",
+  },
+  nl: {
+    unknown:
+      "Excuses, ik heb daar in onze hulp geen antwoord op gevonden. Wilt u dat ik u in contact breng met iemand van het team?",
+    greeting: "Hallo! Waarmee kan ik u helpen?",
+    handover: "Ik breng u in contact met iemand van het team. U krijgt hier antwoord.",
+    away: "Ons team is er nu niet. U krijgt hier antwoord zodra het terug is.",
+    awayUntil: "Ons team is er nu niet en is {when} terug. U krijgt dan hier antwoord.",
+    awayContinue:
+      "Ons team is er nu niet en antwoordt hier zodra het terug is. Tot die tijd help ik u graag verder.",
+    thanks: "Fijn dat het heeft geholpen! Als u nog iets nodig heeft, schrijf het dan hier.",
+  },
+};
+/** The informal register, where a language's usual one is formal (Z2). */
+const INFORMAL: Record<string, Partial<Strings>> = {
+  fr: {
+    unknown:
+      "Désolé, je n'ai pas trouvé de réponse dans notre aide. Tu veux que je te mette en relation avec quelqu'un de l'équipe ?",
+    greeting: "Bonjour ! Comment puis-je t'aider ?",
+    handover: "Je te mets en relation avec quelqu'un de l'équipe. Il te répondra ici.",
+    away: "Notre équipe est absente pour le moment. Elle te répondra ici dès son retour.",
+    awayUntil:
+      "Notre équipe est absente pour le moment et revient {when}. Elle te répondra ici.",
+    awayContinue:
+      "Notre équipe est absente pour le moment et te répondra ici à son retour. D'ici là, je peux continuer à t'aider.",
+    thanks: "Ravi d'avoir pu aider ! Si tu as besoin d'autre chose, écris-nous ici.",
+  },
+  de: {
+    unknown:
+      "Leider habe ich dazu in unserer Hilfe keine Antwort gefunden. Soll ich dich mit jemandem aus dem Team verbinden?",
+    handover: "Ich verbinde dich mit jemandem aus dem Team. Du bekommst die Antwort hier.",
+    away: "Unser Team ist gerade nicht da. Du bekommst die Antwort hier, sobald es zurück ist.",
+    awayUntil:
+      "Unser Team ist gerade nicht da und ab {when} zurück. Du bekommst die Antwort dann hier.",
+    awayContinue:
+      "Unser Team ist gerade nicht da und antwortet hier, sobald es zurück ist. Bis dahin helfe ich dir gern weiter.",
+    thanks: "Schön, dass es geholfen hat! Wenn du noch etwas brauchst, schreib einfach hier.",
+  },
+  pt: {
+    unknown:
+      "Desculpa, não encontrei uma resposta na nossa ajuda. Queres que te ponha em contacto com alguém da equipa?",
+    handover: "Vou pôr-te em contacto com alguém da equipa. A resposta chega aqui.",
+    awayContinue:
+      "A nossa equipa não está disponível agora e responde aqui quando voltar. Até lá, posso continuar a ajudar-te.",
+    thanks: "Ainda bem que ajudou! Se precisares de mais alguma coisa, escreve aqui.",
+  },
 };
 /** The "Talk to a person" button's words in every language, as the customer sends them. */
 const PERSON_LABELS = new Set(
   Object.values(STRINGS).map((t) => t.person.toLowerCase()),
 );
-const strings = (locale: string) =>
-  STRINGS[locale] ?? STRINGS[locale.split("-")[0]] ?? STRINGS.en;
+/** Her fixed replies in a language (its own, or its base language's, or English), in a register. */
+const strings = (locale: string, formality: Voice["formality"] = "usual"): Strings => {
+  const key = STRINGS[locale]
+    ? locale
+    : STRINGS[locale.split("-")[0]]
+      ? locale.split("-")[0]
+      : "en";
+  const register =
+    formality === "formal" ? FORMAL[key] : formality === "informal" ? INFORMAL[key] : undefined;
+  return { ...STRINGS[key], ...register };
+};
 
 export async function aiEnabled(db: Sql, w: string) {
   return (
@@ -226,8 +394,16 @@ async function agentOf(db: Sql, w: string) {
       escalation_guidance: string[];
       resolution_window_hours: number;
       version: string;
+      tone: Voice["tone"];
+      answer_length: Voice["length"];
+      formality: Voice["formality"];
+      answer_guidance: Guideline[];
+      guidance_version: number;
+      languages: string[];
+      other_languages: "brand_language" | "hand_over";
     }>(
-      "SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,never_handle,escalation_guidance,resolution_window_hours,version::text AS version FROM ai_agents WHERE workspace_id=$1 AND id=$2",
+      `SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,never_handle,escalation_guidance,resolution_window_hours,version::text AS version,
+         tone,answer_length,formality,answer_guidance,guidance_version,languages,other_languages FROM ai_agents WHERE workspace_id=$1 AND id=$2`,
       [w, DEFAULT_AGENT],
     )
   ).rows[0];
@@ -277,6 +453,8 @@ type Context = {
   history: Turn[];
   chain: string[];
   signedIn: boolean;
+  /** The language she answers in, and how she chose it (Z2). */
+  language: LanguageChoice;
 };
 
 /** Why the agent won't answer this message now, if it won't. */
@@ -348,7 +526,7 @@ async function context(
       from: p.kind === "customer_message" ? "customer" : "agent",
       text: p.body,
     }));
-  // The customer's language: their messenger session's, then the brand's.
+  // The customer's browser language (their messenger session's), and the brand's.
   const locale =
     (
       await db.query<{ locale: string }>(
@@ -363,21 +541,23 @@ async function context(
         [w, c.brand_id],
       )
     ).rows[0]?.locale ?? "en";
-  const canonical = (l: string) => {
-    try {
-      return Intl.getCanonicalLocales(l)[0];
-    } catch {
-      return null;
-    }
-  };
-  const chain = [
-    ...new Set(
-      [locale, locale?.split("-")[0], brandLocale, brandLocale.split("-")[0]]
-        .filter((l): l is string => !!l)
-        .map(canonical)
-        .filter((l): l is string => !!l),
-    ),
-  ];
+  // Z2: what the customer wrote in (this message, or earlier in the conversation), else their
+  // browser's language, else the brand's; then one of the languages she answers in.
+  const earlier =
+    (
+      await db.query<{ language: string }>(
+        "SELECT detected_language AS language FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 AND detected_language IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+        [w, c.id],
+      )
+    ).rows[0]?.language ?? null;
+  const language = chooseLanguage({
+    detected: detectLanguage(question),
+    conversation: earlier,
+    browser: locale,
+    brand: brandLocale,
+    allowed: agent.languages,
+    other: agent.other_languages,
+  });
   const signedIn =
     (
       await db.query<{ kind: string }>(
@@ -385,7 +565,7 @@ async function context(
         [w, c.primary_identity_id],
       )
     ).rows[0]?.kind === "user";
-  return { c, agent, question, history, chain, signedIn };
+  return { c, agent, question, history, chain: language.chain, signedIn, language };
 }
 
 /** Each cited record's title, and its help center path when it is published there for this brand. */
@@ -423,12 +603,14 @@ async function sources(
 }
 
 /**
- * Checks a model reply against what it was given: an answer needs one to six sentences, each
- * citing at least one given passage, with no links. Anything else becomes "unknown".
+ * Checks a model reply against what it was given: an answer needs one to six sentences (three when
+ * concise, ten when thorough; Z2), each citing at least one given passage, with no links. Anything
+ * else becomes "unknown".
  */
 export function checkReply(
   reply: ModelReply,
   passageIds: Set<string>,
+  maxSentences = 6,
 ): { reply: ModelReply; reason?: string } {
   if (reply.kind === "clarify") {
     const question = reply.question.trim();
@@ -453,7 +635,7 @@ export function checkReply(
     text: s.text.trim(),
     sources: [...new Set(s.sources)],
   }));
-  if (!sentences.length || sentences.length > 6)
+  if (!sentences.length || sentences.length > maxSentences)
     return {
       reply: { kind: "unknown" },
       reason: "The answer had no usable sentences.",
@@ -516,7 +698,8 @@ export async function runAiReply(
   const known = await tenant(connect, w, async (db) => ({
     facts: await facts(db, w, ctx.c, {
       signedIn: ctx.signedIn,
-      language: ctx.chain[0] ?? "en",
+      // Z2: the language she read in what they wrote, else their browser's.
+      language: ctx.language.customer,
     }),
     failedSoFar: Number(
       (
@@ -526,7 +709,7 @@ export async function runAiReply(
         )
       ).rows[0].n,
     ),
-    greeting: await greetingFor(db, w, ctx.agent.id, ctx.c.brand_id, ctx.chain[0] ?? "en"),
+    greeting: await greetingFor(db, w, ctx.agent.id, ctx.c.brand_id, ctx.language.answer),
   }));
   // A failing model throws, and the job retries; decide gives up on the last attempts.
   const decision = await decide(connect, env, {
@@ -542,8 +725,21 @@ export async function runAiReply(
       failedSoFar: known.failedSoFar,
       greeting: known.greeting,
       attempts: job.attempts,
+      language: ctx.language,
+      voice: voiceOf(ctx.agent),
+      guidance: applicableGuidance(ctx.agent.answer_guidance, {
+        signedIn: ctx.signedIn,
+        brandId: ctx.c.brand_id,
+      }),
     });
   const { text, locale, retrieval, cited, model, data, body } = decision;
+  // What every record of this answer carries (Z2): its language and guidance.
+  const given = {
+    language: locale,
+    detectedLanguage: ctx.language.detected,
+    guidanceVersion: ctx.agent.guidance_version,
+    guidanceApplied: decision.applied,
+  };
   const { trigger, outcome, reason } = decision;
   // Written only if nothing changed while the agent worked.
   const written = await tenant(connect, w, async (db) => {
@@ -559,6 +755,35 @@ export async function runAiReply(
         threshold: ctx.agent.confidence_threshold,
         retrieval,
         model,
+        ...given,
+      });
+      return null;
+    }
+    if (outcome === "ignored") {
+      // Spam, by the workspace's guidance (Z2): no reply. Teammates see why, in a note only they
+      // can read; the conversation stays where it is for them.
+      await append(
+        db,
+        w,
+        c,
+        { type: "ai", id: ctx.agent.id },
+        "internal_note",
+        `${ctx.agent.name} didn't reply. ${reason}`,
+        { aiSpam: { guideline: decision.applied[0] ?? null } },
+        "internal",
+      );
+      await syncUnread(db, w, c);
+      await record(db, w, {
+        agentId: ctx.agent.id,
+        conversationId: c.id,
+        partId,
+        outcome: "skipped",
+        reason,
+        threshold: ctx.agent.confidence_threshold,
+        model,
+        latency: Date.now() - started,
+        trigger: "spam",
+        ...given,
       });
       return null;
     }
@@ -607,6 +832,7 @@ export async function runAiReply(
       latency: Date.now() - started,
       trigger,
       handoverTeamId: team,
+      ...given,
     });
     return replyPartId;
   });
@@ -617,6 +843,18 @@ export async function runAiReply(
 }
 
 type Agent = Awaited<ReturnType<typeof agentOf>>;
+/** Her saved voice (Z2). */
+const voiceOf = (a: Agent): Voice => ({
+  tone: a.tone,
+  length: a.answer_length,
+  formality: a.formality,
+});
+/** The most sentences the reply check allows at each length (a little over what she's asked for). */
+const MAX_SENTENCES: Record<Voice["length"], number> = {
+  concise: 3,
+  standard: 6,
+  thorough: 10,
+};
 /** Everything a decision needs: from a conversation (the job) or a question (the Playground). */
 type DecideInput = {
   w: string;
@@ -636,10 +874,16 @@ type DecideInput = {
   greeting: string | null;
   /** The job's attempts so far: from GIVE_UP_AFTER a failing model gives the plain refusal. */
   attempts: number;
+  /** The language she answers in, and how she chose it (Z2). */
+  language: LanguageChoice;
+  /** Her voice and the guidance that applies (Z2): saved, or a Playground draft. */
+  voice: Voice;
+  guidance: { answer: Guideline[]; spam: Guideline[] };
 };
 export type Decision = {
   trigger: Trigger | null;
-  outcome: "answered" | "clarified" | "unknown" | "failed" | "escalated";
+  /** "ignored": spam, by the workspace's guidance (Z2); she doesn't reply. */
+  outcome: "answered" | "clarified" | "unknown" | "failed" | "escalated" | "ignored";
   reason: string;
   body: string;
   data: Record<string, unknown>;
@@ -648,13 +892,18 @@ export type Decision = {
   model: string | null;
   text: Strings;
   locale: string;
+  /** The guidelines she was given, or the spam guideline that matched, by id (Z2). */
+  applied: string[];
+  /** What her voice and guidance add to her instructions (Z2), as the Playground shows them. */
+  instructions: string[];
 };
 
 /**
  * What the agent does with a question, without writing anything: the handover triggers (rules,
- * the button's words, office hours, topic keywords, then the classifier), the greeting, retrieval
- * and the confidence gate, the model's checked reply, and the failed-answers limit. The reply job
- * writes the result; the Playground (Z1) only shows it.
+ * a language she doesn't answer in, the button's words, office hours, topic keywords, then the
+ * classifier, which also spots spam), the greeting, retrieval and the confidence gate, the model's
+ * checked reply in her voice, and the failed-answers limit. The reply job writes the result; the
+ * Playground (Z1) only shows it.
  */
 async function decide(
   connect: Connect,
@@ -662,8 +911,13 @@ async function decide(
   input: DecideInput,
 ): Promise<Decision> {
   const { w, agent } = input;
-  const locale = input.chain[0] ?? "en";
-  const text = strings(locale);
+  const locale = input.language.answer;
+  const text = strings(locale, input.voice.formality);
+  // What she's told about writing (Z2): her voice, then the guidelines that apply.
+  const instructions = [
+    ...styleLines(input.voice, locale),
+    ...input.guidance.answer.map(guidanceLine),
+  ];
 
   // Handover triggers checked before answering. First the escalation rules (A2b), in code.
   let why = "";
@@ -672,6 +926,11 @@ async function decide(
   );
   let trigger: Trigger | null = matched ? "rule" : null;
   if (matched) why = matched.name;
+  // Z2: they wrote in a language she doesn't answer in, and the workspace hands those over.
+  if (!trigger && input.language.handOver) {
+    trigger = "language";
+    why = languageName(input.language.customer);
+  }
   // The button's own words need no model (A2a).
   if (!trigger && PERSON_LABELS.has(input.question.trim().toLowerCase()))
     trigger = "asked_for_person";
@@ -695,6 +954,7 @@ async function decide(
     trigger = "topic";
     why = keyword.name;
   }
+  let ignored: Guideline | undefined;
   if (!trigger && env.classify) {
     let seen: Classification | null = null;
     try {
@@ -704,6 +964,7 @@ async function decide(
         locale,
         topics: topics.map((t) => ({ name: t.name, description: t.description })),
         guidance: agent.escalation_guidance,
+        spam: input.guidance.spam.map((g) => `${g.title}: ${g.text}`),
       });
     } catch {
       // Decision (docs/AI_STEP2.md): a failing classifier doesn't hand everything over. The agent
@@ -713,15 +974,19 @@ async function decide(
     const topic = seen?.topic != null ? topics[seen.topic] : undefined;
     const guidance =
       seen?.guidance != null ? agent.escalation_guidance[seen.guidance] : undefined;
-    if (seen?.wantsHuman) trigger = "asked_for_person";
-    else if (topic) {
-      trigger = "topic";
-      why = topic.name;
-    } else if (guidance) {
-      trigger = "guidance";
-      why = guidance.length > 120 ? guidance.slice(0, 119) + "…" : guidance;
-    } else if (seen?.sentiment === "negative" && agent.escalate_on_sentiment)
-      trigger = "negative_sentiment";
+    // Spam guidance (Z2) can only make her leave a message alone; then nothing else applies.
+    ignored = seen?.spam != null ? input.guidance.spam[seen.spam] : undefined;
+    if (!ignored) {
+      if (seen?.wantsHuman) trigger = "asked_for_person";
+      else if (topic) {
+        trigger = "topic";
+        why = topic.name;
+      } else if (guidance) {
+        trigger = "guidance";
+        why = guidance.length > 120 ? guidance.slice(0, 119) + "…" : guidance;
+      } else if (seen?.sentiment === "negative" && agent.escalate_on_sentiment)
+        trigger = "negative_sentiment";
+    }
   }
 
   let retrieval: Retrieval = { passages: [], candidates: [], topScore: 0 };
@@ -731,7 +996,13 @@ async function decide(
   let data: Record<string, unknown> = {};
   let cited: string[] = [];
   let model: string | null = null;
-  if (trigger) {
+  let applied: string[] = [];
+  if (ignored) {
+    outcome = "ignored";
+    reason = `It looks like spam, by your guidance “${ignored.title}”.`;
+    body = "";
+    applied = [ignored.id];
+  } else if (trigger) {
     outcome = "escalated";
     reason = TRIGGERS[trigger] + (why ? `: “${why}”` : "") + "." + note;
     body = "";
@@ -760,6 +1031,7 @@ async function decide(
       body = text.unknown;
     } else {
       model = env.model.model;
+      applied = input.guidance.answer.map((g) => g.id);
       let raw: ModelReply | null = null;
       try {
         raw = await env.model.answer({
@@ -768,13 +1040,26 @@ async function decide(
           passages: retrieval.passages,
           locale,
           agentName: agent.name,
+          // Z2: her voice, and the guidance as data under her rules.
+          style: {
+            ...input.voice,
+            guidance: input.guidance.answer.map((g) => ({
+              category: g.category,
+              title: g.title,
+              text: g.text,
+            })),
+          },
         });
       } catch (e) {
         // Retried by the job; after a few attempts the customer is told plainly instead.
         if (input.attempts < GIVE_UP_AFTER) throw e;
       }
       const checked = raw
-        ? checkReply(raw, new Set(retrieval.passages.map((p) => p.id)))
+        ? checkReply(
+            raw,
+            new Set(retrieval.passages.map((p) => p.id)),
+            MAX_SENTENCES[input.voice.length],
+          )
         : null;
       const reply = checked?.reply;
       if (!checked || !reply) {
@@ -821,14 +1106,29 @@ async function decide(
     } else data = { options: [text.person] };
   }
   if (note && outcome !== "escalated") reason += note;
-  return { trigger, outcome, reason, body, data, retrieval, cited, model, text, locale };
+  return {
+    trigger,
+    outcome,
+    reason,
+    body,
+    data,
+    retrieval,
+    cited,
+    model,
+    text,
+    locale,
+    applied,
+    instructions,
+  };
 }
 
 /**
  * The Playground (Z1): what the agent would reply to a question, as a visitor or a signed-in
- * customer of a brand, in a language, without a conversation. It runs the same decision as a real
- * reply and writes nothing: no message, no audit row, no retrieval count, no resolution. Deployed,
- * each question costs model calls like a customer's would.
+ * customer of a brand, with a browser language, without a conversation. It runs the same decision
+ * as a real reply and writes nothing: no message, no audit row, no retrieval count, no resolution.
+ * Deployed, each question costs model calls like a customer's would. Z2: a `draft` (the Guidance
+ * page's unsaved voice and guidance, checked like a save) is used instead of the saved ones, and
+ * the result says what she was told and which language she chose and why.
  */
 export async function previewAiReply(
   connect: Connect,
@@ -862,41 +1162,55 @@ export async function previewAiReply(
       )
     ).rows[0];
     assert(brand, "BRAND_NOT_FOUND", "Brand unavailable.", 404);
-    let locale = "";
-    try {
-      locale = Intl.getCanonicalLocales(String(p.locale || brand.locale || "en"))[0];
-    } catch {
-      throw new DomainError("INVALID_PLAYGROUND", "Choose a language such as en or fr.", 400);
-    }
-    const brandLocale = brand.locale || "en";
-    const chain = [
-      ...new Set([locale, locale.split("-")[0], brandLocale, brandLocale.split("-")[0]]),
-    ];
+    // The customer's browser language, if given; she reads the question's own language first.
+    let browser: string | null = null;
+    if (p.locale)
+      try {
+        browser = Intl.getCanonicalLocales(String(p.locale))[0];
+      } catch {
+        throw new DomainError("INVALID_PLAYGROUND", "Choose a language such as en or fr.", 400);
+      }
+    const language = chooseLanguage({
+      detected: detectLanguage(question),
+      conversation: null,
+      browser,
+      brand: brand.locale || "en",
+      allowed: agent.languages,
+      other: agent.other_languages,
+    });
     const email = typeof p.email === "string" ? p.email.trim().toLowerCase() : "";
     const facts: Facts = {
       signedIn,
       // As Relay would know it: a verified address only for a signed-in customer.
       emailDomains: signedIn && email.includes("@") ? [email.split("@").pop()!] : [],
       brand: brand.id,
-      language: locale,
+      language: language.customer,
       page: typeof p.page === "string" ? p.page.trim().slice(0, 500) : "",
       tags: [],
       attributes: {},
     };
+    // Z2: the Guidance page's unsaved changes, checked like a save, or what's saved.
+    const draft = p.draft === undefined || p.draft === null ? null : await draftStyle(db, w, p.draft);
     return {
       agent,
       brandId: brand.id,
-      chain,
+      language,
       facts,
-      greeting: await greetingFor(db, w, agent.id, brand.id, locale),
+      greeting: await greetingFor(db, w, agent.id, brand.id, language.answer),
+      draft,
     };
   });
+  const voice = prepared.draft?.voice ?? voiceOf(prepared.agent);
+  const guidance = applicableGuidance(
+    prepared.draft?.guidance ?? prepared.agent.answer_guidance,
+    { signedIn, brandId: prepared.brandId },
+  );
   const d = await decide(connect, env, {
     w,
     agent: prepared.agent,
     question,
     history: [],
-    chain: prepared.chain,
+    chain: prepared.language.chain,
     signedIn,
     brandId: prepared.brandId,
     teamId: null,
@@ -904,7 +1218,13 @@ export async function previewAiReply(
     failedSoFar: null,
     greeting: prepared.greeting,
     attempts: GIVE_UP_AFTER,
+    language: prepared.language,
+    voice,
+    guidance,
   });
+  const titles = new Map(
+    [...guidance.answer, ...guidance.spam].map((g) => [g.id, g]),
+  );
   const used = new Set(d.retrieval.passages.map((x) => x.chunkId));
   const best = d.retrieval.candidates
     .slice()
@@ -943,6 +1263,20 @@ export async function previewAiReply(
     })),
     model: d.model,
     language: d.locale,
+    // Z2: the customer's language as she read it, and where from (message, browser, brand).
+    customerLanguage: prepared.language.customer,
+    detectedLanguage: prepared.language.detected,
+    languageSource: prepared.language.source,
+    voice,
+    // Saved (and which version), or the Guidance page's unsaved changes.
+    draft: !!prepared.draft,
+    guidanceVersion: prepared.draft ? null : prepared.agent.guidance_version,
+    // What she was told, and the guidelines given to her (or the spam one that matched).
+    instructions: d.instructions,
+    applied: d.applied.map((id) => ({
+      title: titles.get(id)?.title ?? "",
+      category: titles.get(id)?.category ?? "other",
+    })),
     latencyMs: Date.now() - started,
   };
 }
@@ -955,9 +1289,13 @@ export type Trigger =
   | "office_hours"
   | "rule"
   | "topic"
-  | "guidance";
+  | "guidance"
+  | "language"
+  | "spam";
 const TRIGGERS: Record<Trigger, string> = {
   rule: "An escalation rule matched",
+  language: "The customer wrote in a language she doesn't answer in",
+  spam: "Spam, by the workspace's guidance",
   topic: "The message is about a never-handle topic",
   guidance: "Escalation guidance says a person should handle this",
   asked_for_person: "The customer asked for a person",
@@ -1218,6 +1556,9 @@ export async function readAiSettings(db: Sql, w: string, principal: string) {
       escalateOnSentiment: a.escalate_on_sentiment,
       resolutionWindowHours: a.resolution_window_hours,
       threshold: a.confidence_threshold,
+      // Z2: the languages she answers in, and what she does when a customer writes in another.
+      languages: a.languages,
+      otherLanguages: a.other_languages,
       version: a.version,
     },
     teams,
@@ -1266,6 +1607,18 @@ export async function saveAiSettings(
     invalid("Hand over after 1 to 5 answers the agent couldn't give.");
   if (typeof p.enabled !== "boolean" || typeof p.escalateOnSentiment !== "boolean")
     invalid("Choose on or off.");
+  // Z2: her languages (at least one of hers), and what she does with others.
+  let languages = current.agent.languages;
+  if (p.languages !== undefined) {
+    const chosen = Array.isArray(p.languages) ? p.languages.map(String) : [];
+    if (!chosen.length || chosen.some((l) => !ALL_LANGUAGES.includes(l)))
+      invalid("Choose at least one of the languages she answers in.");
+    languages = ALL_LANGUAGES.filter((l) => chosen.includes(l));
+  }
+  const otherLanguages =
+    p.otherLanguages === undefined ? current.agent.otherLanguages : String(p.otherLanguages);
+  if (!["brand_language", "hand_over"].includes(otherLanguages))
+    invalid("Choose what she does when a customer writes in another language.");
   // A2b: rules, never-handle topics and guidance; left as they are when not sent.
   const rules =
     p.rules === undefined ? current.rules : await validRules(db, w, p.rules);
@@ -1274,7 +1627,8 @@ export async function saveAiSettings(
     p.guidance === undefined ? current.guidance : validGuidance(p.guidance);
   await db.query(
     `UPDATE ai_agents SET enabled=$3,handover_team_id=$4,answer_hours=$5,out_of_hours=$6,failed_limit=$7,escalate_on_sentiment=$8,
-     never_handle=$9,escalation_guidance=$10,resolution_window_hours=$11,confidence_threshold=$12,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+     never_handle=$9,escalation_guidance=$10,resolution_window_hours=$11,confidence_threshold=$12,languages=$13,other_languages=$14,
+     version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
     [
       w,
       DEFAULT_AGENT,
@@ -1288,6 +1642,8 @@ export async function saveAiSettings(
       JSON.stringify(guidance),
       windowHours,
       Math.round(threshold * 100) / 100,
+      languages,
+      otherLanguages,
     ],
   );
   await saveRules(db, w, DEFAULT_AGENT, rules);
@@ -1319,11 +1675,17 @@ async function record(
     latency?: number;
     trigger?: Trigger | null;
     handoverTeamId?: string | null;
+    /** Z2: the language she answered in, the one she read, and the guidance she was given. */
+    language?: string | null;
+    detectedLanguage?: string | null;
+    guidanceVersion?: number | null;
+    guidanceApplied?: string[];
   },
 ) {
   await db.query(
-    `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms,trigger,handover_team_id)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
+    `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms,trigger,handover_team_id,
+       language,detected_language,guidance_version,guidance_applied)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
     [
       w,
       crypto.randomUUID(),
@@ -1347,6 +1709,10 @@ async function record(
       a.latency ?? null,
       a.trigger ?? null,
       a.handoverTeamId ?? null,
+      a.language ?? null,
+      a.detectedLanguage ?? null,
+      a.guidanceVersion ?? null,
+      a.guidanceApplied ?? [],
     ],
   );
   if (a.retrieval?.passages.length && a.outcome !== "skipped")
@@ -1381,22 +1747,44 @@ export async function aiAnswers(
       prompt_version: string;
       created_at: string;
       trigger: string | null;
+      agent_id: string;
+      language: string | null;
+      detected_language: string | null;
+      guidance_version: number | null;
+      guidance_applied: string[];
     }>(
-      "SELECT question_part_id,reply_part_id,outcome,reason,top_score,threshold,cited,model,prompt_version,created_at,trigger FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at",
+      `SELECT question_part_id,reply_part_id,outcome,reason,top_score,threshold,cited,model,prompt_version,created_at,trigger,
+         agent_id,language,detected_language,guidance_version,guidance_applied
+       FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at`,
       [w, c.id],
     )
-  ).rows.map((a) => ({
-    questionPartId: a.question_part_id,
-    replyPartId: a.reply_part_id,
-    outcome: a.outcome,
-    reason: a.reason,
-    topScore: a.top_score === null ? null : Math.round(a.top_score * 100) / 100,
-    threshold: a.threshold,
-    cited: a.cited,
-    model: a.model,
-    promptVersion: a.prompt_version,
-    trigger: a.trigger,
-    at: new Date(a.created_at).toISOString(),
-  }));
-  return { answers };
+  ).rows;
+  // Z2: the voice and guideline titles of each guidance version an answer was given.
+  const versions = new Map<number, Awaited<ReturnType<typeof guidanceAt>>>();
+  for (const a of answers)
+    if (a.guidance_version !== null && !versions.has(a.guidance_version))
+      versions.set(a.guidance_version, await guidanceAt(db, w, a.agent_id, a.guidance_version));
+  return {
+    answers: answers.map((a) => {
+      const at = a.guidance_version === null ? undefined : versions.get(a.guidance_version);
+      return {
+        questionPartId: a.question_part_id,
+        replyPartId: a.reply_part_id,
+        outcome: a.outcome,
+        reason: a.reason,
+        topScore: a.top_score === null ? null : Math.round(a.top_score * 100) / 100,
+        threshold: a.threshold,
+        cited: a.cited,
+        model: a.model,
+        promptVersion: a.prompt_version,
+        trigger: a.trigger,
+        at: new Date(a.created_at).toISOString(),
+        language: a.language,
+        detectedLanguage: a.detected_language,
+        guidanceVersion: a.guidance_version,
+        voice: at?.voice ?? null,
+        guidance: a.guidance_applied.map((id) => at?.titles.get(id) ?? "A guideline since removed"),
+      };
+    }),
+  };
 }

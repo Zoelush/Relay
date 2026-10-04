@@ -7,6 +7,7 @@ import {
   CircleHelp,
   FlaskConical,
   MessageCircle,
+  MessageSquareQuote,
   Route,
   Send,
   Settings as SettingsIcon,
@@ -22,22 +23,34 @@ import {
   AnsweringCard,
   GuidanceCard,
   HandoverCards,
+  LanguagesCard,
   ResolutionsCard,
   Rules,
   TopicsCard,
   useAiSettings,
 } from "./settings-ai";
+import { GuidancePage, type PreviewResult } from "./zoe-guidance";
+import {
+  OUTCOME_HUES,
+  OUTCOME_NAMES,
+  TRIGGER_NAMES,
+  ago,
+  languageNote,
+  voiceSummary,
+} from "./zoe-labels";
+import { languageName, type Voice } from "../lib/zoe-voice";
 
 /**
  * Zoe, Relay's AI agent, in the agent app (phase 08, step Z1; docs/AI_STEP5.md). She has her own
  * place in the icon strip, between Inbox and Knowledge, and her own side menu, organised as Beacon
- * and Intercom organise their agents: Overview; Train (Escalation, Content); Test (Playground);
- * Deploy (Messenger); Analyze (Performance, Knowledge gaps, Resolutions); Settings.
- * TODO(phase 08 Z2): Train › Guidance (tone, length, formality, languages, answer guidance).
+ * and Intercom organise their agents: Overview; Train (Guidance, Escalation, Content); Test
+ * (Playground); Deploy (Messenger); Analyze (Performance, Knowledge gaps, Resolutions); Settings.
+ * Z2 (docs/AI_STEP6.md) adds Train › Guidance (agent/zoe-guidance.tsx) and her languages.
  * TODO(phase 08 Z3): Train › Specialists. TODO(phase 08 C1): Test › Test suites.
  */
 type PageId =
   | "overview"
+  | "guidance"
   | "escalation"
   | "content"
   | "playground"
@@ -61,6 +74,15 @@ const PAGES: {
     icon: Sparkles,
     hue: "zoe",
     description: "",
+  },
+  {
+    id: "guidance",
+    label: "Guidance",
+    group: "Train",
+    icon: MessageSquareQuote,
+    hue: "zoe",
+    description:
+      "How she sounds, and plain instructions for how she answers. Try your changes beside them before you save.",
   },
   {
     id: "escalation",
@@ -130,7 +152,7 @@ const PAGES: {
     icon: SettingsIcon,
     hue: "slate",
     description:
-      "Her identity on each brand, when she answers, and how sure she must be.",
+      "Her identity on each brand, when she answers, how sure she must be, and her languages.",
   },
 ];
 const asPage = (p: (typeof PAGES)[number]): Page => ({
@@ -147,31 +169,6 @@ const SOURCE_NAMES: Record<string, string> = {
   file: "Files",
   website: "Website pages",
 };
-const TRIGGER_NAMES: Record<string, string> = {
-  asked_for_person: "Asked for a person",
-  failed_answers: "Couldn't answer twice",
-  negative_sentiment: "Seemed frustrated",
-  office_hours: "Team open (answers out of hours only)",
-  rule: "Escalation rule",
-  topic: "Never-handle topic",
-  guidance: "Escalation guidance",
-};
-const OUTCOME_NAMES: Record<string, string> = {
-  answered: "Answered from content",
-  clarified: "Asked to clarify",
-  unknown: "Said she didn't know",
-  failed: "Model failed",
-  escalated: "Handed to the team",
-  skipped: "Stepped aside (a teammate had it)",
-};
-const ago = (iso: string) => {
-  const ms = Date.now() - new Date(iso).getTime();
-  const h = Math.floor(ms / 3_600_000);
-  if (h < 1) return "within the hour";
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-};
-
 export function Zoe({
   page,
   onPage,
@@ -254,6 +251,8 @@ export function Zoe({
         <div className="pg-area-main">
           {current.id === "overview" ? (
             <Overview {...props} />
+          ) : current.id === "guidance" ? (
+            <GuidancePage menu={menu} page={asPage(current)} name={name} />
           ) : current.id === "escalation" ? (
             <EscalationPage {...props} page={asPage(current)} />
           ) : current.id === "content" ? (
@@ -325,6 +324,7 @@ type OverviewData = {
     confidence: number | null;
   };
   escalation: { rules: number; topics: number; guidance: number };
+  voice: Voice & { guidelines: number; version: number; languages: number };
   content: number;
   gaps: { question: string; count: number; lastAt: string; conversationId: string }[];
   articles: { recordId: string; title: string; count: number }[];
@@ -402,6 +402,17 @@ function Overview({ menu, name, onPage, agent, setAgent }: PageProps) {
               />
             </div>
             <div className="pg-zoe-cards">
+              <ActionCard
+                hue="zoe"
+                icon={MessageSquareQuote}
+                title="Guidance"
+                onClick={() => onPage("guidance")}
+              >
+                How she sounds, and plain instructions for how she answers.
+                <small>
+                  {voiceSummary(data.voice)} · {plural(data.voice.guidelines, "guideline")} on
+                </small>
+              </ActionCard>
               <ActionCard
                 hue="violet"
                 icon={Route}
@@ -635,6 +646,7 @@ function SettingsPage({ menu, page, setAgent, agent }: PageProps & { page: Page 
       {ai.form && ai.data && (
         <>
           <AnsweringCard form={ai.form} set={ai.set} />
+          <LanguagesCard form={ai.form} set={ai.set} />
           {identities.map((i) => (
             <IdentityCard
               key={i.brandId}
@@ -889,20 +901,7 @@ function ContentPage({
 /* ------------------------------------------------------------------------------------------ */
 /* Test › Playground                                                                           */
 
-type Preview = {
-  outcome: string;
-  trigger: string | null;
-  reason: string;
-  reply: string;
-  sources: { title: string; path?: string }[];
-  options: string[];
-  confidence: number | null;
-  threshold: number;
-  candidates: { title: string; heading: string; score: number | null; used: boolean }[];
-  model: string | null;
-  language: string;
-  latencyMs: number;
-};
+type Preview = PreviewResult;
 
 function Playground({ menu, page, name }: PageProps & { page: Page }) {
   const [brands, setBrands] = useState<{ brandId: string; brandName: string }[]>([]);
@@ -953,14 +952,7 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
       setBusy(false);
     }
   }
-  const tone =
-    result?.outcome === "answered"
-      ? "green"
-      : result?.outcome === "escalated"
-        ? "rose"
-        : result?.outcome === "clarified"
-          ? "sky"
-          : "amber";
+  const tone = (result && OUTCOME_HUES[result.outcome]) ?? "amber";
   return (
     <Frame menu={menu} page={page} wide>
       <div className="pg-zoe-playground">
@@ -1000,12 +992,13 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
                   </select>
                 )}
               </Field>
-              <Field label="Language">
+              <Field label="Browser language">
                 {(id) => (
                   <input
                     id={id}
-                    placeholder="The brand's"
+                    placeholder="None"
                     size={8}
+                    title="Used when she can't tell the language from the question itself"
                     value={locale}
                     onChange={(e) => setLocale(e.target.value.trim())}
                   />
@@ -1095,7 +1088,11 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
                   <strong>{name}</strong>
                   <span className="pg-zoe-badge">AI agent</span>
                 </header>
-                <p>{result.reply}</p>
+                <p>
+                  {result.outcome === "ignored"
+                    ? `She wouldn't reply. ${result.reason}`
+                    : result.reply}
+                </p>
                 {!!result.sources.length && (
                   <ul aria-label="Sources">
                     {result.sources.map((s) => (
@@ -1138,12 +1135,33 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
                   )}
                 </dd>
                 <dt>Language</dt>
-                <dd>{result.language}</dd>
+                <dd>
+                  {languageNote(result.language, result.customerLanguage, result.languageSource)}
+                </dd>
+                <dt>Voice</dt>
+                <dd>
+                  {voiceSummary(result.voice)} ·{" "}
+                  {result.draft
+                    ? "unsaved changes"
+                    : result.guidanceVersion
+                      ? `guidance version ${result.guidanceVersion}`
+                      : "no guidance saved yet"}
+                </dd>
                 <dt>Model</dt>
                 <dd>
                   {result.model ?? "None (not asked)"} · {result.latencyMs} ms
                 </dd>
               </dl>
+              <Card
+                title="What she was told"
+                description="The lines her voice and guidance add to her instructions, under her rules. Change them on the Guidance page."
+              >
+                <ul className="pg-zoe-told-list" aria-label="What she was told">
+                  {result.instructions.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </Card>
               {!!result.candidates.length && (
                 <Card
                   title="Passages she weighed"
@@ -1245,6 +1263,7 @@ type PerformanceData = {
   days: number;
   outcomes: Record<string, number>;
   triggers: { trigger: string; count: number }[];
+  languages: { language: string; count: number }[];
   resolutions: { confirmed: number; quiet: number; reversals: number; net: number };
   medianLatencyMs: number | null;
   confidence: number | null;
@@ -1272,14 +1291,29 @@ function PerformancePage({ menu, page }: PageProps & { page: Page }) {
           </div>
           <Card title="What she did" description="Every customer message she considered, by outcome.">
             <ul className="pg-zoe-bars" aria-label="Outcomes">
-              {Object.entries(OUTCOME_NAMES).map(([k, label]) => (
-                <li key={k} data-hue={k === "answered" ? "green" : k === "escalated" ? "rose" : k === "clarified" ? "sky" : k === "skipped" ? "slate" : "amber"}>
-                  <span>{label}</span>
+              {["answered", "clarified", "unknown", "failed", "escalated", "spam", "skipped"].map((k) => (
+                <li key={k} data-hue={OUTCOME_HUES[k] ?? "amber"}>
+                  <span>{OUTCOME_NAMES[k]}</span>
                   <span className="pg-zoe-bar"><span style={{ width: bar(data.outcomes[k] ?? 0, total) }} /></span>
                   <strong>{data.outcomes[k] ?? 0}</strong>
                 </li>
               ))}
             </ul>
+          </Card>
+          <Card title="Languages she replied in" description="Each reply's language: what the customer wrote in, or the brand's when it isn't one of hers.">
+            {data.languages.length ? (
+              <ul className="pg-zoe-bars" aria-label="Languages">
+                {data.languages.map((l) => (
+                  <li key={l.language} data-hue="teal">
+                    <span>{languageName(l.language)}</span>
+                    <span className="pg-zoe-bar"><span style={{ width: bar(l.count, data.languages.reduce((a, x) => a + x.count, 0)) }} /></span>
+                    <strong>{l.count}</strong>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="pg-zoe-empty">No replies in the last {data.days} days.</p>
+            )}
           </Card>
           <Card title="Why she handed over" description="The trigger behind each handover.">
             {data.triggers.length ? (

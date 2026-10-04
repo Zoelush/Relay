@@ -192,6 +192,7 @@ import {
   zoeOverview,
   zoePerformance,
 } from "./zoe";
+import { changeGuidance, readGuidance, readGuidanceVersion } from "./zoe-guidance";
 import {
   indexStatus,
   rebuildIndex,
@@ -1271,6 +1272,7 @@ export async function handleApi(
               "/v1/agent/ai-settings",
               "/v1/agent/zoe-identity",
               "/v1/agent/zoe-playground",
+              "/v1/agent/zoe-guidance",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1572,6 +1574,19 @@ export async function handleApi(
                 req.headers.get("idempotency-key") ?? "",
                 p,
                 () => saveIdentity(db, workspace, principal, p),
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/zoe-guidance")
+          // Phase 08 Z2: her voice and answer guidance, saved as the next version (or restored).
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeGuidance(
+                db,
+                workspace,
+                principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
               ),
             ),
           );
@@ -2047,14 +2062,20 @@ export async function handleApi(
         return new Response(file.body, { status: file.status, headers });
       }
       if (url.pathname === "/v1/agent/zoe") {
-        // Phase 08 Z1: Zoe's pages (Overview, Performance, Knowledge gaps, Content, Deploy).
+        // Phase 08 Z1: Zoe's pages (Overview, Performance, Knowledge gaps, Content, Deploy), and
+        // Z2's Guidance (with one saved version, to look at before restoring it).
         const view = url.searchParams.get("view") ?? "overview";
+        const version = Number(url.searchParams.get("version") ?? "");
         const read: (
           db: Sql,
           w: string,
           principal: string,
         ) => Promise<unknown> =
-          view === "performance"
+          view === "guidance"
+            ? url.searchParams.has("version")
+              ? (db, w, principal) => readGuidanceVersion(db, w, principal, version)
+              : readGuidance
+            : view === "performance"
             ? zoePerformance
             : view === "gaps"
               ? zoeGaps

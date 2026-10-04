@@ -306,7 +306,11 @@ test("escalation rules, never-handle topics and guidance hand over without answe
     assert.equal((await audit((await start("How long do refunds take?")).id)).outcome, "answered");
     // Any of: the page, the language, an attribute, or a tag added mid-conversation.
     assert.equal((await audit((await start("How long do refunds take?", { page: "https://shop.test/enterprise/pricing" })).id)).trigger, "rule");
-    assert.equal((await audit((await start("How long do refunds take?", { locale: "de-AT" })).id)).trigger, "rule");
+    // Z2: the language is what the customer writes in; a German browser alone doesn't make an
+    // English message German.
+    assert.equal((await audit((await start("Wie lange dauert eine Rückerstattung?", { locale: "de-AT" })).id)).trigger, "rule");
+    assert.equal((await audit((await start("Wie lange dauert eine Rückerstattung?")).id)).trigger, "rule");
+    assert.notEqual((await audit((await start("How long do refunds take?", { locale: "de-AT" })).id)).trigger, "rule");
     const later = await start("How long do refunds take?");
     assert.equal((await audit(later.id)).outcome, "answered");
     await sql("a", "INSERT INTO conversation_tags(workspace_id,conversation_id,tag_id) VALUES('a',$1,'vip')", [later.id]);

@@ -61,4 +61,14 @@ Acceptance criteria (phase brief):
    - the Playground runs real model calls when deployed
    - the agent named "AI agent" becomes Zoe
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1).
+9. **Z2 decisions** (4 October 2026):
+   - **Tones:** Friendly (default), Professional, Matter-of-fact, Empathetic, Playful.
+   - **Formality:** "usual for each language" (default), formal or informal. It covers her answers and her fixed messages.
+   - **Languages:** her fixed messages in the messenger's nine languages (Italian, Dutch, Arabic and Brazilian Portuguese added).
+   - **Detection:** in code; a browser setting alone never hands over.
+   - **Spam guidance:** only makes her leave a message alone.
+   - **Targeting:** guidance targets audience and brand; channels wait for phase 12.
+   - **Running locally:** the demo uses Claude when `.dev.vars` has `ANTHROPIC_API_KEY`; tests keep the stand-ins.
+   - **Migration:** 0048.
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2).
