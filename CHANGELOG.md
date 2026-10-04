@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased: Zoe (phase 08, Z1: her home, and colour across Relay)
+
+- **The AI agent is Zoe,** with her own place in the icon strip between Inbox and Knowledge and her own side menu (Overview, Train, Test, Deploy, Analyze, Settings), after Beacon's and Intercom's agents.
+- **Overview:**
+  - her switch and her last 30 days: resolution rate, answers, handovers, confidence
+  - the questions she couldn't answer, and the articles she leans on
+- **Playground:** ask her what a customer would, and see her reply, confidence, sources and why. It runs her real decision and records nothing.
+- **Her pages:** Escalation, Content, Messenger, Performance, Knowledge gaps and Resolutions. Settings › AI agent moved into her area.
+- **Her identity on each brand:** name, light and dark avatars (uploaded), an AI disclosure and a greeting. Customers see her name and avatar on her replies. A new confidence threshold.
+- **In the inbox:** "With Zoe" and "Escalated by Zoe", her name on replies, cards, summaries and resolutions.
+- **Colour across the agent app:**
+  - a tinted icon strip (Zoe in teal to emerald)
+  - tinted menus and Settings tiles
+  - a colour per person in avatars
+  - all as tokens tested for contrast in both themes
+- **Migration** 0047 with rollback. **Tests:**
+  - unit: `tests/zoe.test.ts`
+  - browser: `tests/browser/zoe.spec.ts`
+
+  Details: `docs/AI_STEP5.md`.
+
 ## Unreleased: AI agent (phase 08, A3: the resolution ledger)
 
 - **"That helped"** under the AI agent's answers from content, beside "Talk to a person". Tapping it records a confirmed resolution and thanks the customer.

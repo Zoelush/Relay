@@ -3,6 +3,8 @@ import { enqueueJob, type Job } from "./jobs";
 import type { AttachmentStorage } from "./attachments";
 import { matchesType } from "./knowledge-extract";
 import { manage, type MessengerConfig } from "./messenger-config";
+import { authorize } from "./policy";
+import { aiEnabled } from "./ai-agent";
 
 /**
  * Images a brand uploads for its messenger (messenger settings M5; docs/MESSENGER_SETTINGS_STEP5.md):
@@ -20,7 +22,40 @@ export const ASSET_PURPOSES = [
   "home_logo",
   "launcher_logo",
   "home_background",
+  // Z1: Zoe's avatar per brand, for the light and dark messenger themes.
+  "agent_avatar",
+  "agent_avatar_dark",
 ] as const;
+const AGENT_PURPOSES = ["agent_avatar", "agent_avatar_dark"];
+/**
+ * Who may upload: the messenger's images need its drafts (messenger_v3); Zoe's avatars need the
+ * AI agent (ai_agent_v1). Both need workspace.manage and the brand.
+ */
+async function permitted(
+  db: Sql,
+  w: string,
+  principal: string,
+  brandId: unknown,
+  purpose: string,
+) {
+  if (!AGENT_PURPOSES.includes(purpose))
+    return manage(db, w, principal, brandId);
+  const t = await authorize(db, w, principal, "workspace.manage");
+  assert(
+    await aiEnabled(db, w),
+    "AI_AGENT_DISABLED",
+    "The AI agent is not enabled for this workspace.",
+    404,
+  );
+  const brand = (
+    await db.query<{ id: string }>(
+      "SELECT id FROM brands WHERE workspace_id=$1 AND id=$2",
+      [w, String(brandId ?? "")],
+    )
+  ).rows[0];
+  assert(brand, "BRAND_NOT_FOUND", "Brand unavailable.", 404);
+  return { t, brand };
+}
 export type AssetPurpose = (typeof ASSET_PURPOSES)[number];
 export const ASSET_TYPES = ["image/png", "image/jpeg", "image/gif"];
 export const MAX_ASSET_BYTES = 1024 * 1024;
@@ -52,6 +87,8 @@ const WHAT: Record<AssetPurpose, string> = {
   home_logo: "Home screen logo",
   launcher_logo: "launcher logo",
   home_background: "Home background image",
+  agent_avatar: "avatar",
+  agent_avatar_dark: "dark-theme avatar",
 };
 
 /** Where each kind of image sits in a messenger config (live settings or a draft). */
@@ -109,10 +146,10 @@ export async function prepareBrandAsset(
   storage: AttachmentStorage,
   p: Record<string, unknown>,
 ) {
-  const { t, brand } = await manage(db, w, principal, p.brandId);
   const purpose = p.purpose as AssetPurpose;
   if (!ASSET_PURPOSES.includes(purpose))
     invalid("Choose which image this is.");
+  const { t, brand } = await permitted(db, w, principal, p.brandId, purpose);
   const name = typeof p.name === "string" ? p.name.trim() : "";
   if (!name || name.length > 200 || /[\x00-\x1f]/.test(name))
     invalid("Choose a file with a valid name.");
@@ -159,6 +196,17 @@ async function tidy(db: Sql, w: string, brandId: string) {
     )
   ).rows;
   for (const { config } of configs) for (const id of assetsIn(config)) used.add(id);
+  // Zoe's avatars (Z1) are in use while an identity names them.
+  for (const r of (
+    await db.query<{ avatar: string; avatar_dark: string }>(
+      "SELECT avatar,avatar_dark FROM ai_agent_identities WHERE workspace_id=$1 AND brand_id=$2",
+      [w, brandId],
+    )
+  ).rows)
+    for (const v of [r.avatar, r.avatar_dark]) {
+      const id = assetId(v);
+      if (id) used.add(id);
+    }
   const old = (
     await db.query<{ id: string; object_key: string; clean_key: string | null }>(
       `DELETE FROM brand_assets WHERE workspace_id=$1 AND brand_id=$2 AND created_at<now()-interval '1 day'
@@ -195,7 +243,7 @@ export async function completeBrandAsset(
     ])
   ).rows[0];
   assert(a, "ASSET_NOT_FOUND", "Image unavailable.", 404);
-  const { t } = await manage(db, w, principal, a.brand_id);
+  const { t } = await permitted(db, w, principal, a.brand_id, a.purpose);
   if (a.job_id) return { assetId: a.id, jobId: a.job_id };
   assert(a.status === "uploading", "ASSET_STATE", "This image is already checked.", 409);
   const jobId = await enqueueJob(
@@ -280,7 +328,7 @@ export async function teammateAsset(
     )
   ).rows[0];
   assert(a?.clean_key, "ASSET_NOT_FOUND", "Image unavailable.", 404);
-  await manage(db, w, principal, a.brand_id);
+  await permitted(db, w, principal, a.brand_id, a.purpose);
   return { key: a.clean_key!, type: a.mime };
 }
 
@@ -293,7 +341,14 @@ export async function liveAsset(db: Sql, w: string, id: string) {
       [w, id],
     )
   ).rows[0];
-  if (!a?.clean_key || !assetsIn(a.settings).includes(id)) return null;
+  if (!a?.clean_key) return null;
+  const inIdentity = (
+    await db.query(
+      "SELECT 1 FROM ai_agent_identities i JOIN brand_assets a ON a.workspace_id=i.workspace_id AND a.id=$2 AND a.brand_id=i.brand_id WHERE i.workspace_id=$1 AND (i.avatar=$3 OR i.avatar_dark=$3)",
+      [w, id, "asset:" + id],
+    )
+  ).rows.length;
+  if (!inIdentity && !assetsIn(a.settings).includes(id)) return null;
   return { key: a.clean_key, type: a.mime };
 }
 

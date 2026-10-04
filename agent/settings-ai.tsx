@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
-import { Card, Field, Frame, message, type MenuState, type Page } from "./settings-ui";
+import { Card, Field, message } from "./settings-ui";
 
 /**
- * Settings › AI agent (phase 08 A2a; docs/AI_STEP2.md): when the agent answers and how it hands
- * conversations to the team. A2b (docs/AI_STEP3.md) adds escalation rules, never-handle topics and
- * escalation guidance; several agents, identity and content targeting arrive in B1.
+ * The AI agent's settings (phase 08 A2a, A2b, A3), edited in Zoe's area (Z1; docs/AI_STEP5.md):
+ * when she answers and how sure she must be, how she hands conversations to the team, escalation
+ * rules, never-handle topics and guidance, and the resolution window. One versioned save covers
+ * them all; each of Zoe's pages shows the sections it's about.
  */
 type Condition = {
   field: string;
@@ -53,7 +54,7 @@ const fresh = (field: string): Condition => ({
   op: FIELDS.find(([f]) => f === field)![2][0][0],
   value: field === "signed_in" ? true : "",
 });
-type Settings = {
+export type Settings = {
   agent: {
     id: string;
     name: string;
@@ -64,6 +65,8 @@ type Settings = {
     failedLimit: number;
     escalateOnSentiment: boolean;
     resolutionWindowHours: number;
+    /** How sure she must be to answer (0.2 to 0.9; the confidence gate). */
+    threshold: number;
     version: string;
   };
   teams: Choice[];
@@ -71,6 +74,16 @@ type Settings = {
   rules: Rule[];
   topics: Topic[];
   guidance: string[];
+  /** Zoe's identity on each brand (Z1). */
+  identities: {
+    brandId: string;
+    brandName: string;
+    name: string;
+    avatar: string;
+    avatarDark: string;
+    disclosure: string;
+    greeting: string;
+  }[];
   /** The resolution ledger (A3). */
   resolutions: {
     last30Days: { resolutions: number; reversals: number; net: number };
@@ -86,7 +99,7 @@ type Settings = {
     }[];
   };
 };
-type Form = Omit<Settings["agent"], "id" | "name" | "version"> & {
+export type Form = Omit<Settings["agent"], "id" | "name" | "version"> & {
   rules: Rule[];
   topics: Topic[];
   guidance: string[];
@@ -99,385 +112,409 @@ const formOf = (s: Settings): Form => ({
   failedLimit: s.agent.failedLimit,
   escalateOnSentiment: s.agent.escalateOnSentiment,
   resolutionWindowHours: s.agent.resolutionWindowHours,
+  threshold: s.agent.threshold,
   rules: s.rules,
   topics: s.topics,
   guidance: s.guidance,
 });
 
-export function AiAgentPage({ menu, page }: { menu: MenuState; page: Page }) {
+/** The agent's settings: loaded once, edited as a form, saved from the version read. */
+export function useAiSettings() {
   const [data, setData] = useState<Settings | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const load = useCallback(
+    () =>
+      api<Settings>("ai-settings")
+        .then((s) => {
+          setData(s);
+          setForm(formOf(s));
+        })
+        .catch((e) => setError(message(e, "This page could not be loaded."))),
+    [],
+  );
   useEffect(() => {
-    api<Settings>("ai-settings")
-      .then((s) => {
-        setData(s);
-        setForm(formOf(s));
-      })
-      .catch((e) => setError(message(e, "This page could not be loaded.")));
-  }, []);
+    void load();
+  }, [load]);
   const dirty =
     !!data && !!form && JSON.stringify(form) !== JSON.stringify(formOf(data));
   const set = (change: Partial<Form>) => {
     setSaved(false);
-    setForm(form && { ...form, ...change });
+    setForm((f) => f && { ...f, ...change });
   };
-  async function save() {
+  async function save(change: Partial<Form> = {}) {
     if (!data || !form) return;
     setBusy(true);
     setError("");
     try {
       const next = await api<Settings>("ai-settings", {
         ...form,
+        ...change,
         version: data.agent.version,
       });
       setData(next);
       setForm(formOf(next));
       setSaved(true);
     } catch (e) {
-      setError(message(e, "The AI agent's settings could not be saved."));
+      setError(message(e, "Zoe's settings could not be saved."));
     } finally {
       setBusy(false);
     }
   }
+  return { data, form, set, dirty, busy, saved, error, save, reload: load };
+}
+type Section = {
+  form: Form;
+  set: (change: Partial<Form>) => void;
+  data: Settings;
+};
+
+/** When she answers, and how sure she must be. */
+export function AnsweringCard({ form, set }: Omit<Section, "data">) {
   return (
-    <Frame
-      menu={menu}
-      page={page}
-      save={{ dirty, busy, saved, error, onSave: () => void save() }}
-    >
-      {form && data && (
-        <>
-          <Card
-            title="Answering"
-            description="The AI agent answers customers in the messenger from your help content, until it hands the conversation to the team."
-          >
-            <label className="pg-settings-toggle">
-              <input
-                type="checkbox"
-                checked={form.enabled}
-                onChange={(e) => set({ enabled: e.target.checked })}
-              />
-              <span>
-                <strong>The AI agent answers customers</strong>
-                <small className="pg-muted">
-                  Off: conversations go straight to the team.
-                </small>
-              </span>
-            </label>
-            <fieldset className="pg-settings-fieldset">
-              <legend>When it answers</legend>
-              {(
-                [
-                  ["always", "Always", "Day and night."],
-                  [
-                    "outside_office_hours",
-                    "Only outside office hours",
-                    "While the team is open, conversations go straight to it. Without office hours set up, the agent always answers.",
-                  ],
-                ] as const
-              ).map(([v, label, help]) => (
-                <label key={v} className="pg-settings-toggle">
-                  <input
-                    type="radio"
-                    name="answer-hours"
-                    checked={form.answerHours === v}
-                    onChange={() => set({ answerHours: v })}
-                  />
-                  <span>
-                    <strong>{label}</strong>
-                    <small className="pg-muted">{help}</small>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-          </Card>
-
-          <Card
-            title="Handing over"
-            description="The agent hands a conversation to the team when the customer asks for a person, after answers it couldn't give, or when the customer seems frustrated. It tells the customer, leaves teammates a summary note, and stays out from then on."
-          >
-            <Field
-              label="Hand over to"
-              hint="Routing assigns it from this team's queue. With no team, it waits in Unassigned."
-            >
-              {(id, hint) => (
-                <select
-                  id={id}
-                  aria-describedby={hint}
-                  value={form.handoverTeamId ?? ""}
-                  onChange={(e) =>
-                    set({ handoverTeamId: e.target.value || null })
-                  }
-                >
-                  <option value="">No team (Unassigned)</option>
-                  {data.teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-            <Field
-              label="Answers it couldn't give before handing over"
-              hint="Counted per conversation, including errors."
-            >
-              {(id, hint) => (
-                <select
-                  id={id}
-                  aria-describedby={hint}
-                  value={form.failedLimit}
-                  onChange={(e) =>
-                    set({ failedLimit: Number(e.target.value) })
-                  }
-                >
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-            <label className="pg-settings-toggle">
-              <input
-                type="checkbox"
-                checked={form.escalateOnSentiment}
-                onChange={(e) => set({ escalateOnSentiment: e.target.checked })}
-              />
-              <span>
-                <strong>Hand over when the customer seems frustrated</strong>
-                <small className="pg-muted">
-                  Read from each message. Asking for a person always hands
-                  over.
-                </small>
-              </span>
-            </label>
-          </Card>
-
-          <Card
-            title="Outside office hours"
-            description="When the agent hands over while the team is away. Office hours come from the handover team's calendar, then the brand's, then the workspace's."
-          >
-            <div role="radiogroup" aria-label="Outside office hours">
-              {(
-                [
-                  [
-                    "reply_time",
-                    "Say when the team is back",
-                    "“Our team is away right now and back Monday 09:00. They'll reply here then.”",
-                  ],
-                  [
-                    "take_message",
-                    "Take a message",
-                    "“Our team is away right now. They'll reply here as soon as they're back.”",
-                  ],
-                  [
-                    "continue",
-                    "Keep answering until a teammate replies",
-                    "The conversation still waits for the team; meanwhile the agent answers what it can.",
-                  ],
-                ] as const
-              ).map(([v, label, help]) => (
-                <label key={v} className="pg-settings-toggle">
-                  <input
-                    type="radio"
-                    name="out-of-hours"
-                    checked={form.outOfHours === v}
-                    onChange={() => set({ outOfHours: v })}
-                  />
-                  <span>
-                    <strong>{label}</strong>
-                    <small className="pg-muted">{help}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </Card>
-
-          <Card
-            title="Resolutions"
-            description="When the AI agent resolved a conversation: the customer tapped “That helped” under an answer from your content, or didn't write again within the window after one, and it was never handed to the team. Each is a row in a ledger that's never changed; a handover within the window adds a reversal."
-          >
-            <Field
-              label="Resolution window"
-              hint="How long after an answer the customer's silence counts as resolved, and how long a resolution can still be reversed by a handover."
-            >
-              {(id, hint) => (
-                <select
-                  id={id}
-                  aria-describedby={hint}
-                  value={form.resolutionWindowHours}
-                  onChange={(e) =>
-                    set({ resolutionWindowHours: Number(e.target.value) })
-                  }
-                >
-                  {[1, 4, 12, 24, 48, 72].map((h) => (
-                    <option key={h} value={h}>
-                      {h} {h === 1 ? "hour" : "hours"}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-            <p className="pg-settings-small" data-testid="resolution-count">
-              Last 30 days: <strong>{data.resolutions.last30Days.net}</strong>{" "}
-              {data.resolutions.last30Days.net === 1 ? "resolution" : "resolutions"}
-              {data.resolutions.last30Days.reversals > 0 &&
-                ` (${data.resolutions.last30Days.resolutions} recorded, ${data.resolutions.last30Days.reversals} reversed)`}
-              .
-            </p>
-            {data.resolutions.recent.length > 0 && (
-              <ul className="pg-settings-list" aria-label="Latest resolutions">
-                {data.resolutions.recent.map((r) => (
-                  <li key={r.id}>
-                    <span>
-                      <strong>
-                        {r.kind === "reversal"
-                          ? "Reversed"
-                          : r.rule === "confirmed"
-                            ? "Confirmed by the customer"
-                            : "No reply within the window"}
-                        {" · "}
-                        {r.title || "Conversation"}
-                      </strong>
-                      <small className="pg-muted">
-                        {new Date(r.at).toLocaleString()} · {r.detail}
-                        {r.kind === "resolution" &&
-                          ` · ${r.answers} ${r.answers === 1 ? "answer" : "answers"}`}{" "}
-                        · conversation {r.conversationId}
-                      </small>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Rules
-            rules={form.rules}
-            choices={data.choices}
-            onChange={(rules) => set({ rules })}
+      <Card
+        title="Answering"
+        description="The AI agent answers customers in the messenger from your help content, until it hands the conversation to the team."
+      >
+        <label className="pg-settings-toggle">
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(e) => set({ enabled: e.target.checked })}
           />
+          <span>
+            <strong>Zoe answers customers</strong>
+            <small className="pg-muted">
+              Off: conversations go straight to the team.
+            </small>
+          </span>
+        </label>
+        <fieldset className="pg-settings-fieldset">
+          <legend>When it answers</legend>
+          {(
+            [
+              ["always", "Always", "Day and night."],
+              [
+                "outside_office_hours",
+                "Only outside office hours",
+                "While the team is open, conversations go straight to it. Without office hours set up, Zoe always answers.",
+              ],
+            ] as const
+          ).map(([v, label, help]) => (
+            <label key={v} className="pg-settings-toggle">
+              <input
+                type="radio"
+                name="answer-hours"
+                checked={form.answerHours === v}
+                onChange={() => set({ answerHours: v })}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small className="pg-muted">{help}</small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      </Card>
+  );
+}
 
-          <Card
-            title="Never-handle topics"
-            description="Subjects the agent never answers: it hands the conversation over instead. Keywords are checked word for word, even if the model is unavailable; the model also recognises the topic from its name and description."
-          >
-            <ul className="pg-settings-list" aria-label="Never-handle topics">
-              {form.topics.map((t, i) => {
-                const change = (c: Partial<Topic>) =>
-                  set({
-                    topics: form.topics.map((x, j) =>
-                      j === i ? { ...x, ...c } : x,
-                    ),
-                  });
-                return (
-                  <li key={i} className="pg-ai-topic">
-                    <input
-                      aria-label={`Topic ${i + 1} name`}
-                      placeholder="Legal"
-                      maxLength={80}
-                      value={t.name}
-                      onChange={(e) => change({ name: e.target.value })}
-                    />
-                    <input
-                      aria-label={`Topic ${i + 1} description`}
-                      placeholder="Complaints that mention lawyers, courts or legal action"
-                      maxLength={300}
-                      value={t.description}
-                      onChange={(e) => change({ description: e.target.value })}
-                    />
-                    <input
-                      aria-label={`Topic ${i + 1} keywords`}
-                      placeholder="lawyer, solicitor, court"
-                      value={t.keywords.join(",")}
-                      onChange={(e) =>
-                        change({ keywords: e.target.value.split(",") })
-                      }
-                    />
-                    <button
-                      type="button"
-                      aria-label={`Remove topic ${i + 1}`}
-                      onClick={() =>
-                        set({ topics: form.topics.filter((_, j) => j !== i) })
-                      }
-                    >
-                      ×
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            <div>
-              <button
-                type="button"
-                disabled={form.topics.length >= 20}
-                onClick={() =>
-                  set({
-                    topics: [
-                      ...form.topics,
-                      { name: "", description: "", keywords: [] },
-                    ],
-                  })
-                }
-              >
-                Add topic
-              </button>
-            </div>
-          </Card>
+/** How she hands over, and what she does while the team is away. */
+export function HandoverCards({ form, set, data }: Section) {
+  return (
+    <>
+      <Card
+        title="Handing over"
+        description="Zoe hands a conversation to the team when the customer asks for a person, after answers she couldn't give, or when the customer seems frustrated. She tells the customer, leaves teammates a summary note, and stays out from then on."
+      >
+        <Field
+          label="Hand over to"
+          hint="Routing assigns it from this team's queue. With no team, it waits in Unassigned."
+        >
+          {(id, hint) => (
+            <select
+              id={id}
+              aria-describedby={hint}
+              value={form.handoverTeamId ?? ""}
+              onChange={(e) =>
+                set({ handoverTeamId: e.target.value || null })
+              }
+            >
+              <option value="">No team (Unassigned)</option>
+              {data.teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field
+          label="Answers she couldn't give before handing over"
+          hint="Counted per conversation, including errors."
+        >
+          {(id, hint) => (
+            <select
+              id={id}
+              aria-describedby={hint}
+              value={form.failedLimit}
+              onChange={(e) =>
+                set({ failedLimit: Number(e.target.value) })
+              }
+            >
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <label className="pg-settings-toggle">
+          <input
+            type="checkbox"
+            checked={form.escalateOnSentiment}
+            onChange={(e) => set({ escalateOnSentiment: e.target.checked })}
+          />
+          <span>
+            <strong>Hand over when the customer seems frustrated</strong>
+            <small className="pg-muted">
+              Read from each message. Asking for a person always hands
+              over.
+            </small>
+          </span>
+        </label>
+      </Card>
 
-          <Card
-            title="Escalation guidance"
-            description="Plain-language instructions on when a person should take over, such as: Hand over if the customer mentions “cancel my account”. Guidance only decides whether to hand over; it can't change what the agent may do."
-          >
-            {form.guidance.map((g, i) => (
-              <div key={i} className="pg-settings-row">
-                <textarea
-                  aria-label={`Guidance ${i + 1}`}
-                  rows={2}
-                  maxLength={500}
-                  value={g}
+      <Card
+        title="Outside office hours"
+        description="When Zoe hands over while the team is away. Office hours come from the handover team's calendar, then the brand's, then the workspace's."
+      >
+        <div role="radiogroup" aria-label="Outside office hours">
+          {(
+            [
+              [
+                "reply_time",
+                "Say when the team is back",
+                "“Our team is away right now and back Monday 09:00. They'll reply here then.”",
+              ],
+              [
+                "take_message",
+                "Take a message",
+                "“Our team is away right now. They'll reply here as soon as they're back.”",
+              ],
+              [
+                "continue",
+                "Keep answering until a teammate replies",
+                "The conversation still waits for the team; meanwhile Zoe answers what she can.",
+              ],
+            ] as const
+          ).map(([v, label, help]) => (
+            <label key={v} className="pg-settings-toggle">
+              <input
+                type="radio"
+                name="out-of-hours"
+                checked={form.outOfHours === v}
+                onChange={() => set({ outOfHours: v })}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small className="pg-muted">{help}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+      </Card>
+    </>
+  );
+}
+
+/** The resolution window, and the ledger's last 30 days. */
+export function ResolutionsCard({ form, set, data }: Section) {
+  return (
+      <Card
+        title="Resolutions"
+        description="When Zoe resolved a conversation: the customer tapped “That helped” under an answer from your content, or didn't write again within the window after one, and it was never handed to the team. Each is a row in a ledger that's never changed; a handover within the window adds a reversal."
+      >
+        <Field
+          label="Resolution window"
+          hint="How long after an answer the customer's silence counts as resolved, and how long a resolution can still be reversed by a handover."
+        >
+          {(id, hint) => (
+            <select
+              id={id}
+              aria-describedby={hint}
+              value={form.resolutionWindowHours}
+              onChange={(e) =>
+                set({ resolutionWindowHours: Number(e.target.value) })
+              }
+            >
+              {[1, 4, 12, 24, 48, 72].map((h) => (
+                <option key={h} value={h}>
+                  {h} {h === 1 ? "hour" : "hours"}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <p className="pg-settings-small" data-testid="resolution-count">
+          Last 30 days: <strong>{data.resolutions.last30Days.net}</strong>{" "}
+          {data.resolutions.last30Days.net === 1 ? "resolution" : "resolutions"}
+          {data.resolutions.last30Days.reversals > 0 &&
+            ` (${data.resolutions.last30Days.resolutions} recorded, ${data.resolutions.last30Days.reversals} reversed)`}
+          .
+        </p>
+        {data.resolutions.recent.length > 0 && (
+          <ul className="pg-settings-list" aria-label="Latest resolutions">
+            {data.resolutions.recent.map((r) => (
+              <li key={r.id}>
+                <span>
+                  <strong>
+                    {r.kind === "reversal"
+                      ? "Reversed"
+                      : r.rule === "confirmed"
+                        ? "Confirmed by the customer"
+                        : "No reply within the window"}
+                    {" · "}
+                    {r.title || "Conversation"}
+                  </strong>
+                  <small className="pg-muted">
+                    {new Date(r.at).toLocaleString()} · {r.detail}
+                    {r.kind === "resolution" &&
+                      ` · ${r.answers} ${r.answers === 1 ? "answer" : "answers"}`}{" "}
+                    · conversation {r.conversationId}
+                  </small>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+  );
+}
+
+/** Subjects she never answers. */
+export function TopicsCard({ form, set }: Omit<Section, "data">) {
+  return (
+      <Card
+        title="Never-handle topics"
+        description="Subjects Zoe never answers: she hands the conversation over instead. Keywords are checked word for word, even if the model is unavailable; the model also recognises the topic from its name and description."
+      >
+        <ul className="pg-settings-list" aria-label="Never-handle topics">
+          {form.topics.map((t, i) => {
+            const change = (c: Partial<Topic>) =>
+              set({
+                topics: form.topics.map((x, j) =>
+                  j === i ? { ...x, ...c } : x,
+                ),
+              });
+            return (
+              <li key={i} className="pg-ai-topic">
+                <input
+                  aria-label={`Topic ${i + 1} name`}
+                  placeholder="Legal"
+                  maxLength={80}
+                  value={t.name}
+                  onChange={(e) => change({ name: e.target.value })}
+                />
+                <input
+                  aria-label={`Topic ${i + 1} description`}
+                  placeholder="Complaints that mention lawyers, courts or legal action"
+                  maxLength={300}
+                  value={t.description}
+                  onChange={(e) => change({ description: e.target.value })}
+                />
+                <input
+                  aria-label={`Topic ${i + 1} keywords`}
+                  placeholder="lawyer, solicitor, court"
+                  value={t.keywords.join(",")}
                   onChange={(e) =>
-                    set({
-                      guidance: form.guidance.map((x, j) =>
-                        j === i ? e.target.value : x,
-                      ),
-                    })
+                    change({ keywords: e.target.value.split(",") })
                   }
                 />
                 <button
                   type="button"
-                  aria-label={`Remove guidance ${i + 1}`}
+                  aria-label={`Remove topic ${i + 1}`}
                   onClick={() =>
-                    set({ guidance: form.guidance.filter((_, j) => j !== i) })
+                    set({ topics: form.topics.filter((_, j) => j !== i) })
                   }
                 >
                   ×
                 </button>
-              </div>
-            ))}
-            <div>
-              <button
-                type="button"
-                disabled={form.guidance.length >= 10}
-                onClick={() => set({ guidance: [...form.guidance, ""] })}
-              >
-                Add guidance
-              </button>
-            </div>
-          </Card>
-        </>
-      )}
-    </Frame>
+              </li>
+            );
+          })}
+        </ul>
+        <div>
+          <button
+            type="button"
+            disabled={form.topics.length >= 20}
+            onClick={() =>
+              set({
+                topics: [
+                  ...form.topics,
+                  { name: "", description: "", keywords: [] },
+                ],
+              })
+            }
+          >
+            Add topic
+          </button>
+        </div>
+      </Card>
+  );
+}
+
+/** Plain-language instructions on when a person should take over. */
+export function GuidanceCard({ form, set }: Omit<Section, "data">) {
+  return (
+      <Card
+        title="Escalation guidance"
+        description="Plain-language instructions on when a person should take over, such as: Hand over if the customer mentions “cancel my account”. Guidance only decides whether to hand over; it can't change what Zoe may do."
+      >
+        {form.guidance.map((g, i) => (
+          <div key={i} className="pg-settings-row">
+            <textarea
+              aria-label={`Guidance ${i + 1}`}
+              rows={2}
+              maxLength={500}
+              value={g}
+              onChange={(e) =>
+                set({
+                  guidance: form.guidance.map((x, j) =>
+                    j === i ? e.target.value : x,
+                  ),
+                })
+              }
+            />
+            <button
+              type="button"
+              aria-label={`Remove guidance ${i + 1}`}
+              onClick={() =>
+                set({ guidance: form.guidance.filter((_, j) => j !== i) })
+              }
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <div>
+          <button
+            type="button"
+            disabled={form.guidance.length >= 10}
+            onClick={() => set({ guidance: [...form.guidance, ""] })}
+          >
+            Add guidance
+          </button>
+        </div>
+      </Card>
   );
 }
 
 /** Escalation rules (A2b): when one matches, the agent hands over without answering. */
-function Rules({
+export function Rules({
   rules,
   choices,
   onChange,

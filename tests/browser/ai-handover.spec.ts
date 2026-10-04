@@ -68,9 +68,9 @@ test("the customer asks for a person after a reply the agent couldn't give; the 
   page,
   browser,
 }) => {
-  // Settings › AI agent: hand over to Billing.
+  // Zoe › Escalation: hand over to Billing.
   const agent = await (await browser.newContext()).newPage();
-  await agent.goto(relay.hostOrigin + "/agent#settings/ai-agent");
+  await agent.goto(relay.hostOrigin + "/agent#zoe/escalation");
   await agent.getByLabel("Hand over to").selectOption({ label: "Billing" });
   await agent.getByRole("button", { name: "Save", exact: true }).click();
   await expect(agent.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
@@ -87,13 +87,13 @@ test("the customer asks for a person after a reply the agent couldn't give; the 
     ),
   ).toBeVisible({ timeout: 20000 });
   // The summary never reaches the customer.
-  await expect(frame.getByText(/Handed over by the AI agent/)).toHaveCount(0);
+  await expect(frame.getByText(/Handed over by Zoe/)).toHaveCount(0);
   const [row] = await sql<{ ai_state: string; team_id: string }>(
     "SELECT c.ai_state,c.team_id FROM conversations c JOIN conversation_parts p ON p.workspace_id=c.workspace_id AND p.conversation_id=c.id WHERE p.body='Can I pay for my plan with bitcoin?'",
   );
   expect(row).toEqual({ ai_state: "escalated", team_id: "billing" });
 
-  // The teammate: "Escalated by AI" in the inbox menu, the card's state, and the summary.
+  // The teammate: "Escalated by Zoe" in the inbox menu, the card's state, and the summary.
   const inbox = await (await browser.newContext()).newPage();
   await inbox.goto(relay.hostOrigin + "/agent");
   await expect(inbox.getByRole("status").filter({ hasText: "●" })).toHaveText(
@@ -101,20 +101,20 @@ test("the customer asks for a person after a reply the agent couldn't give; the 
   );
   const view = inbox
     .getByRole("navigation", { name: "Inbox views" })
-    .getByRole("button", { name: /Escalated by AI/ });
+    .getByRole("button", { name: /Escalated by Zoe/ });
   await expect(view).toBeVisible({ timeout: 15000 });
   await view.click();
   const card = inbox.locator(".pg-card", {
     hasText: "Can I pay for my plan with bitcoin?",
   });
   await expect(card).toBeVisible({ timeout: 15000 });
-  await expect(card.locator(".pg-card-ai")).toHaveText("AI: escalated");
+  await expect(card.locator(".pg-card-ai")).toHaveText("Zoe · escalated");
   await card.click();
   const summary = inbox
     .locator(".pg-message")
-    .filter({ hasText: "AI handover summary · Team only" });
+    .filter({ hasText: "Handover summary from Zoe · Team only" });
   await expect(summary).toContainText(
-    "Handed over by the AI agent. The customer asked for a person.",
+    "Handed over by Zoe. The customer asked for a person.",
   );
   await expect(summary).toContainText(
     "First message: “Can I pay for my plan with bitcoin?”",

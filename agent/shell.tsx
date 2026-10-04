@@ -68,6 +68,8 @@ export type RailItem = {
   id: string;
   label: string;
   icon: ReactNode;
+  /** Its tint (Z1): the icon takes it, and the tile behind it when hovered or open. */
+  hue?: string;
   /** Shown beside the label, such as the open count in your inbox. */
   badge?: string;
   /** A fuller accessible name, when the label alone would not say enough. */
@@ -81,6 +83,7 @@ function RailButton({ item }: { item: RailItem }) {
     <button
       type="button"
       className="pg-rail-item"
+      data-hue={item.hue}
       aria-current={item.current ? "page" : undefined}
       aria-label={item.ariaLabel}
       onClick={item.onClick}

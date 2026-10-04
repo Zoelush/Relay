@@ -327,7 +327,7 @@ test("the AI agent hands over when asked, after failed answers, on frustration a
     const [note] = await notes(human.id);
     assert.equal(note.audience, "internal");
     assert.equal(note.author_type, "ai");
-    assert.match(note.body, /^Handed over by the AI agent\. The customer asked for a person\./);
+    assert.match(note.body, /^Handed over by Zoe\. The customer asked for a person\./);
     assert.match(note.body, /First message: “Can I talk to a human please\?”/);
     assert.deepEqual(note.data.aiHandover, {
       trigger: "asked_for_person",
@@ -472,14 +472,17 @@ test("the AI agent hands over when asked, after failed answers, on frustration a
       () => validateFilter({ field: "ai_state", op: "eq", value: "angry" }),
       /AI agent state/,
     );
-    // The built-in view appears with the agent on.
+    // The built-in views appear with the agent on, named after her (Z1).
     await agent("views", { action: "initialize" });
     const views = (await agent("views")).body;
     assert.equal(views.ai, true);
     assert.ok(
       views.views.some(
-        (v: any) => v.builtin === "ai:escalated" && v.name === "Escalated by AI",
+        (v: any) => v.builtin === "ai:escalated" && v.name === "Escalated by Zoe",
       ),
+    );
+    assert.ok(
+      views.views.some((v: any) => v.builtin === "ai:with" && v.name === "With Zoe"),
     );
   } finally {
     await db.close();

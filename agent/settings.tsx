@@ -28,6 +28,7 @@ import {
   Bot,
 } from "lucide-react";
 import { api } from "./api";
+import { hueOf, type Hue } from "./colour";
 import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
 import {
   Card,
@@ -45,7 +46,6 @@ import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
-import { AiAgentPage } from "./settings-ai";
 import type { Directory } from "./timeline";
 import type { ThemeChoice } from "./theme";
 import {
@@ -63,7 +63,12 @@ import {
  * server lists them); features managed elsewhere (Knowledge, saved views) are linked, not copied.
  */
 type Link =
-  "views" | "help-centers" | "websites" | "ai-index" | "content-health";
+  | "views"
+  | "help-centers"
+  | "websites"
+  | "ai-index"
+  | "content-health"
+  | "ai-agent";
 
 const PAGES: Page[] = [
   {
@@ -219,12 +224,14 @@ const PAGES: Page[] = [
     link: true,
   },
   {
+    // Zoe has her own area now (phase 08 Z1); Settings links to it.
     id: "ai-agent",
-    label: "AI agent",
+    label: "Zoe, AI agent",
     description:
-      "When the AI agent answers, and how it hands conversations to the team.",
+      "Her identity, how she answers and hands over, and what she resolved.",
     icon: Bot,
     group: "Knowledge & AI",
+    link: true,
   },
   {
     id: "content-health",
@@ -245,6 +252,17 @@ const GROUPS = [
   "Knowledge & AI",
 ];
 export const SETTINGS_PAGES = PAGES.map((p) => p.id);
+/** Each group's tint (Z1), on its pages' icons in the menu and on Settings home. */
+const GROUP_HUES: Record<string, Hue> = {
+  Personal: "sky",
+  Workspace: "violet",
+  Helpdesk: "blue",
+  Channels: "teal",
+  Inbox: "amber",
+  "Knowledge & AI": "rose",
+};
+const hueFor = (p: Page): Hue =>
+  p.id === "ai-agent" ? "zoe" : (GROUP_HUES[p.group] ?? "slate");
 
 const LANGUAGES = [
   "en",
@@ -335,7 +353,7 @@ export function Settings({
                   <h2 className="pg-settings-group">{g}</h2>
                   <ul className="pg-menu-entries">
                     {items.map((p) => (
-                      <li key={p.id}>
+                      <li key={p.id} data-hue={hueFor(p)}>
                         <button
                           aria-current={
                             current?.id === p.id ? "page" : undefined
@@ -408,8 +426,6 @@ export function Settings({
               brandId={messengerBrand}
               onBrand={setMessengerBrand}
             />
-          ) : current.id === "ai-agent" ? (
-            <AiAgentPage menu={menu} page={current} />
           ) : current.id === "portal" ? (
             <PortalPage menu={menu} page={current} />
           ) : current.id === "teams" ? (
@@ -483,6 +499,7 @@ function SettingsHome({
                     key={p.id}
                     type="button"
                     className="pg-settings-tile"
+                    data-hue={hueFor(p)}
                     onClick={() => onOpen(p)}
                   >
                     <span className="pg-settings-tile-icon" aria-hidden="true">
@@ -540,7 +557,11 @@ function ProfilePage({
             description="Shown to teammates, and to customers on your replies."
           >
             <div className="pg-settings-identity">
-              <span className="pg-avatar" aria-hidden="true">
+              <span
+                className="pg-avatar"
+                data-hue={hueOf(f.form.name)}
+                aria-hidden="true"
+              >
                 {f.form.name
                   .split(/\s+/)
                   .filter(Boolean)

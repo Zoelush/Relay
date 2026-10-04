@@ -8,7 +8,9 @@ Branch per step, behind `ai_agent_v1` (off by default; on for the local relay). 
 | **A2a: Handover** (A2 split on 3 October 2026) | Triggers: asking for a person (a button or in words), failed answers, negative sentiment, office hours. A handover summary note for teammates, then routing to a handover team (phase 06). Out-of-hours behaviour (reply time, take a message, keep answering). The AI state (pending, escalated, needs teammate input) with an inbox view and filter. Settings › AI agent. |
 | **A2b: Escalation rules and guidance** | Escalation rules (data conditions on person, company or conversation; humans-only segments), never-handle topics, and escalation guidance (natural language), with their Settings sections. |
 | **A3: Resolution ledger** | "That helped" in the messenger. Resolution after a quiet window when the conversation was never escalated. One ledger row per resolution (conversation, answers, rule, time), reconcilable by a person reading the thread; billing (phase 16) reads it. |
-| **B1: Configuration** | Several agents (for example service and sales). Each has: identity per brand; versioned guidance with channel selectors (shapes language and decisions, never grants powers); content targeting (an article is used only if the customer passes both its help center audience and the agent's); language detection with an allowlist and fallback; formality and answer length. Settings pages. |
+| **Z1: Zoe's home, and colour across Relay** (B1 split on 4 October 2026) | The agent becomes Zoe: her own place in the icon strip and side menu (Overview, Train, Test, Deploy, Analyze, Settings), an Overview of her numbers, gaps and articles, a Playground that runs her real decision and writes nothing, her identity per brand (name, avatars, disclosure, greeting) on her replies, inbox views With Zoe and Escalated by Zoe; colour across the agent app (tinted strip, menus, Settings tiles, avatars) as tested tokens. |
+| **Z2: How Zoe answers** | Tone of voice, answer length, formality, language detection with an allowlist and fallback, and versioned answer guidance in categories (with channel selectors; it never grants powers), all tried in the Playground. |
+| **Z3: Specialists** | Several Zoes with their own job, knowledge and guidance; content targeting (an article is used only if the customer passes both its audience and the specialist's). |
 | **B2: Safety and privacy** | A hostile-content corpus. Guarantees against disclosing other customers' data, internal content or the system prompt. Redaction of personal data before the model provider (workspace setting), with an audit of what was sent. Memory across a customer's conversations behind a workspace switch (off by default), recorded on the conversation. |
 | **C1: Evaluation harness** | A golden set of 200 or more cases (answerable, unanswerable, ambiguous, multi-turn, out-of-scope, hostile, multilingual). Scores for groundedness, correctness, refusal and escalation. The build fails on regression. Simulated-customer tests. The acceptance demo: scores before and after a deliberate prompt change. |
 | **C2: Review queue and monitors** | Leads sample and rate real answers; bad ones go to a content gap list, feeding content health. Monitors that alert on sharp changes in behaviour, with an incident view. |
@@ -52,4 +54,11 @@ Acceptance criteria (phase brief):
    - windows of 1, 4, 12, 24, 48 or 72 hours, default 24
    - migration 0046 adds the append-only ledger
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3).
+8. **Z1 decisions** (4 October 2026, after scoping Beacon's and Intercom's agents read-only):
+   - B1 is three steps (Z1–Z3)
+   - Zoe's signature is teal to emerald (the user's choice over violet to rose)
+   - Settings › AI agent moves into Zoe's area
+   - the Playground runs real model calls when deployed
+   - the agent named "AI agent" becomes Zoe
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1).

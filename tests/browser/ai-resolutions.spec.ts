@@ -88,18 +88,18 @@ test("the customer taps “That helped”: one ledger row, the conversation show
   const card = inbox.locator(".pg-card", {
     hasText: "When do replies usually arrive?",
   });
-  await expect(card.locator(".pg-card-ai")).toHaveText("AI: resolved", {
+  await expect(card.locator(".pg-card-ai")).toHaveText("Zoe · resolved", {
     timeout: 15000,
   });
   await card.click();
   await expect(
     inbox.getByText(
-      "Resolved by the AI agent: the customer said the answer helped",
+      "Resolved by Zoe: the customer said the answer helped",
     ),
   ).toBeVisible();
 
-  // Settings › AI agent: the count and the row.
-  await inbox.goto(relay.hostOrigin + "/agent#settings/ai-agent");
+  // Zoe › Resolutions: the count and the row.
+  await inbox.goto(relay.hostOrigin + "/agent#zoe/resolutions");
   await expect(inbox.getByTestId("resolution-count")).toContainText(
     "Last 30 days: 1 resolution.",
     { timeout: 15000 },

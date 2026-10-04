@@ -25,8 +25,11 @@ booted while the flag is on). Its inbound rules are enforced in `server/conversa
 (`inboundRules`), not only in the messenger. Settings' live preview loads the app's own copy of the
 messenger page (`/messenger/frame.html?preview=1`); in preview mode it fetches and sends nothing.
 Phase 08 (the AI agent, `docs/AI_PLAN.md`):
-steps A1 (answering core), A2a (handover), A2b (escalation rules, topics, guidance) and A3 (the
-resolution ledger) are done locally (`docs/AI_STEP1.md` to `AI_STEP4.md`); next is B1 (configuration).
+steps A1 (answering core), A2a (handover), A2b (escalation rules, topics, guidance), A3 (the
+resolution ledger) and Z1 (Zoe's home) are done locally (`docs/AI_STEP1.md` to `AI_STEP5.md`); next is
+Z2 (how Zoe answers), then Z3 (specialists). The AI agent is **Zoe**: her area is `agent/zoe.tsx`
+(`#zoe/<page>`, in the strip between Inbox and Knowledge), her data `server/zoe.ts`; the reply job and
+her Playground share `decide()` in `server/ai-agent.ts`, and the Playground must never write.
 `ai_resolutions` is append-only (a trigger refuses changes): correct it with a reversal row, never an
 edit; billing (phase 16) reads the net. Escalation rules are
 code (`server/ai-escalation.ts`, a closed list of conditions); topic keywords are checked in code
@@ -83,7 +86,9 @@ teammate.
   wake-ups, SLA clocks). Implemented in `workers/relay.ts`, not deployed.
 - The agent app's colours are named tokens at the top of `agent/inbox.css`, with light and dark
   values (`docs/AGENT_DARK_MODE.md`). Use a token for any new colour; `tests/agent-theme.test.ts`
-  fails on a written-in colour or a text pairing below WCAG AA.
+  fails on a written-in colour or a text pairing below WCAG AA. Colour marks meaning (Z1): eight
+  tints (`--pg-tint-*`, applied with `data-hue`, `hueOf` in `agent/colour.tsx`) and Zoe's
+  teal-to-emerald (`--pg-zoe-*`); neutrals stay neutral.
 - Saved views (`agent_inbox_views_v1`) are on for the local dev relay; built-in views are Mine,
   Mentions, Unassigned and All, and the list's status picker chooses the status
   (`docs/AGENT_LIST_AND_HEADER.md`). Tests opt in with `inboxViews: true`.

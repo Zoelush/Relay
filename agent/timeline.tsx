@@ -3,6 +3,7 @@ import { LockKeyhole, Paperclip, Sparkles } from "lucide-react";
 import { api } from "./api";
 import { RichText } from "../lib/rich-view";
 import { initials } from "./card";
+import { hueOf, useAgentName, ZoeMark } from "./colour";
 
 export type TimelinePart = {
   id: string;
@@ -34,6 +35,8 @@ export type Directory = {
   tags: { id: string; name: string; archived?: boolean }[];
   /** Ticket states across types, named "Type: State"; empty when tickets are off. */
   ticketStates?: { id: string; name: string }[];
+  /** The AI agent's name (Zoe unless renamed; Z1). */
+  agentName?: string;
 };
 export const MESSAGES = new Set([
   "customer_message",
@@ -163,8 +166,8 @@ export function describePart(p: TimelinePart, dir: Directory): string {
       // The resolution ledger (phase 08 A3).
       if (d.event === "ai_resolved")
         return d.rule === "confirmed"
-          ? "Resolved by the AI agent: the customer said the answer helped"
-          : `Resolved by the AI agent: no reply within ${Number(d.windowHours)} hours of its answer`;
+          ? `Resolved by ${dir.agentName ?? "Zoe"}: the customer said the answer helped`
+          : `Resolved by ${dir.agentName ?? "Zoe"}: no reply within ${Number(d.windowHours)} hours of her answer`;
       if (d.event === "ai_resolution_reversed")
         return "AI resolution reversed: handed to the team within the resolution window";
       if (d.event === "human_joined")
@@ -204,16 +207,26 @@ function Message({
 }) {
   const internal = p.audience === "internal" || p.kind === "internal_note";
   const fromCustomer = p.author_type === "contact";
+  // Zoe (Z1): her name and mark on her replies and handover notes.
+  const agentName = useAgentName();
   const who = fromCustomer
     ? customer || "Customer"
     : p.author_type === "ai"
-      ? "AI"
+      ? agentName
       : (p.data.authorName ?? "Teammate");
   return (
     <div className={"pg-bubble-row " + (fromCustomer ? "customer" : "team")}>
-      <span className="pg-avatar pg-bubble-avatar" aria-hidden="true">
-        {initials(who)}
-      </span>
+      {p.author_type === "ai" ? (
+        <ZoeMark size={28} className="pg-avatar pg-bubble-avatar" />
+      ) : (
+        <span
+          className="pg-avatar pg-bubble-avatar"
+          data-hue={hueOf(who)}
+          aria-hidden="true"
+        >
+          {initials(who)}
+        </span>
+      )}
       <article
         data-part-id={p.id}
         className={
@@ -225,13 +238,13 @@ function Message({
           {internal && <LockKeyhole size={13} />}
           <strong>
             {p.data.aiHandover
-              ? "AI handover summary · Team only"
+              ? `Handover summary from ${agentName} · Team only`
               : internal
                 ? "Internal note · Team only"
               : p.author_type === "contact"
                 ? "Customer"
                 : (p.data.authorName ??
-                  (p.author_type === "ai" ? "AI agent" : "Teammate"))}
+                  (p.author_type === "ai" ? `${agentName} · AI agent` : "Teammate"))}
           </strong>
           {edited && !p.data.deleted && (
             <small className="pg-edited">Edited</small>
@@ -352,7 +365,16 @@ function AiReplyDetails({ p }: { p: TimelinePart }) {
   );
 }
 
-function EventRun({ parts, dir }: { parts: TimelinePart[]; dir: Directory }) {
+function EventRun({
+  parts,
+  dir: directory,
+}: {
+  parts: TimelinePart[];
+  dir: Directory;
+}) {
+  // Zoe's name in her events (Z1).
+  const agentName = useAgentName();
+  const dir = { ...directory, agentName };
   const [open, setOpen] = useState(false);
   if (parts.length === 1)
     return (

@@ -76,6 +76,11 @@ test("the strip slides out and pins; the inbox menu lists your inbox, team inbox
   await rail(page)
     .getByRole("button", { name: /^Inbox/ })
     .focus();
+  // Zoe sits between Inbox and Knowledge (phase 08 Z1).
+  await page.keyboard.press("Tab");
+  await expect(
+    rail(page).getByRole("button", { name: "Zoe, AI agent", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(
     rail(page).getByRole("button", { name: "Knowledge", exact: true }),

@@ -139,6 +139,9 @@ export async function bootBrand(
   apiOrigin = "",
 ) {
   const { messenger3, ...settings } = resolveAssets(b.settings, apiOrigin, w);
+  // Z1: Zoe's name, avatars and disclosure on her replies, while the AI agent is on.
+  const agent = await bootIdentity(db, w, b.id, apiOrigin);
+  if (agent) (settings as Record<string, unknown>).agent = agent;
   if (!messenger3 || !(await messengerV3(db, w)))
     return { id: b.id, name: b.name, ...settings };
   const m3 = messenger3 as { look?: { showTeammates?: boolean } };
@@ -173,10 +176,22 @@ import {
 } from "./brand-assets";
 import {
   aiAnswers,
+  aiEnabled,
+  agentRow,
   changeAiSettings,
+  previewAiReply,
   readAiSettings,
   type AiEnvironment,
 } from "./ai-agent";
+import {
+  bootIdentity,
+  saveIdentity,
+  zoeContent,
+  zoeDeploy,
+  zoeGaps,
+  zoeOverview,
+  zoePerformance,
+} from "./zoe";
 import {
   indexStatus,
   rebuildIndex,
@@ -1191,6 +1206,7 @@ export async function handleApi(
             "/v1/agent/context",
             "/v1/agent/ai-answers",
             "/v1/agent/ai-settings",
+            "/v1/agent/zoe",
             "/v1/agent/bulk",
             "/v1/agent/ticket-types",
             "/v1/agent/ticket-preview",
@@ -1253,6 +1269,8 @@ export async function handleApi(
               "/v1/agent/messenger",
               "/v1/agent/messenger-assets",
               "/v1/agent/ai-settings",
+              "/v1/agent/zoe-identity",
+              "/v1/agent/zoe-playground",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1543,6 +1561,32 @@ export async function handleApi(
               ),
             ),
           );
+        if (url.pathname === "/v1/agent/zoe-identity")
+          // Phase 08 Z1: Zoe's name, avatars, disclosure and greeting for a brand.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              once(
+                db,
+                workspace,
+                "zoe-identity:" + principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                () => saveIdentity(db, workspace, principal, p),
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/zoe-playground") {
+          // Phase 08 Z1: what Zoe would reply, without a conversation. Nothing is written.
+          assert(
+            env.ai,
+            "AI_AGENT_UNAVAILABLE",
+            "The AI agent isn't configured here.",
+            503,
+          );
+          return json(
+            await previewAiReply(env.connect, env.ai, workspace, principal, p),
+          );
+        }
         if (url.pathname === "/v1/agent/ai-settings")
           return json(
             await tenant(env.connect, workspace, (db) =>
@@ -2002,6 +2046,29 @@ export async function handleApi(
         });
         return new Response(file.body, { status: file.status, headers });
       }
+      if (url.pathname === "/v1/agent/zoe") {
+        // Phase 08 Z1: Zoe's pages (Overview, Performance, Knowledge gaps, Content, Deploy).
+        const view = url.searchParams.get("view") ?? "overview";
+        const read: (
+          db: Sql,
+          w: string,
+          principal: string,
+        ) => Promise<unknown> =
+          view === "performance"
+            ? zoePerformance
+            : view === "gaps"
+              ? zoeGaps
+              : view === "content"
+                ? zoeContent
+                : view === "deploy"
+                  ? zoeDeploy
+                  : zoeOverview;
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            read(db, workspace, principal),
+          ),
+        );
+      }
       if (url.pathname === "/v1/agent/ai-settings")
         // Phase 08 A2a: the AI agent's handover choices.
         return json(
@@ -2451,7 +2518,18 @@ export async function handleApi(
               attachments: !!env.attachments,
               // Settings (S1), when the workspace has it.
               settings: await settingsEnabled(db, workspace),
+              // Phase 08 Z1: Zoe's own area, for managers while the AI agent is on.
+              zoe:
+                (await aiEnabled(db, workspace)) &&
+                (await can(db, workspace, principal, "workspace.manage")),
             },
+            // Zoe's name, for her replies and views in the inbox (null while the agent is off).
+            ai: (await aiEnabled(db, workspace))
+              ? {
+                  name: (await agentRow(db, workspace)).name,
+                  enabled: (await agentRow(db, workspace)).enabled,
+                }
+              : null,
             // Your own preferences: the signature added to replies, and how you're notified.
             profile: (
               await db.query<{
