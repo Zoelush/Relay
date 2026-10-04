@@ -193,6 +193,7 @@ import {
   zoePerformance,
 } from "./zoe";
 import { changeGuidance, readGuidance, readGuidanceVersion } from "./zoe-guidance";
+import { changeSpecialist, readSpecialists, specialistNames } from "./zoe-specialists";
 import {
   indexStatus,
   rebuildIndex,
@@ -1273,6 +1274,7 @@ export async function handleApi(
               "/v1/agent/zoe-identity",
               "/v1/agent/zoe-playground",
               "/v1/agent/zoe-guidance",
+              "/v1/agent/zoe-specialist",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1574,6 +1576,19 @@ export async function handleApi(
                 req.headers.get("idempotency-key") ?? "",
                 p,
                 () => saveIdentity(db, workspace, principal, p),
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/zoe-specialist")
+          // Phase 08 Z3a: a specialist created, changed or removed.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeSpecialist(
+                db,
+                workspace,
+                principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
               ),
             ),
           );
@@ -2071,7 +2086,9 @@ export async function handleApi(
           w: string,
           principal: string,
         ) => Promise<unknown> =
-          view === "guidance"
+          view === "specialists"
+            ? readSpecialists
+            : view === "guidance"
             ? url.searchParams.has("version")
               ? (db, w, principal) => readGuidanceVersion(db, w, principal, version)
               : readGuidance
@@ -2549,6 +2566,8 @@ export async function handleApi(
               ? {
                   name: (await agentRow(db, workspace)).name,
                   enabled: (await agentRow(db, workspace)).enabled,
+                  // Z3a: her specialists by name (removed ones too), for labels in the inbox.
+                  specialists: await specialistNames(db, workspace),
                 }
               : null,
             // Your own preferences: the signature added to replies, and how you're notified.

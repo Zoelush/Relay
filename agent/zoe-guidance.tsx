@@ -55,6 +55,8 @@ type GuidanceData = {
     voice: Voice;
   }[];
   brands: Brand[];
+  /** Her specialists (Z3a), for guidance that applies only when one answers. */
+  specialists: Brand[];
 };
 type Form = { voice: Voice; guidance: Guideline[] };
 /** What the Playground returns (Z1, with Z2's language and instructions). */
@@ -78,6 +80,8 @@ export type PreviewResult = {
   guidanceVersion: number | null;
   instructions: string[];
   applied: { title: string; category: string }[];
+  /** Z3a: the specialist who answered, and why (null: Zoe herself). */
+  specialist: { id: string; name: string; reason: string } | null;
   latencyMs: number;
 };
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
@@ -232,6 +236,7 @@ export function GuidancePage({
                             g={g}
                             example={c.example}
                             brands={data.brands}
+                            specialists={data.specialists}
                             open={opened === g.id}
                             onChange={change}
                             onRemove={() =>
@@ -343,6 +348,7 @@ function GuidelineRow({
   g,
   example,
   brands,
+  specialists,
   open,
   onChange,
   onRemove,
@@ -350,6 +356,7 @@ function GuidelineRow({
   g: Guideline;
   example: string;
   brands: Brand[];
+  specialists: Brand[];
   open: boolean;
   onChange: (g: Guideline) => void;
   onRemove: () => void;
@@ -360,6 +367,10 @@ function GuidelineRow({
     ? (brands.find((b) => b.id === g.brandId)?.name ?? "A removed brand")
     : "All brands";
   const audience = AUDIENCES.find((a) => a.id === g.audience)?.label ?? "Everyone";
+  // Z3a: only when one specialist answers (never for spam, which is about the message).
+  const specialist = g.specialistId
+    ? (specialists.find((s) => s.id === g.specialistId)?.name ?? "A removed specialist")
+    : null;
   return (
     <li className="pg-zoe-guideline" data-off={g.enabled ? undefined : "true"}>
       <details open={open || undefined}>
@@ -367,6 +378,7 @@ function GuidelineRow({
           <span className="pg-zoe-guideline-title">{g.title.trim() || "New guideline"}</span>
           <span className="pg-zoe-guideline-meta">
             {audience} · {brand}
+            {specialist ? ` · only for ${specialist}` : ""}
           </span>
           {!g.enabled && <span className="pg-zoe-off">Off</span>}
           {warnings.length > 0 && (
@@ -429,6 +441,26 @@ function GuidelineRow({
                 ))}
               </select>
             </div>
+            {g.category !== "spam" && (specialists.length > 0 || g.specialistId) && (
+              <div className="pg-settings-field">
+                <label htmlFor={id + "-when"}>When</label>
+                <select
+                  id={id + "-when"}
+                  value={g.specialistId ?? ""}
+                  onChange={(e) => onChange({ ...g, specialistId: e.target.value || null })}
+                >
+                  <option value="">Always</option>
+                  {specialists.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Only when {s.name} answers
+                    </option>
+                  ))}
+                  {g.specialistId && !specialists.some((s) => s.id === g.specialistId) && (
+                    <option value={g.specialistId}>For a removed specialist</option>
+                  )}
+                </select>
+              </div>
+            )}
           </div>
           {warnings.length > 0 && (
             <ul className="pg-zoe-warnings" aria-label="Warnings">

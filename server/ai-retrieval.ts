@@ -12,7 +12,10 @@ import { contentWords, type Passage, type RerankPort } from "./ai-model";
  * - the record is switched on for the AI agent and published;
  * - its audience is public, or signed-in and the customer is verified;
  * - the passage is in the first language along the customer's chain the record is published in;
- * - the record isn't placed only in another brand's help centers.
+ * - the record isn't placed only in another brand's help centers;
+ * - for a specialist with chosen knowledge (Z3a; docs/AI_STEP7.md): it's placed in one of her
+ *   collections (or their sections), is a page of one of her websites, or is a snippet or file
+ *   when she has those, so she can't cite content meant for another part of the business.
  * The vector store's nearest neighbours are checked against that set before they're ranked, so a
  * passage the customer may not see never influences the ranking or the confidence score.
  *
@@ -20,6 +23,13 @@ import { contentWords, type Passage, type RerankPort } from "./ai-model";
  * gates on the top rerank score. Each passage keeps its record id, so every sentence of an answer
  * can be traced to a record.
  */
+/** A specialist's knowledge (Z3a): null for all of Zoe's. */
+export type KnowledgeScope = {
+  collections: string[];
+  websites: string[];
+  snippets: boolean;
+  files: boolean;
+} | null;
 export type Retrieval = {
   passages: (Passage & { chunkId: string })[];
   /** For the answer's audit record: every candidate and how it scored. */
@@ -48,6 +58,7 @@ export async function retrieveForAgent(
     brandId: string;
     signedIn: boolean;
     limit?: number;
+    scope?: KnowledgeScope;
   },
 ): Promise<Retrieval> {
   const limit = options.limit ?? 6;
@@ -66,8 +77,27 @@ export async function retrieveForAgent(
       AND (NOT EXISTS(SELECT 1 FROM help_placements p WHERE p.workspace_id=r.workspace_id AND p.record_id=r.id)
         OR EXISTS(SELECT 1 FROM help_placements p JOIN help_nodes n ON n.workspace_id=p.workspace_id AND n.id=p.node_id
           JOIN help_centers h ON h.workspace_id=n.workspace_id AND h.id=n.center_id
-          WHERE p.workspace_id=r.workspace_id AND p.record_id=r.id AND h.brand_id=$4)))`;
-  const base = [w, options.chain, options.signedIn, options.brandId];
+          WHERE p.workspace_id=r.workspace_id AND p.record_id=r.id AND h.brand_id=$4))
+      AND ($5::boolean
+        OR EXISTS(SELECT 1 FROM help_placements p JOIN help_nodes n ON n.workspace_id=p.workspace_id AND n.id=p.node_id
+          WHERE p.workspace_id=r.workspace_id AND p.record_id=r.id AND NOT n.archived
+            AND (n.id=ANY($6::text[]) OR n.parent_id=ANY($6::text[])))
+        OR EXISTS(SELECT 1 FROM knowledge_source_pages s
+          WHERE s.workspace_id=r.workspace_id AND s.record_id=r.id AND s.source_id=ANY($7::text[]))
+        OR (r.source='snippet' AND $8::boolean)
+        OR (r.source='file' AND $9::boolean)))`;
+  const scope = options.scope ?? null;
+  const base = [
+    w,
+    options.chain,
+    options.signedIn,
+    options.brandId,
+    !scope,
+    scope?.collections ?? [],
+    scope?.websites ?? [],
+    scope?.snippets ?? false,
+    scope?.files ?? false,
+  ];
   const terms = [
     ...new Set(
       normalize(query)
@@ -85,7 +115,7 @@ export async function retrieveForAgent(
     const keyword = terms.length
       ? (
           await db.query<{ chunk_id: string }>(
-            `WITH ${ALLOWED}, q AS (SELECT a.*,to_tsquery(relay_text_config(a.locale),$5) AS tsq FROM allowed a)
+            `WITH ${ALLOWED}, q AS (SELECT a.*,to_tsquery(relay_text_config(a.locale),$10) AS tsq FROM allowed a)
              SELECT chunk_id FROM q WHERE document @@ tsq
              ORDER BY ts_rank_cd(document,tsq,32) DESC,chunk_id LIMIT ${CANDIDATES}`,
             [...base, terms.map((t) => `'${t}'`).join(" | ")],
@@ -116,8 +146,8 @@ export async function retrieveForAgent(
             await db.query<{ chunk_id: string; vector_id: string }>(
               `WITH ${ALLOWED}
                SELECT a.chunk_id,v.vector_id FROM allowed a JOIN knowledge_chunk_vectors v
-                 ON v.workspace_id=$1 AND v.generation_id=$5 AND v.chunk_id=a.chunk_id
-               WHERE v.vector_id=ANY($6::text[])`,
+                 ON v.workspace_id=$1 AND v.generation_id=$10 AND v.chunk_id=a.chunk_id
+               WHERE v.vector_id=ANY($11::text[])`,
               [...base, generation.id, matches.map((m) => m.id)],
             )
           ).rows,
@@ -155,7 +185,7 @@ export async function retrieveForAgent(
           text: string;
           title: string | null;
         }>(
-          `WITH ${ALLOWED} SELECT chunk_id,record_id,locale,heading,text,title FROM allowed WHERE chunk_id=ANY($5::text[])`,
+          `WITH ${ALLOWED} SELECT chunk_id,record_id,locale,heading,text,title FROM allowed WHERE chunk_id=ANY($10::text[])`,
           [...base, top],
         )
       ).rows,

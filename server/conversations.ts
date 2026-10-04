@@ -141,8 +141,9 @@ export function agentConversation(c: Conversation, personalData: boolean) {
     sla_breached,
   } = c;
   return {
-    // Where the AI agent stands with it (phase 08 A2a), or null.
+    // Where the AI agent stands with it (phase 08 A2a), or null; and the specialist who has it (Z3a).
     ai_state: (c.ai_state as string | null | undefined) ?? null,
+    ai_specialist_id: (c.ai_specialist_id as string | null | undefined) ?? null,
     sla_next_due_at: sla_next_due_at ?? null,
     sla_overdue: sla_overdue === true,
     sla_breached: sla_breached === true,

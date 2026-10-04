@@ -10,7 +10,8 @@ Branch per step, behind `ai_agent_v1` (off by default; on for the local relay). 
 | **A3: Resolution ledger** | "That helped" in the messenger. Resolution after a quiet window when the conversation was never escalated. One ledger row per resolution (conversation, answers, rule, time), reconcilable by a person reading the thread; billing (phase 16) reads it. |
 | **Z1: Zoe's home, and colour across Relay** (B1 split on 4 October 2026) | The agent becomes Zoe: her own place in the icon strip and side menu (Overview, Train, Test, Deploy, Analyze, Settings), an Overview of her numbers, gaps and articles, a Playground that runs her real decision and writes nothing, her identity per brand (name, avatars, disclosure, greeting) on her replies, inbox views With Zoe and Escalated by Zoe; colour across the agent app (tinted strip, menus, Settings tiles, avatars) as tested tokens. |
 | **Z2: How Zoe answers** | Tone of voice, answer length, formality, language detection with an allowlist and fallback, and versioned answer guidance in categories (with channel selectors; it never grants powers), all tried in the Playground. |
-| **Z3: Specialists** | Several Zoes with their own job, knowledge and guidance; content targeting (an article is used only if the customer passes both its audience and the specialist's). |
+| **Z3a: Specialists** (Z3 split on 4 October 2026) | Several Zoes with their own job, keywords and conditions, knowledge (collections, websites, snippets, files; filtered before ranking), guidance and handover team; picked by conditions and keywords in code, then the classifier; kept for the conversation; customers always see Zoe. |
+| **Z3b: Content targeting** | Conditions on articles, snippets, files and websites: Zoe uses an item only for customers who pass both its targeting and the specialist's scope. Zoe only; the help center keeps its own visibility. |
 | **B2: Safety and privacy** | A hostile-content corpus. Guarantees against disclosing other customers' data, internal content or the system prompt. Redaction of personal data before the model provider (workspace setting), with an audit of what was sent. Memory across a customer's conversations behind a workspace switch (off by default), recorded on the conversation. |
 | **C1: Evaluation harness** | A golden set of 200 or more cases (answerable, unanswerable, ambiguous, multi-turn, out-of-scope, hostile, multilingual). Scores for groundedness, correctness, refusal and escalation. The build fails on regression. Simulated-customer tests. The acceptance demo: scores before and after a deliberate prompt change. |
 | **C2: Review queue and monitors** | Leads sample and rate real answers; bad ones go to a content gap list, feeding content health. Monitors that alert on sharp changes in behaviour, with an incident view. |
@@ -71,4 +72,13 @@ Acceptance criteria (phase brief):
    - **Running locally:** the demo uses Claude when `.dev.vars` has `ANTHROPIC_API_KEY`; tests keep the stand-ins.
    - **Migration:** 0048.
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2).
+10. **Z3 decisions** (4 October 2026):
+    - **Two steps:** Z3a (specialists), then Z3b (content targeting).
+    - **Customers always see Zoe;** teammates see "Zoe · Billing".
+    - **Routing:** conditions and keywords in code, then the classifier by what she handles; the choice is kept for the conversation, and a greeting doesn't settle it.
+    - **Outside her knowledge** she doesn't know, then hands over to her own team.
+    - **Limit:** up to 10 specialists.
+    - **Z3b's targeting** applies to Zoe only.
+    - **Migration:** 0049.
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a).

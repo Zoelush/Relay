@@ -506,6 +506,7 @@ test("classification keeps the message as data, and only its exact shape parses"
     topic: null,
     guidance: null,
     spam: null,
+    specialist: null,
   });
   assert.equal(
     parseClassification('{"wants_human":false,"sentiment":"neutral","spam":"yes"}'),
@@ -548,6 +549,7 @@ test("classification keeps the message as data, and only its exact shape parses"
     topic: null,
     guidance: null,
     spam: null,
+    specialist: null,
   });
   assert.equal(sent.model, "claude-haiku-4-5-20251001");
   assert.equal(sent.temperature, 0);

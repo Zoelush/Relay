@@ -1213,6 +1213,35 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-zoe-told small { display:block; font-size:12px; line-height:1.45; }
 .pg-zoe-languages { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:8px 16px; }
 .pg-zoe-languages .pg-settings-toggle span { display:flex; flex-direction:column; }
+/* Z3a: Train › Specialists, with "Try it" beside them. */
+.pg-zoe-split { display:grid; grid-template-columns:minmax(0, 1fr) minmax(300px, 380px); gap:18px; align-items:start; }
+@media (max-width: 1100px) { .pg-zoe-split { grid-template-columns:minmax(0, 1fr); } }
+.pg-zoe-specialists-bar { display:flex; align-items:center; gap:10px; }
+.pg-zoe-specialists-bar [role="status"] { flex:1; font-size:13px; }
+.pg-zoe-specialists { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:12px; }
+.pg-zoe-specialist { display:flex; flex-direction:column; gap:10px; padding:16px 18px; border:1px solid var(--pg-border); border-radius:14px; background:var(--pg-surface); }
+.pg-zoe-specialist > header { display:flex; align-items:flex-start; gap:12px; }
+.pg-zoe-specialist > header > span:nth-child(2) { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.pg-zoe-specialist h3 { margin:0; font-size:15px; }
+.pg-zoe-specialist header small { font-size:13px; line-height:1.45; }
+.pg-zoe-specialist .pg-settings-tile-icon, .pg-zoe-empty-card .pg-settings-tile-icon { background:var(--hue-bg); color:var(--hue); }
+.pg-zoe-specialist[data-off] h3 { color:var(--pg-text-2); }
+.pg-zoe-specialist dl { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0; padding:10px 12px; border-radius:10px; background:var(--pg-sunken); font-size:13px; }
+.pg-zoe-specialist dt { color:var(--pg-muted); }
+.pg-zoe-specialist dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+.pg-zoe-specialist-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.pg-zoe-specialist-actions button:not(.pg-zoe-primary):not(.pg-link-button) { padding:5px 12px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); font-size:13px; cursor:pointer; }
+.pg-zoe-specialist-actions button:hover:not(:disabled):not(.pg-zoe-primary):not(.pg-link-button) { background:var(--pg-hover); }
+.pg-zoe-specialist-actions button:disabled { opacity:.5; cursor:default; }
+.pg-zoe-specialist-editor { display:flex; flex-direction:column; gap:14px; padding:16px 18px; border:1.5px solid transparent; border-radius:14px; background:linear-gradient(var(--pg-surface), var(--pg-surface)) padding-box, linear-gradient(135deg, var(--pg-zoe-from), var(--pg-zoe-to)) border-box; }
+.pg-zoe-specialist-editor textarea { resize:vertical; }
+.pg-zoe-specialist-editor > .pg-settings-row { align-items:flex-end; }
+.pg-zoe-specialist-editor > .pg-settings-row > .pg-settings-field { flex:1; min-width:200px; }
+.pg-zoe-knowledge { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px 18px; padding:12px 14px; border-radius:10px; background:var(--pg-sunken); }
+.pg-zoe-knowledge > div { display:flex; flex-direction:column; gap:6px; font-size:13px; }
+.pg-zoe-knowledge strong { font-size:12px; letter-spacing:.3px; color:var(--pg-text-2); }
+.pg-zoe-empty-card { display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:20px; border:1px dashed var(--pg-border-strong); border-radius:14px; background:var(--pg-surface); }
+.pg-zoe-empty-card p { margin:0; font-size:13px; line-height:1.5; }
 .pg-colour-sample { display:grid; place-items:center; width:34px; height:34px; border-radius:8px; border:1px solid var(--pg-border); font-weight:600; }
 .pg-settings-tabs { display:flex; flex-wrap:wrap; gap:4px; }
 .pg-settings-tabs button { padding:5px 12px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-surface); color:var(--pg-text); font-size:13px; }

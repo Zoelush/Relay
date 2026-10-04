@@ -21,8 +21,9 @@ export type CardRow = {
   updated_at?: string;
   sla_next_due_at?: string | null;
   sla_overdue?: boolean;
-  /** The AI agent's state (phase 08 A2a). */
+  /** The AI agent's state (phase 08 A2a), and the specialist who has it (Z3a). */
   ai_state?: string | null;
+  ai_specialist_id?: string | null;
   preview?: MessagePreview | null;
 };
 /** How the AI agent's state reads on a card, after her name (Zoe; Z1). */

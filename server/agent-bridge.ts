@@ -104,6 +104,7 @@ const routes = {
     "zoe-identity",
     "zoe-playground",
     "zoe-guidance",
+    "zoe-specialist",
     "help-centers",
     "realtime-ticket",
     "attachment/prepare",

@@ -21,6 +21,15 @@ import {
 } from "./ai-escalation";
 import { greetingFor, listIdentities } from "./zoe";
 import { applicableGuidance, draftStyle, guidanceAt } from "./zoe-guidance";
+import {
+  byKeyword,
+  candidatesFor,
+  draftSpecialist,
+  scopeOf,
+  specialistNames,
+  specialistsOf,
+  type Specialist,
+} from "./zoe-specialists";
 import { chooseLanguage, detectLanguage, type LanguageChoice } from "./ai-language";
 import {
   ALL_LANGUAGES,
@@ -41,6 +50,7 @@ import type { IndexEnvironment } from "./knowledge-index";
 import {
   PROMPT_VERSION,
   guidanceLine,
+  jobLine,
   styleLines,
   type AnswerModel,
   type Classification,
@@ -87,7 +97,11 @@ import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
  * message it matches is left alone; she answers in the language the customer writes in
  * (`server/ai-language.ts`), among the languages the workspace allows. Every answer records the
  * language and the guidance version it was given.
- * TODO(phase 08 Z3): several agents (specialists) and content targeting.
+ * Step Z3a (docs/AI_STEP7.md): specialists. At a conversation's first real question, a specialist
+ * whose conditions hold takes it by her keywords (in code) or, through the classifier, by what she
+ * handles; she keeps it. She answers only from her knowledge (filtered before ranking), with her
+ * job and her guidance, and hands over to her team.
+ * TODO(phase 08 Z3b): content targeting. TODO(phase 09): the actions a specialist may call.
  */
 export type AiEnvironment = {
   model: AnswerModel;
@@ -710,7 +724,11 @@ export async function runAiReply(
       ).rows[0].n,
     ),
     greeting: await greetingFor(db, w, ctx.agent.id, ctx.c.brand_id, ctx.language.answer),
+    // Z3a: her specialists that are on.
+    specialists: await specialistsOf(db, w, ctx.agent.id, true),
   }));
+  // Z3a: the conversation's specialist, once chosen (a null id: Zoe herself).
+  const routing = ctx.c as { ai_specialist_id?: string | null; ai_routed_at?: unknown };
   // A failing model throws, and the job retries; decide gives up on the last attempts.
   const decision = await decide(connect, env, {
       w,
@@ -727,18 +745,21 @@ export async function runAiReply(
       attempts: job.attempts,
       language: ctx.language,
       voice: voiceOf(ctx.agent),
-      guidance: applicableGuidance(ctx.agent.answer_guidance, {
-        signedIn: ctx.signedIn,
-        brandId: ctx.c.brand_id,
-      }),
+      guidance: ctx.agent.answer_guidance,
+      specialists: known.specialists,
+      routed: routing.ai_routed_at ? { specialistId: routing.ai_specialist_id ?? null } : null,
+      forced: null,
     });
   const { text, locale, retrieval, cited, model, data, body } = decision;
-  // What every record of this answer carries (Z2): its language and guidance.
+  // What every record of this answer carries (Z2): its language and guidance; and (Z3a) the
+  // specialist who gave it and why she has the conversation.
   const given = {
     language: locale,
     detectedLanguage: ctx.language.detected,
     guidanceVersion: ctx.agent.guidance_version,
     guidanceApplied: decision.applied,
+    specialistId: decision.specialist?.id ?? null,
+    specialistReason: decision.specialist?.reason ?? null,
   };
   const { trigger, outcome, reason } = decision;
   // Written only if nothing changed while the agent worked.
@@ -787,6 +808,12 @@ export async function runAiReply(
       });
       return null;
     }
+    // Z3a: who has the conversation, settled at its first real question and kept.
+    if (decision.settles)
+      await db.query(
+        "UPDATE conversations SET ai_specialist_id=$3,ai_routed_at=now() WHERE workspace_id=$1 AND id=$2 AND ai_routed_at IS NULL",
+        [w, c.id, decision.specialist?.id ?? null],
+      );
     let replyPartId: string;
     let team: string | null = null;
     if (trigger) {
@@ -796,6 +823,8 @@ export async function runAiReply(
         reason,
         text,
         locale,
+        teamId: decision.handoverTeamId,
+        specialist: decision.specialist?.name ?? null,
       });
       replyPartId = handed.replyPartId;
       team = handed.team;
@@ -876,9 +905,14 @@ type DecideInput = {
   attempts: number;
   /** The language she answers in, and how she chose it (Z2). */
   language: LanguageChoice;
-  /** Her voice and the guidance that applies (Z2): saved, or a Playground draft. */
+  /** Her voice and guidance (Z2): saved, or a Playground draft; applied to this customer here. */
   voice: Voice;
-  guidance: { answer: Guideline[]; spam: Guideline[] };
+  guidance: Guideline[];
+  /** Z3a: her specialists that are on; the conversation's (null: not chosen yet; a null id: Zoe
+   * herself); and one the Playground asks for. */
+  specialists: Specialist[];
+  routed: { specialistId: string | null } | null;
+  forced: Specialist | null;
 };
 export type Decision = {
   trigger: Trigger | null;
@@ -896,6 +930,11 @@ export type Decision = {
   applied: string[];
   /** What her voice and guidance add to her instructions (Z2), as the Playground shows them. */
   instructions: string[];
+  /** Z3a: the specialist answering and why she took the conversation (null: Zoe herself); whether
+   * this decision settles it for the conversation; and the team a handover goes to. */
+  specialist: { id: string; name: string; reason: string } | null;
+  settles: boolean;
+  handoverTeamId: string | null;
 };
 
 /**
@@ -913,11 +952,26 @@ async function decide(
   const { w, agent } = input;
   const locale = input.language.answer;
   const text = strings(locale, input.voice.formality);
-  // What she's told about writing (Z2): her voice, then the guidelines that apply.
-  const instructions = [
-    ...styleLines(input.voice, locale),
-    ...input.guidance.answer.map(guidanceLine),
-  ];
+  const who = { signedIn: input.signedIn, brandId: input.brandId };
+
+  // Z3a: who answers. The specialist the Playground asks for; the conversation's; or, at its first
+  // real question, one whose conditions hold, by her keywords in code (the classifier below can
+  // also pick one by what she handles). Otherwise Zoe herself.
+  let specialist: Specialist | null = input.forced;
+  let routedBy = specialist ? "Chosen in the Playground" : "";
+  let candidates: Specialist[] = [];
+  if (!specialist && input.routed) {
+    specialist = input.specialists.find((s) => s.id === input.routed!.specialistId) ?? null;
+    routedBy = specialist ? "She took the conversation earlier" : "";
+  } else if (!specialist) {
+    candidates = candidatesFor(input.specialists, input.facts);
+    const hit = byKeyword(candidates, input.question);
+    if (hit) {
+      specialist = hit.specialist;
+      routedBy = `The keyword “${hit.keyword}”`;
+    }
+  }
+  const team = () => specialist?.handoverTeamId ?? agent.handover_team_id;
 
   // Handover triggers checked before answering. First the escalation rules (A2b), in code.
   let why = "";
@@ -940,7 +994,7 @@ async function decide(
       availabilityFor(
         db,
         w,
-        { brandId: input.brandId, teamId: agent.handover_team_id ?? input.teamId },
+        { brandId: input.brandId, teamId: team() ?? input.teamId },
         locale,
       ),
     );
@@ -964,7 +1018,9 @@ async function decide(
         locale,
         topics: topics.map((t) => ({ name: t.name, description: t.description })),
         guidance: agent.escalation_guidance,
-        spam: input.guidance.spam.map((g) => `${g.title}: ${g.text}`),
+        spam: applicableGuidance(input.guidance, who).spam.map((g) => `${g.title}: ${g.text}`),
+        // Z3a: only while no specialist has been chosen.
+        specialists: specialist || input.routed ? [] : candidates.map((s) => ({ name: s.name, handles: s.handles })),
       });
     } catch {
       // Decision (docs/AI_STEP2.md): a failing classifier doesn't hand everything over. The agent
@@ -975,7 +1031,13 @@ async function decide(
     const guidance =
       seen?.guidance != null ? agent.escalation_guidance[seen.guidance] : undefined;
     // Spam guidance (Z2) can only make her leave a message alone; then nothing else applies.
-    ignored = seen?.spam != null ? input.guidance.spam[seen.spam] : undefined;
+    ignored =
+      seen?.spam != null ? applicableGuidance(input.guidance, who).spam[seen.spam] : undefined;
+    // A specialist by what she handles (Z3a).
+    if (!ignored && !specialist && !input.routed && seen?.specialist != null && candidates[seen.specialist]) {
+      specialist = candidates[seen.specialist];
+      routedBy = "What she handles";
+    }
     if (!ignored) {
       if (seen?.wantsHuman) trigger = "asked_for_person";
       else if (topic) {
@@ -997,6 +1059,18 @@ async function decide(
   let cited: string[] = [];
   let model: string | null = null;
   let applied: string[] = [];
+  // The guidance for whoever answers (Z3a: some applies only when one specialist does), and what
+  // she's told about writing: her job, voice and guidelines (Z2).
+  const answerGuidance = applicableGuidance(input.guidance, {
+    ...who,
+    specialistId: specialist?.id ?? null,
+  }).answer;
+  const job = specialist ? { name: specialist.name, handles: specialist.handles } : null;
+  const instructions = [
+    ...(job ? [jobLine(job)] : []),
+    ...styleLines(input.voice, locale),
+    ...answerGuidance.map(guidanceLine),
+  ];
   if (ignored) {
     outcome = "ignored";
     reason = `It looks like spam, by your guidance “${ignored.title}”.`;
@@ -1020,18 +1094,22 @@ async function decide(
         chain: input.chain,
         brandId: input.brandId,
         signedIn: input.signedIn,
+        // Z3a: a specialist answers only from her own knowledge.
+        scope: scopeOf(specialist),
       },
     );
     if (!retrieval.passages.length || retrieval.topScore < agent.confidence_threshold) {
       // The hard gate: weak retrieval never reaches the model.
       outcome = "unknown";
+      // Z3a: a specialist with her own knowledge says so.
+      const where = specialist && !specialist.knowledge.all ? ` in ${specialist.name}'s knowledge` : "";
       reason = retrieval.passages.length
-        ? `Best passage scored ${retrieval.topScore.toFixed(2)}, below the threshold of ${agent.confidence_threshold.toFixed(2)}.`
-        : "No passage the customer may see matched.";
+        ? `Best passage${where} scored ${retrieval.topScore.toFixed(2)}, below the threshold of ${agent.confidence_threshold.toFixed(2)}.`
+        : `No passage the customer may see matched${where}.`;
       body = text.unknown;
     } else {
       model = env.model.model;
-      applied = input.guidance.answer.map((g) => g.id);
+      applied = answerGuidance.map((g) => g.id);
       let raw: ModelReply | null = null;
       try {
         raw = await env.model.answer({
@@ -1040,14 +1118,15 @@ async function decide(
           passages: retrieval.passages,
           locale,
           agentName: agent.name,
-          // Z2: her voice, and the guidance as data under her rules.
+          // Z2: her voice, and the guidance as data under her rules; Z3a: a specialist's job.
           style: {
             ...input.voice,
-            guidance: input.guidance.answer.map((g) => ({
+            guidance: answerGuidance.map((g) => ({
               category: g.category,
               title: g.title,
               text: g.text,
             })),
+            job,
           },
         });
       } catch (e) {
@@ -1106,6 +1185,13 @@ async function decide(
     } else data = { options: [text.person] };
   }
   if (note && outcome !== "escalated") reason += note;
+  // Z3a: a specialist, a real question or a handover settles who has the conversation; a
+  // greeting or spam doesn't.
+  const settles =
+    !input.routed &&
+    !input.forced &&
+    outcome !== "ignored" &&
+    (!!specialist || outcome === "escalated" || searchable(input.question));
   return {
     trigger,
     outcome,
@@ -1119,6 +1205,9 @@ async function decide(
     locale,
     applied,
     instructions,
+    specialist: specialist ? { id: specialist.id, name: specialist.name, reason: routedBy } : null,
+    settles,
+    handoverTeamId: team(),
   };
 }
 
@@ -1191,6 +1280,15 @@ export async function previewAiReply(
     };
     // Z2: the Guidance page's unsaved changes, checked like a save, or what's saved.
     const draft = p.draft === undefined || p.draft === null ? null : await draftStyle(db, w, p.draft);
+    // Z3a: a specialist to answer as (saved, even if off, or one being edited), else routing.
+    const all = await specialistsOf(db, w, agent.id);
+    let forced: Specialist | null = null;
+    if (p.specialist !== undefined && p.specialist !== null)
+      forced = await draftSpecialist(db, w, p.specialist);
+    else if (typeof p.specialistId === "string" && p.specialistId) {
+      forced = all.find((s) => s.id === p.specialistId) ?? null;
+      assert(forced, "SPECIALIST_NOT_FOUND", "That specialist doesn't exist.", 404);
+    }
     return {
       agent,
       brandId: brand.id,
@@ -1198,13 +1296,12 @@ export async function previewAiReply(
       facts,
       greeting: await greetingFor(db, w, agent.id, brand.id, language.answer),
       draft,
+      specialists: all.filter((s) => s.enabled),
+      forced,
     };
   });
   const voice = prepared.draft?.voice ?? voiceOf(prepared.agent);
-  const guidance = applicableGuidance(
-    prepared.draft?.guidance ?? prepared.agent.answer_guidance,
-    { signedIn, brandId: prepared.brandId },
-  );
+  const guidanceList = prepared.draft?.guidance ?? prepared.agent.answer_guidance;
   const d = await decide(connect, env, {
     w,
     agent: prepared.agent,
@@ -1220,11 +1317,12 @@ export async function previewAiReply(
     attempts: GIVE_UP_AFTER,
     language: prepared.language,
     voice,
-    guidance,
+    guidance: guidanceList,
+    specialists: prepared.specialists,
+    routed: null,
+    forced: prepared.forced,
   });
-  const titles = new Map(
-    [...guidance.answer, ...guidance.spam].map((g) => [g.id, g]),
-  );
+  const titles = new Map(guidanceList.map((g) => [g.id, g]));
   const used = new Set(d.retrieval.passages.map((x) => x.chunkId));
   const best = d.retrieval.candidates
     .slice()
@@ -1277,6 +1375,8 @@ export async function previewAiReply(
       title: titles.get(id)?.title ?? "",
       category: titles.get(id)?.category ?? "other",
     })),
+    // Z3a: the specialist who'd answer and why (null: Zoe herself).
+    specialist: d.specialist,
     latencyMs: Date.now() - started,
   };
 }
@@ -1321,14 +1421,18 @@ async function handOver(
     reason: string;
     text: Strings;
     locale: string;
+    /** Z3a: the team to hand to (a specialist's, else hers), and the specialist handing over. */
+    teamId?: string | null;
+    specialist?: string | null;
   },
 ) {
   const already = c.ai_state === "needs_input";
-  const team = h.agent.handover_team_id
+  const wanted = h.teamId !== undefined ? h.teamId : h.agent.handover_team_id;
+  const team = wanted
     ? ((
         await db.query<{ id: string }>(
           "SELECT id FROM teams WHERE workspace_id=$1 AND id=$2",
-          [w, h.agent.handover_team_id],
+          [w, wanted],
         )
       ).rows[0]?.id ?? null)
     : null;
@@ -1366,7 +1470,7 @@ async function handOver(
       c,
       { type: "ai", id: h.agent.id },
       "internal_note",
-      await summary(db, w, c, h.reason, h.agent.name),
+      await summary(db, w, c, h.reason, h.agent.name, h.specialist ?? null),
       { aiHandover: { trigger: h.trigger, teamId: team } },
       "internal",
     );
@@ -1412,6 +1516,7 @@ async function summary(
   c: Conversation,
   reason: string,
   agentName: string,
+  specialist: string | null = null,
 ) {
   const parts = (
     await db.query<{ kind: string; body: string; data: Record<string, unknown> }>(
@@ -1446,7 +1551,7 @@ async function summary(
       `${count("unknown") + count("failed")} couldn't answer`,
   ].filter(Boolean);
   return [
-    `Handed over by ${agentName}. ${reason}`,
+    `Handed over by ${agentName}${specialist ? ` (${specialist} specialist)` : ""}. ${reason}`,
     asked.length ? `First message: ${quote(asked[0].body)}` : "",
     asked.length > 1 ? `Latest message: ${quote(asked.at(-1)!.body)}` : "",
     `AI replies: ${replies.length ? replies.join(", ") : "none"}.`,
@@ -1680,12 +1785,15 @@ async function record(
     detectedLanguage?: string | null;
     guidanceVersion?: number | null;
     guidanceApplied?: string[];
+    /** Z3a: the specialist who answered, and why she has the conversation. */
+    specialistId?: string | null;
+    specialistReason?: string | null;
   },
 ) {
   await db.query(
     `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms,trigger,handover_team_id,
-       language,detected_language,guidance_version,guidance_applied)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
+       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
     [
       w,
       crypto.randomUUID(),
@@ -1713,6 +1821,8 @@ async function record(
       a.detectedLanguage ?? null,
       a.guidanceVersion ?? null,
       a.guidanceApplied ?? [],
+      a.specialistId ?? null,
+      a.specialistReason ?? null,
     ],
   );
   if (a.retrieval?.passages.length && a.outcome !== "skipped")
@@ -1752,13 +1862,17 @@ export async function aiAnswers(
       detected_language: string | null;
       guidance_version: number | null;
       guidance_applied: string[];
+      specialist_id: string | null;
+      specialist_reason: string | null;
     }>(
       `SELECT question_part_id,reply_part_id,outcome,reason,top_score,threshold,cited,model,prompt_version,created_at,trigger,
-         agent_id,language,detected_language,guidance_version,guidance_applied
+         agent_id,language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason
        FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at`,
       [w, c.id],
     )
   ).rows;
+  // Z3a: specialists by name, removed ones too.
+  const names = new Map((await specialistNames(db, w)).map((s) => [s.id, s.name]));
   // Z2: the voice and guideline titles of each guidance version an answer was given.
   const versions = new Map<number, Awaited<ReturnType<typeof guidanceAt>>>();
   for (const a of answers)
@@ -1784,6 +1898,13 @@ export async function aiAnswers(
         guidanceVersion: a.guidance_version,
         voice: at?.voice ?? null,
         guidance: a.guidance_applied.map((id) => at?.titles.get(id) ?? "A guideline since removed"),
+        specialist: a.specialist_id
+          ? {
+              id: a.specialist_id,
+              name: names.get(a.specialist_id) ?? "A removed specialist",
+              reason: a.specialist_reason ?? "",
+            }
+          : null,
       };
     }),
   };
