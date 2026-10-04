@@ -103,6 +103,7 @@ const routes = {
     "ai-settings",
     "zoe-identity",
     "zoe-playground",
+    "zoe-guidance",
     "help-centers",
     "realtime-ticket",
     "attachment/prepare",

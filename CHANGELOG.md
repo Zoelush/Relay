@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased: how Zoe answers (phase 08, Z2)
+
+- **Train › Guidance:** her tone of voice (five tones, with samples), answer length (concise, standard, thorough) and formality (usual for each language, formal, informal), with "Try it" beside them answering with your unsaved changes.
+- **Answer guidance** in Intercom's categories (communication style, clarification, sources, spam, other):
+  - **Each guideline:** on or off, for everyone, visitors or signed-in customers, on all brands or one.
+  - **Warnings** when a guideline asks for something she can't do.
+  - **Spam guidance** makes her leave a message alone, with a note for the team.
+- **Versions:** every save is one, shown in History with who and when. Any version can be viewed or restored. Each answer records the version it was given.
+- **Languages:**
+  - She answers in the language the customer writes in, among the nine you allow.
+  - Short messages keep the conversation's language.
+  - For another language she uses the brand's language, or hands over (your choice).
+  - Her fixed messages exist in all nine, formal and informal.
+- **"Why this reply"** shows the language, her voice and the guidance version. Performance shows spam and the languages she replied in.
+- **Running locally:** with `ANTHROPIC_API_KEY` in `.dev.vars`, the local demo answers with Claude.
+- **Migration** 0048 with rollback. **Tests:**
+  - unit: `tests/zoe-voice.test.ts`
+  - browser: `tests/browser/zoe-voice.spec.ts`
+
+  Details: `docs/AI_STEP6.md`.
+
 ## Unreleased: Zoe (phase 08, Z1: her home, and colour across Relay)
 
 - **The AI agent is Zoe,** with her own place in the icon strip between Inbox and Knowledge and her own side menu (Overview, Train, Test, Deploy, Analyze, Settings), after Beacon's and Intercom's agents.

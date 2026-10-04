@@ -142,6 +142,9 @@ const TEXT: [string, string[]][] = [
     [`tint-${t}-bg`, "surface", "canvas"],
   ]),
   ["zoe-text", ["zoe-bg", "surface", "canvas", "nav"]],
+  // Z2: the chosen tone's card (her soft ground) carries its name, description and sample.
+  ["text", ["zoe-bg"]],
+  ["text-2", ["zoe-bg"]],
   // Text on Zoe's gradient (her buttons): both ends must carry it.
   ["on-zoe", ["zoe-from", "zoe-to"]],
 ];

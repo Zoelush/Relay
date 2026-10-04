@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Card, Field, message } from "./settings-ui";
+import { ZOE_LANGUAGES } from "../lib/zoe-voice";
 
 /**
  * The AI agent's settings (phase 08 A2a, A2b, A3), edited in Zoe's area (Z1; docs/AI_STEP5.md):
@@ -67,6 +68,9 @@ export type Settings = {
     resolutionWindowHours: number;
     /** How sure she must be to answer (0.2 to 0.9; the confidence gate). */
     threshold: number;
+    /** The languages she answers in, and what she does with others (Z2). */
+    languages: string[];
+    otherLanguages: "brand_language" | "hand_over";
     version: string;
   };
   teams: Choice[];
@@ -113,6 +117,8 @@ const formOf = (s: Settings): Form => ({
   escalateOnSentiment: s.agent.escalateOnSentiment,
   resolutionWindowHours: s.agent.resolutionWindowHours,
   threshold: s.agent.threshold,
+  languages: s.agent.languages,
+  otherLanguages: s.agent.otherLanguages,
   rules: s.rules,
   topics: s.topics,
   guidance: s.guidance,
@@ -170,6 +176,73 @@ type Section = {
   set: (change: Partial<Form>) => void;
   data: Settings;
 };
+
+/** The languages she answers in, and what she does when a customer writes in another (Z2). */
+export function LanguagesCard({ form, set }: Omit<Section, "data">) {
+  return (
+    <Card
+      title="Languages"
+      description="She answers in the language the customer writes in, when it's one of these. Short messages such as “ok” keep the conversation's language, then the customer's browser's."
+    >
+      <fieldset className="pg-settings-fieldset">
+        <legend>Languages she answers in</legend>
+        <div className="pg-zoe-languages">
+          {ZOE_LANGUAGES.map((l) => (
+            <label key={l.id} className="pg-settings-toggle">
+              <input
+                type="checkbox"
+                checked={form.languages.includes(l.id)}
+                onChange={(e) =>
+                  set({
+                    languages: ZOE_LANGUAGES.map((x) => x.id).filter((id) =>
+                      id === l.id ? e.target.checked : form.languages.includes(id),
+                    ),
+                  })
+                }
+              />
+              <span>
+                <strong>{l.name}</strong>
+                <small className="pg-muted" lang={l.id}>
+                  {l.native}
+                </small>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="pg-settings-fieldset">
+        <legend>When a customer writes in another language</legend>
+        {(
+          [
+            [
+              "brand_language",
+              "Reply in the brand's language",
+              "She answers in the brand's own language (or the first of hers, if that isn't one).",
+            ],
+            [
+              "hand_over",
+              "Hand over to the team",
+              "She hands the conversation over, as for any other handover. Only when she read the language in what they wrote; a browser setting alone never hands over.",
+            ],
+          ] as const
+        ).map(([value, label, hint]) => (
+          <label key={value} className="pg-settings-toggle">
+            <input
+              type="radio"
+              name="other-languages"
+              checked={form.otherLanguages === value}
+              onChange={() => set({ otherLanguages: value })}
+            />
+            <span>
+              <strong>{label}</strong>
+              <small className="pg-muted">{hint}</small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+    </Card>
+  );
+}
 
 /** When she answers, and how sure she must be. */
 export function AnsweringCard({ form, set }: Omit<Section, "data">) {

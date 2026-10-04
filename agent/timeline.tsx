@@ -4,6 +4,8 @@ import { api } from "./api";
 import { RichText } from "../lib/rich-view";
 import { initials } from "./card";
 import { hueOf, useAgentName, ZoeMark } from "./colour";
+import { languageName, type Voice } from "../lib/zoe-voice";
+import { voiceSummary } from "./zoe-labels";
 
 export type TimelinePart = {
   id: string;
@@ -286,6 +288,12 @@ type AiAnswer = {
   threshold: number;
   model: string | null;
   promptVersion: string;
+  /** Z2: the language she answered in and the one she read, and the guidance she was given. */
+  language: string | null;
+  detectedLanguage: string | null;
+  guidanceVersion: number | null;
+  voice: Voice | null;
+  guidance: string[];
 };
 const OUTCOMES: Record<string, string> = {
   answered: "Answered from content",
@@ -350,6 +358,32 @@ function AiReplyDetails({ p }: { p: TimelinePart }) {
                     {answer.topScore.toFixed(2)} (answers need{" "}
                     {answer.threshold.toFixed(2)})
                   </dd>
+                </>
+              )}
+              {answer.language && (
+                <>
+                  <dt>Language</dt>
+                  <dd>
+                    {languageName(answer.language)}
+                    {answer.detectedLanguage
+                      ? `, read in the customer's ${languageName(answer.detectedLanguage)}`
+                      : ", from the conversation or their browser"}
+                  </dd>
+                </>
+              )}
+              {answer.voice && (
+                <>
+                  <dt>Voice</dt>
+                  <dd>
+                    {voiceSummary(answer.voice)}
+                    {answer.guidanceVersion ? ` · guidance version ${answer.guidanceVersion}` : ""}
+                  </dd>
+                </>
+              )}
+              {answer.guidance.length > 0 && (
+                <>
+                  <dt>Guidance</dt>
+                  <dd>{answer.guidance.join(" · ")}</dd>
                 </>
               )}
               <dt>Model</dt>

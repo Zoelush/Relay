@@ -11,8 +11,10 @@ import {
   type ServerResponse,
 } from "node:http";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseEnv } from "node:util";
 import { WebSocketServer } from "ws";
 import { SignJWT, jwtVerify } from "jose";
 import { bodyLimit, bridgeAgentRequest } from "../server/agent-bridge";
@@ -56,6 +58,8 @@ import {
 } from "../server/knowledge-health";
 import { runAiReply } from "../server/ai-agent";
 import {
+  claudeAnswerModel,
+  claudeClassifier,
   standInAnswerModel,
   standInClassifier,
   standInReranker,
@@ -1050,10 +1054,23 @@ export async function startLocalRelay(
     },
   };
 }
+/**
+ * The Anthropic key in `.dev.vars`, if there is one (phase 08 Z2): with it, the local demo's Zoe
+ * answers and classifies with Claude, so her tone, formality and guidance show. It is read here
+ * only, never printed or stored, and tests (which start the relay themselves) keep the stand-ins.
+ */
+function anthropicKey() {
+  try {
+    return parseEnv(readFileSync(".dev.vars", "utf8")).ANTHROPIC_API_KEY?.trim() || null;
+  } catch {
+    return null;
+  }
+}
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
+  const key = anthropicKey();
   const app = await startLocalRelay({
     directory: resolve(process.env.RELAY_LOCAL_DIRECTORY ?? "work/local-relay"),
     // Saved views, with the status and sort pickers, are on locally unless turned off
@@ -1062,6 +1079,8 @@ if (
     longTimeline: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),
+    // Reranking stays offline: Workers AI isn't reachable from here.
+    ai: key ? { model: claudeAnswerModel(key), classify: claudeClassifier(key) } : undefined,
   });
   console.log(
     "Local Relay demo: " +
@@ -1069,6 +1088,11 @@ if (
       " (loopback only; persisted in " +
       (process.env.RELAY_LOCAL_DIRECTORY ?? "work/local-relay") +
       ").",
+  );
+  console.log(
+    key
+      ? "Zoe answers with Claude (the key in .dev.vars); reranking stays offline."
+      : "Zoe answers with the offline stand-in. Add ANTHROPIC_API_KEY to .dev.vars to hear her tone and guidance.",
   );
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => void app.close().then(() => process.exit()));
