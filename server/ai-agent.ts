@@ -1,6 +1,5 @@
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
-import { requireSettings } from "./settings";
 import { afterChange } from "./routing";
 import { availabilityFor } from "./office-hours";
 import {
@@ -17,8 +16,10 @@ import {
   validGuidance,
   validRules,
   validTopics,
+  type Facts,
   type Topic,
 } from "./ai-escalation";
+import { greetingFor, listIdentities } from "./zoe";
 import { enqueueJob, type Job } from "./jobs";
 import {
   access,
@@ -203,9 +204,11 @@ export async function aiEnabled(db: Sql, w: string) {
     ).rows.length > 0
   );
 }
+/** The workspace's agent (Zoe), created with the defaults the first time it's needed. */
+export const agentRow = (db: Sql, w: string) => agentOf(db, w);
 async function agentOf(db: Sql, w: string) {
   await db.query(
-    "INSERT INTO ai_agents(workspace_id,id,name) VALUES($1,$2,'AI agent') ON CONFLICT DO NOTHING",
+    "INSERT INTO ai_agents(workspace_id,id,name) VALUES($1,$2,'Zoe') ON CONFLICT DO NOTHING",
     [w, DEFAULT_AGENT],
   );
   return (
@@ -509,187 +512,39 @@ export async function runAiReply(
   if ("skip" in prepared)
     return { done: true, result: { skipped: prepared.skip } };
   const ctx = prepared.context!;
-  const locale = ctx.chain[0] ?? "en";
-  const text = strings(locale);
-
-  // Handover triggers checked before answering. First the escalation rules (A2b), in code.
-  let why = "";
-  const matched = await tenant(connect, w, async (db) =>
-    matchRule(
-      await rulesOf(db, w, ctx.agent.id),
-      await facts(db, w, ctx.c, { signedIn: ctx.signedIn, language: locale }),
+  // What rules can test, how many answers it couldn't give so far, and the brand's greeting.
+  const known = await tenant(connect, w, async (db) => ({
+    facts: await facts(db, w, ctx.c, {
+      signedIn: ctx.signedIn,
+      language: ctx.chain[0] ?? "en",
+    }),
+    failedSoFar: Number(
+      (
+        await db.query<{ n: string }>(
+          "SELECT count(*) AS n FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 AND outcome IN ('unknown','failed')",
+          [w, ctx.c.id],
+        )
+      ).rows[0].n,
     ),
-  );
-  let trigger: Trigger | null = matched ? "rule" : null;
-  if (matched) why = matched.name;
-  // The button's own words need no model (A2a).
-  if (!trigger && PERSON_LABELS.has(ctx.question.trim().toLowerCase()))
-    trigger = "asked_for_person";
-  let note = "";
-  if (!trigger && ctx.agent.answer_hours === "outside_office_hours") {
-    const hours = await tenant(connect, w, (db) =>
-      availabilityFor(
-        db,
-        w,
-        {
-          brandId: ctx.c.brand_id,
-          teamId: ctx.agent.handover_team_id ?? ctx.c.team_id,
-        },
-        locale,
-      ),
-    );
-    // With no office hours set, there's no "inside" them: the agent answers.
-    if (hours?.open) trigger = "office_hours";
-  }
-  // Never-handle topics' keywords, in code, so they hold when the model is down (A2b).
-  const topics = ctx.agent.never_handle;
-  const keyword = trigger ? null : matchKeywords(topics, ctx.question);
-  if (keyword) {
-    trigger = "topic";
-    why = keyword.name;
-  }
-  if (!trigger && env.classify) {
-    let seen: Classification | null = null;
-    try {
-      seen = await env.classify.classify({
-        message: ctx.question,
-        history: ctx.history,
-        locale,
-        topics: topics.map((t) => ({ name: t.name, description: t.description })),
-        guidance: ctx.agent.escalation_guidance,
-      });
-    } catch {
-      // Decision (docs/AI_STEP2.md): a failing classifier doesn't hand everything over. The agent
-      // answers with A1's safeguards, and two failed answers still hand over.
-      note = " The classifier was unavailable, so only the fixed handover triggers applied.";
-    }
-    const topic = seen?.topic != null ? topics[seen.topic] : undefined;
-    const guidance =
-      seen?.guidance != null
-        ? ctx.agent.escalation_guidance[seen.guidance]
-        : undefined;
-    if (seen?.wantsHuman) trigger = "asked_for_person";
-    else if (topic) {
-      trigger = "topic";
-      why = topic.name;
-    } else if (guidance) {
-      trigger = "guidance";
-      why = guidance.length > 120 ? guidance.slice(0, 119) + "…" : guidance;
-    } else if (
-      seen?.sentiment === "negative" &&
-      ctx.agent.escalate_on_sentiment
-    )
-      trigger = "negative_sentiment";
-  }
-
-  let retrieval: Retrieval = { passages: [], candidates: [], topScore: 0 };
-  let outcome: "answered" | "clarified" | "unknown" | "failed" | "escalated";
-  let reason: string;
-  let body: string;
-  let data: Record<string, unknown> = {};
-  let cited: string[] = [];
-  let model: string | null = null;
-  if (trigger) {
-    outcome = "escalated";
-    reason = TRIGGERS[trigger] + (why ? `: “${why}”` : "") + "." + note;
-    body = "";
-  } else if (!searchable(ctx.question)) {
-    outcome = "clarified";
-    reason = "Nothing to search for (a greeting).";
-    body = text.greeting;
-  } else {
-    retrieval = await retrieveForAgent(
-      connect,
-      { index: env.index, rerank: env.rerank },
+    greeting: await greetingFor(db, w, ctx.agent.id, ctx.c.brand_id, ctx.chain[0] ?? "en"),
+  }));
+  // A failing model throws, and the job retries; decide gives up on the last attempts.
+  const decision = await decide(connect, env, {
       w,
-      {
-        query: ctx.question,
-        chain: ctx.chain,
-        brandId: ctx.c.brand_id,
-        signedIn: ctx.signedIn,
-      },
-    );
-    if (
-      !retrieval.passages.length ||
-      retrieval.topScore < ctx.agent.confidence_threshold
-    ) {
-      // The hard gate: weak retrieval never reaches the model.
-      outcome = "unknown";
-      reason = retrieval.passages.length
-        ? `Best passage scored ${retrieval.topScore.toFixed(2)}, below the threshold of ${ctx.agent.confidence_threshold.toFixed(2)}.`
-        : "No passage the customer may see matched.";
-      body = text.unknown;
-    } else {
-      model = env.model.model;
-      let raw: ModelReply | null = null;
-      try {
-        raw = await env.model.answer({
-          question: ctx.question,
-          history: ctx.history,
-          passages: retrieval.passages,
-          locale,
-          agentName: ctx.agent.name,
-        });
-      } catch (e) {
-        // Retried by the job; after a few attempts the customer is told plainly instead.
-        if (job.attempts < GIVE_UP_AFTER) throw e;
-      }
-      const checked = raw
-        ? checkReply(raw, new Set(retrieval.passages.map((p) => p.id)))
-        : null;
-      const reply = checked?.reply;
-      if (!checked || !reply) {
-        outcome = "failed";
-        reason = `The answering model failed ${job.attempts} times.`;
-        body = text.unknown;
-      } else if (reply.kind === "answer") {
-        outcome = "answered";
-        reason = "Answered from the knowledge store.";
-        body = reply.sentences.map((s) => s.text).join(" ");
-        const ids = new Set(reply.sentences.flatMap((s) => s.sources));
-        const used = retrieval.passages.filter((p) => ids.has(p.id));
-        const records = [...new Map(used.map((p) => [p.recordId, p])).values()];
-        cited = records.map((p) => p.recordId);
-        data = {
-          sources: await tenant(connect, w, (db) =>
-            sources(db, w, ctx.c.brand_id, records),
-          ),
-          // A3: "That helped" (a resolution) or "Talk to a person", in the customer's language.
-          confirm: { helped: text.helped, person: text.person, thanks: text.thanks },
-        };
-      } else if (reply.kind === "clarify") {
-        outcome = "clarified";
-        reason = "The question could mean different things.";
-        body = reply.question;
-        data = reply.options.length ? { options: reply.options } : {};
-      } else {
-        outcome = "unknown";
-        reason = checked.reason ?? "The model found no answer in the passages.";
-        body = text.unknown;
-      }
-    }
-  }
-
-  if (outcome === "unknown" || outcome === "failed") {
-    // Too many answers it couldn't give: hand over instead of saying so again (A2a).
-    const failed = await tenant(connect, w, async (db) =>
-      Number(
-        (
-          await db.query<{ n: string }>(
-            "SELECT count(*) AS n FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 AND outcome IN ('unknown','failed')",
-            [w, ctx.c.id],
-          )
-        ).rows[0].n,
-      ),
-    );
-    if (failed + 1 >= ctx.agent.failed_limit) {
-      trigger = "failed_answers";
-      reason = `${reason} ${TRIGGERS.failed_answers} (${failed + 1}).`;
-      outcome = "escalated";
-    } else data = { options: [text.person] };
-  }
-  if (note && outcome !== "escalated") reason += note;
-
+      agent: ctx.agent,
+      question: ctx.question,
+      history: ctx.history,
+      chain: ctx.chain,
+      signedIn: ctx.signedIn,
+      brandId: ctx.c.brand_id,
+      teamId: ctx.c.team_id,
+      facts: known.facts,
+      failedSoFar: known.failedSoFar,
+      greeting: known.greeting,
+      attempts: job.attempts,
+    });
+  const { text, locale, retrieval, cited, model, data, body } = decision;
+  const { trigger, outcome, reason } = decision;
   // Written only if nothing changed while the agent worked.
   const written = await tenant(connect, w, async (db) => {
     const c = await conversation(db, w, conversationId, true);
@@ -758,6 +613,337 @@ export async function runAiReply(
   return {
     done: true,
     result: written ? { outcome, replyPartId: written } : { skipped: true },
+  };
+}
+
+type Agent = Awaited<ReturnType<typeof agentOf>>;
+/** Everything a decision needs: from a conversation (the job) or a question (the Playground). */
+type DecideInput = {
+  w: string;
+  agent: Agent;
+  question: string;
+  history: Turn[];
+  /** The customer's languages, theirs first. */
+  chain: string[];
+  signedIn: boolean;
+  brandId: string;
+  /** The conversation's team, for office hours when no handover team is set. */
+  teamId: string | null;
+  facts: Facts;
+  /** Answers the agent couldn't give earlier in the conversation; null in the Playground. */
+  failedSoFar: number | null;
+  /** The brand's own reply to a greeting, when the customer reads the brand's language. */
+  greeting: string | null;
+  /** The job's attempts so far: from GIVE_UP_AFTER a failing model gives the plain refusal. */
+  attempts: number;
+};
+export type Decision = {
+  trigger: Trigger | null;
+  outcome: "answered" | "clarified" | "unknown" | "failed" | "escalated";
+  reason: string;
+  body: string;
+  data: Record<string, unknown>;
+  retrieval: Retrieval;
+  cited: string[];
+  model: string | null;
+  text: Strings;
+  locale: string;
+};
+
+/**
+ * What the agent does with a question, without writing anything: the handover triggers (rules,
+ * the button's words, office hours, topic keywords, then the classifier), the greeting, retrieval
+ * and the confidence gate, the model's checked reply, and the failed-answers limit. The reply job
+ * writes the result; the Playground (Z1) only shows it.
+ */
+async function decide(
+  connect: Connect,
+  env: AiEnvironment,
+  input: DecideInput,
+): Promise<Decision> {
+  const { w, agent } = input;
+  const locale = input.chain[0] ?? "en";
+  const text = strings(locale);
+
+  // Handover triggers checked before answering. First the escalation rules (A2b), in code.
+  let why = "";
+  const matched = await tenant(connect, w, async (db) =>
+    matchRule(await rulesOf(db, w, agent.id), input.facts),
+  );
+  let trigger: Trigger | null = matched ? "rule" : null;
+  if (matched) why = matched.name;
+  // The button's own words need no model (A2a).
+  if (!trigger && PERSON_LABELS.has(input.question.trim().toLowerCase()))
+    trigger = "asked_for_person";
+  let note = "";
+  if (!trigger && agent.answer_hours === "outside_office_hours") {
+    const hours = await tenant(connect, w, (db) =>
+      availabilityFor(
+        db,
+        w,
+        { brandId: input.brandId, teamId: agent.handover_team_id ?? input.teamId },
+        locale,
+      ),
+    );
+    // With no office hours set, there's no "inside" them: the agent answers.
+    if (hours?.open) trigger = "office_hours";
+  }
+  // Never-handle topics' keywords, in code, so they hold when the model is down (A2b).
+  const topics = agent.never_handle;
+  const keyword = trigger ? null : matchKeywords(topics, input.question);
+  if (keyword) {
+    trigger = "topic";
+    why = keyword.name;
+  }
+  if (!trigger && env.classify) {
+    let seen: Classification | null = null;
+    try {
+      seen = await env.classify.classify({
+        message: input.question,
+        history: input.history,
+        locale,
+        topics: topics.map((t) => ({ name: t.name, description: t.description })),
+        guidance: agent.escalation_guidance,
+      });
+    } catch {
+      // Decision (docs/AI_STEP2.md): a failing classifier doesn't hand everything over. The agent
+      // answers with A1's safeguards, and two failed answers still hand over.
+      note = " The classifier was unavailable, so only the fixed handover triggers applied.";
+    }
+    const topic = seen?.topic != null ? topics[seen.topic] : undefined;
+    const guidance =
+      seen?.guidance != null ? agent.escalation_guidance[seen.guidance] : undefined;
+    if (seen?.wantsHuman) trigger = "asked_for_person";
+    else if (topic) {
+      trigger = "topic";
+      why = topic.name;
+    } else if (guidance) {
+      trigger = "guidance";
+      why = guidance.length > 120 ? guidance.slice(0, 119) + "…" : guidance;
+    } else if (seen?.sentiment === "negative" && agent.escalate_on_sentiment)
+      trigger = "negative_sentiment";
+  }
+
+  let retrieval: Retrieval = { passages: [], candidates: [], topScore: 0 };
+  let outcome: Decision["outcome"];
+  let reason: string;
+  let body: string;
+  let data: Record<string, unknown> = {};
+  let cited: string[] = [];
+  let model: string | null = null;
+  if (trigger) {
+    outcome = "escalated";
+    reason = TRIGGERS[trigger] + (why ? `: “${why}”` : "") + "." + note;
+    body = "";
+  } else if (!searchable(input.question)) {
+    outcome = "clarified";
+    reason = "Nothing to search for (a greeting).";
+    body = input.greeting || text.greeting;
+  } else {
+    retrieval = await retrieveForAgent(
+      connect,
+      { index: env.index, rerank: env.rerank },
+      w,
+      {
+        query: input.question,
+        chain: input.chain,
+        brandId: input.brandId,
+        signedIn: input.signedIn,
+      },
+    );
+    if (!retrieval.passages.length || retrieval.topScore < agent.confidence_threshold) {
+      // The hard gate: weak retrieval never reaches the model.
+      outcome = "unknown";
+      reason = retrieval.passages.length
+        ? `Best passage scored ${retrieval.topScore.toFixed(2)}, below the threshold of ${agent.confidence_threshold.toFixed(2)}.`
+        : "No passage the customer may see matched.";
+      body = text.unknown;
+    } else {
+      model = env.model.model;
+      let raw: ModelReply | null = null;
+      try {
+        raw = await env.model.answer({
+          question: input.question,
+          history: input.history,
+          passages: retrieval.passages,
+          locale,
+          agentName: agent.name,
+        });
+      } catch (e) {
+        // Retried by the job; after a few attempts the customer is told plainly instead.
+        if (input.attempts < GIVE_UP_AFTER) throw e;
+      }
+      const checked = raw
+        ? checkReply(raw, new Set(retrieval.passages.map((p) => p.id)))
+        : null;
+      const reply = checked?.reply;
+      if (!checked || !reply) {
+        outcome = "failed";
+        reason = `The answering model failed ${input.attempts} times.`;
+        body = text.unknown;
+      } else if (reply.kind === "answer") {
+        outcome = "answered";
+        reason = "Answered from the knowledge store.";
+        body = reply.sentences.map((s) => s.text).join(" ");
+        const ids = new Set(reply.sentences.flatMap((s) => s.sources));
+        const used = retrieval.passages.filter((p) => ids.has(p.id));
+        const records = [...new Map(used.map((p) => [p.recordId, p])).values()];
+        cited = records.map((p) => p.recordId);
+        data = {
+          sources: await tenant(connect, w, (db) =>
+            sources(db, w, input.brandId, records),
+          ),
+          // A3: "That helped" (a resolution) or "Talk to a person", in the customer's language.
+          confirm: { helped: text.helped, person: text.person, thanks: text.thanks },
+        };
+      } else if (reply.kind === "clarify") {
+        outcome = "clarified";
+        reason = "The question could mean different things.";
+        body = reply.question;
+        data = reply.options.length ? { options: reply.options } : {};
+      } else {
+        outcome = "unknown";
+        reason = checked.reason ?? "The model found no answer in the passages.";
+        body = text.unknown;
+      }
+    }
+  }
+
+  if (outcome === "unknown" || outcome === "failed") {
+    // Too many answers it couldn't give: hand over instead of saying so again (A2a).
+    if (
+      input.failedSoFar !== null &&
+      input.failedSoFar + 1 >= agent.failed_limit
+    ) {
+      trigger = "failed_answers";
+      reason = `${reason} ${TRIGGERS.failed_answers} (${input.failedSoFar + 1}).`;
+      outcome = "escalated";
+    } else data = { options: [text.person] };
+  }
+  if (note && outcome !== "escalated") reason += note;
+  return { trigger, outcome, reason, body, data, retrieval, cited, model, text, locale };
+}
+
+/**
+ * The Playground (Z1): what the agent would reply to a question, as a visitor or a signed-in
+ * customer of a brand, in a language, without a conversation. It runs the same decision as a real
+ * reply and writes nothing: no message, no audit row, no retrieval count, no resolution. Deployed,
+ * each question costs model calls like a customer's would.
+ */
+export async function previewAiReply(
+  connect: Connect,
+  env: AiEnvironment,
+  w: string,
+  principal: string,
+  p: Record<string, unknown>,
+) {
+  const started = Date.now();
+  const question = typeof p.question === "string" ? p.question.trim() : "";
+  if (!question || question.length > 2000)
+    throw new DomainError(
+      "INVALID_PLAYGROUND",
+      "Ask a question of up to 2,000 characters.",
+      400,
+    );
+  const signedIn = p.signedIn === true;
+  const prepared = await tenant(connect, w, async (db) => {
+    await authorize(db, w, principal, "workspace.manage");
+    assert(
+      await aiEnabled(db, w),
+      "AI_AGENT_DISABLED",
+      "The AI agent is not enabled for this workspace.",
+      404,
+    );
+    const agent = await agentOf(db, w);
+    const brand = (
+      await db.query<{ id: string; locale: string | null }>(
+        "SELECT id,settings->>'locale' AS locale FROM brands WHERE workspace_id=$1 AND id=$2",
+        [w, String(p.brandId ?? "default")],
+      )
+    ).rows[0];
+    assert(brand, "BRAND_NOT_FOUND", "Brand unavailable.", 404);
+    let locale = "";
+    try {
+      locale = Intl.getCanonicalLocales(String(p.locale || brand.locale || "en"))[0];
+    } catch {
+      throw new DomainError("INVALID_PLAYGROUND", "Choose a language such as en or fr.", 400);
+    }
+    const brandLocale = brand.locale || "en";
+    const chain = [
+      ...new Set([locale, locale.split("-")[0], brandLocale, brandLocale.split("-")[0]]),
+    ];
+    const email = typeof p.email === "string" ? p.email.trim().toLowerCase() : "";
+    const facts: Facts = {
+      signedIn,
+      // As Relay would know it: a verified address only for a signed-in customer.
+      emailDomains: signedIn && email.includes("@") ? [email.split("@").pop()!] : [],
+      brand: brand.id,
+      language: locale,
+      page: typeof p.page === "string" ? p.page.trim().slice(0, 500) : "",
+      tags: [],
+      attributes: {},
+    };
+    return {
+      agent,
+      brandId: brand.id,
+      chain,
+      facts,
+      greeting: await greetingFor(db, w, agent.id, brand.id, locale),
+    };
+  });
+  const d = await decide(connect, env, {
+    w,
+    agent: prepared.agent,
+    question,
+    history: [],
+    chain: prepared.chain,
+    signedIn,
+    brandId: prepared.brandId,
+    teamId: null,
+    facts: prepared.facts,
+    failedSoFar: null,
+    greeting: prepared.greeting,
+    attempts: GIVE_UP_AFTER,
+  });
+  const used = new Set(d.retrieval.passages.map((x) => x.chunkId));
+  const best = d.retrieval.candidates
+    .slice()
+    .sort((a, b) => (b.rerank ?? -1) - (a.rerank ?? -1))
+    .slice(0, 6);
+  // The candidates' titles and headings, for the teammate (no passage text beyond the heading).
+  const named = await tenant(connect, w, async (db) =>
+    new Map(
+      (
+        await db.query<{ id: string; heading: string; title: string | null }>(
+          `SELECT c.chunk_id AS id,c.heading,(SELECT l.published_title FROM knowledge_locales l WHERE l.workspace_id=c.workspace_id AND l.record_id=c.record_id AND l.locale=c.locale) AS title
+           FROM knowledge_chunks c WHERE c.workspace_id=$1 AND c.chunk_id=ANY($2::text[])`,
+          [w, best.map((c) => c.chunkId)],
+        )
+      ).rows.map((r) => [r.id, r]),
+    ),
+  );
+  return {
+    outcome: d.outcome,
+    trigger: d.trigger,
+    reason: d.reason,
+    // What the customer would read: the reply, or the handover message.
+    reply: d.outcome === "escalated" ? d.text.handover : d.body,
+    sources: (d.data.sources as { title: string; path?: string }[] | undefined) ?? [],
+    options: (d.data.options as string[] | undefined) ?? [],
+    confidence: d.retrieval.passages.length
+      ? Math.round(d.retrieval.topScore * 100) / 100
+      : null,
+    threshold: prepared.agent.confidence_threshold,
+    // The passages it weighed, best first (titles and scores; no content beyond the heading).
+    candidates: best.map((c) => ({
+      title: named.get(c.chunkId)?.title ?? "Untitled",
+      heading: named.get(c.chunkId)?.heading ?? "",
+      score: c.rerank === null ? null : Math.round(c.rerank * 100) / 100,
+      used: used.has(c.chunkId),
+    })),
+    model: d.model,
+    language: d.locale,
+    latencyMs: Date.now() - started,
   };
 }
 
@@ -842,7 +1028,7 @@ async function handOver(
       c,
       { type: "ai", id: h.agent.id },
       "internal_note",
-      await summary(db, w, c, h.reason),
+      await summary(db, w, c, h.reason, h.agent.name),
       { aiHandover: { trigger: h.trigger, teamId: team } },
       "internal",
     );
@@ -882,7 +1068,13 @@ async function handOver(
  * The handover note: why, what the customer asked, and what the agent replied, built from the
  * conversation itself (no model writes it, so it can't invent anything).
  */
-async function summary(db: Sql, w: string, c: Conversation, reason: string) {
+async function summary(
+  db: Sql,
+  w: string,
+  c: Conversation,
+  reason: string,
+  agentName: string,
+) {
   const parts = (
     await db.query<{ kind: string; body: string; data: Record<string, unknown> }>(
       `SELECT kind,body,data FROM conversation_parts WHERE workspace_id=$1 AND conversation_id=$2
@@ -916,7 +1108,7 @@ async function summary(db: Sql, w: string, c: Conversation, reason: string) {
       `${count("unknown") + count("failed")} couldn't answer`,
   ].filter(Boolean);
   return [
-    `Handed over by the AI agent. ${reason}`,
+    `Handed over by ${agentName}. ${reason}`,
     asked.length ? `First message: ${quote(asked[0].body)}` : "",
     asked.length > 1 ? `Latest message: ${quote(asked.at(-1)!.body)}` : "",
     `AI replies: ${replies.length ? replies.join(", ") : "none"}.`,
@@ -981,8 +1173,8 @@ export async function confirmAiHelped(
 
 /** The agent's handover settings and the teams to choose from, for workspace managers. */
 export async function readAiSettings(db: Sql, w: string, principal: string) {
+  // Zoe's own area (Z1) holds these now, so they don't depend on the Settings area's flag.
   await authorize(db, w, principal, "workspace.manage");
-  await requireSettings(db, w);
   assert(
     await aiEnabled(db, w),
     "AI_AGENT_DISABLED",
@@ -1011,6 +1203,8 @@ export async function readAiSettings(db: Sql, w: string, principal: string) {
     rules: await rulesOf(db, w, a.id),
     // A3: the resolution ledger, net of reversals, and its latest rows.
     resolutions: await resolutionSummary(db, w),
+    // Z1: Zoe's identity per brand.
+    identities: await listIdentities(db, w, a.id),
     topics: a.never_handle,
     guidance: a.escalation_guidance,
     agent: {
@@ -1023,6 +1217,7 @@ export async function readAiSettings(db: Sql, w: string, principal: string) {
       failedLimit: a.failed_limit,
       escalateOnSentiment: a.escalate_on_sentiment,
       resolutionWindowHours: a.resolution_window_hours,
+      threshold: a.confidence_threshold,
       version: a.version,
     },
     teams,
@@ -1061,6 +1256,11 @@ export async function saveAiSettings(
       : Number(p.resolutionWindowHours);
   if (![1, 4, 12, 24, 48, 72].includes(windowHours))
     invalid("Choose a resolution window of 1, 4, 12, 24, 48 or 72 hours.");
+  // Z1: how sure Zoe must be before she answers (the confidence gate).
+  const threshold =
+    p.threshold === undefined ? current.agent.threshold : Number(p.threshold);
+  if (!Number.isFinite(threshold) || threshold < 0.2 || threshold > 0.9)
+    invalid("Choose a confidence threshold between 20% and 90%.");
   const limit = Number(p.failedLimit);
   if (!Number.isInteger(limit) || limit < 1 || limit > 5)
     invalid("Hand over after 1 to 5 answers the agent couldn't give.");
@@ -1074,7 +1274,7 @@ export async function saveAiSettings(
     p.guidance === undefined ? current.guidance : validGuidance(p.guidance);
   await db.query(
     `UPDATE ai_agents SET enabled=$3,handover_team_id=$4,answer_hours=$5,out_of_hours=$6,failed_limit=$7,escalate_on_sentiment=$8,
-     never_handle=$9,escalation_guidance=$10,resolution_window_hours=$11,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+     never_handle=$9,escalation_guidance=$10,resolution_window_hours=$11,confidence_threshold=$12,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
     [
       w,
       DEFAULT_AGENT,
@@ -1087,6 +1287,7 @@ export async function saveAiSettings(
       JSON.stringify(topics),
       JSON.stringify(guidance),
       windowHours,
+      Math.round(threshold * 100) / 100,
     ],
   );
   await saveRules(db, w, DEFAULT_AGENT, rules);

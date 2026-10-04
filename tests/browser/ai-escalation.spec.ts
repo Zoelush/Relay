@@ -25,7 +25,7 @@ const sql = <T = any>(text: string, values: unknown[] = []) =>
     async (db) => (await db.query<T>(text, values)).rows,
   );
 async function settings(page: Page) {
-  await page.goto(relay.hostOrigin + "/agent#settings/ai-agent");
+  await page.goto(relay.hostOrigin + "/agent#zoe/escalation");
   await expect(page.getByRole("heading", { name: "Never-handle topics" })).toBeVisible({
     timeout: 15000,
   });
@@ -98,7 +98,7 @@ test("a never-handle topic added in Settings sends a customer's question straigh
   await inbox.goto(relay.hostOrigin + "/agent");
   await inbox
     .getByRole("navigation", { name: "Inbox views" })
-    .getByRole("button", { name: /Escalated by AI/ })
+    .getByRole("button", { name: /Escalated by Zoe/ })
     .click();
   await inbox
     .locator(".pg-card", { hasText: "My lawyer asks when replies usually arrive" })
@@ -106,9 +106,9 @@ test("a never-handle topic added in Settings sends a customer's question straigh
   await expect(
     inbox
       .locator(".pg-message")
-      .filter({ hasText: "AI handover summary · Team only" }),
+      .filter({ hasText: "Handover summary from Zoe · Team only" }),
   ).toContainText(
-    "Handed over by the AI agent. The message is about a never-handle topic: “Legal”.",
+    "Handed over by Zoe. The message is about a never-handle topic: “Legal”.",
   );
 });
 

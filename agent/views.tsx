@@ -39,6 +39,7 @@ import { Menu } from "./menu";
 import { ListHeader, SideMenu, type SideMenuState } from "./shell";
 import { BulkBar, type Directory } from "./bulk";
 import { CARD_HEIGHT, ConversationCard, type CardRow } from "./card";
+import { hueOf, useAgentName, ZoeMark, type Hue } from "./colour";
 import type { ViewFilter } from "../server/inbox-views";
 export type ViewCount = {
   id: string;
@@ -77,8 +78,16 @@ const ANY_STATUS: ViewFilter = {
 const BUILTINS = ["mine", "mentions", "unassigned", "all"];
 /** Team inboxes are built-in views named `team:<team id>` (TEAM_INBOX on the server). */
 const TEAM_INBOX = "team:";
-/** The AI agent's built-in view (AI_VIEW on the server), while the agent is on. */
+/** The AI agent's built-in views (AI_VIEW and AI_WITH_VIEW on the server), while she's on. */
 const AI_VIEW = "ai:escalated";
+const AI_WITH_VIEW = "ai:with";
+/** Each default view's tint (Z1). */
+const BUILTIN_HUES: Record<string, Hue> = {
+  mine: "blue",
+  mentions: "violet",
+  unassigned: "amber",
+  all: "teal",
+};
 const AI_STATES: [string, string][] = [
   ["pending", "pending (waiting on the customer)"],
   ["escalated", "escalated to the team"],
@@ -389,6 +398,7 @@ export function InboxViews({
   onError: (error: unknown) => void;
   onJob: (id: string) => void;
 }) {
+  const agentName = useAgentName();
   const [views, setViews] = useState<View[]>([]),
     [folders, setFolders] = useState<Folder[]>([]),
     [myTeams, setMyTeams] = useState<string[] | null>(null),
@@ -616,7 +626,8 @@ export function InboxViews({
       BUILTINS.every((b) => have.has(b)) &&
       teamInboxes.length === myTeams.length &&
       myTeams.every((t) => teamInboxes.includes(t)) &&
-      have.has(AI_VIEW) === aiView
+      have.has(AI_VIEW) === aiView &&
+      have.has(AI_WITH_VIEW) === aiView
     )
       return;
     toppedUp.current = true;
@@ -765,12 +776,14 @@ export function InboxViews({
     teamViews = views
       .filter((v) => v.builtin?.startsWith(TEAM_INBOX))
       .sort((a, b) => a.position - b.position),
-    aiViews = views.filter((v) => v.builtin === AI_VIEW),
+    aiViews = [AI_WITH_VIEW, AI_VIEW]
+      .map((b) => views.find((v) => v.builtin === b))
+      .filter((v): v is View => !!v),
     customViews = views.filter((v) => !v.builtin);
-  const viewEntry = (v: View, icon: ReactNode) => {
+  const viewEntry = (v: View, icon: ReactNode, hue?: Hue) => {
     const live = countMap.get(v.id) ?? v;
     return (
-      <li key={v.id}>
+      <li key={v.id} data-hue={hue}>
         <button
           aria-pressed={viewId === v.id}
           onClick={() => {
@@ -905,19 +918,31 @@ export function InboxViews({
         )}
         <nav aria-label="Inbox views">
           <ul className="pg-menu-entries">
-            {builtins.map((v) => viewEntry(v, BUILTIN_ICONS[v.builtin!]))}
+            {builtins.map((v) =>
+              viewEntry(v, BUILTIN_ICONS[v.builtin!], BUILTIN_HUES[v.builtin!]),
+            )}
           </ul>
           {teamViews.length > 0 && (
             <MenuSection title="Team inboxes">
               <ul className="pg-menu-entries">
-                {teamViews.map((v) => viewEntry(v, <Users size={16} />))}
+                {teamViews.map((v) =>
+                  viewEntry(
+                    v,
+                    <Users size={16} />,
+                    hueOf(v.builtin!.slice(TEAM_INBOX.length)),
+                  ),
+                )}
               </ul>
             </MenuSection>
           )}
           {aiViews.length > 0 && (
-            <MenuSection title="AI agent">
+            <MenuSection title={agentName}>
               <ul className="pg-menu-entries">
-                {aiViews.map((v) => viewEntry(v, <Bot size={16} />))}
+                {aiViews.map((v) =>
+                  v.builtin === AI_WITH_VIEW
+                    ? viewEntry(v, <ZoeMark size={16} />)
+                    : viewEntry(v, <Bot size={16} />, "rose"),
+                )}
               </ul>
             </MenuSection>
           )}
@@ -935,7 +960,7 @@ export function InboxViews({
                     )}
                     <ul className="pg-menu-entries">
                       {inFolder.map((v) =>
-                        viewEntry(v, <ListFilter size={16} />),
+                        viewEntry(v, <ListFilter size={16} />, "slate"),
                       )}
                     </ul>
                   </div>

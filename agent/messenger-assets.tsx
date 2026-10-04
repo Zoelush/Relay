@@ -8,7 +8,12 @@ import { FAILURES, FileButton, waitForJob } from "./knowledge-files";
  * into storage, then checked and scanned by a background job; the config then refers to it as
  * "asset:<id>". The server checks every size and type again.
  */
-export type AssetPurpose = "home_logo" | "launcher_logo" | "home_background";
+export type AssetPurpose =
+  | "home_logo"
+  | "launcher_logo"
+  | "home_background"
+  | "agent_avatar"
+  | "agent_avatar_dark";
 const ACCEPT = "image/png,image/jpeg,image/gif";
 const MAX = 1024 * 1024;
 const REF = /^asset:([0-9a-f-]{36})$/;

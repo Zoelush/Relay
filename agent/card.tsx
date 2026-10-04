@@ -1,5 +1,6 @@
 import { Flag, Mail, MessageCircle, MessageSquare, Phone } from "lucide-react";
 import { SlaBadge } from "./sla";
+import { hueOf, useAgentName } from "./colour";
 import type { MessagePreview } from "../server/conversations";
 
 /**
@@ -24,12 +25,12 @@ export type CardRow = {
   ai_state?: string | null;
   preview?: MessagePreview | null;
 };
-/** How the AI agent's state reads on a card and in the header. */
+/** How the AI agent's state reads on a card, after her name (Zoe; Z1). */
 export const AI_STATE_LABELS: Record<string, string> = {
-  pending: "AI: waiting on customer",
-  escalated: "AI: escalated",
-  needs_input: "AI: needs teammate",
-  resolved: "AI: resolved",
+  pending: "waiting on customer",
+  escalated: "escalated",
+  needs_input: "needs teammate",
+  resolved: "resolved",
 };
 /** Fixed for the virtual list's arithmetic (and J/K scrolling); keep in step with the CSS. */
 export const CARD_HEIGHT = 112;
@@ -94,6 +95,7 @@ export function ConversationCard({
   onPrefetch?: () => void;
 }) {
   const name = row.name || "Customer";
+  const agentName = useAgentName();
   const when = row.activity_at ?? row.updated_at;
   const p = row.preview;
   const label = p
@@ -110,7 +112,7 @@ export function ConversationCard({
       onMouseEnter={onPrefetch}
       onFocus={onPrefetch}
     >
-      <span className="pg-avatar" aria-hidden="true">
+      <span className="pg-avatar" data-hue={hueOf(name)} aria-hidden="true">
         {initials(name)}
       </span>
       <span className="pg-card-body">
@@ -152,7 +154,7 @@ export function ConversationCard({
           />
           {row.ai_state && AI_STATE_LABELS[row.ai_state] && (
             <span className="pg-card-ai" data-state={row.ai_state}>
-              {AI_STATE_LABELS[row.ai_state]}
+              {agentName} · {AI_STATE_LABELS[row.ai_state]}
             </span>
           )}
           {row.priority && (

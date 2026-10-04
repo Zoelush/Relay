@@ -118,6 +118,14 @@ const AREAS = [
   ["index", "AI index", Sparkles],
   ["health", "Content health", HeartPulse],
 ] as const;
+/** Each area's tint in the menu (Z1). */
+const AREA_HUES: Record<string, string> = {
+  content: "amber",
+  help: "sky",
+  websites: "teal",
+  index: "violet",
+  health: "rose",
+};
 type Tab = (typeof AREAS)[number][0];
 
 export function Knowledge({
@@ -228,7 +236,7 @@ export function Knowledge({
                       (id === "index" && indexOn) ||
                       (id === "health" && healthOn))),
               ).map(([id, label, Icon]) => (
-                <li key={id}>
+                <li key={id} data-hue={AREA_HUES[id]}>
                   <button
                     aria-current={tab === id ? "page" : undefined}
                     onClick={() => setTab(id)}

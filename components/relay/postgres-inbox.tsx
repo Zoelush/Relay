@@ -28,6 +28,7 @@ import {
   Command,
   Ticket,
   Zap,
+  Sparkles,
   Settings as SettingsIcon,
 } from "lucide-react";
 import "../../agent/inbox.css";
@@ -45,6 +46,7 @@ import { exportConversation } from "../../agent/export";
 import { WorkloadBar } from "../../agent/workload";
 import { ListHeader, Rail, useSideMenu } from "../../agent/shell";
 import { ConversationCard, initials } from "../../agent/card";
+import { AgentName, hueOf } from "../../agent/colour";
 import { alertTeammate, type AlertPrefs } from "../../agent/alerts";
 import { SlaBadge } from "../../agent/sla";
 import type { MessagePreview } from "../../server/conversations";
@@ -127,7 +129,11 @@ type Snapshot = Directory & {
     views?: boolean;
     knowledge?: boolean;
     settings?: boolean;
+    /** Zoe's own area (phase 08 Z1): managers, while the AI agent is on. */
+    zoe?: boolean;
   };
+  /** Zoe's name in this workspace, while the AI agent is on (Z1). */
+  ai?: { name: string; enabled: boolean } | null;
   /** Your preferences (Settings › Your profile and Notifications). */
   profile?: { signature: string; notifications: AlertPrefs };
 };
@@ -143,6 +149,16 @@ const Knowledge = lazy(() =>
 const Settings = lazy(() =>
   import("../../agent/settings").then((m) => ({ default: m.Settings })),
 );
+/** Zoe, the AI agent (phase 08 Z1), loads on her own when opened. */
+const Zoe = lazy(() =>
+  import("../../agent/zoe").then((m) => ({ default: m.Zoe })),
+);
+/** A page of Zoe's from the address (`#zoe/<page>`), or null when not in her area. */
+const zoeFromHash = () => {
+  if (typeof window === "undefined") return null;
+  const m = /^#zoe(?:\/([a-z-]+))?$/.exec(window.location.hash);
+  return m ? (m[1] ?? "overview") : null;
+};
 /** A settings page from the address (`#settings/<page>`), or null when not in Settings. */
 const settingsFromHash = () => {
   if (typeof window === "undefined") return null;
@@ -266,23 +282,29 @@ export default function PostgresInbox({
   >({});
   /** The section on screen. The inbox stays mounted underneath Knowledge, keeping its place. */
   // The section on screen; Settings has an address per page (`#settings/<page>`).
-  const [area, setAreaState] = useState<"inbox" | "knowledge" | "settings">(
-    () => (settingsFromHash() ? "settings" : "inbox"),
+  const [area, setAreaState] = useState<
+    "inbox" | "knowledge" | "settings" | "zoe"
+  >(() =>
+    settingsFromHash() ? "settings" : zoeFromHash() ? "zoe" : "inbox",
   );
   const [settingsPage, setSettingsPage] = useState(
     () => settingsFromHash() ?? "home",
   );
+  const [zoePage, setZoePage] = useState(() => zoeFromHash() ?? "overview");
   const [knowledgeTab, setKnowledgeTab] = useState<
     "content" | "help" | "websites" | "index" | "health"
   >("content");
   const setArea = useCallback(
-    (next: "inbox" | "knowledge" | "settings", page = "home") => {
+    (next: "inbox" | "knowledge" | "settings" | "zoe", page = "home") => {
       setAreaState(next);
       if (next === "settings") setSettingsPage(page);
+      if (next === "zoe") setZoePage(page === "home" ? "overview" : page);
       const hash =
         next === "settings"
           ? "#settings" + (page === "home" ? "" : "/" + page)
-          : "";
+          : next === "zoe"
+            ? "#zoe" + (page === "home" || page === "overview" ? "" : "/" + page)
+            : "";
       if (window.location.hash !== hash)
         history.replaceState(
           null,
@@ -296,11 +318,15 @@ export default function PostgresInbox({
   useEffect(() => {
     const onHash = () => {
       const page = settingsFromHash();
+      const zoe = zoeFromHash();
       if (page) {
         setAreaState("settings");
         setSettingsPage(page);
+      } else if (zoe) {
+        setAreaState("zoe");
+        setZoePage(zoe);
       } else if (window.location.hash === "")
-        setAreaState((a) => (a === "settings" ? "inbox" : a));
+        setAreaState((a) => (a === "settings" || a === "zoe" ? "inbox" : a));
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -1325,6 +1351,7 @@ export default function PostgresInbox({
     </>
   );
   return (
+    <AgentName.Provider value={snapshot?.ai?.name ?? "Zoe"}>
     <main className="pg-inbox">
       <Rail
         items={[
@@ -1332,16 +1359,32 @@ export default function PostgresInbox({
             id: "inbox",
             label: "Inbox",
             icon: <Inbox size={19} />,
+            hue: "blue",
             badge: inboxCount ?? undefined,
             current: area === "inbox",
             onClick: () => setArea("inbox"),
           },
+          // Zoe sits between Inbox and Knowledge, as the AI agent does in Beacon and Intercom.
+          ...(snapshot?.capabilities.zoe
+            ? [
+                {
+                  id: "zoe",
+                  label: snapshot.ai?.name ?? "Zoe",
+                  ariaLabel: `${snapshot.ai?.name ?? "Zoe"}, AI agent`,
+                  icon: <Sparkles size={14} />,
+                  hue: "zoe",
+                  current: area === "zoe",
+                  onClick: () => setArea("zoe", "overview"),
+                },
+              ]
+            : []),
           ...(snapshot?.capabilities.knowledge
             ? [
                 {
                   id: "knowledge",
                   label: "Knowledge",
                   icon: <BookOpen size={19} />,
+                  hue: "amber",
                   current: area === "knowledge",
                   onClick: () => {
                     setKnowledgeTab("content");
@@ -1351,7 +1394,7 @@ export default function PostgresInbox({
               ]
             : []),
           // TODO(phase 13): Outbound. TODO(phase 14): Reports. TODO(phase 01): Contacts (the people model has no screen yet).
-          // TODO(phase 08): the AI agent. Each joins the strip when its area exists.
+          // Each joins the strip when its area exists.
         ]}
         tools={[
           {
@@ -1359,6 +1402,7 @@ export default function PostgresInbox({
             label: "Notifications",
             ariaLabel: `Notifications, ${notificationCount} unread`,
             icon: <Bell size={19} />,
+            hue: "rose",
             badge:
               notificationCount > 0
                 ? notificationCount > 99
@@ -1371,6 +1415,7 @@ export default function PostgresInbox({
             id: "shortcuts",
             label: "Shortcuts",
             icon: <Keyboard size={19} />,
+            hue: "violet",
             onClick: () => setOverlay("shortcuts"),
           },
           ...(snapshot?.capabilities.settings
@@ -1379,6 +1424,7 @@ export default function PostgresInbox({
                   id: "settings",
                   label: "Settings",
                   icon: <SettingsIcon size={19} />,
+                  hue: "slate",
                   current: area === "settings",
                   onClick: () => setArea("settings"),
                 },
@@ -1425,6 +1471,24 @@ export default function PostgresInbox({
           />
         </Suspense>
       )}
+      {area === "zoe" && snapshot?.capabilities.zoe && (
+        <Suspense
+          fallback={<section className="pg-workspace" aria-busy="true" />}
+        >
+          <Zoe
+            page={zoePage}
+            onPage={(page) => setArea("zoe", page)}
+            onName={(name) =>
+              setSnapshot((s) => s && { ...s, ai: { ...(s.ai ?? { enabled: true }), name } })
+            }
+            onKnowledge={() => {
+              setKnowledgeTab("content");
+              setArea("knowledge");
+            }}
+            onMessenger={() => setArea("settings", "messenger")}
+          />
+        </Suspense>
+      )}
       {area === "settings" && snapshot?.capabilities.settings && (
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}
@@ -1446,6 +1510,10 @@ export default function PostgresInbox({
               onChanged: () => void loadMacros(),
             }}
             onLink={(target) => {
+              if (target === "ai-agent") {
+                setArea("zoe", "overview");
+                return;
+              }
               if (target === "views") {
                 setArea("inbox");
                 inboxMenu.setHidden(false);
@@ -1482,7 +1550,8 @@ export default function PostgresInbox({
         className="pg-workspace"
         hidden={
           (area === "knowledge" && !!snapshot?.capabilities.knowledge) ||
-          (area === "settings" && !!snapshot?.capabilities.settings)
+          (area === "settings" && !!snapshot?.capabilities.settings) ||
+          (area === "zoe" && !!snapshot?.capabilities.zoe)
         }
       >
         {error && (
@@ -1555,7 +1624,11 @@ export default function PostgresInbox({
               <>
                 <header className="pg-thread-title">
                   <div className="pg-thread-who">
-                    <span className="pg-avatar" aria-hidden="true">
+                    <span
+                      className="pg-avatar"
+                      data-hue={hueOf(conversation?.name || "Customer")}
+                      aria-hidden="true"
+                    >
                       {initials(conversation?.name || "Customer")}
                     </span>
                     <div>
@@ -1803,6 +1876,7 @@ export default function PostgresInbox({
                       <div key={p.id} className="pg-bubble-row team">
                         <span
                           className="pg-avatar pg-bubble-avatar"
+                          data-hue={hueOf(snapshot?.teammate.name ?? "You")}
                           aria-hidden="true"
                         >
                           {initials(snapshot?.teammate.name ?? "You")}
@@ -2048,5 +2122,6 @@ export default function PostgresInbox({
         <SnoozeMenu onSnooze={snooze} onClose={() => setOverlay(null)} />
       )}
     </main>
+    </AgentName.Provider>
   );
 }

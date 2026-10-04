@@ -281,6 +281,62 @@ h2 {
   display: block;
   margin: 0 5px 5px;
 }
+/* Zoe on her replies (phase 08 Z1): avatar, name, the AI label, and her disclosure. */
+.message > small.ai-from {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+.ai-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10px;
+}
+.ai-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.ai-avatar.dark:not(.only) {
+  display: none;
+}
+:root[data-theme="dark"] .ai-avatar.has-dark {
+  display: none;
+}
+:root[data-theme="dark"] .ai-avatar.dark {
+  display: inline;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] .ai-avatar.has-dark {
+    display: none;
+  }
+  :root[data-theme="auto"] .ai-avatar.dark {
+    display: inline;
+  }
+}
+.ai-badge {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.message > small.ai-disclosure {
+  margin: 0 5px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
 .message p {
   margin: 0;
   background: var(--surface);

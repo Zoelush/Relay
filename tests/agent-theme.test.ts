@@ -49,6 +49,16 @@ function contrast(fg: string, bg: string) {
   return (x + 0.05) / (y + 0.05);
 }
 
+const TINTS = [
+  "blue",
+  "violet",
+  "rose",
+  "amber",
+  "teal",
+  "green",
+  "sky",
+  "slate",
+];
 /**
  * Every pairing the stylesheet uses: text needs 4.5:1 (WCAG AA), and indicators, focus rings and
  * form-control borders 3:1 (non-text contrast).
@@ -126,8 +136,22 @@ const TEXT: [string, string[]][] = [
   ["on-badge", ["badge"]],
   ["variable-text", ["variable-bg"]],
   ["neutral-text", ["neutral-bg"]],
+  // Z1: the tints are text in avatars' initials, on their own soft ground; Zoe's tone is text too.
+  ...TINTS.map((t): [string, string[]] => [
+    `tint-${t}`,
+    [`tint-${t}-bg`, "surface", "canvas"],
+  ]),
+  ["zoe-text", ["zoe-bg", "surface", "canvas", "nav"]],
+  // Text on Zoe's gradient (her buttons): both ends must carry it.
+  ["on-zoe", ["zoe-from", "zoe-to"]],
 ];
 const NON_TEXT: [string, string[]][] = [
+  // Z1: tinted icons on the strip and menus, at rest, hovered and selected; the mark on Zoe's gradient.
+  ...TINTS.map((t): [string, string[]] => [
+    `tint-${t}`,
+    ["nav", "hover", "active", "sunken", `tint-${t}-bg`],
+  ]),
+  ["on-zoe", ["zoe-from", "zoe-to"]],
   ["focus", ["bg", "canvas", "surface"]],
   ["input-border", ["surface"]],
   ["accent", ["selected"]],

@@ -378,8 +378,14 @@ export async function visibleView(
   assert(v, "VIEW_NOT_FOUND", "View unavailable.", 404);
   return v;
 }
-/** The AI agent's view (phase 08 A2a): a built-in view while the agent is on. */
+/**
+ * The AI agent's views (phase 08 A2a, Z1): built-in views while the agent is on, named after her
+ * (Zoe by default): "With Zoe" (she replied and waits on the customer) and "Escalated by Zoe"
+ * (handed to the team, including while it was away). Archived while the agent is off; renamed by
+ * the next initialize when she is.
+ */
 export const AI_VIEW = "ai:escalated";
+export const AI_WITH_VIEW = "ai:with";
 const aiOn = async (db: Sql, w: string) =>
   (
     await db.query(
@@ -387,30 +393,43 @@ const aiOn = async (db: Sql, w: string) =>
       [w],
     )
   ).rows.length > 0;
-/**
- * "Escalated by AI": conversations the agent handed to the team, including those handed over
- * while the team was away. Archived while the agent is off.
- */
 async function seedAiView(db: Sql, w: string, t: Teammate) {
   if (!(await aiOn(db, w))) {
     await db.query(
-      "UPDATE inbox_views SET archived=true,set_id=NULL,revision=revision+1 WHERE workspace_id=$1 AND owner_id=$2 AND builtin=$3 AND NOT archived",
-      [w, t.id, AI_VIEW],
+      "UPDATE inbox_views SET archived=true,set_id=NULL,revision=revision+1 WHERE workspace_id=$1 AND owner_id=$2 AND builtin=ANY($3::text[]) AND NOT archived",
+      [w, t.id, [AI_VIEW, AI_WITH_VIEW]],
     );
     return;
   }
-  const filter = JSON.stringify({
-    field: "ai_state",
-    op: "in",
-    value: ["escalated", "needs_input"],
-  });
-  await db.query(
-    `INSERT INTO inbox_views(workspace_id,id,owner_id,name,filter,builtin,position,sort) VALUES($1,$2,$3,'Escalated by AI',$4,$5,$6,'activity')
-     ON CONFLICT(workspace_id,owner_id,builtin) WHERE builtin IS NOT NULL DO UPDATE SET archived=false,
-       set_id=CASE WHEN inbox_views.archived OR inbox_views.filter<>EXCLUDED.filter THEN NULL ELSE inbox_views.set_id END,filter=EXCLUDED.filter,revision=inbox_views.revision+1
-     WHERE inbox_views.archived OR inbox_views.filter<>EXCLUDED.filter`,
-    [w, crypto.randomUUID(), t.id, filter, AI_VIEW, BUILTIN_VIEWS.length],
-  );
+  const name =
+    (
+      await db.query<{ name: string }>(
+        "SELECT name FROM ai_agents WHERE workspace_id=$1 AND id='default'",
+        [w],
+      )
+    ).rows[0]?.name ?? "Zoe";
+  const views: [string, string, unknown, number][] = [
+    [
+      AI_WITH_VIEW,
+      `With ${name}`.slice(0, 80),
+      { field: "ai_state", op: "eq", value: "pending" },
+      BUILTIN_VIEWS.length,
+    ],
+    [
+      AI_VIEW,
+      `Escalated by ${name}`.slice(0, 80),
+      { field: "ai_state", op: "in", value: ["escalated", "needs_input"] },
+      BUILTIN_VIEWS.length + 1,
+    ],
+  ];
+  for (const [builtin, label, filter, position] of views)
+    await db.query(
+      `INSERT INTO inbox_views(workspace_id,id,owner_id,name,filter,builtin,position,sort) VALUES($1,$2,$3,$4,$5,$6,$7,'activity')
+       ON CONFLICT(workspace_id,owner_id,builtin) WHERE builtin IS NOT NULL DO UPDATE SET archived=false,name=EXCLUDED.name,
+         set_id=CASE WHEN inbox_views.archived OR inbox_views.filter<>EXCLUDED.filter THEN NULL ELSE inbox_views.set_id END,filter=EXCLUDED.filter,revision=inbox_views.revision+1
+       WHERE inbox_views.archived OR inbox_views.filter<>EXCLUDED.filter OR inbox_views.name<>EXCLUDED.name`,
+      [w, crypto.randomUUID(), t.id, label, JSON.stringify(filter), builtin, position],
+    );
 }
 export async function viewSnapshot(db: Sql, w: string, t: Teammate) {
   const views = (
@@ -430,7 +449,7 @@ export async function viewSnapshot(db: Sql, w: string, t: Teammate) {
     views,
     folders,
     teams: await myTeams(db, w, t.id),
-    // Whether "Escalated by AI" should be there, so the client can run initialize if not.
+    // Whether the AI agent's views should be there, so the client can run initialize if not.
     ai: await aiOn(db, w),
   };
 }

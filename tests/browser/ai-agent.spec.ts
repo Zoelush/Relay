@@ -64,7 +64,9 @@ test("a customer's question is answered from the help center with its source, an
     .locator(".message")
     .filter({ hasText: "Replies usually arrive within an hour" });
   await expect(reply).toBeVisible({ timeout: 20000 });
-  await expect(reply.locator("small").first()).toHaveText("AI agent");
+  // Zoe (Z1): her name and the AI label on her reply.
+  await expect(reply.locator("small.ai-from")).toContainText("Zoe");
+  await expect(reply.locator("small.ai-from")).toContainText("AI agent");
   // The source opens the article in the help center.
   const source = reply
     .getByRole("list", { name: "Sources" })

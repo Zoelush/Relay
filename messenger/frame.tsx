@@ -68,6 +68,45 @@ type Messenger3 = {
   };
 };
 /** Home's welcome background, as CSS (only an https image is ever used). */
+/**
+ * Zoe's avatar on her replies (Z1): the brand's uploads (a dark-theme one when there is one), or
+ * her sparkle in the brand's colour.
+ */
+function AgentAvatar({
+  agent,
+  api,
+}: {
+  agent?: { avatar: string; avatarDark: string };
+  api: string;
+}) {
+  const light = agent && imageAddress(agent.avatar, api) ? agent.avatar : "";
+  const dark =
+    agent && imageAddress(agent.avatarDark, api) ? agent.avatarDark : "";
+  if (!light && !dark)
+    return (
+      <span className="ai-mark" aria-hidden="true">
+        ✦
+      </span>
+    );
+  return (
+    <>
+      {light && (
+        <img
+          className={"ai-avatar light" + (dark ? " has-dark" : "")}
+          src={light}
+          alt=""
+        />
+      )}
+      {dark && (
+        <img
+          className={"ai-avatar dark" + (light ? "" : " only")}
+          src={dark}
+          alt=""
+        />
+      )}
+    </>
+  );
+}
 /** An image address the messenger shows: https, or an upload Relay serves (messenger M5). */
 const imageAddress = (value: string | undefined, api: string) =>
   !!value && (/^https:\/\//.test(value) || value.startsWith(api + "/"));
@@ -129,6 +168,13 @@ type Boot = {
     }[];
     /** Messenger settings M1: audiences, Home cards, welcome and notice (when published). */
     messenger3?: Messenger3;
+    /** Zoe, the AI agent (phase 08 Z1): her name, avatars and disclosure on this brand. */
+    agent?: {
+      name: string;
+      avatar: string;
+      avatarDark: string;
+      disclosure: string;
+    };
   };
   /** A verified customer's first name, for the welcome greeting. */
   profile?: { firstName?: string };
@@ -195,6 +241,7 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
   const { strings: t, locale, dir } = language(boot.locale, boot.brand.locale);
   // Messenger settings M1: what this customer's audience (visitor or verified user) sees.
   const m3 = boot.brand.messenger3;
+  const agent = boot.brand.agent;
   const audience = boot.session.verified ? "users" : "visitors";
   const aud = m3?.audiences[audience];
   const direct = aud
@@ -1024,6 +1071,8 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
                   .filter((p) => !superseded.has(p.id))
                   .map((p, _i, shown) => {
                     const lastPartId = shown.at(-1)?.id;
+                    // Zoe's disclosure sits above her first reply in the conversation (Z1).
+                    const firstAiId = shown.find((x) => x.kind === "ai_reply")?.id;
                     if (p.kind === "attachment")
                       return (
                         <article
@@ -1076,7 +1125,7 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
                       p.author_type === "contact"
                         ? t.you
                         : p.author_type === "ai"
-                          ? t.ai
+                          ? (agent?.name ?? t.ai)
                           : p.author_type === "system"
                             ? t.automation
                             : p.author_name ||
@@ -1092,7 +1141,22 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
                             : "incoming")
                         }
                       >
-                        <small>{name}</small>
+                        {p.author_type === "ai" &&
+                          p.id === firstAiId &&
+                          !!agent?.disclosure && (
+                            <small className="ai-disclosure">
+                              {agent.disclosure}
+                            </small>
+                          )}
+                        {p.author_type === "ai" ? (
+                          <small className="ai-from">
+                            <AgentAvatar agent={agent} api={api} />
+                            <span>{name}</span>
+                            {agent && <span className="ai-badge">{t.ai}</span>}
+                          </small>
+                        ) : (
+                          <small>{name}</small>
+                        )}
                         {p.data.deleted ? (
                           <p>{t.deleted}</p>
                         ) : p.data.doc ? (

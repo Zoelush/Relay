@@ -4,6 +4,7 @@ import type { AppCard } from "../lib/app-slots";
 import { TicketPanel, type TicketContext } from "./tickets";
 import { SlaSection, type SlaContext } from "./sla";
 import { initials } from "./card";
+import { hueOf } from "./colour";
 
 export type Attribute = {
   id: string;
@@ -262,7 +263,11 @@ export function ContextSidebar({
         ) : (
           <>
             <div className="pg-ctx-card">
-              <span className="pg-avatar" aria-hidden="true">
+              <span
+                className="pg-avatar"
+                data-hue={hueOf((c.personalData && customer.name) || "?")}
+                aria-hidden="true"
+              >
                 {initials((c.personalData && customer.name) || "?")}
               </span>
               <strong>
