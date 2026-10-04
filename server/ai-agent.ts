@@ -31,6 +31,7 @@ import {
   type Specialist,
 } from "./zoe-specialists";
 import { chooseLanguage, detectLanguage, type LanguageChoice } from "./ai-language";
+import { recordTitles, targetedOut } from "./ai-targeting";
 import {
   ALL_LANGUAGES,
   languageName,
@@ -101,7 +102,9 @@ import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
  * whose conditions hold takes it by her keywords (in code) or, through the classifier, by what she
  * handles; she keeps it. She answers only from her knowledge (filtered before ranking), with her
  * job and her guidance, and hands over to her team.
- * TODO(phase 08 Z3b): content targeting. TODO(phase 09): the actions a specialist may call.
+ * Step Z3b (docs/AI_STEP8.md): content targeted at other customers is left out of retrieval before
+ * ranking, and each answer records what was left out, for teammates.
+ * TODO(phase 09): the actions a specialist may call.
  */
 export type AiEnvironment = {
   model: AnswerModel;
@@ -760,6 +763,7 @@ export async function runAiReply(
     guidanceApplied: decision.applied,
     specialistId: decision.specialist?.id ?? null,
     specialistReason: decision.specialist?.reason ?? null,
+    targetedOut: decision.targetedOut,
   };
   const { trigger, outcome, reason } = decision;
   // Written only if nothing changed while the agent worked.
@@ -935,6 +939,8 @@ export type Decision = {
   specialist: { id: string; name: string; reason: string } | null;
   settles: boolean;
   handoverTeamId: string | null;
+  /** Z3b: records targeted at other customers, left out of retrieval for this one. */
+  targetedOut: string[];
 };
 
 /**
@@ -1059,6 +1065,7 @@ async function decide(
   let cited: string[] = [];
   let model: string | null = null;
   let applied: string[] = [];
+  let excluded: string[] = [];
   // The guidance for whoever answers (Z3a: some applies only when one specialist does), and what
   // she's told about writing: her job, voice and guidelines (Z2).
   const answerGuidance = applicableGuidance(input.guidance, {
@@ -1085,6 +1092,8 @@ async function decide(
     reason = "Nothing to search for (a greeting).";
     body = input.greeting || text.greeting;
   } else {
+    // Z3b: content targeted at other customers, worked out from the facts rules use.
+    excluded = await tenant(connect, w, (db) => targetedOut(db, w, input.facts));
     retrieval = await retrieveForAgent(
       connect,
       { index: env.index, rerank: env.rerank },
@@ -1096,6 +1105,7 @@ async function decide(
         signedIn: input.signedIn,
         // Z3a: a specialist answers only from her own knowledge.
         scope: scopeOf(specialist),
+        exclude: excluded,
       },
     );
     if (!retrieval.passages.length || retrieval.topScore < agent.confidence_threshold) {
@@ -1208,6 +1218,7 @@ async function decide(
     specialist: specialist ? { id: specialist.id, name: specialist.name, reason: routedBy } : null,
     settles,
     handoverTeamId: team(),
+    targetedOut: excluded,
   };
 }
 
@@ -1377,6 +1388,13 @@ export async function previewAiReply(
     })),
     // Z3a: the specialist who'd answer and why (null: Zoe herself).
     specialist: d.specialist,
+    // Z3b: content targeted at other customers, left out for this one.
+    skipped: {
+      count: d.targetedOut.length,
+      titles: [
+        ...(await tenant(connect, w, (db) => recordTitles(db, w, d.targetedOut.slice(0, 5)))).values(),
+      ].sort(),
+    },
     latencyMs: Date.now() - started,
   };
 }
@@ -1788,12 +1806,14 @@ async function record(
     /** Z3a: the specialist who answered, and why she has the conversation. */
     specialistId?: string | null;
     specialistReason?: string | null;
+    /** Z3b: what targeting left out for this customer. */
+    targetedOut?: string[];
   },
 ) {
   await db.query(
     `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms,trigger,handover_team_id,
-       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
+       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
     [
       w,
       crypto.randomUUID(),
@@ -1823,6 +1843,7 @@ async function record(
       a.guidanceApplied ?? [],
       a.specialistId ?? null,
       a.specialistReason ?? null,
+      (a.targetedOut ?? []).slice(0, 100),
     ],
   );
   if (a.retrieval?.passages.length && a.outcome !== "skipped")
@@ -1864,15 +1885,19 @@ export async function aiAnswers(
       guidance_applied: string[];
       specialist_id: string | null;
       specialist_reason: string | null;
+      targeted_out: string[];
     }>(
       `SELECT question_part_id,reply_part_id,outcome,reason,top_score,threshold,cited,model,prompt_version,created_at,trigger,
-         agent_id,language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason
+         agent_id,language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out
        FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at`,
       [w, c.id],
     )
   ).rows;
-  // Z3a: specialists by name, removed ones too.
+  // Z3a: specialists by name, removed ones too; Z3b: the titles of what targeting left out.
   const names = new Map((await specialistNames(db, w)).map((s) => [s.id, s.name]));
+  const titles = await recordTitles(db, w, [
+    ...new Set(answers.flatMap((a) => a.targeted_out.slice(0, 3))),
+  ]);
   // Z2: the voice and guideline titles of each guidance version an answer was given.
   const versions = new Map<number, Awaited<ReturnType<typeof guidanceAt>>>();
   for (const a of answers)
@@ -1905,6 +1930,10 @@ export async function aiAnswers(
               reason: a.specialist_reason ?? "",
             }
           : null,
+        targetedOut: {
+          count: a.targeted_out.length,
+          titles: a.targeted_out.slice(0, 3).map((id) => titles.get(id) ?? "Removed content"),
+        },
       };
     }),
   };

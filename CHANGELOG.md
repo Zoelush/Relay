@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased: content targeting (phase 08, Z3b)
+
+- **Who Zoe uses it for:** on every article, snippet and file in Knowledge, and on each website for all its pages. Either everyone who may see it, or only customers and conversations that match conditions (the escalation rules' list).
+- **Zoe only:** the help center keeps the item's audience.
+- **Before ranking:** content targeted at other customers is left out, together with a specialist's knowledge.
+- **Teammates see what was skipped** in the Playground and the Try it panels ("Skipped for this customer: …") and in "Why this reply". Zoe's Content page counts targeted items and describes their conditions.
+- **Rollback safety:** rolling back switches Zoe off for targeted content.
+- **Migration** 0050 with rollback. **Tests:**
+  - unit: `tests/zoe-targeting.test.ts`
+  - browser: `tests/browser/zoe-targeting.spec.ts`
+
+  Details: `docs/AI_STEP8.md`.
+
 ## Unreleased: Zoe's specialists (phase 08, Z3a)
 
 - **Train › Specialists:** narrower versions of Zoe for one job each, up to 10. Each has:

@@ -82,8 +82,15 @@ export type PreviewResult = {
   applied: { title: string; category: string }[];
   /** Z3a: the specialist who answered, and why (null: Zoe herself). */
   specialist: { id: string; name: string; reason: string } | null;
+  /** Z3b: content targeted at other customers, left out for this one. */
+  skipped: { count: number; titles: string[] };
   latencyMs: number;
 };
+/** "Skipped for this customer: Enterprise SLA, VIP returns" (Z3b), or nothing. */
+export const skippedWords = (s: { count: number; titles: string[] }) =>
+  s.count
+    ? `Skipped for this customer: ${s.titles.join(", ")}${s.count > s.titles.length ? ` and ${s.count - s.titles.length} more` : ""}.`
+    : "";
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
   style: PenLine,
   clarification: CircleHelp,
@@ -727,6 +734,9 @@ function TryIt({
               </span>{" "}
               {languageNote(result.language, result.customerLanguage, result.languageSource)}
             </p>
+            {result.skipped.count > 0 && (
+              <p className="pg-zoe-try-meta pg-zoe-skipped">{skippedWords(result.skipped)}</p>
+            )}
             <details className="pg-zoe-told" open>
               <summary>What she was told</summary>
               <ul aria-label="What she was told">

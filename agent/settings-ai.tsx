@@ -587,6 +587,107 @@ export function GuidanceCard({ form, set }: Omit<Section, "data">) {
 }
 
 /** Escalation rules (A2b): when one matches, the agent hands over without answering. */
+/** The names conditions refer to: brands, tags and conversation attributes (Z3b). */
+export type TargetingChoices = Settings["choices"];
+/** A condition in words ("Email domain is example.com"), with the names it refers to (Z3b). */
+export function conditionWords(c: Condition, choices: Settings["choices"]) {
+  const field = FIELDS.find(([f]) => f === c.field);
+  const op = field?.[2].find(([v]) => v === c.op)?.[1] ?? c.op;
+  const name = (list: Choice[], id: string) => list.find((x) => x.id === id)?.name ?? id;
+  if (c.field === "signed_in") return c.value ? "Signed in" : "A visitor";
+  if (c.field === "attribute")
+    return `${name(choices.attributes, c.key ?? "")} ${op}${c.op === "is_set" ? "" : ` ${String(c.value)}`}`;
+  const value =
+    c.field === "brand"
+      ? name(choices.brands, String(c.value))
+      : c.field === "tag"
+        ? name(choices.tags, String(c.value))
+        : String(c.value);
+  return `${field?.[1] ?? c.field} ${op} ${value}`;
+}
+/** Targeting in words: its conditions, joined by "and" or "or". */
+export const targetingWords = (
+  t: { match: "all" | "any"; conditions: Condition[] },
+  choices: Settings["choices"],
+) => t.conditions.map((c) => conditionWords(c, choices)).join(t.match === "all" ? " and " : " or ");
+
+/**
+ * Who Zoe uses a piece of content for (Z3b): everyone who may see it, or only customers and
+ * conversations matching conditions (the escalation rules' list). Zoe only: the help center and
+ * the messenger's Help space keep their own audience.
+ */
+export function TargetingFields({
+  value,
+  choices,
+  onChange,
+}: {
+  value: { match: "all" | "any"; conditions: Condition[] };
+  choices: Settings["choices"];
+  onChange: (v: { match: "all" | "any"; conditions: Condition[] }) => void;
+}) {
+  return (
+    <fieldset className="pg-settings-fieldset pg-targeting">
+      <legend>Who Zoe uses it for</legend>
+      <label className="pg-settings-toggle">
+        <input
+          type="radio"
+          name="targeting"
+          checked={!value.conditions.length}
+          onChange={() => onChange({ ...value, conditions: [] })}
+        />
+        <span>
+          <strong>Everyone who may see it</strong>
+        </span>
+      </label>
+      <label className="pg-settings-toggle">
+        <input
+          type="radio"
+          name="targeting"
+          checked={value.conditions.length > 0}
+          onChange={() =>
+            !value.conditions.length && onChange({ ...value, conditions: [fresh("signed_in")] })
+          }
+        />
+        <span>
+          <strong>Only customers and conversations that match</strong>
+          <small className="pg-muted">
+            Zoe only: the help center and the messenger&apos;s Help space keep its audience.
+          </small>
+        </span>
+      </label>
+      {value.conditions.length > 0 && (
+        <>
+          <select
+            aria-label="Targeting needs"
+            value={value.match}
+            onChange={(e) => onChange({ ...value, match: e.target.value as "all" | "any" })}
+          >
+            <option value="all">All conditions</option>
+            <option value="any">Any condition</option>
+          </select>
+          <ConditionRows
+            label="Targeting"
+            conditions={value.conditions}
+            choices={choices}
+            onChange={(conditions) => onChange({ ...value, conditions })}
+          />
+          <div>
+            <button
+              type="button"
+              disabled={value.conditions.length >= 10}
+              onClick={() =>
+                onChange({ ...value, conditions: [...value.conditions, fresh("signed_in")] })
+              }
+            >
+              Add targeting condition
+            </button>
+          </div>
+        </>
+      )}
+    </fieldset>
+  );
+}
+
 /**
  * The rows of a set of conditions (the escalation rules' closed list): what to check, how, and
  * against what. Shared by escalation rules and (Z3a) specialists' "Only when".

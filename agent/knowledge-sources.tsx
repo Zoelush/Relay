@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { TargetingFields, type Condition, type TargetingChoices } from "./settings-ai";
 
 /**
  * Websites synced into knowledge (phase 07, step C1b), in Knowledge for `knowledge.manage`: add a
@@ -39,6 +40,10 @@ type Source = {
   run: Run | null;
 };
 type Detail = Source & {
+  /** Phase 08 Z3b: who Zoe uses its pages for, and the names conditions can refer to. */
+  aiMatch: "all" | "any";
+  aiConditions: Condition[];
+  targetingChoices: TargetingChoices;
   pages: {
     url: string;
     recordId: string | null;
@@ -414,6 +419,8 @@ function WebsiteDetail({
     audience: Source["audience"];
     forAi: boolean;
     forInbox: boolean;
+    aiMatch: "all" | "any";
+    aiConditions: Condition[];
   } | null>(null);
   useEffect(() => {
     let live = true;
@@ -489,6 +496,8 @@ function WebsiteDetail({
               audience: d.audience,
               forAi: d.forAi,
               forInbox: d.forInbox,
+              aiMatch: d.aiMatch,
+              aiConditions: d.aiConditions,
             })
           }
         >
@@ -529,6 +538,8 @@ function WebsiteDetail({
                 audience: edit.audience,
                 forAi: edit.forAi,
                 forInbox: edit.forInbox,
+                aiMatch: edit.aiMatch,
+                aiConditions: edit.aiConditions,
               },
               "Settings saved. Exclusions and stripped parts apply from the next sync.",
             );
@@ -561,6 +572,13 @@ function WebsiteDetail({
             value={edit}
             onChange={(v) => setEdit({ ...edit, ...v })}
           />
+          {edit.forAi && (
+            <TargetingFields
+              value={{ match: edit.aiMatch, conditions: edit.aiConditions }}
+              choices={d.targetingChoices}
+              onChange={(t) => setEdit({ ...edit, aiMatch: t.match, aiConditions: t.conditions })}
+            />
+          )}
           <div className="pg-knowledge-actions">
             <button type="submit">Save settings</button>
             <button type="button" onClick={() => setEdit(null)}>

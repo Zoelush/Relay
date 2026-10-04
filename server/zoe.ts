@@ -3,6 +3,8 @@ import { authorize } from "./policy";
 import { aiEnabled, agentRow } from "./ai-agent";
 import { assetId, assetUrl } from "./brand-assets";
 import { specialistsOf } from "./zoe-specialists";
+import { targetingChoices } from "./ai-targeting";
+import type { Condition } from "./ai-escalation";
 
 /**
  * Zoe, Relay's AI agent, in the agent app (phase 08, step Z1; docs/AI_STEP5.md): her identity per
@@ -435,8 +437,10 @@ export async function zoeContent(db: Sql, w: string, principal: string) {
       audience: string;
       title: string | null;
       locales: string[];
+      ai_match: "all" | "any";
+      ai_conditions: Condition[];
     }>(
-      `SELECT r.id,r.source,r.audience,
+      `SELECT r.id,r.source,r.audience,r.ai_match,r.ai_conditions,
          (SELECT l.published_title FROM knowledge_locales l WHERE l.workspace_id=r.workspace_id AND l.record_id=r.id AND l.status='published' ORDER BY l.locale LIMIT 1) AS title,
          ARRAY(SELECT l.locale FROM knowledge_locales l WHERE l.workspace_id=r.workspace_id AND l.record_id=r.id AND l.status='published' ORDER BY l.locale) AS locales
        FROM knowledge_records r
@@ -461,6 +465,8 @@ export async function zoeContent(db: Sql, w: string, principal: string) {
       audience: r.audience,
       locales: r.locales,
       used: used.get(r.id) ?? 0,
+      // Z3b: who Zoe uses it for (no conditions: everyone who may see it).
+      targeting: { match: r.ai_match, conditions: r.ai_conditions },
     }))
     .sort((a, b) => b.used - a.used || a.title.localeCompare(b.title));
   const bySource: Record<string, number> = {};
@@ -470,8 +476,11 @@ export async function zoeContent(db: Sql, w: string, principal: string) {
     total: list.length,
     bySource,
     signedInOnly: list.filter((r) => r.audience === "signed_in").length,
+    targeted: list.filter((r) => r.targeting.conditions.length).length,
     excluded: { switchedOff: excluded.off, internal: excluded.internal },
     records: list,
+    // The names targeting conditions refer to, to describe them in words.
+    choices: await targetingChoices(db, w),
   };
 }
 

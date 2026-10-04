@@ -1242,6 +1242,14 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-zoe-knowledge strong { font-size:12px; letter-spacing:.3px; color:var(--pg-text-2); }
 .pg-zoe-empty-card { display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:20px; border:1px dashed var(--pg-border-strong); border-radius:14px; background:var(--pg-surface); }
 .pg-zoe-empty-card p { margin:0; font-size:13px; line-height:1.5; }
+/* Z3b: who Zoe uses content for (Knowledge settings and website settings), and what she skipped. */
+.pg-targeting { display:flex; flex-direction:column; gap:8px; margin:4px 0; padding:12px 14px; border:1px solid var(--pg-zoe-border); border-radius:12px; background:var(--pg-surface); }
+.pg-targeting legend { padding:0 6px; font-size:13px; font-weight:600; color:var(--pg-zoe-text); }
+.pg-targeting > select { align-self:flex-start; }
+.pg-targeting .pg-settings-row { flex-wrap:wrap; }
+.pg-targeting .pg-settings-row select, .pg-targeting .pg-settings-row input { min-width:0; max-width:100%; }
+.pg-zoe-targeted { display:flex; align-items:center; gap:6px; margin-top:3px; font-size:12px; color:var(--pg-text-2); }
+.pg-zoe-skipped { color:var(--pg-warn-text); }
 .pg-colour-sample { display:grid; place-items:center; width:34px; height:34px; border-radius:8px; border:1px solid var(--pg-border); font-weight:600; }
 .pg-settings-tabs { display:flex; flex-wrap:wrap; gap:4px; }
 .pg-settings-tabs button { padding:5px 12px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-surface); color:var(--pg-text); font-size:13px; }
