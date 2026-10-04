@@ -9,7 +9,7 @@ import { ZOE_LANGUAGES } from "../lib/zoe-voice";
  * rules, never-handle topics and guidance, and the resolution window. One versioned save covers
  * them all; each of Zoe's pages shows the sections it's about.
  */
-type Condition = {
+export type Condition = {
   field: string;
   op: string;
   value: string | boolean;
@@ -50,7 +50,7 @@ const FIELDS: [string, string, [string, string][]][] = [
     ],
   ],
 ];
-const fresh = (field: string): Condition => ({
+export const fresh = (field: string): Condition => ({
   field,
   op: FIELDS.find(([f]) => f === field)![2][0][0],
   value: field === "signed_in" ? true : "",
@@ -587,6 +587,133 @@ export function GuidanceCard({ form, set }: Omit<Section, "data">) {
 }
 
 /** Escalation rules (A2b): when one matches, the agent hands over without answering. */
+/**
+ * The rows of a set of conditions (the escalation rules' closed list): what to check, how, and
+ * against what. Shared by escalation rules and (Z3a) specialists' "Only when".
+ */
+export function ConditionRows({
+  label: prefix,
+  conditions,
+  choices,
+  min = 1,
+  onChange,
+}: {
+  label: string;
+  conditions: Condition[];
+  choices: Settings["choices"];
+  /** How many must stay (a rule needs one; a specialist none). */
+  min?: number;
+  onChange: (conditions: Condition[]) => void;
+}) {
+  const setCondition = (k: number, c: Partial<Condition>) =>
+    onChange(conditions.map((x, j) => (j === k ? { ...x, ...c } : x)));
+  return (
+    <>
+      {conditions.map((c, k) => {
+        const label = `${prefix} condition ${k + 1}`;
+        const ops = FIELDS.find(([f]) => f === c.field)?.[2] ?? [];
+        const options =
+          c.field === "brand"
+            ? choices.brands
+            : c.field === "tag"
+              ? choices.tags
+              : null;
+        return (
+          <div key={k} className="pg-settings-row">
+            <select
+              aria-label={`${label} field`}
+              value={c.field}
+              onChange={(e) => setCondition(k, fresh(e.target.value))}
+            >
+              {FIELDS.map(([f, name]) => (
+                <option key={f} value={f}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            {c.field === "attribute" && (
+              <select
+                aria-label={`${label} attribute`}
+                value={c.key ?? ""}
+                onChange={(e) => setCondition(k, { key: e.target.value })}
+              >
+                <option value="">Choose an attribute…</option>
+                {choices.attributes.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {c.field !== "signed_in" && (
+              <select
+                aria-label={`${label} comparison`}
+                value={c.op}
+                onChange={(e) => setCondition(k, { op: e.target.value })}
+              >
+                {ops.map(([v, name]) => (
+                  <option key={v} value={v}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {c.field === "signed_in" ? (
+              <select
+                aria-label={`${label} value`}
+                value={String(c.value)}
+                onChange={(e) =>
+                  setCondition(k, { value: e.target.value === "true" })
+                }
+              >
+                <option value="true">Yes</option>
+                <option value="false">No (a visitor)</option>
+              </select>
+            ) : options ? (
+              <select
+                aria-label={`${label} value`}
+                value={String(c.value)}
+                onChange={(e) => setCondition(k, { value: e.target.value })}
+              >
+                <option value="">Choose…</option>
+                {options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            ) : c.op !== "is_set" ? (
+              <input
+                aria-label={`${label} value`}
+                placeholder={
+                  c.field === "email_domain"
+                    ? "example.com"
+                    : c.field === "language"
+                      ? "fr"
+                      : c.field === "page"
+                        ? "/enterprise"
+                        : "Value"
+                }
+                maxLength={300}
+                value={String(c.value)}
+                onChange={(e) => setCondition(k, { value: e.target.value })}
+              />
+            ) : null}
+            <button
+              type="button"
+              aria-label={`Remove ${label}`}
+              disabled={conditions.length <= min}
+              onClick={() => onChange(conditions.filter((_, j) => j !== k))}
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function Rules({
   rules,
   choices,
@@ -605,12 +732,6 @@ export function Rules({
     >
       {rules.map((r, i) => {
         const n = i + 1;
-        const setCondition = (k: number, c: Partial<Condition>) =>
-          change(i, {
-            conditions: r.conditions.map((x, j) =>
-              j === k ? { ...x, ...c } : x,
-            ),
-          });
         return (
           <fieldset key={r.id ?? i} className="pg-settings-fieldset">
             <legend>Rule {n}</legend>
@@ -648,111 +769,12 @@ export function Rules({
                 ×
               </button>
             </div>
-            {r.conditions.map((c, k) => {
-              const label = `Rule ${n} condition ${k + 1}`;
-              const ops = FIELDS.find(([f]) => f === c.field)?.[2] ?? [];
-              const options =
-                c.field === "brand"
-                  ? choices.brands
-                  : c.field === "tag"
-                    ? choices.tags
-                    : null;
-              return (
-                <div key={k} className="pg-settings-row">
-                  <select
-                    aria-label={`${label} field`}
-                    value={c.field}
-                    onChange={(e) => setCondition(k, fresh(e.target.value))}
-                  >
-                    {FIELDS.map(([f, name]) => (
-                      <option key={f} value={f}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                  {c.field === "attribute" && (
-                    <select
-                      aria-label={`${label} attribute`}
-                      value={c.key ?? ""}
-                      onChange={(e) => setCondition(k, { key: e.target.value })}
-                    >
-                      <option value="">Choose an attribute…</option>
-                      {choices.attributes.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {c.field !== "signed_in" && (
-                    <select
-                      aria-label={`${label} comparison`}
-                      value={c.op}
-                      onChange={(e) => setCondition(k, { op: e.target.value })}
-                    >
-                      {ops.map(([v, name]) => (
-                        <option key={v} value={v}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {c.field === "signed_in" ? (
-                    <select
-                      aria-label={`${label} value`}
-                      value={String(c.value)}
-                      onChange={(e) =>
-                        setCondition(k, { value: e.target.value === "true" })
-                      }
-                    >
-                      <option value="true">Yes</option>
-                      <option value="false">No (a visitor)</option>
-                    </select>
-                  ) : options ? (
-                    <select
-                      aria-label={`${label} value`}
-                      value={String(c.value)}
-                      onChange={(e) => setCondition(k, { value: e.target.value })}
-                    >
-                      <option value="">Choose…</option>
-                      {options.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : c.op !== "is_set" ? (
-                    <input
-                      aria-label={`${label} value`}
-                      placeholder={
-                        c.field === "email_domain"
-                          ? "example.com"
-                          : c.field === "language"
-                            ? "fr"
-                            : c.field === "page"
-                              ? "/enterprise"
-                              : "Value"
-                      }
-                      maxLength={300}
-                      value={String(c.value)}
-                      onChange={(e) => setCondition(k, { value: e.target.value })}
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    aria-label={`Remove ${label}`}
-                    disabled={r.conditions.length === 1}
-                    onClick={() =>
-                      change(i, {
-                        conditions: r.conditions.filter((_, j) => j !== k),
-                      })
-                    }
-                  >
-                    ×
-                  </button>
-                </div>
-              );
-            })}
+            <ConditionRows
+              label={`Rule ${n}`}
+              conditions={r.conditions}
+              choices={choices}
+              onChange={(conditions) => change(i, { conditions })}
+            />
             <div>
               <button
                 type="button"

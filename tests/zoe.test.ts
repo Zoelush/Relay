@@ -190,7 +190,7 @@ test("Zoe: her identity per brand, the Playground that writes nothing, and her p
     );
     // The inbox knows her name; only managers get her area.
     const inbox = (await agent("inbox")).body;
-    assert.deepEqual(inbox.ai, { name: "Zoe", enabled: true });
+    assert.deepEqual(inbox.ai, { name: "Zoe", enabled: true, specialists: [] });
     assert.equal(inbox.capabilities.zoe, true);
     assert.equal((await agent("inbox", undefined, "agent-1-a")).body.capabilities.zoe, false);
 

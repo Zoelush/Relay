@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { LockKeyhole, Paperclip, Sparkles } from "lucide-react";
 import { api } from "./api";
 import { RichText } from "../lib/rich-view";
@@ -40,6 +40,9 @@ export type Directory = {
   /** The AI agent's name (Zoe unless renamed; Z1). */
   agentName?: string;
 };
+/** Z3a: which specialist gave each of Zoe's replies, by reply part id. */
+const EMPTY = new Map<string, string>();
+const ReplySpecialists = createContext<Map<string, string>>(EMPTY);
 export const MESSAGES = new Set([
   "customer_message",
   "teammate_reply",
@@ -209,8 +212,9 @@ function Message({
 }) {
   const internal = p.audience === "internal" || p.kind === "internal_note";
   const fromCustomer = p.author_type === "contact";
-  // Zoe (Z1): her name and mark on her replies and handover notes.
+  // Zoe (Z1): her name and mark on her replies and handover notes; and (Z3a) the specialist.
   const agentName = useAgentName();
+  const specialist = useContext(ReplySpecialists).get(p.id);
   const who = fromCustomer
     ? customer || "Customer"
     : p.author_type === "ai"
@@ -246,7 +250,9 @@ function Message({
               : p.author_type === "contact"
                 ? "Customer"
                 : (p.data.authorName ??
-                  (p.author_type === "ai" ? `${agentName} · AI agent` : "Teammate"))}
+                  (p.author_type === "ai"
+                    ? `${agentName}${specialist ? ` · ${specialist}` : ""} · AI agent`
+                    : "Teammate"))}
           </strong>
           {edited && !p.data.deleted && (
             <small className="pg-edited">Edited</small>
@@ -294,6 +300,8 @@ type AiAnswer = {
   guidanceVersion: number | null;
   voice: Voice | null;
   guidance: string[];
+  /** Z3a: the specialist who answered, and why she has the conversation. */
+  specialist: { name: string; reason: string } | null;
 };
 const OUTCOMES: Record<string, string> = {
   answered: "Answered from content",
@@ -357,6 +365,14 @@ function AiReplyDetails({ p }: { p: TimelinePart }) {
                   <dd>
                     {answer.topScore.toFixed(2)} (answers need{" "}
                     {answer.threshold.toFixed(2)})
+                  </dd>
+                </>
+              )}
+              {answer.specialist && (
+                <>
+                  <dt>Specialist</dt>
+                  <dd>
+                    {answer.specialist.name}: {answer.specialist.reason}
                   </dd>
                 </>
               )}
@@ -443,12 +459,41 @@ export function Timeline({
   parts,
   dir,
   customer,
+  aiSpecialist,
 }: {
   parts: TimelinePart[];
   dir: Directory;
   /** The customer's name, for their bubbles' initials. */
   customer?: string;
+  /** Z3a: the specialist who has the conversation, if one does; her replies are labelled. */
+  aiSpecialist?: string | null;
 }) {
+  // Z3a: who gave each of Zoe's replies, from her answers' records (never the reply's own data,
+  // which reaches the customer). Fetched only when a specialist has the conversation.
+  const conversationId = parts[0]?.conversation_id;
+  const replies = parts.filter((p) => p.kind === "ai_reply").length;
+  const [bySpecialist, setBySpecialist] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!aiSpecialist || !conversationId) return;
+    let live = true;
+    api<{ answers: { replyPartId: string | null; specialist: { name: string } | null }[] }>(
+      "ai-answers?conversation=" + encodeURIComponent(conversationId),
+    )
+      .then((r) => {
+        if (live)
+          setBySpecialist(
+            new Map(
+              r.answers
+                .filter((a) => a.replyPartId && a.specialist)
+                .map((a) => [a.replyPartId!, a.specialist!.name]),
+            ),
+          );
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [aiSpecialist, conversationId, replies]);
   const superseded = new Set(parts.map((p) => p.supersedes_id).filter(Boolean));
   const visible = parts.filter((p) => !superseded.has(p.id));
   const groups: (TimelinePart | TimelinePart[])[] = [];
@@ -459,7 +504,7 @@ export function Timeline({
     else groups.push([p]);
   }
   return (
-    <>
+    <ReplySpecialists.Provider value={aiSpecialist ? bySpecialist : EMPTY}>
       {groups.map((g) =>
         Array.isArray(g) ? (
           <EventRun key={g[0].id} parts={g} dir={dir} />
@@ -472,6 +517,6 @@ export function Timeline({
           />
         ),
       )}
-    </>
+    </ReplySpecialists.Provider>
   );
 }

@@ -12,6 +12,7 @@ import {
   Send,
   Settings as SettingsIcon,
   Sparkles,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import { api } from "./api";
@@ -30,6 +31,7 @@ import {
   useAiSettings,
 } from "./settings-ai";
 import { GuidancePage, type PreviewResult } from "./zoe-guidance";
+import { SpecialistsPage } from "./zoe-specialists";
 import {
   OUTCOME_HUES,
   OUTCOME_NAMES,
@@ -45,12 +47,14 @@ import { languageName, type Voice } from "../lib/zoe-voice";
  * place in the icon strip, between Inbox and Knowledge, and her own side menu, organised as Beacon
  * and Intercom organise their agents: Overview; Train (Guidance, Escalation, Content); Test
  * (Playground); Deploy (Messenger); Analyze (Performance, Knowledge gaps, Resolutions); Settings.
- * Z2 (docs/AI_STEP6.md) adds Train › Guidance (agent/zoe-guidance.tsx) and her languages.
- * TODO(phase 08 Z3): Train › Specialists. TODO(phase 08 C1): Test › Test suites.
+ * Z2 (docs/AI_STEP6.md) adds Train › Guidance (agent/zoe-guidance.tsx) and her languages; Z3a
+ * (docs/AI_STEP7.md) Train › Specialists (agent/zoe-specialists.tsx).
+ * TODO(phase 08 C1): Test › Test suites. TODO(phase 09): Train › Actions.
  */
 type PageId =
   | "overview"
   | "guidance"
+  | "specialists"
   | "escalation"
   | "content"
   | "playground"
@@ -83,6 +87,15 @@ const PAGES: {
     hue: "zoe",
     description:
       "How she sounds, and plain instructions for how she answers. Try your changes beside them before you save.",
+  },
+  {
+    id: "specialists",
+    label: "Specialists",
+    group: "Train",
+    icon: UsersRound,
+    hue: "blue",
+    description:
+      "Narrower Zoes for one job each: what she handles, her own knowledge and her team. Customers always see Zoe.",
   },
   {
     id: "escalation",
@@ -253,6 +266,13 @@ export function Zoe({
             <Overview {...props} />
           ) : current.id === "guidance" ? (
             <GuidancePage menu={menu} page={asPage(current)} name={name} />
+          ) : current.id === "specialists" ? (
+            <SpecialistsPage
+              menu={menu}
+              page={asPage(current)}
+              name={name}
+              onGuidance={() => onPage("guidance")}
+            />
           ) : current.id === "escalation" ? (
             <EscalationPage {...props} page={asPage(current)} />
           ) : current.id === "content" ? (
@@ -325,6 +345,7 @@ type OverviewData = {
   };
   escalation: { rules: number; topics: number; guidance: number };
   voice: Voice & { guidelines: number; version: number; languages: number };
+  specialists: string[];
   content: number;
   gaps: { question: string; count: number; lastAt: string; conversationId: string }[];
   articles: { recordId: string; title: string; count: number }[];
@@ -411,6 +432,19 @@ function Overview({ menu, name, onPage, agent, setAgent }: PageProps) {
                 How she sounds, and plain instructions for how she answers.
                 <small>
                   {voiceSummary(data.voice)} · {plural(data.voice.guidelines, "guideline")} on
+                </small>
+              </ActionCard>
+              <ActionCard
+                hue="blue"
+                icon={UsersRound}
+                title="Specialists"
+                onClick={() => onPage("specialists")}
+              >
+                Narrower versions of her for one job each, with their own knowledge and team.
+                <small>
+                  {data.specialists.length
+                    ? data.specialists.join(" · ")
+                    : "None yet: she answers everything herself"}
                 </small>
               </ActionCard>
               <ActionCard
@@ -912,6 +946,8 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
   const [locale, setLocale] = useState("");
   const [email, setEmail] = useState("");
   const [pageUrl, setPageUrl] = useState("");
+  const [as, setAs] = useState("route");
+  const [specialists, setSpecialists] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<(Preview & { asked: string }) | null>(null);
@@ -919,6 +955,9 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
     api<{ brands: { brandId: string; brandName: string }[] }>("zoe?view=deploy")
       .then((d) => setBrands(d.brands))
       .catch(() => setBrands([]));
+    api<{ specialists: { id: string; name: string }[] }>("zoe?view=specialists")
+      .then((d) => setSpecialists(d.specialists))
+      .catch(() => setSpecialists([]));
     api<OverviewData>("zoe?view=overview")
       .then((o) =>
         setSuggestions(
@@ -944,6 +983,7 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
         locale: locale || undefined,
         email: signedIn ? email : undefined,
         page: pageUrl || undefined,
+        specialistId: as === "route" ? undefined : as,
       });
       setResult({ ...r, asked: q });
     } catch (e) {
@@ -1016,6 +1056,20 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                   />
+                )}
+              </Field>
+            )}
+            {specialists.length > 0 && (
+              <Field label="Answer as" hint="Let her pick a specialist as she would for a customer, or ask one directly.">
+                {(id, hint) => (
+                  <select id={id} aria-describedby={hint} value={as} onChange={(e) => setAs(e.target.value)}>
+                    <option value="route">Let {name} pick</option>
+                    {specialists.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </Field>
             )}
@@ -1112,6 +1166,12 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
                 </dd>
                 <dt>Why</dt>
                 <dd>{result.reason}</dd>
+                <dt>Specialist</dt>
+                <dd>
+                  {result.specialist
+                    ? `${result.specialist.name}: ${result.specialist.reason}`
+                    : `None: ${name} herself`}
+                </dd>
                 <dt>Confidence</dt>
                 <dd>
                   {result.confidence === null ? (
@@ -1264,6 +1324,7 @@ type PerformanceData = {
   outcomes: Record<string, number>;
   triggers: { trigger: string; count: number }[];
   languages: { language: string; count: number }[];
+  specialists: { id: string | null; name: string | null; answers: number; handovers: number }[];
   resolutions: { confirmed: number; quiet: number; reversals: number; net: number };
   medianLatencyMs: number | null;
   confidence: number | null;
@@ -1300,6 +1361,19 @@ function PerformancePage({ menu, page }: PageProps & { page: Page }) {
               ))}
             </ul>
           </Card>
+          {data.specialists.some((s) => s.id) && (
+            <Card title="Who answered" description="Her specialists, and Zoe herself: answers given (and handovers) in the last 30 days.">
+              <ul className="pg-zoe-bars" aria-label="Who answered">
+                {data.specialists.map((s) => (
+                  <li key={s.id ?? "zoe"} data-hue={s.id ? "blue" : "zoe"}>
+                    <span>{s.name ?? "Zoe herself"}</span>
+                    <span className="pg-zoe-bar"><span style={{ width: bar(s.answers + s.handovers, data.specialists.reduce((a, x) => a + x.answers + x.handovers, 0)) }} /></span>
+                    <strong title={`${s.handovers} handed over`}>{s.answers}</strong>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
           <Card title="Languages she replied in" description="Each reply's language: what the customer wrote in, or the brand's when it isn't one of hers.">
             {data.languages.length ? (
               <ul className="pg-zoe-bars" aria-label="Languages">

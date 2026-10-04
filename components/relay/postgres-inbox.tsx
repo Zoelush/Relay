@@ -94,6 +94,8 @@ type Conversation = {
   updated_at?: string;
   sla_next_due_at?: string | null;
   sla_overdue?: boolean;
+  /** Z3a: the specialist who has it, if one does. */
+  ai_specialist_id?: string | null;
   preview?: MessagePreview | null;
 };
 type Part = {
@@ -1858,6 +1860,7 @@ export default function PostgresInbox({
                   <Timeline
                     parts={parts}
                     customer={conversation?.name}
+                    aiSpecialist={conversation?.ai_specialist_id ?? null}
                     dir={{
                       teammates: snapshot?.teammates ?? [],
                       teams: snapshot?.teams ?? [],

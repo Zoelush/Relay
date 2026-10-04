@@ -38,8 +38,15 @@ export function validVoice(p: Record<string, unknown>, current: Voice = DEFAULT_
   return { tone, length, formality } as Voice;
 }
 
-/** The guidelines, checked: a category, a title, the text, who and which brand each is for. */
-export function validGuidelines(input: unknown, brands: string[]): Guideline[] {
+/**
+ * The guidelines, checked: a category, a title, the text, who and which brand each is for, and
+ * (Z3a) whether it applies only when one specialist answers. Spam guidance always applies.
+ */
+export function validGuidelines(
+  input: unknown,
+  brands: string[],
+  specialists: string[] = [],
+): Guideline[] {
   if (!Array.isArray(input)) return invalid("Send the guidance as a list.");
   if (input.length > MAX_GUIDELINES)
     invalid(`Keep to ${MAX_GUIDELINES} guidelines.`);
@@ -64,6 +71,15 @@ export function validGuidelines(input: unknown, brands: string[]): Guideline[] {
         : String(g.brandId);
     if (brandId && !brands.includes(brandId))
       invalid(`Choose one of your brands for “${title}”, or all brands.`);
+    const specialistId =
+      g.category === "spam" ||
+      g.specialistId === null ||
+      g.specialistId === undefined ||
+      g.specialistId === ""
+        ? null
+        : String(g.specialistId);
+    if (specialistId && !specialists.includes(specialistId))
+      invalid(`Choose one of her specialists for “${title}”, or always.`);
     const id =
       typeof g.id === "string" && /^[\w-]{1,64}$/.test(g.id) && !ids.has(g.id)
         ? g.id
@@ -77,14 +93,18 @@ export function validGuidelines(input: unknown, brands: string[]): Guideline[] {
       enabled: g.enabled !== false,
       audience,
       brandId,
+      specialistId,
     } as Guideline;
   });
 }
 
-/** The guidelines that apply to this customer: switched on, for their audience and brand. */
+/**
+ * The guidelines that apply to this customer: switched on, for their audience and brand; answer
+ * guidance also for the specialist answering (Z3a), when it names one.
+ */
 export function applicableGuidance(
   list: Guideline[],
-  who: { signedIn: boolean; brandId: string },
+  who: { signedIn: boolean; brandId: string; specialistId?: string | null },
 ) {
   const on = list.filter(
     (g) =>
@@ -93,11 +113,24 @@ export function applicableGuidance(
       (!g.brandId || g.brandId === who.brandId),
   );
   return {
-    answer: on.filter((g) => g.category !== "spam"),
+    answer: on.filter(
+      (g) =>
+        g.category !== "spam" &&
+        (!g.specialistId || g.specialistId === (who.specialistId ?? null)),
+    ),
     spam: on.filter((g) => g.category === "spam"),
   };
 }
 
+/** Her specialists (not removed), to name in guidance (Z3a). */
+async function specialistsOf(db: Sql, w: string) {
+  return (
+    await db.query<{ id: string; name: string }>(
+      "SELECT id,name FROM ai_specialists WHERE workspace_id=$1 AND NOT archived ORDER BY position,lower(name),id",
+      [w],
+    )
+  ).rows;
+}
 async function brandsOf(db: Sql, w: string) {
   return (
     await db.query<{ id: string; name: string }>(
@@ -115,6 +148,7 @@ export async function draftStyle(db: Sql, w: string, draft: unknown) {
     guidance: validGuidelines(
       d.guidance ?? [],
       (await brandsOf(db, w)).map((b) => b.id),
+      (await specialistsOf(db, w)).map((s) => s.id),
     ),
   };
 }
@@ -159,6 +193,7 @@ export async function readGuidance(db: Sql, w: string, principal: string) {
       voice: { tone: v.tone, length: v.answer_length, formality: v.formality },
     })),
     brands: await brandsOf(db, w),
+    specialists: await specialistsOf(db, w),
   };
 }
 
@@ -228,6 +263,7 @@ export async function saveGuidance(
       409,
     );
   const brands = (await brandsOf(db, w)).map((b) => b.id);
+  const specialists = (await specialistsOf(db, w)).map((s) => s.id);
   let voice: Voice;
   let guidance: Guideline[];
   let restoredFrom: number | null = null;
@@ -235,7 +271,16 @@ export async function saveGuidance(
     const row = await versionRow(db, w, agent.id, Number(p.restore));
     assert(row, "GUIDANCE_VERSION_NOT_FOUND", "That version doesn't exist.", 404);
     voice = validVoice({ tone: row.tone, length: row.answer_length, formality: row.formality });
-    guidance = validGuidelines(row.guidance, brands);
+    // Guidance for a specialist removed since comes back switched off, for always.
+    guidance = validGuidelines(
+      row.guidance.map((g) =>
+        g.specialistId && !specialists.includes(g.specialistId)
+          ? { ...g, specialistId: null, enabled: false }
+          : g,
+      ),
+      brands,
+      specialists,
+    );
     restoredFrom = Number(p.restore);
   } else {
     voice = validVoice(p, {
@@ -243,7 +288,7 @@ export async function saveGuidance(
       length: agent.answer_length,
       formality: agent.formality,
     });
-    guidance = validGuidelines(p.guidance ?? agent.answer_guidance, brands);
+    guidance = validGuidelines(p.guidance ?? agent.answer_guidance, brands, specialists);
   }
   const next = agent.guidance_version + 1;
   const updated = await db.query(

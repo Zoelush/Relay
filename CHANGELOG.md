@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased: Zoe's specialists (phase 08, Z3a)
+
+- **Train › Specialists:** narrower versions of Zoe for one job each, up to 10. Each has:
+  - what she handles
+  - keywords checked in code
+  - optional conditions (the escalation rules' list)
+  - her own knowledge (all of Zoe's, or chosen collections, websites, snippets and files, filtered before ranking)
+  - her own handover team
+- **Routing:**
+  - at a conversation's first real question, a specialist is picked by her conditions and keywords, then by meaning (the classifier)
+  - she keeps the conversation
+  - outside her knowledge she doesn't know, then hands over to her team
+  - customers always see Zoe
+- **Guidance** can apply only when one specialist answers.
+- **Try it** beside the list asks as a specialist (unsaved changes included) or as Zoe would route it. The Playground gets "Answer as".
+- **Teammates see** "Zoe · Billing" on her replies, the specialist and why in "Why this reply", and "Who answered" in Performance.
+- **Migration** 0049 with rollback. **Tests:**
+  - unit: `tests/zoe-specialists.test.ts`
+  - browser: `tests/browser/zoe-specialists.spec.ts`
+
+  Details: `docs/AI_STEP7.md`.
+
 ## Unreleased: how Zoe answers (phase 08, Z2)
 
 - **Train › Guidance:** her tone of voice (five tones, with samples), answer length (concise, standard, thorough) and formality (usual for each language, formal, informal), with "Try it" beside them answering with your unsaved changes.

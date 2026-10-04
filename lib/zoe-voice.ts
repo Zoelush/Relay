@@ -1,7 +1,8 @@
 /**
  * How Zoe answers (phase 08, step Z2; docs/AI_STEP6.md), shared by the server and the agent app:
  * her tones, answer lengths and formality, her languages, the answer guidance categories and
- * limits, and the warnings shown when a guideline asks for something guidance can't do.
+ * limits, and the warnings shown when a guideline asks for something guidance can't do. Z3a adds
+ * the specialists' limits, and guidance for one specialist.
  */
 export const TONES = [
   {
@@ -165,8 +166,13 @@ export type Guideline = {
   audience: Audience;
   /** One brand, or every brand (null). */
   brandId: string | null;
+  /** Z3a: only when this specialist answers, or always (null; spam guidance is always). */
+  specialistId?: string | null;
 };
 export const MAX_GUIDELINES = 30;
+/** Zoe's specialists (Z3a): at most this many, each with up to 20 keywords and 10 conditions. */
+export const MAX_SPECIALISTS = 10;
+export const MAX_SPECIALIST_KEYWORDS = 20;
 export const MAX_GUIDELINE_TITLE = 80;
 export const MAX_GUIDELINE_TEXT = 500;
 

@@ -2,6 +2,7 @@ import { assert, DomainError, type Sql } from "./db";
 import { authorize } from "./policy";
 import { aiEnabled, agentRow } from "./ai-agent";
 import { assetId, assetUrl } from "./brand-assets";
+import { specialistsOf } from "./zoe-specialists";
 
 /**
  * Zoe, Relay's AI agent, in the agent app (phase 08, step Z1; docs/AI_STEP5.md): her identity per
@@ -315,6 +316,8 @@ export async function zoeOverview(db: Sql, w: string, principal: string) {
       version: agent.guidance_version,
       languages: agent.languages.length,
     },
+    // Z3a: her specialists that are on.
+    specialists: (await specialistsOf(db, w, agent.id, true)).map((s) => s.name),
     content: counts.content,
     gaps: await gaps(db, w, 6),
     articles: await mostUsed(db, w, 6),
@@ -323,7 +326,7 @@ export async function zoeOverview(db: Sql, w: string, principal: string) {
 
 /** Performance: what Zoe did and why, over the last 30 days. */
 export async function zoePerformance(db: Sql, w: string, principal: string) {
-  await zoeAccess(db, w, principal);
+  const agent = await zoeAccess(db, w, principal);
   const from = since();
   // Spam she left alone (Z2) is a skipped answer with the trigger "spam": counted on its own.
   const outcomes = Object.fromEntries(
@@ -344,6 +347,26 @@ export async function zoePerformance(db: Sql, w: string, principal: string) {
       [w, from],
     )
   ).rows.map((r) => ({ language: r.language, count: r.n }));
+  // Who answered (Z3a): each specialist, and Zoe herself.
+  const names = new Map(
+    (await specialistsOf(db, w, agent.id)).map((s) => [s.id, s.name]),
+  );
+  const bySpecialist = (
+    await db.query<{ id: string | null; name: string | null; answers: number; handovers: number }>(
+      `SELECT a.specialist_id AS id,s.name,
+         count(*) FILTER (WHERE a.outcome IN ('answered','clarified','unknown','failed'))::int AS answers,
+         count(*) FILTER (WHERE a.outcome='escalated')::int AS handovers
+       FROM ai_answers a LEFT JOIN ai_specialists s ON s.workspace_id=a.workspace_id AND s.id=a.specialist_id
+       WHERE a.workspace_id=$1 AND a.created_at>=$2 AND a.outcome<>'skipped'
+       GROUP BY a.specialist_id,s.name ORDER BY count(*) DESC,s.name`,
+      [w, from],
+    )
+  ).rows.map((r) => ({
+    id: r.id,
+    name: r.id ? (names.get(r.id) ?? r.name ?? "A removed specialist") : null,
+    answers: r.answers,
+    handovers: r.handovers,
+  }));
   const triggers = (
     await db.query<{ trigger: string; n: number }>(
       "SELECT trigger,count(*)::int AS n FROM ai_answers WHERE workspace_id=$1 AND created_at>=$2 AND outcome='escalated' AND trigger IS NOT NULL GROUP BY trigger ORDER BY count(*) DESC,trigger",
@@ -380,6 +403,7 @@ export async function zoePerformance(db: Sql, w: string, principal: string) {
     },
     triggers,
     languages,
+    specialists: bySpecialist,
     resolutions: {
       confirmed: ledger.confirmed,
       quiet: ledger.quiet,
