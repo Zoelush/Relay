@@ -81,4 +81,11 @@ Acceptance criteria (phase brief):
     - **Z3b's targeting** applies to Zoe only.
     - **Migration:** 0049.
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a).
+11. **Z3b decisions** (4 October 2026):
+    - **Websites:** targeted as a whole, copied onto their pages as their audience is.
+    - **Each answer records** what targeting left out, for teammates (the Playground and "Why this reply").
+    - **The rollback** switches Zoe off for targeted content.
+    - **No new conditions:** contact and company attributes wait for phase 01.
+    - **Migration:** 0050.
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b).

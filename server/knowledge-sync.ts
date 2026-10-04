@@ -3,6 +3,8 @@ import { can } from "./policy";
 import { enqueueJob, type Job } from "./jobs";
 import { manager, requireKnowledge, validLocale } from "./knowledge";
 import { indexRecord } from "./help-search";
+import { targetingChoices, validTargeting } from "./ai-targeting";
+import type { Condition } from "./ai-escalation";
 import { tidy } from "./knowledge-extract";
 import {
   checkAddress,
@@ -105,6 +107,9 @@ type SourceRow = {
   page_count: number;
   created_by: string;
   version: string;
+  /** Z3b: who Zoe uses its pages for (no conditions: everyone who may see them). */
+  ai_match: "all" | "any";
+  ai_conditions: Condition[];
 };
 type PageRow = {
   external_id: string;
@@ -120,7 +125,7 @@ type PageRow = {
   missed_runs: number;
 };
 const SOURCE =
-  "SELECT id,kind,name,start_url,sitemap_url,host,locale,exclude,strip,render_js,audience,for_ai,for_inbox,status,interval_days,next_run_at,page_count,created_by,version::text AS version FROM knowledge_sources";
+  "SELECT id,kind,name,start_url,sitemap_url,host,locale,exclude,strip,render_js,audience,for_ai,for_inbox,status,interval_days,next_run_at,page_count,created_by,version::text AS version,ai_match,ai_conditions FROM knowledge_sources";
 
 const invalid = (message: string): never => {
   throw new DomainError("INVALID_SOURCE", message, 400);
@@ -257,10 +262,15 @@ export async function changeSource(
       const sitemap = /\.xml$/i.test(url.pathname) ? normalized : null;
       const s = settings(p, env);
       const locale = validLocale(p.locale ?? "en");
+      // Z3b: who Zoe uses its pages for.
+      const targeting = await validTargeting(db, w, s.name ?? url.host, {
+        match: p.aiMatch,
+        conditions: p.aiConditions,
+      });
       const id = crypto.randomUUID();
       await db.query(
-        `INSERT INTO knowledge_sources(workspace_id,id,name,start_url,sitemap_url,host,locale,exclude,strip,render_js,audience,for_ai,for_inbox,created_by,next_run_at,interval_days)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now(),$15)`,
+        `INSERT INTO knowledge_sources(workspace_id,id,name,start_url,sitemap_url,host,locale,exclude,strip,render_js,audience,for_ai,for_inbox,created_by,next_run_at,interval_days,ai_match,ai_conditions)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now(),$15,$16,$17)`,
         [
           w,
           id,
@@ -277,6 +287,8 @@ export async function changeSource(
           s.forInbox,
           t.id,
           s.renderJs ? 14 : 7,
+          targeting.match,
+          JSON.stringify(targeting.conditions),
         ],
       );
       const run = await startRun(db, w, id, "manual", t.id);
@@ -291,9 +303,16 @@ export async function changeSource(
         409,
       );
       const s = settings(p, env, src);
+      const targeting =
+        p.aiConditions === undefined
+          ? { match: src.ai_match, conditions: src.ai_conditions }
+          : await validTargeting(db, w, s.name ?? src.name, {
+              match: p.aiMatch,
+              conditions: p.aiConditions,
+            });
       await db.query(
-        `UPDATE knowledge_sources SET name=$3,exclude=$4,strip=$5,render_js=$6,audience=$7,for_ai=$8,for_inbox=$9,version=version+1,updated_at=now()
-        WHERE workspace_id=$1 AND id=$2`,
+        `UPDATE knowledge_sources SET name=$3,exclude=$4,strip=$5,render_js=$6,audience=$7,for_ai=$8,for_inbox=$9,ai_match=$10,ai_conditions=$11,
+        version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
         [
           w,
           src.id,
@@ -304,15 +323,25 @@ export async function changeSource(
           s.audience,
           s.forAi,
           s.forInbox,
+          targeting.match,
+          JSON.stringify(targeting.conditions),
         ],
       );
-      // Who can use the pages applies to every page of the source.
+      // Who can use the pages applies to every page of the source (Z3b: Zoe's targeting too).
       const records = (
         await db.query<{ record_id: string }>(
-          `UPDATE knowledge_records r SET audience=$3,for_ai=$4,for_inbox=$5,version=r.version+1,updated_at=now()
+          `UPDATE knowledge_records r SET audience=$3,for_ai=$4,for_inbox=$5,ai_match=$6,ai_conditions=$7,version=r.version+1,updated_at=now()
           FROM knowledge_source_pages g WHERE g.workspace_id=$1 AND g.source_id=$2 AND r.workspace_id=g.workspace_id AND r.id=g.record_id
           RETURNING r.id AS record_id`,
-          [w, src.id, s.audience, s.forAi, s.forInbox],
+          [
+            w,
+            src.id,
+            s.audience,
+            s.forAi,
+            s.forInbox,
+            targeting.match,
+            JSON.stringify(targeting.conditions),
+          ],
         )
       ).rows;
       for (const r of records) await indexRecord(db, w, r.record_id);
@@ -844,9 +873,18 @@ async function publishPage(
   }
   const id = crypto.randomUUID();
   await db.query(
-    `INSERT INTO knowledge_records(workspace_id,id,source,owner_id,audience,for_ai,for_help_center,for_inbox)
-    VALUES($1,$2,'external_page',$3,$4,$5,false,$6)`,
-    [w, id, src.created_by, src.audience, src.for_ai, src.for_inbox],
+    `INSERT INTO knowledge_records(workspace_id,id,source,owner_id,audience,for_ai,for_help_center,for_inbox,ai_match,ai_conditions)
+    VALUES($1,$2,'external_page',$3,$4,$5,false,$6,$7,$8)`,
+    [
+      w,
+      id,
+      src.created_by,
+      src.audience,
+      src.for_ai,
+      src.for_inbox,
+      src.ai_match,
+      JSON.stringify(src.ai_conditions),
+    ],
   );
   await db.query(
     `INSERT INTO knowledge_locales(workspace_id,record_id,locale,status,draft_title,draft_updated_by,published_title,published_text,published_revision,published_at,published_by)
@@ -973,6 +1011,9 @@ const view = (s: SourceRow & { run?: Record<string, unknown> | null }) => ({
   audience: s.audience,
   forAi: s.for_ai,
   forInbox: s.for_inbox,
+  // Z3b: who Zoe uses its pages for.
+  aiMatch: s.ai_match,
+  aiConditions: s.ai_conditions,
   status: s.status,
   intervalDays: s.interval_days,
   nextRunAt: s.next_run_at ? new Date(s.next_run_at).toISOString() : null,
@@ -1028,6 +1069,8 @@ export async function readSource(
   ).rows;
   return {
     ...view(s),
+    // Z3b: the names targeting conditions can refer to.
+    targetingChoices: await targetingChoices(db, w),
     pages: pages.map((p) => ({
       url: p.url,
       recordId: p.record_id,

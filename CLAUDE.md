@@ -26,8 +26,9 @@ booted while the flag is on). Its inbound rules are enforced in `server/conversa
 messenger page (`/messenger/frame.html?preview=1`); in preview mode it fetches and sends nothing.
 Phase 08 (the AI agent, `docs/AI_PLAN.md`):
 steps A1 (answering core), A2a (handover), A2b (escalation rules, topics, guidance), A3 (the
-resolution ledger), Z1 (Zoe's home), Z2 (how Zoe answers) and Z3a (specialists) are done locally
-(`docs/AI_STEP1.md` to `AI_STEP7.md`); next is Z3b (content targeting). The AI agent is **Zoe**: her area is `agent/zoe.tsx`
+resolution ledger), Z1 (Zoe's home), Z2 (how Zoe answers), Z3a (specialists) and Z3b (content
+targeting) are done locally (`docs/AI_STEP1.md` to `AI_STEP8.md`); next is B2 (safety and privacy).
+The AI agent is **Zoe**: her area is `agent/zoe.tsx`
 (`#zoe/<page>`, in the strip between Inbox and Knowledge), her data `server/zoe.ts`; the reply job and
 her Playground share `decide()` in `server/ai-agent.ts`, and the Playground must never write. Her voice
 and answer guidance (`server/zoe-guidance.ts`, `lib/zoe-voice.ts`) reach the model as data under her
@@ -39,6 +40,9 @@ use the stand-ins. Specialists (`server/zoe-specialists.ts`) are picked at a con
 question (conditions and keywords in code, then the classifier) and kept (`conversations.ai_specialist_id`,
 `ai_routed_at`); her knowledge is a `scope` in `server/ai-retrieval.ts`'s allowed set, never a filter
 after ranking. Which specialist gave a reply lives in `ai_answers`, never in the reply's own data.
+Content targeting (`server/ai-targeting.ts`) is Zoe's only: conditions are evaluated in code against the
+facts escalation rules use, and the records a customer fails go into retrieval's allowed set as
+`exclude`, before ranking; a website's targeting is copied onto its pages.
 `ai_resolutions` is append-only (a trigger refuses changes): correct it with a reversal row, never an
 edit; billing (phase 16) reads the net. Escalation rules are
 code (`server/ai-escalation.ts`, a closed list of conditions); topic keywords are checked in code

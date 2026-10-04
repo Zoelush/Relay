@@ -28,9 +28,12 @@ import {
   ResolutionsCard,
   Rules,
   TopicsCard,
+  targetingWords,
   useAiSettings,
+  type Condition,
+  type TargetingChoices,
 } from "./settings-ai";
-import { GuidancePage, type PreviewResult } from "./zoe-guidance";
+import { GuidancePage, skippedWords, type PreviewResult } from "./zoe-guidance";
 import { SpecialistsPage } from "./zoe-specialists";
 import {
   OUTCOME_HUES,
@@ -175,12 +178,13 @@ const asPage = (p: (typeof PAGES)[number]): Page => ({
   icon: p.icon,
   group: p.group || "Zoe",
 });
-const SOURCE_NAMES: Record<string, string> = {
-  article: "Articles",
-  internal_article: "Internal articles",
-  snippet: "Snippets",
-  file: "Files",
-  website: "Website pages",
+/** Each kind of content, one and many. */
+const SOURCE_NAMES: Record<string, [string, string]> = {
+  article: ["Article", "Articles"],
+  internal_article: ["Internal article", "Internal articles"],
+  snippet: ["Snippet", "Snippets"],
+  file: ["File", "Files"],
+  external_page: ["Website page", "Website pages"],
 };
 export function Zoe({
   page,
@@ -836,6 +840,7 @@ type ContentData = {
   total: number;
   bySource: Record<string, number>;
   signedInOnly: number;
+  targeted: number;
   excluded: { switchedOff: number; internal: number };
   records: {
     recordId: string;
@@ -844,7 +849,10 @@ type ContentData = {
     audience: string;
     locales: string[];
     used: number;
+    /** Z3b: who Zoe uses it for (no conditions: everyone who may see it). */
+    targeting: { match: "all" | "any"; conditions: Condition[] };
   }[];
+  choices: TargetingChoices;
 };
 
 function ContentPage({
@@ -873,13 +881,18 @@ function ContentPage({
               label="She can use"
               value={String(data.total)}
               hint={Object.entries(data.bySource)
-                .map(([k, v]) => `${v} ${(SOURCE_NAMES[k] ?? k).toLowerCase()}`)
+                .map(([k, v]) => `${v} ${(SOURCE_NAMES[k]?.[v === 1 ? 0 : 1] ?? k).toLowerCase()}`)
                 .join(" · ") || "Nothing yet"}
             />
             <Stat
               label="Signed-in customers only"
               value={String(data.signedInOnly)}
               hint="Used only for verified customers"
+            />
+            <Stat
+              label="Targeted"
+              value={String(data.targeted)}
+              hint="Used only for customers who match"
             />
             <Stat
               label="Switched off for AI"
@@ -913,10 +926,16 @@ function ContentPage({
                   <span>
                     <strong>{r.title}</strong>
                     <small className="pg-muted">
-                      {SOURCE_NAMES[r.source] ?? r.source} ·{" "}
+                      {SOURCE_NAMES[r.source]?.[0] ?? r.source} ·{" "}
                       {r.audience === "signed_in" ? "Signed-in customers" : "Everyone"} ·{" "}
                       {r.locales.join(", ")}
                     </small>
+                    {r.targeting.conditions.length > 0 && (
+                      <small className="pg-zoe-targeted">
+                        <span className="pg-zoe-badge">Targeted</span> Only when{" "}
+                        {targetingWords(r.targeting, data.choices)}
+                      </small>
+                    )}
                   </span>
                   <span className="pg-zoe-count" title={`Cited in ${r.used} answers in the last ${data.days} days`}>
                     {r.used} {r.used === 1 ? "answer" : "answers"}
@@ -1172,6 +1191,12 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
                     ? `${result.specialist.name}: ${result.specialist.reason}`
                     : `None: ${name} herself`}
                 </dd>
+                {result.skipped.count > 0 && (
+                  <>
+                    <dt>Targeting</dt>
+                    <dd>{skippedWords(result.skipped)}</dd>
+                  </>
+                )}
                 <dt>Confidence</dt>
                 <dd>
                   {result.confidence === null ? (

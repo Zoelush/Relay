@@ -15,7 +15,9 @@ import { contentWords, type Passage, type RerankPort } from "./ai-model";
  * - the record isn't placed only in another brand's help centers;
  * - for a specialist with chosen knowledge (Z3a; docs/AI_STEP7.md): it's placed in one of her
  *   collections (or their sections), is a page of one of her websites, or is a snippet or file
- *   when she has those, so she can't cite content meant for another part of the business.
+ *   when she has those, so she can't cite content meant for another part of the business;
+ * - it isn't targeted at other customers (Z3b; docs/AI_STEP8.md): the records whose targeting
+ *   this customer fails are passed in, worked out in code from the same facts escalation rules use.
  * The vector store's nearest neighbours are checked against that set before they're ranked, so a
  * passage the customer may not see never influences the ranking or the confidence score.
  *
@@ -59,6 +61,8 @@ export async function retrieveForAgent(
     signedIn: boolean;
     limit?: number;
     scope?: KnowledgeScope;
+    /** Z3b: records targeted at other customers. */
+    exclude?: string[];
   },
 ): Promise<Retrieval> {
   const limit = options.limit ?? 6;
@@ -85,7 +89,8 @@ export async function retrieveForAgent(
         OR EXISTS(SELECT 1 FROM knowledge_source_pages s
           WHERE s.workspace_id=r.workspace_id AND s.record_id=r.id AND s.source_id=ANY($7::text[]))
         OR (r.source='snippet' AND $8::boolean)
-        OR (r.source='file' AND $9::boolean)))`;
+        OR (r.source='file' AND $9::boolean))
+      AND NOT (r.id=ANY($10::text[])))`;
   const scope = options.scope ?? null;
   const base = [
     w,
@@ -97,6 +102,7 @@ export async function retrieveForAgent(
     scope?.websites ?? [],
     scope?.snippets ?? false,
     scope?.files ?? false,
+    options.exclude ?? [],
   ];
   const terms = [
     ...new Set(
@@ -115,7 +121,7 @@ export async function retrieveForAgent(
     const keyword = terms.length
       ? (
           await db.query<{ chunk_id: string }>(
-            `WITH ${ALLOWED}, q AS (SELECT a.*,to_tsquery(relay_text_config(a.locale),$10) AS tsq FROM allowed a)
+            `WITH ${ALLOWED}, q AS (SELECT a.*,to_tsquery(relay_text_config(a.locale),$11) AS tsq FROM allowed a)
              SELECT chunk_id FROM q WHERE document @@ tsq
              ORDER BY ts_rank_cd(document,tsq,32) DESC,chunk_id LIMIT ${CANDIDATES}`,
             [...base, terms.map((t) => `'${t}'`).join(" | ")],
@@ -146,8 +152,8 @@ export async function retrieveForAgent(
             await db.query<{ chunk_id: string; vector_id: string }>(
               `WITH ${ALLOWED}
                SELECT a.chunk_id,v.vector_id FROM allowed a JOIN knowledge_chunk_vectors v
-                 ON v.workspace_id=$1 AND v.generation_id=$10 AND v.chunk_id=a.chunk_id
-               WHERE v.vector_id=ANY($11::text[])`,
+                 ON v.workspace_id=$1 AND v.generation_id=$11 AND v.chunk_id=a.chunk_id
+               WHERE v.vector_id=ANY($12::text[])`,
               [...base, generation.id, matches.map((m) => m.id)],
             )
           ).rows,
@@ -185,7 +191,7 @@ export async function retrieveForAgent(
           text: string;
           title: string | null;
         }>(
-          `WITH ${ALLOWED} SELECT chunk_id,record_id,locale,heading,text,title FROM allowed WHERE chunk_id=ANY($10::text[])`,
+          `WITH ${ALLOWED} SELECT chunk_id,record_id,locale,heading,text,title FROM allowed WHERE chunk_id=ANY($11::text[])`,
           [...base, top],
         )
       ).rows,

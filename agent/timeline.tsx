@@ -302,6 +302,8 @@ type AiAnswer = {
   guidance: string[];
   /** Z3a: the specialist who answered, and why she has the conversation. */
   specialist: { name: string; reason: string } | null;
+  /** Z3b: content targeted at other customers, left out for this one. */
+  targetedOut: { count: number; titles: string[] };
 };
 const OUTCOMES: Record<string, string> = {
   answered: "Answered from content",
@@ -373,6 +375,17 @@ function AiReplyDetails({ p }: { p: TimelinePart }) {
                   <dt>Specialist</dt>
                   <dd>
                     {answer.specialist.name}: {answer.specialist.reason}
+                  </dd>
+                </>
+              )}
+              {answer.targetedOut?.count > 0 && (
+                <>
+                  <dt>Targeting</dt>
+                  <dd>
+                    Kept {answer.targetedOut.count}{" "}
+                    {answer.targetedOut.count === 1 ? "item" : "items"} from her for this customer:{" "}
+                    {answer.targetedOut.titles.join(", ")}
+                    {answer.targetedOut.count > answer.targetedOut.titles.length ? "…" : ""}
                   </dd>
                 </>
               )}

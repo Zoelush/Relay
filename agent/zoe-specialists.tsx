@@ -7,7 +7,7 @@ import { ZoeMark } from "./colour";
 import { ConditionRows, fresh, type Condition } from "./settings-ai";
 import { MAX_SPECIALIST_KEYWORDS } from "../lib/zoe-voice";
 import { OUTCOME_HUES, OUTCOME_NAMES } from "./zoe-labels";
-import type { PreviewResult } from "./zoe-guidance";
+import { skippedWords, type PreviewResult } from "./zoe-guidance";
 
 /**
  * Train › Specialists (phase 08, step Z3a; docs/AI_STEP7.md): narrower Zoes for one job each.
@@ -680,6 +680,9 @@ function TryIt({
                 ? `Answered as ${result.specialist.name}: ${result.specialist.reason.charAt(0).toLowerCase()}${result.specialist.reason.slice(1)}.`
                 : `${name} herself: no specialist took it.`}
             </p>
+            {result.skipped.count > 0 && (
+              <p className="pg-zoe-try-meta pg-zoe-skipped">{skippedWords(result.skipped)}</p>
+            )}
           </>
         )}
       </section>

@@ -15,6 +15,7 @@ import {
   type FileSummary,
 } from "./knowledge-files";
 import { preferredLocale, teammateLanguages } from "./locales";
+import { TargetingFields, type Condition, type TargetingChoices } from "./settings-ai";
 import { SLUG, slugify } from "../lib/help-paths";
 import type { RichDoc } from "../lib/rich-doc";
 
@@ -66,6 +67,10 @@ type Detail = {
   forHelpCenter: boolean;
   forInbox: boolean;
   faq: boolean;
+  /** Phase 08 Z3b: who Zoe uses it for, and the names its conditions can refer to (managers). */
+  aiMatch: "all" | "any";
+  aiConditions: Condition[];
+  targetingChoices: TargetingChoices | null;
   lastReviewedAt: string | null;
   version: string;
   locales: Locale[];
@@ -881,6 +886,8 @@ function Settings({
     forInbox: detail.forInbox,
     ownerId: detail.ownerId,
     faq: detail.faq,
+    aiMatch: detail.aiMatch,
+    aiConditions: detail.aiConditions,
   });
   const [notice, setNotice] = useState("");
   const internal = form.audience === "internal";
@@ -928,6 +935,13 @@ function Settings({
         />
         AI agent can use it
       </label>
+      {form.forAi && detail.targetingChoices && (
+        <TargetingFields
+          value={{ match: form.aiMatch, conditions: form.aiConditions }}
+          choices={detail.targetingChoices}
+          onChange={(t) => setForm((f) => ({ ...f, aiMatch: t.match, aiConditions: t.conditions }))}
+        />
+      )}
       {detail.source === "article" && (
         <label>
           <input
