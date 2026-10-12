@@ -119,6 +119,8 @@ test("write actions: turned on past a warning, refused for unverified customers,
       );
       await sql(w, "UPDATE workspace_features SET enabled=true WHERE workspace_id=$1 AND name IN ('ai_agent_v1','ai_actions_v1')", [w]);
       await sql(w, "DELETE FROM calendar_assignments");
+      // Always open: a handover says the team will reply, whatever time the tests run.
+      await sql(w, "UPDATE brands SET settings=settings-'calendarId'-'calendarVersion'");
     }
     await sql("a", "INSERT INTO teammates(workspace_id,id,principal_id,name,role_id) VALUES('a','agent-1','agent-1-a','Agent one','agent')");
 

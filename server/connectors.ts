@@ -273,6 +273,7 @@ export async function runConnector(
   let result: CallResult = "ok";
   let error = "";
   let newToken: { value: string; expiresAt: Date } | null = null;
+  let newRefresh: string | null = null;
   const mask = (s: string) => known.reduce((t, k) => (k ? t.split(k).join(MASK) : t), s);
   const write = def.access === "write";
   // A write is retried only when the service can tell the attempts are one (an idempotency key).
@@ -303,10 +304,22 @@ export async function runConnector(
     if (secretName && !secret) throw new Stop("auth_failed", "Its credential hasn't been set.");
     if (secret) known.push(secret);
     let token = prepared.token ? await open(env.key, w, run.connectorId, "token:oauth", prepared.token) : null;
+    // D4: on the workspace's behalf, the refresh token a manager's connection gave.
+    const refresh =
+      def.auth.type === "oauth_authorization_code" && prepared.secrets.get("refresh_token")
+        ? await open(env.key, w, run.connectorId, "refresh_token", prepared.secrets.get("refresh_token")!)
+        : null;
+    if (refresh) known.push(refresh);
     const fetchToken = async () => {
-      const a = def.auth as Extract<Definition["auth"], { type: "oauth_client_credentials" }>;
-      const form = new URLSearchParams({ grant_type: "client_credentials", client_id: a.clientId, client_secret: secret! });
-      if (a.scope) form.set("scope", a.scope);
+      const a = def.auth as Extract<Definition["auth"], { type: "oauth_client_credentials" | "oauth_authorization_code" }>;
+      let form: URLSearchParams;
+      if (a.type === "oauth_authorization_code") {
+        if (!refresh) throw new Stop("auth_failed", "It isn't connected yet: connect it under Actions.");
+        form = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refresh, client_id: a.clientId, client_secret: secret! });
+      } else {
+        form = new URLSearchParams({ grant_type: "client_credentials", client_id: a.clientId, client_secret: secret! });
+        if (a.scope) form.set("scope", a.scope);
+      }
       let got;
       try {
         got = await safeRequest(
@@ -318,14 +331,25 @@ export async function runConnector(
       } catch (e) {
         throw new Stop("auth_failed", `The token request failed (${e instanceof FetchRefused ? e.code : "error"}).`);
       }
-      let parsed: { access_token?: unknown; expires_in?: unknown };
+      let parsed: { access_token?: unknown; expires_in?: unknown; refresh_token?: unknown };
       try {
         parsed = JSON.parse(got.body);
       } catch {
         parsed = {};
       }
       if (got.status !== 200 || typeof parsed.access_token !== "string" || !parsed.access_token)
-        throw new Stop("auth_failed", `The token request was refused (${got.status}).`, got.status);
+        throw new Stop(
+          "auth_failed",
+          a.type === "oauth_authorization_code" && got.status >= 400 && got.status < 500
+            ? `The service refused the connection (${got.status}): connect it again under Actions.`
+            : `The token request was refused (${got.status}).`,
+          got.status,
+        );
+      // A provider that rotates refresh tokens sends the next one.
+      if (a.type === "oauth_authorization_code" && typeof parsed.refresh_token === "string" && parsed.refresh_token) {
+        newRefresh = parsed.refresh_token;
+        known.push(parsed.refresh_token);
+      }
       const seconds = Number(parsed.expires_in);
       newToken = {
         value: parsed.access_token,
@@ -333,13 +357,14 @@ export async function runConnector(
       };
       return parsed.access_token;
     };
-    if (def.auth.type === "oauth_client_credentials" && !token) token = await fetchToken();
+    const oauth = def.auth.type === "oauth_client_credentials" || def.auth.type === "oauth_authorization_code";
+    if (oauth && !token) token = await fetchToken();
     const build = () => {
       const r = renderRequest(def, values);
       if (write && def.idempotencyHeader && run.idempotencyKey) r.headers[def.idempotencyHeader] = run.idempotencyKey;
       if (def.auth.type === "api_key") r.headers[def.auth.header] = secret!;
       if (def.auth.type === "bearer") r.headers.authorization = "Bearer " + secret;
-      if (def.auth.type === "oauth_client_credentials") r.headers.authorization = "Bearer " + token;
+      if (oauth) r.headers.authorization = "Bearer " + token;
       return r;
     };
     let refreshed = false;
@@ -385,7 +410,7 @@ export async function runConnector(
           body: mask(got.body.slice(0, SHOWN_BODY)),
           truncated: got.body.length > SHOWN_BODY,
         };
-      if (got.status === 401 && def.auth.type === "oauth_client_credentials" && !refreshed) {
+      if (got.status === 401 && oauth && !refreshed) {
         // An expired or revoked token: fetch a new one, once.
         refreshed = true;
         token = await fetchToken();
@@ -460,6 +485,12 @@ export async function runConnector(
         write ? (run.idempotencyKey ?? null) : null,
       ],
     );
+    const next = newRefresh as string | null;
+    if (next)
+      await db.query(
+        "UPDATE ai_connector_secrets SET wrapped=$4 WHERE workspace_id=$1 AND connector_id=$2 AND name=$3",
+        [w, run.connectorId, "refresh_token", await seal(env.key, w, run.connectorId, "refresh_token", next)],
+      );
     const t = newToken as { value: string; expiresAt: Date } | null;
     if (t)
       await db.query(
@@ -519,10 +550,37 @@ const ROW = `c.id,c.name,c.access,c.writes_enabled,c.writes_enabled_at,
 async function secretsOf(db: Sql, w: string, id: string) {
   return (
     await db.query<{ name: string; hint: string; updated_at: string }>(
-      "SELECT name,hint,updated_at FROM ai_connector_secrets WHERE workspace_id=$1 AND connector_id=$2 ORDER BY name",
+      "SELECT name,hint,updated_at FROM ai_connector_secrets WHERE workspace_id=$1 AND connector_id=$2 AND name<>'refresh_token' ORDER BY name",
       [w, id],
     )
   ).rows.map((s) => ({ name: s.name, hint: s.hint, updatedAt: new Date(s.updated_at).toISOString() }));
+}
+/** D4: whether it's connected on the workspace's behalf, and by whom. */
+async function oauthOf(db: Sql, w: string, id: string) {
+  const r = (
+    await db.query<{ name: string | null; updated_at: string }>(
+      `SELECT t.name,s.updated_at FROM ai_connector_secrets s LEFT JOIN teammates t ON t.workspace_id=s.workspace_id AND t.id=s.updated_by
+       WHERE s.workspace_id=$1 AND s.connector_id=$2 AND s.name='refresh_token'`,
+      [w, id],
+    )
+  ).rows[0];
+  return r ? { connected: true, by: r.name, at: new Date(r.updated_at).toISOString() } : { connected: false, by: null, at: null };
+}
+const base64url = (bytes: Uint8Array) => b64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const sha256 = async (text: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+/** Where a provider may send a manager back: the agent app, over https (or loopback locally). */
+function redirectOf(v: unknown) {
+  let url: URL;
+  try {
+    url = new URL(String(v ?? ""));
+  } catch {
+    return invalid("The return address isn't valid.");
+  }
+  const loopback = url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
+  if ((url.protocol !== "https:" && !loopback) || url.hash || url.search || url.username || url.toString().length > 500)
+    invalid("The return address must be the agent app's own https address.");
+  return url.toString();
 }
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -626,6 +684,8 @@ export async function readConnector(db: Sql, w: string, principal: string, id: s
       liveVersion: r.live_version,
       changed: !r.live || !same(r.draft, r.live),
       secrets: await secretsOf(db, w, id),
+      // D4: connected on the workspace's behalf (OAuth authorization code).
+      oauth: await oauthOf(db, w, id),
       // D3: whether Zoe may use its writes, and who turned them on.
       writes: { enabled: r.writes_enabled, by: r.writes_enabled_name, at: r.writes_enabled_at ? new Date(r.writes_enabled_at).toISOString() : null },
       liveAccess: r.live?.access ?? (r.live ? "read" : null),
@@ -654,6 +714,12 @@ function definition(raw: unknown, policy: FetchPolicy): Definition {
   for (const [address, what] of [
     [def.baseUrl + "/", "the base address"],
     ...(def.auth.type === "oauth_client_credentials" ? [[def.auth.tokenUrl, "the token address"]] : []),
+    ...(def.auth.type === "oauth_authorization_code"
+      ? [
+          [def.auth.tokenUrl, "the token address"],
+          [def.auth.authorizeUrl, "the authorization address"],
+        ]
+      : []),
   ])
     try {
       checkAddress(address, policy);
@@ -763,6 +829,40 @@ export async function changeConnector(
       );
       return readConnector(db, w, principal, id);
     }
+    if (p.action === "oauth_start") {
+      // D4: the address a manager's browser goes to, to connect it on the workspace's behalf.
+      const def = row.draft;
+      if (def.auth.type !== "oauth_authorization_code") invalid("Choose OAuth 2 (on your workspace's behalf) first.");
+      const a = def.auth as Extract<Definition["auth"], { type: "oauth_authorization_code" }>;
+      assert(env, "CONNECTOR_KEY_MISSING", "Connectors can't run here: RELAY_CONNECTOR_KEY isn't configured.", 503);
+      if (!(await db.query("SELECT 1 FROM ai_connector_secrets WHERE workspace_id=$1 AND connector_id=$2 AND name='client_secret'", [w, id])).rows.length)
+        invalid("Set its client secret first.");
+      const redirectUri = redirectOf(p.redirectUri);
+      const state = "relay_" + base64url(crypto.getRandomValues(new Uint8Array(32)));
+      const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
+      await db.query("DELETE FROM ai_connector_oauth_states WHERE workspace_id=$1 AND expires_at<now()", [w]);
+      await db.query(
+        `INSERT INTO ai_connector_oauth_states(workspace_id,state_hash,connector_id,teammate_id,verifier,redirect_uri,expires_at)
+         VALUES($1,$2,$3,$4,$5,$6,now()+interval '10 minutes')`,
+        [w, hex(await sha256(state)), id, t.id, await seal(env.key, w, id, "pkce", verifier), redirectUri],
+      );
+      const url = new URL(a.authorizeUrl);
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("client_id", a.clientId);
+      url.searchParams.set("redirect_uri", redirectUri);
+      url.searchParams.set("state", state);
+      url.searchParams.set("code_challenge", base64url(await sha256(verifier)));
+      url.searchParams.set("code_challenge_method", "S256");
+      if (a.scope) url.searchParams.set("scope", a.scope);
+      return { url: url.toString() };
+    }
+    if (p.action === "oauth_disconnect") {
+      current();
+      await db.query("DELETE FROM ai_connector_secrets WHERE workspace_id=$1 AND connector_id=$2 AND name='refresh_token'", [w, id]);
+      await db.query("DELETE FROM ai_connector_tokens WHERE workspace_id=$1 AND connector_id=$2", [w, id]);
+      await db.query("UPDATE ai_connectors SET version=version+1,updated_by=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, id, t.id]);
+      return readConnector(db, w, principal, id);
+    }
     if (p.action === "writes") {
       // D3: Zoe may use a write connector only after a manager turns its writes on, past a warning.
       current();
@@ -817,5 +917,104 @@ export async function changeConnector(
       return { jobId };
     }
     return invalid("Unknown connector change.");
+  });
+}
+
+/**
+ * D4: the provider sent the manager back with a code. The state is used up first, in its own
+ * transaction, so a refused code can't be retried with it; the exchange happens outside any
+ * transaction; then the tokens are stored. Interactive (the manager waits), like the test
+ * console's result, so it isn't a job.
+ */
+export async function finishOAuth(
+  connect: Connect,
+  env: ConnectorEnvironment | undefined,
+  w: string,
+  principal: string,
+  p: Record<string, unknown>,
+) {
+  assert(env, "CONNECTOR_KEY_MISSING", "Connectors can't run here: RELAY_CONNECTOR_KEY isn't configured.", 503);
+  const begun = await tenant(connect, w, async (db) => {
+    const t = await access(db, w, principal);
+    const st = (
+      await db.query<{ connector_id: string; verifier: string; redirect_uri: string }>(
+        `DELETE FROM ai_connector_oauth_states WHERE workspace_id=$1 AND state_hash=$2 AND teammate_id=$3 AND expires_at>now()
+         RETURNING connector_id,verifier,redirect_uri`,
+        [w, hex(await sha256(String(p.state ?? ""))), t.id],
+      )
+    ).rows[0];
+    if (!st) return null;
+    const c = (
+      await db.query<{ draft: Definition }>("SELECT draft FROM ai_connectors WHERE workspace_id=$1 AND id=$2 AND NOT archived", [w, st.connector_id])
+    ).rows[0];
+    const sealed = (
+      await db.query<{ wrapped: string }>(
+        "SELECT wrapped FROM ai_connector_secrets WHERE workspace_id=$1 AND connector_id=$2 AND name='client_secret'",
+        [w, st.connector_id],
+      )
+    ).rows[0]?.wrapped;
+    return { t, st, def: c?.draft ?? null, sealed: sealed ?? null };
+  });
+  if (!begun) throw new DomainError("OAUTH_STATE", "This connection link has expired or isn't yours. Start again from the connector.", 400);
+  const { t, st, def, sealed } = begun;
+  assert(def && def.auth.type === "oauth_authorization_code", "CONNECTOR_NOT_FOUND", "That connector isn't available.", 404);
+  if (!sealed) invalid("Set its client secret first.");
+  const code = typeof p.code === "string" ? p.code : "";
+  if (!code || code.length > 2000) invalid("The service didn't send a code back. Start again.");
+  const a = def.auth as Extract<Definition["auth"], { type: "oauth_authorization_code" }>;
+  const form = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: st.redirect_uri,
+    client_id: a.clientId,
+    client_secret: await open(env.key, w, st.connector_id, "client_secret", sealed!),
+    code_verifier: await open(env.key, w, st.connector_id, "pkce", st.verifier),
+  });
+  let got;
+  try {
+    got = await safeRequest(
+      a.tokenUrl,
+      env.policy ?? {},
+      { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form.toString() },
+      { maxBytes: 64 * 1024, timeoutMs: def.timeoutMs },
+    );
+  } catch (e) {
+    throw new DomainError("OAUTH_FAILED", `The service couldn't be reached (${e instanceof FetchRefused ? e.code : "error"}). Start again.`, 502);
+  }
+  let parsed: { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown };
+  try {
+    parsed = JSON.parse(got.body);
+  } catch {
+    parsed = {};
+  }
+  if (got.status !== 200 || typeof parsed.access_token !== "string" || !parsed.access_token)
+    throw new DomainError("OAUTH_FAILED", `The service refused the connection (${got.status}). Start again.`, 502);
+  if (typeof parsed.refresh_token !== "string" || !parsed.refresh_token)
+    throw new DomainError(
+      "OAUTH_FAILED",
+      "The service didn't give a refresh token, so Zoe couldn't keep using it. Ask for offline access in the scope, then connect again.",
+      502,
+    );
+  const refreshToken = parsed.refresh_token;
+  const accessToken = parsed.access_token;
+  const seconds = Number(parsed.expires_in);
+  return tenant(connect, w, async (db) => {
+    await db.query(
+      `INSERT INTO ai_connector_secrets(workspace_id,connector_id,name,wrapped,hint,updated_by) VALUES($1,$2,'refresh_token',$3,'',$4)
+       ON CONFLICT(workspace_id,connector_id,name) DO UPDATE SET wrapped=EXCLUDED.wrapped,updated_by=EXCLUDED.updated_by,updated_at=now()`,
+      [w, st.connector_id, await seal(env.key, w, st.connector_id, "refresh_token", refreshToken), t.id],
+    );
+    await db.query(
+      `INSERT INTO ai_connector_tokens(workspace_id,connector_id,wrapped,expires_at) VALUES($1,$2,$3,$4)
+       ON CONFLICT(workspace_id,connector_id) DO UPDATE SET wrapped=EXCLUDED.wrapped,expires_at=EXCLUDED.expires_at`,
+      [
+        w,
+        st.connector_id,
+        await seal(env.key, w, st.connector_id, "token:oauth", accessToken),
+        new Date(Date.now() + (Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 86_400) : 3600) * 1000).toISOString(),
+      ],
+    );
+    await db.query("UPDATE ai_connectors SET version=version+1,updated_by=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, st.connector_id, t.id]);
+    return readConnector(db, w, principal, st.connector_id);
   });
 }

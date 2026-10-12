@@ -40,6 +40,7 @@ const routes = {
     "ai-answers",
     "ai-settings",
     "ai-approval",
+    "ai-audit",
     "zoe",
     "bulk",
     "ticket-types",

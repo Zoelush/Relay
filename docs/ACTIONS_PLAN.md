@@ -31,4 +31,9 @@ Brief: `docs/BUILD_PHASES.md` phase 09. Approved on 12 October 2026.
    - **The kill switch stops the test console too.**
    - **The rollback archives write connectors.**
 
-Handoffs: `docs/ACTIONS_STEP1.md` (D1), `docs/ACTIONS_STEP2.md` (D2), `docs/ACTIONS_STEP3.md` (D3).
+9. **D4 decisions** (12 October 2026):
+   - **The return address:** OAuth on the workspace's behalf returns to the agent app itself.
+   - **Finishing a connection** is interactive (not a job), in its own transactions, with PKCE and a one-time state.
+   - **Audit detail** follows personal-data permission.
+
+Handoffs: `docs/ACTIONS_STEP1.md` (D1), `docs/ACTIONS_STEP2.md` (D2), `docs/ACTIONS_STEP3.md` (D3), `docs/ACTIONS_STEP4.md` (D4).

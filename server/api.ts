@@ -196,8 +196,9 @@ import { changeGuidance, readGuidance, readGuidanceVersion } from "./zoe-guidanc
 import { changeSpecialist, readSpecialists, specialistNames } from "./zoe-specialists";
 import { changeReview, gapsForHealth, readReview } from "./zoe-review";
 import { changeMonitors, readIncidents, readMonitors } from "./zoe-monitors";
-import { changeConnector, readConnector, readConnectors, type ConnectorEnvironment } from "./connectors";
+import { changeConnector, finishOAuth, readConnector, readConnectors, type ConnectorEnvironment } from "./connectors";
 import { changeProcedure, decideApproval, readApproval, readProcedure, readProcedures } from "./procedures";
+import { auditText, readAiAudit } from "./ai-audit";
 import {
   indexStatus,
   rebuildIndex,
@@ -1214,6 +1215,7 @@ export async function handleApi(
             "/v1/agent/context",
             "/v1/agent/ai-answers",
             "/v1/agent/ai-approval",
+            "/v1/agent/ai-audit",
             "/v1/agent/ai-settings",
             "/v1/agent/zoe",
             "/v1/agent/bulk",
@@ -1630,6 +1632,9 @@ export async function handleApi(
               ),
             ),
           );
+        if (url.pathname === "/v1/agent/zoe-connector" && p.action === "oauth_finish")
+          // Phase 09 D4: back from the provider; its own transactions, with the exchange between.
+          return json(await finishOAuth(env.connect, env.connectors, workspace, principal, p));
         if (url.pathname === "/v1/agent/zoe-connector")
           // Phase 09 D1: a data connector created, saved, published, archived, given a credential
           // or tested (a job).
@@ -2194,6 +2199,14 @@ export async function handleApi(
           await tenant(env.connect, workspace, (db) =>
             readAiSettings(db, workspace, principal),
           ),
+        );
+      if (url.pathname === "/v1/agent/ai-audit")
+        // Phase 09 D4: Zoe's actions in one conversation, in time order (and as text).
+        return json(
+          await tenant(env.connect, workspace, async (db) => {
+            const audit = await readAiAudit(db, workspace, principal, url.searchParams.get("conversation") ?? "");
+            return { ...audit, text: auditText(audit) };
+          }),
         );
       if (url.pathname === "/v1/agent/ai-approval")
         // Phase 09 D3: one approval, for its card in the conversation.

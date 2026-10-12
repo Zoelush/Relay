@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: OAuth on the workspace's behalf and the audit view (phase 09, D4)
+
+- **Connecting a service:** connectors can connect on the workspace's behalf with OAuth 2:
+  - a manager connects once, with PKCE and a one-time state
+  - Relay refreshes the token, keeping rotated refresh tokens encrypted
+  - Disconnect stops Zoe using it
+- **"Zoe's actions" beside each conversation:** her procedures, connector calls and approvals in time order.
+  - What was sent and returned is shown to those allowed to see personal data.
+  - Copy log copies it as text.
+- **Migration:** 0057, with rollback.
+- **Details:** `docs/ACTIONS_STEP4.md`.
+
 ## Unreleased: write actions (phase 09, D3)
 
 - **Write connectors** (POST, PUT, PATCH, DELETE) that Zoe uses only after a manager turns their writes on, past a warning.

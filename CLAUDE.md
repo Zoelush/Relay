@@ -32,10 +32,10 @@ targeting), B2 (safety and privacy), C1 (the evaluation harness), C2a (the revie
 complete, with the Claude evaluation baseline waiting for a key. Monitors (`server/zoe-monitors.ts`,
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
-(conversation, part, author) or a `zoe_incident` (incident only). Phase 09 (`docs/ACTIONS_PLAN.md`): D1 (data connectors, `server/connectors.ts`, `ai_actions_v1`)
-D2 (procedures, `server/procedures.ts`, `lib/procedure-plan.ts`) are done locally
-(`docs/ACTIONS_STEP1.md`, `STEP2.md`), and D3 (write actions; `STEP3.md`); next is D4 (OAuth on the
-workspace's behalf, and the audit view). A write runs only for a signed-in customer, only with its
+(conversation, part, author) or a `zoe_incident` (incident only). Phase 09 (`docs/ACTIONS_PLAN.md`, behind `ai_actions_v1`) is complete locally
+(`docs/ACTIONS_STEP1.md` to `STEP4.md`): D1 data connectors (`server/connectors.ts`), D2 procedures
+(`server/procedures.ts`, `lib/procedure-plan.ts`), D3 write actions, and D4 OAuth on the workspace's
+behalf and each conversation's audit (`server/ai-audit.ts`). A write runs only for a signed-in customer, only with its
 connector's writes on and the workspace not paused (`ai_agents.writes_paused`), after approval when
 the connector asks (`ai_action_approvals`, resumed by `procedure.resume`), and is retried only with
 an idempotency key; never weaken any of these. A procedure's control flow is its
