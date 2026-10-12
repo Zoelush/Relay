@@ -29,6 +29,7 @@ import {
   Ticket,
   Zap,
   Sparkles,
+  Workflow,
   Settings as SettingsIcon,
 } from "lucide-react";
 import "../../agent/inbox.css";
@@ -133,6 +134,8 @@ type Snapshot = Directory & {
     settings?: boolean;
     /** Zoe's own area (phase 08 Z1): managers, while the AI agent is on. */
     zoe?: boolean;
+    /** The Workflows area (phase 11 W2): managers, while workflows are on. */
+    workflows?: boolean;
   };
   /** Zoe's name in this workspace, while the AI agent is on (Z1). */
   ai?: { name: string; enabled: boolean } | null;
@@ -155,6 +158,16 @@ const Settings = lazy(() =>
 const Zoe = lazy(() =>
   import("../../agent/zoe").then((m) => ({ default: m.Zoe })),
 );
+/** Workflows (phase 11 W2) load on their own; the canvas loads when one opens. */
+const Workflows = lazy(() =>
+  import("../../agent/workflows").then((m) => ({ default: m.Workflows })),
+);
+/** The Workflows area from the address: `#workflows` ("") or `#workflows/<id>`; null elsewhere. */
+const workflowsFromHash = () => {
+  if (typeof window === "undefined") return null;
+  const m = /^#workflows(?:\/([A-Za-z0-9-]+))?$/.exec(window.location.hash);
+  return m ? (m[1] ?? "") : null;
+};
 /** A page of Zoe's from the address (`#zoe/<page>`), or null when not in her area. */
 const zoeFromHash = () => {
   if (typeof window === "undefined") return null;
@@ -289,9 +302,19 @@ export default function PostgresInbox({
   /** The section on screen. The inbox stays mounted underneath Knowledge, keeping its place. */
   // The section on screen; Settings has an address per page (`#settings/<page>`).
   const [area, setAreaState] = useState<
-    "inbox" | "knowledge" | "settings" | "zoe"
+    "inbox" | "knowledge" | "settings" | "zoe" | "workflows"
   >(() =>
-    settingsFromHash() ? "settings" : zoeFromHash() || oauthReturn() ? "zoe" : "inbox",
+    settingsFromHash()
+      ? "settings"
+      : zoeFromHash() || oauthReturn()
+        ? "zoe"
+        : workflowsFromHash() !== null
+          ? "workflows"
+          : "inbox",
+  );
+  // The workflow open in the builder (`#workflows/<id>`), or null for the list.
+  const [workflowOpen, setWorkflowOpen] = useState<string | null>(
+    () => workflowsFromHash() || null,
   );
   const [settingsPage, setSettingsPage] = useState(
     () => settingsFromHash() ?? "home",
@@ -301,16 +324,22 @@ export default function PostgresInbox({
     "content" | "help" | "websites" | "index" | "health"
   >("content");
   const setArea = useCallback(
-    (next: "inbox" | "knowledge" | "settings" | "zoe", page = "home") => {
+    (
+      next: "inbox" | "knowledge" | "settings" | "zoe" | "workflows",
+      page = "home",
+    ) => {
       setAreaState(next);
       if (next === "settings") setSettingsPage(page);
       if (next === "zoe") setZoePage(page === "home" ? "overview" : page);
+      if (next === "workflows") setWorkflowOpen(page === "home" ? null : page);
       const hash =
         next === "settings"
           ? "#settings" + (page === "home" ? "" : "/" + page)
           : next === "zoe"
             ? "#zoe" + (page === "home" || page === "overview" ? "" : "/" + page)
-            : "";
+            : next === "workflows"
+              ? "#workflows" + (page === "home" ? "" : "/" + page)
+              : "";
       if (window.location.hash !== hash)
         history.replaceState(
           null,
@@ -351,14 +380,20 @@ export default function PostgresInbox({
     const onHash = () => {
       const page = settingsFromHash();
       const zoe = zoeFromHash();
+      const workflow = workflowsFromHash();
       if (page) {
         setAreaState("settings");
         setSettingsPage(page);
       } else if (zoe) {
         setAreaState("zoe");
         setZoePage(zoe);
+      } else if (workflow !== null) {
+        setAreaState("workflows");
+        setWorkflowOpen(workflow || null);
       } else if (window.location.hash === "")
-        setAreaState((a) => (a === "settings" || a === "zoe" ? "inbox" : a));
+        setAreaState((a) =>
+          a === "settings" || a === "zoe" || a === "workflows" ? "inbox" : a,
+        );
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -1410,6 +1445,19 @@ export default function PostgresInbox({
                 },
               ]
             : []),
+          // Workflows (phase 11 W2) sit beside Zoe: automation, as in Intercom's AI agent menu.
+          ...(snapshot?.capabilities.workflows
+            ? [
+                {
+                  id: "workflows",
+                  label: "Workflows",
+                  icon: <Workflow size={19} />,
+                  hue: "sky",
+                  current: area === "workflows",
+                  onClick: () => setArea("workflows"),
+                },
+              ]
+            : []),
           ...(snapshot?.capabilities.knowledge
             ? [
                 {
@@ -1525,6 +1573,16 @@ export default function PostgresInbox({
           />
         </Suspense>
       )}
+      {area === "workflows" && snapshot?.capabilities.workflows && (
+        <Suspense
+          fallback={<section className="pg-workspace" aria-busy="true" />}
+        >
+          <Workflows
+            open={workflowOpen}
+            onOpen={(id) => setArea("workflows", id ?? "home")}
+          />
+        </Suspense>
+      )}
       {area === "settings" && snapshot?.capabilities.settings && (
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}
@@ -1548,6 +1606,10 @@ export default function PostgresInbox({
             onLink={(target) => {
               if (target === "ai-agent") {
                 setArea("zoe", "overview");
+                return;
+              }
+              if (target === "workflows") {
+                setArea("workflows");
                 return;
               }
               if (target === "views") {
@@ -1587,7 +1649,8 @@ export default function PostgresInbox({
         hidden={
           (area === "knowledge" && !!snapshot?.capabilities.knowledge) ||
           (area === "settings" && !!snapshot?.capabilities.settings) ||
-          (area === "zoe" && !!snapshot?.capabilities.zoe)
+          (area === "zoe" && !!snapshot?.capabilities.zoe) ||
+          (area === "workflows" && !!snapshot?.capabilities.workflows)
         }
       >
         {error && (

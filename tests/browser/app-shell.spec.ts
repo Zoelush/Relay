@@ -81,6 +81,11 @@ test("the strip slides out and pins; the inbox menu lists your inbox, team inbox
   await expect(
     rail(page).getByRole("button", { name: "Zoe, AI agent", exact: true }),
   ).toBeFocused();
+  // Then Workflows (phase 11 W2), then Knowledge.
+  await page.keyboard.press("Tab");
+  await expect(
+    rail(page).getByRole("button", { name: "Workflows", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(
     rail(page).getByRole("button", { name: "Knowledge", exact: true }),

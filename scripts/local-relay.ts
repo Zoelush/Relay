@@ -52,6 +52,7 @@ import { checkMonitors } from "../server/zoe-monitors";
 import { runConnectorTest } from "../server/connectors";
 import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
+import { changeWorkflow } from "../server/workflows";
 import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
@@ -139,6 +140,8 @@ export async function startLocalRelay(
     /** Website sync's fetch policy and renderer (tests reach a local test site this way). */
     sync?: SyncEnvironment;
     longTimeline?: boolean;
+    /** Development seed (phase 11 W2): a draft workflow to open in the builder. */
+    exampleWorkflow?: boolean;
   } = {},
 ) {
   const db = await localDatabase(
@@ -637,6 +640,53 @@ export async function startLocalRelay(
             { action: "start", text },
           );
       });
+  // Development seed (phase 11 W2): a draft workflow in the demo workspace, to open in the builder.
+  // Its fixed idempotency key makes this a no-op on restart, even after it's renamed or archived.
+  if (options.exampleWorkflow && options.workflows !== false)
+    await tenant(db.connect, "demo", (sql) =>
+      changeWorkflow(sql, "demo", "local-owner", "local-seed-workflow", {
+        action: "create",
+        name: "Example: route refund requests",
+        definition: {
+          trigger: { type: "first_message", options: {} },
+          when: { match: "all", items: [] },
+          paths: [
+            {
+              id: "A",
+              label: "Start",
+              steps: [],
+              next: {
+                type: "branch",
+                branches: [
+                  {
+                    label: "Asks for a refund",
+                    when: { match: "any", items: [{ field: "message.text", op: "contains", value: "refund" }] },
+                    path: "B",
+                  },
+                ],
+                else: "C",
+              },
+            },
+            {
+              id: "B",
+              label: "Refunds",
+              steps: [
+                { id: "seed-tag", type: "tag_add", options: { tagId: "refund" } },
+                { id: "seed-assign", type: "assign", options: { teamId: "billing" } },
+                { id: "seed-priority", type: "priority", options: { value: true } },
+              ],
+              next: { type: "end" },
+            },
+            {
+              id: "C",
+              label: "Everyone else",
+              steps: [{ id: "seed-note", type: "note", options: { text: "Not a refund: triage as usual." } }],
+              next: { type: "end" },
+            },
+          ],
+        },
+      }),
+    );
   // Two-workspace views seed: the owner's default views plus one shared view each. Fixed
   // idempotency keys make this a no-op on restart; queued rebuilds run in the loop below.
   if (options.inboxViews)
@@ -1137,6 +1187,7 @@ if (
     // (RELAY_LOCAL_INBOX_VIEWS=false). Deployed workspaces default to off.
     inboxViews: process.env.RELAY_LOCAL_INBOX_VIEWS !== "false",
     longTimeline: true,
+    exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),
     // Reranking stays offline: Workers AI isn't reachable from here.

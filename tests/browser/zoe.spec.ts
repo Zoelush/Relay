@@ -67,14 +67,16 @@ test("Zoe has her own place between Inbox and Knowledge: an overview with what s
 
   const agent = await (await browser.newContext()).newPage();
   await agent.goto(relay.hostOrigin + "/agent");
-  // The strip: Inbox, Zoe, Knowledge, each in its own colour.
+  // The strip: Inbox, Zoe, Workflows (phase 11 W2), Knowledge, each in its own colour.
   const rail = agent.getByRole("navigation", { name: "Main" });
   const items = rail.locator(".pg-rail-items .pg-rail-item");
-  await expect(items).toHaveCount(3, { timeout: 15000 });
+  await expect(items).toHaveCount(4, { timeout: 15000 });
   await expect(items.nth(0)).toHaveAttribute("data-hue", "blue");
   await expect(items.nth(1)).toHaveAttribute("data-hue", "zoe");
   await expect(items.nth(1)).toHaveAccessibleName("Zoe, AI agent");
-  await expect(items.nth(2)).toHaveAttribute("data-hue", "amber");
+  await expect(items.nth(2)).toHaveAttribute("data-hue", "sky");
+  await expect(items.nth(2)).toHaveAccessibleName("Workflows");
+  await expect(items.nth(3)).toHaveAttribute("data-hue", "amber");
   await items.nth(1).click();
   await expect(agent).toHaveURL(/#zoe$/);
 

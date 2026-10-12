@@ -33,7 +33,11 @@ complete, with the Claude evaluation baseline waiting for a key. Monitors (`serv
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
 (conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 11 (`docs/WORKFLOWS_PLAN.md`, behind `workflows_v1`):
-W1, the engine, is done locally (`docs/WORKFLOWS_STEP1.md`); next is W2 (the builder). Every timeline part
+W1, the engine, and W2, the builder, are done locally (`docs/WORKFLOWS_STEP1.md`, `STEP2.md`); next is W3
+(customer-facing steps and simulation). The builder (`agent/workflow-builder.tsx`, `#workflows/<id>`) checks drafts with
+the definition's own `validate` and `problems`, and its live estimate (`server/workflow-estimate.ts`) judges with the
+engine's `evaluate` on `buildFacts`; keep one definition of what a condition means. Card positions live in
+`workflows.layout`, never in versions. Every timeline part
 goes through `workflowEvent` (from `append`); workflow actions go through `command` as a `WorkflowActor`
 (never write conversation state around it); a condition the engine can't evaluate is refused at
 save or publish, never treated as no match. Phase 09 (`docs/ACTIONS_PLAN.md`, behind `ai_actions_v1`) is complete locally

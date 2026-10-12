@@ -26,6 +26,7 @@ import {
   DoorOpen,
   type LucideIcon,
   Bot,
+  Workflow,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -68,7 +69,8 @@ type Link =
   | "websites"
   | "ai-index"
   | "content-health"
-  | "ai-agent";
+  | "ai-agent"
+  | "workflows";
 
 const PAGES: Page[] = [
   {
@@ -194,6 +196,15 @@ const PAGES: Page[] = [
     label: "Saved views",
     description: "Your views and team inboxes, managed from the inbox menu.",
     icon: ListFilter,
+    group: "Inbox",
+    link: true,
+  },
+  {
+    // Workflows have their own area (phase 11 W2); Settings links to it.
+    id: "workflows",
+    label: "Workflows",
+    description: "Tag, route, prioritise and hand over conversations automatically.",
+    icon: Workflow,
     group: "Inbox",
     link: true,
   },
