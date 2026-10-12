@@ -1439,3 +1439,10 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-zoe-connector-form { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
 .pg-zoe-connector-form > .pg-settings-field { flex:0 1 360px; min-width:220px; }
 .pg-zoe-test-result pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+/* Phase 09 D2: Zoe's procedures (agent/zoe-procedures.tsx). */
+.pg-zoe-connector .pg-settings-card > input, .pg-zoe-connector .pg-settings-card > textarea { width:100%; }
+.pg-zoe-plan { margin:0; padding-left:22px; display:flex; flex-direction:column; gap:6px; font-size:13px; line-height:1.45; }
+.pg-zoe-plan-connectors { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; font-size:13px; }
+.pg-zoe-plan-connectors li { display:flex; flex-direction:column; gap:2px; }
+.pg-zoe-review-why { white-space:nowrap; }
+.pg-zoe-rows input[aria-label="Collect question"] { min-width:300px; }

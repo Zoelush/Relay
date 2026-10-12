@@ -4,6 +4,7 @@ import type { Hue } from "./colour";
 /** What Zoe did, why she handed over, and how she sounded, in words (Z1, Z2). */
 export const OUTCOME_NAMES: Record<string, string> = {
   answered: "Answered from content",
+  procedure: "Followed a procedure",
   clarified: "Asked to clarify",
   unknown: "Said she didn't know",
   failed: "Model failed",
@@ -14,6 +15,7 @@ export const OUTCOME_NAMES: Record<string, string> = {
 };
 export const OUTCOME_HUES: Record<string, Hue> = {
   answered: "green",
+  procedure: "teal",
   escalated: "rose",
   clarified: "sky",
   ignored: "slate",
@@ -30,6 +32,7 @@ export const TRIGGER_NAMES: Record<string, string> = {
   guidance: "Escalation guidance",
   language: "Wrote in a language she doesn't answer in",
   spam: "Spam guidance",
+  procedure: "A procedure handed over",
 };
 /** "Friendly · Standard · usual formality". */
 export function voiceSummary(v: Voice) {

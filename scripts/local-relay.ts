@@ -239,6 +239,8 @@ export async function startLocalRelay(
     rerank: options.ai?.rerank ?? standInReranker(),
     classify: options.ai?.classify ?? standInClassifier(),
     index: env.knowledgeIndex!,
+    // Procedures (phase 09 D2) call connectors from the reply job.
+    connectors: env.connectors,
   };
   for (const w of ["demo", "other"])
     await tenant(db.connect, w, (sql) =>

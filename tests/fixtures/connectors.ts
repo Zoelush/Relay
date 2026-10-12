@@ -43,6 +43,18 @@ export const ORDER_LOOKUP = {
   },
 };
 
+/** The order lookup by number only (for messenger visitors, who have no email on file). */
+export const ORDER_STATUS = {
+  name: "Order status",
+  definition: {
+    ...ORDER_LOOKUP.definition,
+    description: "An order's status by its number.",
+    query: [],
+    inputs: [ORDER_LOOKUP.definition.inputs[0]],
+    retries: 0,
+  },
+};
+
 export const ACCOUNT_STATUS = {
   name: "Account status",
   definition: {
@@ -90,6 +102,8 @@ export const EXCHANGES: Exchange[] = [
   { method: "GET", url: shop("A9999"), responses: ["timeout"] },
   { method: "GET", url: shop("A2222"), responses: [{ status: 200, body: "<html>maintenance</html>", headers: { "content-type": "text/html" } }] },
   { method: "GET", url: shop("A3333"), responses: [{ status: 200, body: order("shipped", { total: "a lot" }) }] },
+  { method: "GET", url: "https://api.shop.example/v1/orders/A1001", responses: [{ status: 200, body: order("shipped") }] },
+  { method: "GET", url: "https://api.shop.example/v1/orders/A9999", responses: ["timeout"] },
   { method: "POST", url: "https://auth.crm.example/oauth/token", responses: [{ status: 200, body: { access_token: "crm-token-1", token_type: "Bearer", expires_in: 3600 } }] },
   {
     method: "POST",

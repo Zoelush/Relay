@@ -197,6 +197,7 @@ import { changeSpecialist, readSpecialists, specialistNames } from "./zoe-specia
 import { changeReview, gapsForHealth, readReview } from "./zoe-review";
 import { changeMonitors, readIncidents, readMonitors } from "./zoe-monitors";
 import { changeConnector, readConnector, readConnectors, type ConnectorEnvironment } from "./connectors";
+import { changeProcedure, readProcedure, readProcedures } from "./procedures";
 import {
   indexStatus,
   rebuildIndex,
@@ -1283,6 +1284,7 @@ export async function handleApi(
               "/v1/agent/zoe-review",
               "/v1/agent/zoe-monitors",
               "/v1/agent/zoe-connector",
+              "/v1/agent/zoe-procedure",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1639,6 +1641,13 @@ export async function handleApi(
                 p,
                 env.connectors,
               ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/zoe-procedure")
+          // Phase 09 D2: a procedure created, saved, published or archived; or the verification rules.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeProcedure(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
             ),
           );
         if (url.pathname === "/v1/agent/zoe-guidance")
@@ -2145,6 +2154,10 @@ export async function handleApi(
             ? readConnectors
             : view === "connector"
             ? (db, w, principal) => readConnector(db, w, principal, url.searchParams.get("id") ?? "")
+            : view === "procedures"
+            ? readProcedures
+            : view === "procedure"
+            ? (db, w, principal) => readProcedure(db, w, principal, url.searchParams.get("id") ?? "")
             : view === "incidents"
             ? readIncidents
             : view === "guidance"

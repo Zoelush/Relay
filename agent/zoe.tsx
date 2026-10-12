@@ -9,6 +9,7 @@ import {
   Activity,
   Siren,
   Plug,
+  ListChecks,
   FlaskConical,
   MessageCircle,
   MessageSquareQuote,
@@ -49,6 +50,7 @@ import { SpecialistsPage } from "./zoe-specialists";
 import { ReviewPage, ReviewedGaps, type ReviewedGapsData } from "./zoe-review";
 import { IncidentBanner, IncidentsPage, MonitorsPage } from "./zoe-monitors";
 import { ActionsPage } from "./zoe-actions";
+import { ProceduresPage } from "./zoe-procedures";
 import {
   OUTCOME_HUES,
   OUTCOME_NAMES,
@@ -69,7 +71,8 @@ import { languageName, type Voice } from "../lib/zoe-voice";
  * Review (agent/zoe-review.tsx), while `zoe_review_v1` is on; C2b (docs/AI_STEP12.md) Analyze › Monitors
  * and Incidents (agent/zoe-monitors.tsx), while `zoe_monitors_v1` is on.
  * Her test suite runs from the command line (`npm run eval`, C1). Phase 09 D1 (docs/ACTIONS_STEP1.md) adds
- * Train › Actions (agent/zoe-actions.tsx), while `ai_actions_v1` is on.
+ * Train › Actions (agent/zoe-actions.tsx), and D2 (docs/ACTIONS_STEP2.md) Train › Procedures
+ * (agent/zoe-procedures.tsx), while `ai_actions_v1` is on.
  */
 type PageId =
   | "overview"
@@ -78,6 +81,7 @@ type PageId =
   | "escalation"
   | "content"
   | "actions"
+  | "procedures"
   | "playground"
   | "messenger"
   | "performance"
@@ -147,6 +151,15 @@ const PAGES: {
     hue: "teal",
     description:
       "Data connectors: what she may look up in your systems, with only the values you choose sent and returned.",
+  },
+  {
+    id: "procedures",
+    label: "Procedures",
+    group: "Train",
+    icon: ListChecks,
+    hue: "violet",
+    description:
+      "Tasks she carries out step by step with your connectors, like finding an order, and who they may run for.",
   },
   {
     id: "playground",
@@ -287,7 +300,7 @@ export function Zoe({
     (p) =>
       (p.id !== "review" || reviewOn) &&
       ((p.id !== "monitors" && p.id !== "incidents") || monitorsOn) &&
-      (p.id !== "actions" || actionsOn),
+      ((p.id !== "actions" && p.id !== "procedures") || actionsOn),
   );
   const current = pages.find((p) => p.id === page) ?? PAGES[0];
   const entry = (p: (typeof PAGES)[number]) => (
@@ -366,6 +379,8 @@ export function Zoe({
             />
           ) : current.id === "actions" ? (
             <ActionsPage menu={menu} page={asPage(current)} />
+          ) : current.id === "procedures" ? (
+            <ProceduresPage menu={menu} page={asPage(current)} />
           ) : current.id === "playground" ? (
             <Playground {...props} page={asPage(current)} />
           ) : current.id === "messenger" ? (
@@ -1507,7 +1522,7 @@ function PerformancePage({ menu, page }: PageProps & { page: Page }) {
           </div>
           <Card title="What she did" description="Every customer message she considered, by outcome.">
             <ul className="pg-zoe-bars" aria-label="Outcomes">
-              {["answered", "clarified", "unknown", "failed", "escalated", "spam", "skipped"].map((k) => (
+              {["answered", "procedure", "clarified", "unknown", "failed", "escalated", "spam", "skipped"].map((k) => (
                 <li key={k} data-hue={OUTCOME_HUES[k] ?? "amber"}>
                   <span>{OUTCOME_NAMES[k]}</span>
                   <span className="pg-zoe-bar"><span style={{ width: bar(data.outcomes[k] ?? 0, total) }} /></span>
