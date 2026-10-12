@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   CircleHelp,
   ClipboardCheck,
+  Activity,
+  Siren,
   FlaskConical,
   MessageCircle,
   MessageSquareQuote,
@@ -44,6 +46,7 @@ import {
 } from "./zoe-guidance";
 import { SpecialistsPage } from "./zoe-specialists";
 import { ReviewPage, ReviewedGaps, type ReviewedGapsData } from "./zoe-review";
+import { IncidentBanner, IncidentsPage, MonitorsPage } from "./zoe-monitors";
 import {
   OUTCOME_HUES,
   OUTCOME_NAMES,
@@ -61,8 +64,9 @@ import { languageName, type Voice } from "../lib/zoe-voice";
  * (Playground); Deploy (Messenger); Analyze (Performance, Knowledge gaps, Resolutions); Settings.
  * Z2 (docs/AI_STEP6.md) adds Train › Guidance (agent/zoe-guidance.tsx) and her languages; Z3a
  * (docs/AI_STEP7.md) Train › Specialists (agent/zoe-specialists.tsx); C2a (docs/AI_STEP11.md) Analyze ›
- * Review (agent/zoe-review.tsx), while `zoe_review_v1` is on.
- * TODO(phase 08 C1): Test › Test suites. TODO(phase 09): Train › Actions.
+ * Review (agent/zoe-review.tsx), while `zoe_review_v1` is on; C2b (docs/AI_STEP12.md) Analyze › Monitors
+ * and Incidents (agent/zoe-monitors.tsx), while `zoe_monitors_v1` is on.
+ * Her test suite runs from the command line (`npm run eval`, C1). TODO(phase 09): Train › Actions.
  */
 type PageId =
   | "overview"
@@ -74,6 +78,8 @@ type PageId =
   | "messenger"
   | "performance"
   | "review"
+  | "monitors"
+  | "incidents"
   | "gaps"
   | "resolutions"
   | "settings";
@@ -182,6 +188,24 @@ const PAGES: {
       "Every conversation she resolved, in a ledger that's never changed.",
   },
   {
+    id: "monitors",
+    label: "Monitors",
+    group: "Analyze",
+    icon: Activity,
+    hue: "sky",
+    description:
+      "Rates that open an incident when her behaviour changes sharply: the last 24 hours against the 7 days before, checked hourly.",
+  },
+  {
+    id: "incidents",
+    label: "Incidents",
+    group: "Analyze",
+    icon: Siren,
+    hue: "rose",
+    description:
+      "Sharp changes her monitors found, with the numbers, example conversations and what changed shortly before.",
+  },
+  {
     id: "settings",
     label: "Settings",
     group: "",
@@ -212,6 +236,7 @@ export function Zoe({
   onName,
   onKnowledge,
   onMessenger,
+  onConversation,
 }: {
   page: string;
   onPage: (page: string) => void;
@@ -219,6 +244,8 @@ export function Zoe({
   onName: (name: string) => void;
   onKnowledge: () => void;
   onMessenger: () => void;
+  /** Opens a conversation in the inbox (an incident's examples). */
+  onConversation: (id: string) => void;
 }) {
   const menu = useSideMenu("zoe");
   const [agent, setAgent] = useState<{ name: string; enabled: boolean } | null>(
@@ -226,16 +253,25 @@ export function Zoe({
   );
   // C2a: the Review page is listed while the review queue is on.
   const [reviewOn, setReviewOn] = useState(false);
+  // C2b: Monitors and Incidents, while monitors are on.
+  const [monitorsOn, setMonitorsOn] = useState(false);
   useEffect(() => {
-    api<{ agent: { name: string; enabled: boolean }; review: unknown }>("zoe?view=overview")
+    api<{ agent: { name: string; enabled: boolean }; review: unknown; incidents: unknown }>(
+      "zoe?view=overview",
+    )
       .then((o) => {
         setAgent(o.agent);
         setReviewOn(!!o.review);
+        setMonitorsOn(!!o.incidents);
       })
       .catch(() => setAgent({ name: "Zoe", enabled: false }));
   }, []);
   const name = agent?.name ?? "Zoe";
-  const pages = PAGES.filter((p) => p.id !== "review" || reviewOn);
+  const pages = PAGES.filter(
+    (p) =>
+      (p.id !== "review" || reviewOn) &&
+      ((p.id !== "monitors" && p.id !== "incidents") || monitorsOn),
+  );
   const current = pages.find((p) => p.id === page) ?? PAGES[0];
   const entry = (p: (typeof PAGES)[number]) => (
     <li key={p.id} data-hue={p.hue}>
@@ -323,6 +359,10 @@ export function Zoe({
             <PerformancePage {...props} page={asPage(current)} />
           ) : current.id === "review" ? (
             <ReviewPage menu={menu} page={asPage(current)} onGaps={() => onPage("gaps")} />
+          ) : current.id === "monitors" ? (
+            <MonitorsPage menu={menu} page={asPage(current)} onIncidents={() => onPage("incidents")} />
+          ) : current.id === "incidents" ? (
+            <IncidentsPage menu={menu} page={asPage(current)} onConversation={onConversation} />
           ) : current.id === "gaps" ? (
             <GapsPage {...props} page={asPage(current)} />
           ) : current.id === "resolutions" ? (
@@ -380,6 +420,9 @@ type OverviewData = {
   specialists: string[];
   content: number;
   review: { waiting: number; gaps: number } | null;
+  incidents: {
+    open: { id: string; metric: string; baseline: number; latestValue: number }[];
+  } | null;
   gaps: { question: string; count: number; lastAt: string; conversationId: string }[];
   articles: { recordId: string; title: string; count: number }[];
 };
@@ -432,6 +475,9 @@ function Overview({ menu, name, onPage, agent, setAgent }: PageProps) {
         )}
         {data && s && (
           <>
+            {data.incidents && (
+              <IncidentBanner open={data.incidents.open} onIncidents={() => onPage("incidents")} />
+            )}
             <div className="pg-zoe-stats" aria-label={`Last ${data.days} days`}>
               <Stat
                 featured

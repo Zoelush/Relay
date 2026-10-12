@@ -103,16 +103,20 @@ export async function recordMentions(
   return fresh;
 }
 
-/** The signed-in teammate's own notifications, newest first, with the unread count. */
+/**
+ * The signed-in teammate's own notifications, newest first, with the unread count: mentions, and
+ * (phase 08 C2b) Zoe's incidents, which have no conversation or author.
+ */
 export async function listNotifications(db: Sql, w: string, principal: string) {
   const t = await authorize(db, w, principal, "conversations.read");
   const items = (
     await db.query(
       `SELECT n.id,n.kind,n.conversation_id AS "conversationId",c.title AS "conversationTitle",a.name AS "actorName",
-      n.excerpt,n.created_at AS "createdAt",n.read_at AS "readAt"
-      FROM notifications n JOIN conversations c ON c.workspace_id=n.workspace_id AND c.id=n.conversation_id
-      JOIN teammates a ON a.workspace_id=n.workspace_id AND a.id=n.actor_teammate_id
-      WHERE n.workspace_id=$1 AND n.teammate_id=$2 ORDER BY n.created_at DESC,n.id DESC LIMIT 50`,
+      n.incident_id AS "incidentId",n.excerpt,n.created_at AS "createdAt",n.read_at AS "readAt"
+      FROM notifications n LEFT JOIN conversations c ON c.workspace_id=n.workspace_id AND c.id=n.conversation_id
+      LEFT JOIN teammates a ON a.workspace_id=n.workspace_id AND a.id=n.actor_teammate_id
+      WHERE n.workspace_id=$1 AND n.teammate_id=$2 AND (n.kind<>'mention' OR (c.id IS NOT NULL AND a.id IS NOT NULL))
+      ORDER BY n.created_at DESC,n.id DESC LIMIT 50`,
       [w, t.id],
     )
   ).rows;

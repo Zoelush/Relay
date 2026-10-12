@@ -1488,6 +1488,10 @@ export default function PostgresInbox({
               setArea("knowledge");
             }}
             onMessenger={() => setArea("settings", "messenger")}
+            onConversation={(id) => {
+              setArea("inbox");
+              pick(id);
+            }}
           />
         </Suspense>
       )}
@@ -2103,6 +2107,7 @@ export default function PostgresInbox({
       {overlay === "notifications" && (
         <NotificationsPanel
           onOpen={(id) => pick(id)}
+          onIncident={() => setArea("zoe", "incidents")}
           onClose={() => setOverlay(null)}
           onError={report}
         />

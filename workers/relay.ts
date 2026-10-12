@@ -7,6 +7,7 @@ import { processKnowledgeFile } from "../server/knowledge-files";
 import { processBrandAsset } from "../server/brand-assets";
 import { resolveQuiet } from "../server/ai-resolutions";
 import { sampleForReview } from "../server/zoe-review";
+import { checkMonitors } from "../server/zoe-monitors";
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -501,6 +502,8 @@ const relayWorker = {
           await resolveQuiet(runtime.connect, work.workspace);
           // Answers for Zoe's review queue: pushbacks, and yesterday's sample once (phase 08 C2a).
           await sampleForReview(runtime.connect, work.workspace);
+          // Zoe's monitors, once an hour (phase 08 C2b).
+          await checkMonitors(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(

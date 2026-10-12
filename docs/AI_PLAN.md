@@ -114,4 +114,11 @@ Acceptance criteria (phase brief):
     - **Content gaps:** a bad rating for missing or outdated content opens one, listed on Knowledge gaps and in content health's "Topics with no content" (until now unavailable).
     - **Scoring with Haiku waits for a key.**
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b), `docs/AI_STEP9.md` (B2), `docs/AI_STEP10.md` (C1), `docs/AI_STEP11.md` (C2a).
+15. **C2b decisions** (12 October 2026):
+    - **Six built-in monitors.** You can't build your own.
+    - **The comparison:** the last 24 hours against the 7 days before, checked once an hour, with a minimum volume on both sides.
+    - **Sensitivity:** low, medium or high, each a number of points and a factor.
+    - **Incidents:** one open per monitor. It resolves after two normal checks in a row, by a teammate, or when its monitor is switched off.
+    - **Alerts:** in-app notifications for those who manage Zoe; email waits for phase 12.
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b), `docs/AI_STEP9.md` (B2), `docs/AI_STEP10.md` (C1), `docs/AI_STEP11.md` (C2a), `docs/AI_STEP12.md` (C2b).

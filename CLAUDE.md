@@ -27,8 +27,12 @@ messenger page (`/messenger/frame.html?preview=1`); in preview mode it fetches a
 Phase 08 (the AI agent, `docs/AI_PLAN.md`):
 steps A1 (answering core), A2a (handover), A2b (escalation rules, topics, guidance), A3 (the
 resolution ledger), Z1 (Zoe's home), Z2 (how Zoe answers), Z3a (specialists), Z3b (content
-targeting), B2 (safety and privacy), C1 (the evaluation harness) and C2a (the review queue) are done
-locally (`docs/AI_STEP1.md` to `AI_STEP11.md`); next is C2b (monitors and incidents). Zoe's review
+targeting), B2 (safety and privacy), C1 (the evaluation harness), C2a (the review queue) and C2b
+(monitors and incidents) are done locally (`docs/AI_STEP1.md` to `AI_STEP12.md`): phase 08's plan is
+complete, with the Claude evaluation baseline waiting for a key. Monitors (`server/zoe-monitors.ts`,
+`zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
+`tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
+(conversation, part, author) or a `zoe_incident` (incident only). Zoe's review
 queue (`server/zoe-review.ts`, `zoe_review_v1`) is filled by the sweep (`sampleForReview`); a rating is
 given once, and reviews and content gaps are internal, never written into a conversation. `npm test` runs the
 evaluation (`eval/`, `tests/eval.test.ts`) and fails when a score falls below
@@ -73,7 +77,7 @@ help center is at `/help/demo/relay-help` locally. Phase 06 (routing, teams and 
 (agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete locally. Open items from phases 04–06 were cleared in
 `docs/MAINTENANCE_2026-10.md`. Flags `tickets_v1`, `sla_v1`, `portal_v1`,
 `routing_v1`, `knowledge_v1`, `help_center_v1`, `knowledge_sync_v1`, `knowledge_index_v1` and
-`knowledge_health_v1`, `ai_agent_v1`, `messenger_v3` and `zoe_review_v1` default off; the local relay turns them all on. The AI index (`server/knowledge-index.ts`) keeps vectors out
+`knowledge_health_v1`, `ai_agent_v1`, `messenger_v3`, `zoe_review_v1` and `zoe_monitors_v1` default off; the local relay turns them all on. The AI index (`server/knowledge-index.ts`) keeps vectors out
 of PostgreSQL behind `EmbeddingPort` and `VectorStorePort`; retrieval re-checks access in PostgreSQL,
 so never filter by vector-store metadata alone. Content health's near-duplicate check
 (`server/knowledge-health.ts`) reads stored vectors back through `VectorStorePort.get`. Website sync fetches only public https addresses (`server/safe-fetch.ts`);

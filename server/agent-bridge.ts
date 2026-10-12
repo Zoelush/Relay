@@ -106,6 +106,7 @@ const routes = {
     "zoe-guidance",
     "zoe-specialist",
     "zoe-review",
+    "zoe-monitors",
     "help-centers",
     "realtime-ticket",
     "attachment/prepare",
