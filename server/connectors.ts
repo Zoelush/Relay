@@ -22,7 +22,9 @@ import {
  * encrypted with RELAY_CONNECTOR_KEY and never leave the server. Every call goes through
  * `safeRequest` (public https only), is rate limited, and writes an append-only audit row with
  * sensitive inputs redacted and only the mapped values, never the raw response.
- * Read connectors only: write access, approvals and the kill switch arrive in D3.
+ * D3 (docs/ACTIONS_STEP3.md) adds write connectors: Zoe may call one only once a manager turns its
+ * writes on, never while the workspace's writes are paused (the kill switch), and a write is only
+ * retried with an idempotency key, so one that may have gone through is never sent twice.
  */
 export type ConnectorEnvironment = {
   /** RELAY_CONNECTOR_KEY: at least 32 characters. */
@@ -202,6 +204,9 @@ export async function runConnector(
     conversationId?: string;
     /** Return the masked request and response (the test console). */
     show?: boolean;
+    /** D3: the approval a write runs under, and its idempotency key (the same on every attempt). */
+    approvalId?: string;
+    idempotencyKey?: string;
   },
 ): Promise<Call> {
   const started = Date.now();
@@ -210,8 +215,10 @@ export async function runConnector(
   // Read what's needed, and count the call against the rate limit, before any network.
   const prepared = await tenant(connect, w, async (db) => {
     const c = (
-      await db.query<{ draft: Definition; archived: boolean }>(
-        "SELECT draft,archived FROM ai_connectors WHERE workspace_id=$1 AND id=$2",
+      await db.query<{ draft: Definition; archived: boolean; writes_enabled: boolean; paused: boolean }>(
+        `SELECT c.draft,c.archived,c.writes_enabled,
+           COALESCE((SELECT a.writes_paused FROM ai_agents a WHERE a.workspace_id=c.workspace_id ORDER BY a.id LIMIT 1),false) AS paused
+         FROM ai_connectors c WHERE c.workspace_id=$1 AND c.id=$2`,
         [w, run.connectorId],
       )
     ).rows[0];
@@ -253,7 +260,7 @@ export async function runConnector(
       w,
       new Date(Date.now() - 10 * 60_000).toISOString(),
     ]);
-    return { def, context, secrets, token, overLimit: calls > def.rateLimit };
+    return { def, context, secrets, token, overLimit: calls > def.rateLimit, writesEnabled: c.writes_enabled, paused: c.paused };
   });
   const { def } = prepared;
   const known: string[] = [];
@@ -267,7 +274,13 @@ export async function runConnector(
   let error = "";
   let newToken: { value: string; expiresAt: Date } | null = null;
   const mask = (s: string) => known.reduce((t, k) => (k ? t.split(k).join(MASK) : t), s);
+  const write = def.access === "write";
+  // A write is retried only when the service can tell the attempts are one (an idempotency key).
+  const retries = write && !(def.idempotencyHeader && run.idempotencyKey) ? 0 : def.retries;
   try {
+    if (write && prepared.paused) throw new Stop("refused", "Write actions are paused for this workspace.");
+    if (write && run.source === "agent" && !prepared.writesEnabled)
+      throw new Stop("refused", "Writes aren't turned on for this connector.");
     if (prepared.overLimit) throw new Stop("rate_limited", `Over its limit of ${def.rateLimit} calls a minute.`);
     try {
       // Context inputs come only from the conversation (the test console gives sample values for
@@ -323,6 +336,7 @@ export async function runConnector(
     if (def.auth.type === "oauth_client_credentials" && !token) token = await fetchToken();
     const build = () => {
       const r = renderRequest(def, values);
+      if (write && def.idempotencyHeader && run.idempotencyKey) r.headers[def.idempotencyHeader] = run.idempotencyKey;
       if (def.auth.type === "api_key") r.headers[def.auth.header] = secret!;
       if (def.auth.type === "bearer") r.headers.authorization = "Bearer " + secret;
       if (def.auth.type === "oauth_client_credentials") r.headers.authorization = "Bearer " + token;
@@ -351,13 +365,13 @@ export async function runConnector(
         const code = e instanceof FetchRefused ? e.code : "UNREACHABLE";
         const stop =
           code === "TIMEOUT"
-            ? new Stop("timeout", `No answer within ${def.timeoutMs / 1000} seconds.`)
+            ? new Stop("timeout", `No answer within ${def.timeoutMs / 1000} seconds${write ? "; it may have gone through" : ""}.`)
             : code === "UNREACHABLE"
               ? new Stop("unreachable", "The address couldn't be reached.")
               : code === "TOO_LARGE"
                 ? new Stop("invalid_response", "The response was larger than 1 MB.")
                 : new Stop("refused", "Relay only calls public https addresses.");
-        if ((stop.result === "timeout" || stop.result === "unreachable") && attempts <= def.retries) {
+        if ((stop.result === "timeout" || stop.result === "unreachable") && attempts <= retries) {
           await sleep(250 * 2 ** (attempts - 1));
           continue;
         }
@@ -377,7 +391,7 @@ export async function runConnector(
         token = await fetchToken();
         continue;
       }
-      if ((got.status === 429 || got.status >= 500) && attempts <= def.retries) {
+      if ((got.status === 429 || got.status >= 500) && attempts <= retries) {
         await sleep(250 * 2 ** (attempts - 1));
         continue;
       }
@@ -421,8 +435,8 @@ export async function runConnector(
   }
   await tenant(connect, w, async (db) => {
     await db.query(
-      `INSERT INTO ai_connector_calls(workspace_id,id,connector_id,version,draft,source,invoked_by,conversation_id,method,url,inputs,outputs,status,attempts,duration_ms,result,error)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+      `INSERT INTO ai_connector_calls(workspace_id,id,connector_id,version,draft,source,invoked_by,conversation_id,method,url,inputs,outputs,status,attempts,duration_ms,result,error,approval_id,idempotency_key)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
       [
         w,
         callId,
@@ -442,6 +456,8 @@ export async function runConnector(
         durationMs,
         result,
         error,
+        run.approvalId ?? null,
+        write ? (run.idempotencyKey ?? null) : null,
       ],
     );
     const t = newToken as { value: string; expiresAt: Date } | null;
@@ -474,6 +490,7 @@ export async function runConnectorTest(connect: Connect, env: ConnectorEnvironme
     source: "test",
     invokedBy: p.teammateId,
     show: true,
+    idempotencyKey: crypto.randomUUID(),
   });
   return { done: true, result: call as unknown as Record<string, unknown> };
 }
@@ -485,13 +502,18 @@ type Row = {
   id: string;
   name: string;
   access: string;
+  writes_enabled: boolean;
+  writes_enabled_name: string | null;
+  writes_enabled_at: string | null;
   draft: Definition;
   live_version: number | null;
   live: Definition | null;
   version: string;
   updated_at: string;
 };
-const ROW = `c.id,c.name,c.access,c.draft,c.live_version,c.version::text AS version,c.updated_at,
+const ROW = `c.id,c.name,c.access,c.writes_enabled,c.writes_enabled_at,
+  (SELECT t.name FROM teammates t WHERE t.workspace_id=c.workspace_id AND t.id=c.writes_enabled_by) AS writes_enabled_name,
+  c.draft,c.live_version,c.version::text AS version,c.updated_at,
   (SELECT v.definition FROM ai_connector_versions v WHERE v.workspace_id=c.workspace_id AND v.connector_id=c.id AND v.version=c.live_version) AS live
   FROM ai_connectors c`;
 async function secretsOf(db: Sql, w: string, id: string) {
@@ -505,6 +527,18 @@ async function secretsOf(db: Sql, w: string, id: string) {
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Zoe › Train › Actions: her connectors. */
+/** The workspace's kill switch for write actions (D3). */
+async function pausedState(db: Sql, w: string) {
+  const r = (
+    await db.query<{ writes_paused: boolean; name: string | null; writes_paused_at: string | null }>(
+      `SELECT a.writes_paused,a.writes_paused_at,(SELECT t.name FROM teammates t WHERE t.workspace_id=a.workspace_id AND t.id=a.writes_paused_by) AS name
+       FROM ai_agents a WHERE a.workspace_id=$1 ORDER BY a.id LIMIT 1`,
+      [w],
+    )
+  ).rows[0];
+  return { paused: !!r?.writes_paused, by: r?.name ?? null, at: r?.writes_paused_at ? new Date(r.writes_paused_at).toISOString() : null };
+}
+
 export async function readConnectors(db: Sql, w: string, principal: string) {
   await access(db, w, principal);
   const rows = (await db.query<Row>(`SELECT ${ROW} WHERE c.workspace_id=$1 AND NOT c.archived ORDER BY lower(c.name),c.id`, [w])).rows;
@@ -518,11 +552,13 @@ export async function readConnectors(db: Sql, w: string, principal: string) {
     ).rows.map((r) => [r.connector_id, { result: r.result, at: new Date(r.created_at).toISOString() }]),
   );
   return {
+    writes: await pausedState(db, w),
     connectors: rows.map((r) => ({
       id: r.id,
       name: r.name,
       description: r.draft.description,
       access: r.access,
+      writesEnabled: r.writes_enabled,
       method: r.draft.method,
       liveVersion: r.live_version,
       changed: !r.live || !same(r.draft, r.live),
@@ -590,7 +626,11 @@ export async function readConnector(db: Sql, w: string, principal: string, id: s
       liveVersion: r.live_version,
       changed: !r.live || !same(r.draft, r.live),
       secrets: await secretsOf(db, w, id),
+      // D3: whether Zoe may use its writes, and who turned them on.
+      writes: { enabled: r.writes_enabled, by: r.writes_enabled_name, at: r.writes_enabled_at ? new Date(r.writes_enabled_at).toISOString() : null },
+      liveAccess: r.live?.access ?? (r.live ? "read" : null),
     },
+    paused: (await pausedState(db, w)).paused,
     versions,
     calls,
   };
@@ -650,6 +690,15 @@ export async function changeConnector(
           [w, name, except],
         )
       ).rows.length > 0;
+    if (p.action === "pause") {
+      // D3: the kill switch, for every write action in the workspace, at once.
+      if (typeof p.paused !== "boolean") invalid("Pause or resume write actions.");
+      await db.query(
+        `UPDATE ai_agents SET writes_paused=$2,writes_paused_by=$3,writes_paused_at=now(),updated_at=now() WHERE workspace_id=$1`,
+        [w, p.paused, t.id],
+      );
+      return readConnectors(db, w, principal);
+    }
     if (p.action === "create") {
       const name = nameOf(p.name);
       if (await taken(name)) invalid(`There's already a connector called ${name}.`);
@@ -678,8 +727,10 @@ export async function changeConnector(
       if (await taken(name, id)) invalid(`There's already a connector called ${name}.`);
       const def = definition(p.definition, policy);
       await db.query(
-        "UPDATE ai_connectors SET name=$3,draft=$4,version=version+1,updated_by=$5,updated_at=now() WHERE workspace_id=$1 AND id=$2",
-        [w, id, name, JSON.stringify(def), t.id],
+        `UPDATE ai_connectors SET name=$3,draft=$4,version=version+1,updated_by=$5,updated_at=now(),
+           access=CASE WHEN live_version IS NULL THEN $6 ELSE access END
+         WHERE workspace_id=$1 AND id=$2`,
+        [w, id, name, JSON.stringify(def), t.id, def.access],
       );
       return readConnector(db, w, principal, id);
     }
@@ -704,9 +755,33 @@ export async function changeConnector(
         "INSERT INTO ai_connector_versions(workspace_id,connector_id,version,definition,published_by) VALUES($1,$2,$3,$4,$5)",
         [w, id, version, JSON.stringify(def), t.id],
       );
+      // The live version decides its access; a connector published as read has its writes off.
       await db.query(
-        "UPDATE ai_connectors SET live_version=$3,version=version+1,updated_by=$4,updated_at=now() WHERE workspace_id=$1 AND id=$2",
-        [w, id, version, t.id],
+        `UPDATE ai_connectors SET live_version=$3,access=$5,writes_enabled=writes_enabled AND $5='write',version=version+1,updated_by=$4,updated_at=now()
+         WHERE workspace_id=$1 AND id=$2`,
+        [w, id, version, t.id, def.access],
+      );
+      return readConnector(db, w, principal, id);
+    }
+    if (p.action === "writes") {
+      // D3: Zoe may use a write connector only after a manager turns its writes on, past a warning.
+      current();
+      if (typeof p.enabled !== "boolean") invalid("Turn writes on or off.");
+      if (p.enabled) {
+        if (p.acknowledged !== true) invalid("Confirm that Zoe may change things in this service.");
+        const live = (
+          await db.query<{ access: string }>(
+            "SELECT definition->>'access' AS access FROM ai_connector_versions WHERE workspace_id=$1 AND connector_id=$2 AND version=$3",
+            [w, id, row.live_version],
+          )
+        ).rows[0];
+        if (live?.access !== "write") invalid("Publish it as a write connector first.");
+      }
+      await db.query(
+        `UPDATE ai_connectors SET writes_enabled=$3,writes_enabled_by=CASE WHEN $3 THEN $4 ELSE writes_enabled_by END,
+           writes_enabled_at=CASE WHEN $3 THEN now() ELSE writes_enabled_at END,version=version+1,updated_by=$4,updated_at=now()
+         WHERE workspace_id=$1 AND id=$2`,
+        [w, id, p.enabled, t.id],
       );
       return readConnector(db, w, principal, id);
     }

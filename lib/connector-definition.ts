@@ -43,7 +43,13 @@ export type ConnectorAuth =
   | { type: "oauth_client_credentials"; tokenUrl: string; clientId: string; scope: string };
 export type Definition = {
   description: string;
-  method: "GET" | "POST";
+  /**
+   * Read looks things up; write changes things (D3): any method but GET, used by Zoe only once a
+   * manager turns its writes on, refused while the workspace's writes are paused, and only for a
+   * signed-in customer.
+   */
+  access: "read" | "write";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   baseUrl: string;
   path: string;
   query: { name: string; value: string }[];
@@ -54,8 +60,15 @@ export type Definition = {
   outputs: ConnectorOutput[];
   auth: ConnectorAuth;
   timeoutMs: number;
-  /** Retries after a timeout, a network failure, a 429 or a 5xx (read connectors only). */
+  /**
+   * Retries after a timeout, a network failure, a 429 or a 5xx. A write is retried only with an
+   * idempotency header: without one, a write that may have gone through is never sent again.
+   */
   retries: number;
+  /** Writes: whether a teammate approves each one before it runs. */
+  approval: "always" | "never";
+  /** Writes: the header carrying a key that's the same for every attempt at one write, or "". */
+  idempotencyHeader: string;
   /** Calls a minute, across the workspace. */
   rateLimit: number;
 };
@@ -69,6 +82,7 @@ export const SECRET_FOR: Record<ConnectorAuth["type"], "api_key" | "token" | "cl
 
 export const blankDefinition = (): Definition => ({
   description: "",
+  access: "read",
   method: "GET",
   baseUrl: "https://",
   path: "/",
@@ -81,7 +95,11 @@ export const blankDefinition = (): Definition => ({
   timeoutMs: 5000,
   retries: 1,
   rateLimit: 60,
+  approval: "always",
+  idempotencyHeader: "",
 });
+/** Methods each access allows. */
+export const METHODS = { read: ["GET", "POST"], write: ["POST", "PUT", "PATCH", "DELETE"] } as const;
 
 const NAME = /^[a-z][a-z0-9_]{0,39}$/;
 const HEADER = /^[A-Za-z0-9-]{1,64}$/;
@@ -136,7 +154,10 @@ export function placeholders(template: string) {
 /** A valid definition from what was submitted, or a `DefinitionError` saying what to fix. */
 export function validateDefinition(raw: unknown): Definition {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const method = d.method === "POST" ? "POST" : d.method === "GET" ? "GET" : fail("Choose GET or POST.");
+  const access = d.access === "write" ? "write" : d.access === "read" || d.access === undefined ? "read" : fail("Choose read or write.");
+  const method =
+    (METHODS[access] as readonly string[]).find((m) => m === d.method) as Definition["method"] | undefined ??
+    fail(access === "read" ? "A read connector uses GET or POST." : "A write connector uses POST, PUT, PATCH or DELETE.");
   const inputs = list(d.inputs, 20, "inputs", (x, i): ConnectorInput => {
     const name = text(x.name, 40, `input ${i + 1}'s name`, true);
     if (!NAME.test(name)) fail(`Name input ${i + 1} with lowercase letters, digits and underscores, starting with a letter.`);
@@ -218,15 +239,19 @@ export function validateDefinition(raw: unknown): Definition {
   const path = text(d.path, 500, "the path") || "/";
   if (!path.startsWith("/")) fail("Start the path with /.");
   if (/[?#]/.test(path)) fail("Put query values in Query, not in the path.");
-  const body = method === "POST" ? text(d.body, 10_000, "the body") : "";
+  const body = method !== "GET" && method !== "DELETE" ? text(d.body, 10_000, "the body") : "";
   if (body)
     try {
       JSON.parse(body);
     } catch {
       fail("Write the body as JSON, with placeholders inside strings.");
     }
+  const idempotencyHeader = access === "write" ? text(d.idempotencyHeader, 64, "the idempotency header") : "";
+  if (idempotencyHeader && (!HEADER.test(idempotencyHeader) || RESERVED_HEADERS.test(idempotencyHeader)))
+    fail(`Relay can't send the idempotency key as ${idempotencyHeader}.`);
   const def: Definition = {
     description: text(d.description, 500, "the description"),
+    access,
     method,
     baseUrl: https(d.baseUrl, "the base address"),
     path,
@@ -239,7 +264,11 @@ export function validateDefinition(raw: unknown): Definition {
     timeoutMs: d.timeoutMs === undefined ? 5000 : int(d.timeoutMs, 1000, 10_000, "the timeout (milliseconds)"),
     retries: d.retries === undefined ? 1 : int(d.retries, 0, 2, "retries"),
     rateLimit: d.rateLimit === undefined ? 60 : int(d.rateLimit, 1, 600, "the rate limit (calls a minute)"),
+    approval: access === "write" && d.approval === "never" ? "never" : "always",
+    idempotencyHeader,
   };
+  if (access === "write" && def.retries > 0 && !idempotencyHeader)
+    fail("A write without an idempotency header is never retried: set retries to 0, or name the header.");
   // Every placeholder is a declared input: nothing undeclared can be sent.
   for (const t of [def.path, def.body, ...def.query.map((q) => q.value), ...def.headers.map((h) => h.value)]) {
     if ((t.match(/\{\{/g) ?? []).length !== placeholders(t).length)
@@ -292,7 +321,7 @@ export function renderRequest(def: Definition, values: Values) {
   const headers: Record<string, string> = { accept: "application/json" };
   for (const h of def.headers) headers[h.name] = fill(h.value, values, (s) => s);
   let body: string | undefined;
-  if (def.method === "POST") {
+  if (def.method !== "GET" && def.method !== "DELETE") {
     headers["content-type"] = "application/json";
     // A string that is only a placeholder becomes the typed value; otherwise text is filled in.
     const walk = (v: unknown): unknown => {

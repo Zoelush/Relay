@@ -23,6 +23,8 @@ export type TimelinePart = {
     attachmentId?: string;
     name?: string;
     deleted?: boolean;
+    /** Phase 09 D3: a write Zoe asked a teammate to approve. */
+    aiApproval?: { id?: string };
   };
 };
 const SLA_NAMES: Record<string, string> = {
@@ -268,6 +270,7 @@ function Message({
           <p className={p.data.aiHandover ? "pg-handover" : undefined}>{p.body}</p>
         )}
         {p.kind === "ai_reply" && <AiReplyDetails p={p} />}
+        {p.kind === "internal_note" && p.data.aiApproval?.id && <ApprovalCard id={p.data.aiApproval.id} />}
         {p.kind === "attachment" && p.data.attachmentId && (
           <a
             href={
@@ -322,6 +325,92 @@ const OUTCOMES: Record<string, string> = {
  * Under an AI agent's reply (phase 08): the sources it cited, and on request why it answered as it
  * did (what it found, how relevant, against which threshold, with which model and prompt).
  */
+type Approval = {
+  id: string;
+  connector: string;
+  method: string | null;
+  status: "pending" | "approved" | "denied" | "expired" | "cancelled";
+  expiresAt: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  note: string;
+  version: string;
+  result: string | null;
+};
+const APPROVAL_STATES: Record<Approval["status"], string> = {
+  pending: "Waiting for approval",
+  approved: "Approved",
+  denied: "Denied",
+  expired: "Expired: nobody approved it in time",
+  cancelled: "Cancelled: the customer left the procedure",
+};
+/**
+ * A write Zoe asked to run (phase 09 D3), on her team-only note: approve or deny it, once, with an
+ * optional note. Nothing is sent to the service until someone approves.
+ */
+function ApprovalCard({ id }: { id: string }) {
+  const [a, setA] = useState<Approval | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api<Approval>("ai-approval?id=" + encodeURIComponent(id))
+      .then(setA)
+      .catch((e) => setError(e instanceof Error ? e.message : "This approval could not be loaded."));
+  }, [id]);
+  async function decide(decision: "approve" | "deny") {
+    if (!a) return;
+    setBusy(true);
+    setError("");
+    try {
+      setA(await api<Approval>("ai-approval", { id, version: a.version, decision, note }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That could not be saved.");
+      api<Approval>("ai-approval?id=" + encodeURIComponent(id)).then(setA).catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="pg-approval" aria-label="Approval" data-status={a?.status}>
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      {a && (
+        <>
+          <p>
+            <strong>{APPROVAL_STATES[a.status]}</strong>
+            {a.decidedBy && a.status !== "pending" ? ` by ${a.decidedBy}` : ""}
+            {a.note ? `: “${a.note}”` : ""}
+            {a.status === "approved" && a.result ? ` · ${a.result === "ok" ? "it worked" : `it failed (${a.result})`}` : ""}
+          </p>
+          {a.status === "pending" && (
+            <>
+              <input
+                aria-label="Approval note"
+                placeholder="Note (optional)"
+                maxLength={1000}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              <div className="pg-approval-actions">
+                <button type="button" className="pg-primary" disabled={busy} onClick={() => void decide("approve")}>
+                  Approve {a.connector}
+                </button>
+                <button type="button" disabled={busy} onClick={() => void decide("deny")}>
+                  Deny
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function AiReplyDetails({ p }: { p: TimelinePart }) {
   const [answer, setAnswer] = useState<AiAnswer | null | undefined>();
   const [open, setOpen] = useState(false);

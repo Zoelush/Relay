@@ -197,7 +197,7 @@ import { changeSpecialist, readSpecialists, specialistNames } from "./zoe-specia
 import { changeReview, gapsForHealth, readReview } from "./zoe-review";
 import { changeMonitors, readIncidents, readMonitors } from "./zoe-monitors";
 import { changeConnector, readConnector, readConnectors, type ConnectorEnvironment } from "./connectors";
-import { changeProcedure, readProcedure, readProcedures } from "./procedures";
+import { changeProcedure, decideApproval, readApproval, readProcedure, readProcedures } from "./procedures";
 import {
   indexStatus,
   rebuildIndex,
@@ -1213,6 +1213,7 @@ export async function handleApi(
             "/v1/agent/macros",
             "/v1/agent/context",
             "/v1/agent/ai-answers",
+            "/v1/agent/ai-approval",
             "/v1/agent/ai-settings",
             "/v1/agent/zoe",
             "/v1/agent/bulk",
@@ -1285,6 +1286,7 @@ export async function handleApi(
               "/v1/agent/zoe-monitors",
               "/v1/agent/zoe-connector",
               "/v1/agent/zoe-procedure",
+              "/v1/agent/ai-approval",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1641,6 +1643,13 @@ export async function handleApi(
                 p,
                 env.connectors,
               ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/ai-approval")
+          // Phase 09 D3: a teammate approves or denies a write Zoe asked to run.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              decideApproval(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
             ),
           );
         if (url.pathname === "/v1/agent/zoe-procedure")
@@ -2184,6 +2193,13 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             readAiSettings(db, workspace, principal),
+          ),
+        );
+      if (url.pathname === "/v1/agent/ai-approval")
+        // Phase 09 D3: one approval, for its card in the conversation.
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            readApproval(db, workspace, principal, url.searchParams.get("id") ?? ""),
           ),
         );
       if (url.pathname === "/v1/agent/ai-answers")

@@ -24,4 +24,11 @@ Brief: `docs/BUILD_PHASES.md` phase 09. Approved on 12 October 2026.
    - **Leaving a procedure:** a person asked for or an escalation rule ends it.
    - **Retries:** three failed tries at an input hand over.
 
-Handoffs: `docs/ACTIONS_STEP1.md` (D1), `docs/ACTIONS_STEP2.md` (D2).
+8. **D3 decisions** (12 October 2026):
+   - **Who can approve:** anyone who can reply in conversations.
+   - **Writes need a signed-in customer,** whatever the verification rules.
+   - **No retries without an idempotency header.**
+   - **The kill switch stops the test console too.**
+   - **The rollback archives write connectors.**
+
+Handoffs: `docs/ACTIONS_STEP1.md` (D1), `docs/ACTIONS_STEP2.md` (D2), `docs/ACTIONS_STEP3.md` (D3).

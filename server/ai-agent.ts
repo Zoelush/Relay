@@ -71,7 +71,7 @@ import {
   type Turn,
 } from "./ai-model";
 import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
-import { procedureTurn } from "./procedures";
+import { APPROVAL_HOURS, procedureTurn, resumeTurn, type ProcedureTurn } from "./procedures";
 import type { ConnectorEnvironment } from "./connectors";
 
 /**
@@ -808,7 +808,6 @@ export async function runAiReply(
     },
   );
   if (turn && "runId" in turn) {
-    const text = strings(ctx.language.answer, ctx.agent.formality);
     const written = await tenant(connect, w, async (db) => {
       await recordModelCalls(db, w, conversationId, partId, turn.calls);
       const c = await conversation(db, w, conversationId, true);
@@ -824,30 +823,7 @@ export async function runAiReply(
         });
         return null;
       }
-      let replyPartId: string | undefined;
-      if (turn.messages.length) {
-        const part = await append(db, w, c, { type: "ai", id: ctx.agent.id }, "ai_reply", turn.messages.join("\n\n"), {});
-        replyPartId = part.id;
-        await customerReply(db, w, c, part.seq);
-      }
-      let team: string | null = null;
-      if (turn.status === "escalated") {
-        const handed = await handOver(db, w, c, {
-          agent: ctx.agent,
-          trigger: "procedure",
-          reason: turn.reason,
-          text,
-          locale: ctx.language.answer,
-        });
-        replyPartId = replyPartId ?? handed.replyPartId;
-        team = handed.team;
-      } else {
-        await db.query(
-          "UPDATE conversations SET ai_state='pending' WHERE workspace_id=$1 AND id=$2 AND (ai_state IS NULL OR ai_state IN ('pending','resolved'))",
-          [w, c.id],
-        );
-        await syncUnread(db, w, c);
-      }
+      const { replyPartId, team } = await postProcedureTurn(db, w, c, ctx.agent, turn, ctx.language.answer);
       await record(db, w, {
         agentId: ctx.agent.id,
         conversationId: c.id,
@@ -1023,6 +999,81 @@ export async function runAiReply(
     done: true,
     result: written ? { outcome, replyPartId: written } : { skipped: true },
   };
+}
+
+/**
+ * Posts a procedure's turn (phase 09 D2, D3), in the transaction that committed its run: an
+ * approval asked for (a team-only note with its card), what she says, then a handover or a wait.
+ */
+async function postProcedureTurn(
+  db: Sql,
+  w: string,
+  c: Conversation,
+  agent: Awaited<ReturnType<typeof agentOf>>,
+  turn: ProcedureTurn,
+  locale: string,
+) {
+  if (turn.approval) {
+    const a = turn.approval;
+    const lines = Object.entries(a.summary).map(([k, v]) => `• ${k}: ${v === null || v === undefined ? "—" : String(v)}`);
+    const note = await append(
+      db,
+      w,
+      c,
+      { type: "ai", id: agent.id },
+      "internal_note",
+      `${agent.name} asks to run ${a.connector} (${a.method}) for this customer:\n${lines.join("\n") || "• Nothing from the customer"}\nApprove or deny it here. It expires in ${APPROVAL_HOURS} hours.`,
+      { aiApproval: { id: a.id } },
+      "internal",
+    );
+    await db.query(
+      `INSERT INTO ai_action_approvals(workspace_id,id,conversation_id,run_id,connector_id,connector_version,step,summary,note_part_id,expires_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [w, a.id, c.id, turn.runId, a.connectorId, a.version, a.step, JSON.stringify(a.summary), note.id, a.expiresAt],
+    );
+  }
+  let replyPartId: string | undefined;
+  if (turn.messages.length) {
+    const part = await append(db, w, c, { type: "ai", id: agent.id }, "ai_reply", turn.messages.join("\n\n"), {});
+    replyPartId = part.id;
+    await customerReply(db, w, c, part.seq);
+  }
+  let team: string | null = null;
+  if (turn.status === "escalated") {
+    const handed = await handOver(db, w, c, {
+      agent,
+      trigger: "procedure",
+      reason: turn.reason,
+      text: strings(locale, agent.formality),
+      locale,
+    });
+    replyPartId = replyPartId ?? handed.replyPartId;
+    team = handed.team;
+  } else {
+    await db.query(
+      "UPDATE conversations SET ai_state='pending' WHERE workspace_id=$1 AND id=$2 AND (ai_state IS NULL OR ai_state IN ('pending','resolved'))",
+      [w, c.id],
+    );
+    await syncUnread(db, w, c);
+  }
+  return { replyPartId, team };
+}
+
+/**
+ * The `procedure.resume` job (phase 09 D3): a teammate decided on a write (or its approval
+ * expired), so the procedure waiting on it moves on and what it says is posted.
+ */
+export async function runProcedureResume(connect: Connect, env: AiEnvironment, job: Job) {
+  const w = job.workspace_id;
+  const resumed = await resumeTurn(connect, { connectors: env.connectors, classify: env.classify }, w, String(job.payload.approvalId ?? ""));
+  if (!resumed) return { done: true, result: { skipped: true } };
+  const written = await tenant(connect, w, async (db) => {
+    const c = await conversation(db, w, resumed.conversationId, true);
+    if (!(await resumed.turn.commit(db))) return null;
+    const agent = await agentOf(db, w);
+    return (await postProcedureTurn(db, w, c, agent, resumed.turn, resumed.locale)).replyPartId ?? null;
+  });
+  return { done: true, result: { status: resumed.turn.status, replyPartId: written } };
 }
 
 type Agent = Awaited<ReturnType<typeof agentOf>>;
