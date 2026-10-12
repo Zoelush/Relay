@@ -196,6 +196,7 @@ import { changeGuidance, readGuidance, readGuidanceVersion } from "./zoe-guidanc
 import { changeSpecialist, readSpecialists, specialistNames } from "./zoe-specialists";
 import { changeReview, gapsForHealth, readReview } from "./zoe-review";
 import { changeMonitors, readIncidents, readMonitors } from "./zoe-monitors";
+import { changeConnector, readConnector, readConnectors, type ConnectorEnvironment } from "./connectors";
 import {
   indexStatus,
   rebuildIndex,
@@ -279,6 +280,8 @@ export interface ApiEnvironment {
   ai?: AiEnvironment;
   /** The AI index (phase 07 C2a): embedding models and the vector store. */
   knowledgeIndex?: IndexEnvironment;
+  /** Data connectors (phase 09 D1): RELAY_CONNECTOR_KEY and the fetch policy. */
+  connectors?: ConnectorEnvironment;
 }
 export type Session = {
   workspace: string;
@@ -1279,6 +1282,7 @@ export async function handleApi(
               "/v1/agent/zoe-specialist",
               "/v1/agent/zoe-review",
               "/v1/agent/zoe-monitors",
+              "/v1/agent/zoe-connector",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1619,6 +1623,21 @@ export async function handleApi(
                 principal,
                 req.headers.get("idempotency-key") ?? "",
                 p,
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/zoe-connector")
+          // Phase 09 D1: a data connector created, saved, published, archived, given a credential
+          // or tested (a job).
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeConnector(
+                db,
+                workspace,
+                principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+                env.connectors,
               ),
             ),
           );
@@ -2122,6 +2141,10 @@ export async function handleApi(
             ? readReview
             : view === "monitors"
             ? readMonitors
+            : view === "connectors"
+            ? readConnectors
+            : view === "connector"
+            ? (db, w, principal) => readConnector(db, w, principal, url.searchParams.get("id") ?? "")
             : view === "incidents"
             ? readIncidents
             : view === "guidance"

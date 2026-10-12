@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased: data connectors (phase 09, D1)
+
+- **Zoe › Train › Actions,** behind `ai_actions_v1` (off by default): read-only HTTP connectors.
+- **Inputs:** declared, typed, and the only values that can be sent.
+- **Responses:** mapped to named values.
+- **Credentials:** encrypted.
+- **Test console:** credentials masked.
+- **Versions:** immutable, and pinned per conversation.
+- **Audit:** append-only, with sensitive inputs redacted.
+- **Calls:** rate limited, with retries and timeouts.
+- **Migration:** 0054, with rollback.
+- **Details:** `docs/ACTIONS_STEP1.md`.
+
 ## Unreleased: Zoe's monitors and incidents (phase 08, C2b)
 
 - **Zoe › Analyze › Monitors and Incidents,** behind `zoe_monitors_v1` (off by default).

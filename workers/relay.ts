@@ -8,6 +8,7 @@ import { processBrandAsset } from "../server/brand-assets";
 import { resolveQuiet } from "../server/ai-resolutions";
 import { sampleForReview } from "../server/zoe-review";
 import { checkMonitors } from "../server/zoe-monitors";
+import { runConnectorTest } from "../server/connectors";
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -70,6 +71,8 @@ interface Env extends Partial<StorageEnv> {
   ASSETS: Fetcher;
   SESSION_SECRET: string;
   IDENTITY_MASTER: string;
+  /** Encrypts data connectors' credentials (phase 09 D1); connectors are unavailable without it. */
+  RELAY_CONNECTOR_KEY?: string;
   BRIDGE_SECRET: string;
   RELAY_ENABLED?: string;
   ATTACHMENTS_ENABLED?: string;
@@ -179,6 +182,7 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     ai: aiAgent(env),
     sessionSecret: env.SESSION_SECRET,
     identityMaster: env.IDENTITY_MASTER,
+    connectors: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
     bridgeSecret: env.BRIDGE_SECRET,
     realtimeUrl: env.PUBLIC_ORIGIN.replace(/^http/, "ws") + "/realtime",
     notify: (workspace, id) =>
@@ -448,6 +452,10 @@ const relayWorker = {
     if (runtime.ai)
       handlers["ai.reply"] = (job) =>
         runAiReply(runtime.connect, runtime.ai!, job);
+    // A data connector's test console (phase 09 D1), when its key is set.
+    if (runtime.connectors)
+      handlers["connector.test"] = (job) =>
+        runConnectorTest(runtime.connect, runtime.connectors!, job);
     // Content health's near-duplicate check (phase 07, C2b) reads the same vector store.
     if (runtime.knowledgeIndex)
       handlers["knowledge.duplicates"] = (job) =>
