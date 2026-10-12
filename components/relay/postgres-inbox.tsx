@@ -161,6 +161,10 @@ const zoeFromHash = () => {
   const m = /^#zoe(?:\/([a-z-]+))?$/.exec(window.location.hash);
   return m ? (m[1] ?? "overview") : null;
 };
+/** Phase 09 D4: the app was loaded by a service sending a manager back from connecting a connector. */
+const oauthReturn = () =>
+  typeof window !== "undefined" &&
+  !!new URLSearchParams(window.location.search).get("state")?.startsWith("relay_");
 /** A settings page from the address (`#settings/<page>`), or null when not in Settings. */
 const settingsFromHash = () => {
   if (typeof window === "undefined") return null;
@@ -287,12 +291,12 @@ export default function PostgresInbox({
   const [area, setAreaState] = useState<
     "inbox" | "knowledge" | "settings" | "zoe"
   >(() =>
-    settingsFromHash() ? "settings" : zoeFromHash() ? "zoe" : "inbox",
+    settingsFromHash() ? "settings" : zoeFromHash() || oauthReturn() ? "zoe" : "inbox",
   );
   const [settingsPage, setSettingsPage] = useState(
     () => settingsFromHash() ?? "home",
   );
-  const [zoePage, setZoePage] = useState(() => zoeFromHash() ?? "overview");
+  const [zoePage, setZoePage] = useState(() => zoeFromHash() ?? (oauthReturn() ? "actions" : "overview"));
   const [knowledgeTab, setKnowledgeTab] = useState<
     "content" | "help" | "websites" | "index" | "health"
   >("content");
@@ -316,6 +320,32 @@ export default function PostgresInbox({
     },
     [],
   );
+  // Phase 09 D4: back from a service's sign-in page, finish connecting the connector it was for
+  // (Zoe › Actions shows how it went). The code and state never stay in the address.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const state = q.get("state");
+    if (!state?.startsWith("relay_")) return;
+    const code = q.get("code");
+    const refused = q.get("error");
+    // The app opened on Zoe › Actions (see `oauthReturn`); the code and state leave the address.
+    history.replaceState(null, "", window.location.pathname + "#zoe/actions");
+    const done = (v: object) => {
+      try {
+        sessionStorage.setItem("relay-oauth", JSON.stringify(v));
+      } catch {
+        // Without storage the connector still connected; the page just can't say so.
+      }
+      window.dispatchEvent(new Event("relay-oauth"));
+    };
+    if (!code) {
+      done({ error: `The service didn't connect${refused ? ` (${refused})` : ""}.` });
+      return;
+    }
+    api<{ connector: { id: string } }>("zoe-connector", { action: "oauth_finish", state, code })
+      .then((d) => done({ id: d.connector.id, ok: true }))
+      .catch((e) => done({ error: e instanceof Error ? e.message : "The connection failed." }));
+  }, []);
   // Back and forward, or a link to a settings page, move to it.
   useEffect(() => {
     const onHash = () => {

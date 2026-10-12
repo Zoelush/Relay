@@ -369,6 +369,7 @@ export function ContextSidebar({
           <p className="pg-empty">No other conversations.</p>
         )}
       </section>
+      <AiAudit conversationId={conversationId} refresh={refresh} />
       {c.participants.length > 0 && (
         <section aria-labelledby="ctx-participants">
           <h3 id="ctx-participants">Participants</h3>
@@ -406,5 +407,122 @@ export function ContextSidebar({
         </section>
       )}
     </aside>
+  );
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Phase 09 D4: Zoe's actions in this conversation                                              */
+
+type AuditEntry =
+  | { kind: "procedure"; at: string; procedure: string; version: number; status: string; reason: string; endedAt: string | null }
+  | {
+      kind: "call";
+      at: string;
+      connector: string;
+      version: number | null;
+      access: string;
+      by: string;
+      method: string;
+      url: string | null;
+      inputs: Record<string, unknown> | null;
+      outputs: Record<string, unknown> | null;
+      status: number | null;
+      attempts: number;
+      durationMs: number;
+      result: string;
+      error: string;
+      approvalId: string | null;
+      idempotencyKey: string | null;
+    }
+  | { kind: "approval"; at: string; id: string; connector: string; status: string; decidedBy: string | null; decidedAt: string | null; note: string };
+const RESULT_WORDS: Record<string, string> = {
+  ok: "worked",
+  http_error: "the service returned an error",
+  timeout: "timed out",
+  refused: "refused",
+  invalid_input: "input not valid",
+  invalid_response: "unexpected response",
+  rate_limited: "over its rate limit",
+  auth_failed: "credentials refused",
+  unreachable: "couldn't reach it",
+};
+const clock = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+/**
+ * The audit of Zoe's procedures, connector calls and approvals here, in time order, for teammates
+ * who can read the conversation (what was sent and returned only with permission to see personal
+ * data). Shown only when there's something; "Copy log" copies it as text.
+ */
+function AiAudit({ conversationId, refresh }: { conversationId: string; refresh: number }) {
+  const [audit, setAudit] = useState<{ id: string; entries: AuditEntry[]; details: boolean; text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api<{ entries: AuditEntry[]; details: boolean; text: string }>("ai-audit?" + new URLSearchParams({ conversation: conversationId }))
+      .then((a) => live && setAudit({ id: conversationId, ...a }))
+      .catch(() => live && setAudit(null));
+    return () => {
+      live = false;
+    };
+  }, [conversationId, refresh]);
+  if (!audit || audit.id !== conversationId || !audit.entries.length) return null;
+  return (
+    <section aria-labelledby="ctx-ai-audit" className="pg-ai-audit">
+      <h3 id="ctx-ai-audit">Zoe&apos;s actions</h3>
+      <ol aria-label="Zoe's actions">
+        {audit.entries.map((e, i) => (
+          <li key={i} data-kind={e.kind}>
+            <time dateTime={e.at}>{clock(e.at)}</time>
+            {e.kind === "procedure" ? (
+              <span>
+                <strong>Procedure “{e.procedure}”</strong> (version {e.version}):{" "}
+                {e.status === "waiting" ? "running" : e.status}. <small>{e.reason}</small>
+              </span>
+            ) : e.kind === "approval" ? (
+              <span>
+                <strong>Approval</strong> to run {e.connector}: {e.status}
+                {e.decidedBy ? ` by ${e.decidedBy}` : ""}
+                {e.note ? ` (“${e.note}”)` : ""}.
+              </span>
+            ) : (
+              <span>
+                <strong>
+                  {e.by} {e.access === "write" ? "ran" : "looked up"} {e.connector}
+                </strong>{" "}
+                {e.version ? `(version ${e.version})` : "(draft)"}: {RESULT_WORDS[e.result] ?? e.result}
+                {e.status !== null ? ` (${e.status})` : ""}, {e.durationMs} ms
+                {e.attempts > 1 ? `, ${e.attempts} attempts` : ""}.{e.error ? <small> {e.error}</small> : null}
+                {(e.inputs || e.outputs || e.idempotencyKey) && (
+                  <details>
+                    <summary>What was sent and returned</summary>
+                    {e.url && (
+                      <code>
+                        {e.method} {e.url}
+                      </code>
+                    )}
+                    {e.inputs && <code>Sent: {JSON.stringify(e.inputs)}</code>}
+                    {e.outputs && e.result === "ok" && <code>Got: {JSON.stringify(e.outputs)}</code>}
+                    {e.idempotencyKey && <code>Idempotency key: {e.idempotencyKey}</code>}
+                  </details>
+                )}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {!audit.details && <p className="pg-empty">What was sent and returned needs permission to see personal data.</p>}
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard
+            ?.writeText(audit.text)
+            .then(() => setCopied(true))
+            .catch(() => setCopied(false));
+        }}
+      >
+        {copied ? "Copied" : "Copy log"}
+      </button>
+    </section>
   );
 }

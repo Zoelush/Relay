@@ -40,7 +40,9 @@ export type ConnectorAuth =
   | { type: "none" }
   | { type: "api_key"; header: string }
   | { type: "bearer" }
-  | { type: "oauth_client_credentials"; tokenUrl: string; clientId: string; scope: string };
+  | { type: "oauth_client_credentials"; tokenUrl: string; clientId: string; scope: string }
+  /** D4: OAuth 2 on the workspace's behalf: a manager connects it once; Relay refreshes the token. */
+  | { type: "oauth_authorization_code"; authorizeUrl: string; tokenUrl: string; clientId: string; scope: string };
 export type Definition = {
   description: string;
   /**
@@ -78,6 +80,7 @@ export const SECRET_FOR: Record<ConnectorAuth["type"], "api_key" | "token" | "cl
   api_key: "api_key",
   bearer: "token",
   oauth_client_credentials: "client_secret",
+  oauth_authorization_code: "client_secret",
 };
 
 export const blankDefinition = (): Definition => ({
@@ -221,6 +224,14 @@ export function validateDefinition(raw: unknown): Definition {
               clientId: text(a.clientId, 200, "the client ID", true),
               scope: text(a.scope, 500, "the scope"),
             }
+          : a.type === "oauth_authorization_code"
+            ? {
+                type: "oauth_authorization_code",
+                authorizeUrl: https(a.authorizeUrl, "the authorization address"),
+                tokenUrl: https(a.tokenUrl, "the token address"),
+                clientId: text(a.clientId, 200, "the client ID", true),
+                scope: text(a.scope, 500, "the scope"),
+              }
           : a.type === "none" || a.type === undefined
             ? { type: "none" }
             : fail("Choose how Relay authenticates.");

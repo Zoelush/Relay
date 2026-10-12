@@ -1452,3 +1452,13 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-approval input { width:100%; }
 .pg-approval-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .pg-approval-actions button:not(.pg-primary) { padding:6px 12px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); }
+/* Phase 09 D4: Zoe's actions in a conversation (agent/sidebar.tsx). */
+.pg-ai-audit ol { list-style:none; margin:0 0 8px; padding:0; display:flex; flex-direction:column; gap:8px; }
+.pg-ai-audit li { display:flex; flex-direction:column; gap:2px; padding-left:10px; border-left:2px solid var(--pg-border); font-size:12.5px; line-height:1.45; }
+.pg-ai-audit li[data-kind="call"] { border-left-color:var(--pg-tint-teal); }
+.pg-ai-audit li[data-kind="approval"] { border-left-color:var(--pg-tint-amber); }
+.pg-ai-audit li[data-kind="procedure"] { border-left-color:var(--pg-tint-violet); }
+.pg-ai-audit time { font-size:11.5px; color:var(--pg-muted); }
+.pg-ai-audit small { color:var(--pg-text-2); }
+.pg-ai-audit details code { display:block; margin-top:2px; font-size:11.5px; overflow-wrap:anywhere; white-space:pre-wrap; }
+.pg-ai-audit button { padding:4px 10px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); font-size:12.5px; }

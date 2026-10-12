@@ -81,6 +81,34 @@ export const CANCEL_ORDER = {
   },
 };
 
+/** D4: a calendar connected on the workspace's behalf (OAuth 2 authorization code with refresh). */
+export const CALENDAR_SECRET = "cal_client_secret_8a7b6c5d";
+export const BOOKINGS = {
+  name: "Bookings",
+  definition: {
+    description: "The customer's next booking, from the calendar.",
+    access: "read",
+    method: "GET",
+    baseUrl: "https://api.calendar.example/v1",
+    path: "/bookings",
+    query: [{ name: "email", value: "{{email}}" }],
+    headers: [],
+    body: "",
+    inputs: [{ name: "email", label: "Email", type: "string", source: "contact.email", required: true, sensitive: true, pattern: "", maxLength: 200 }],
+    outputs: [{ name: "next_booking", label: "Next booking", path: "next.when", type: "string", sensitive: false }],
+    auth: {
+      type: "oauth_authorization_code",
+      authorizeUrl: "https://auth.calendar.example/authorize",
+      tokenUrl: "https://auth.calendar.example/oauth/token",
+      clientId: "relay-fernhill",
+      scope: "bookings.read offline_access",
+    },
+    timeoutMs: 2000,
+    retries: 0,
+    rateLimit: 60,
+  },
+};
+
 export const ACCOUNT_STATUS = {
   name: "Account status",
   definition: {
@@ -160,6 +188,33 @@ export function recordedFetch(exchanges: Exchange[] = EXCHANGES) {
       return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401 });
     if (url === "https://auth.crm.example/oauth/token" && !String(init?.body).includes(`client_secret=${CRM_CLIENT_SECRET}`))
       return new Response(JSON.stringify({ error: "invalid_client" }), { status: 401 });
+    // D4: the calendar's OAuth provider, as a real one behaves: codes once, PKCE, rotating refresh.
+    if (url === "https://auth.calendar.example/oauth/token") {
+      const f = new URLSearchParams(String(init?.body ?? ""));
+      const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      if (f.get("client_id") !== "relay-fernhill" || f.get("client_secret") !== CALENDAR_SECRET) return json(401, { error: "invalid_client" });
+      if (f.get("grant_type") === "authorization_code") {
+        // The redirect must be the agent app's (https://app.test in unit tests, the local relay's in browser tests).
+        if (!f.get("code_verifier") || !/^https?:\/\/[^/]+\/agent$/.test(f.get("redirect_uri") ?? "")) return json(400, { error: "invalid_request" });
+        if (f.get("code") === "good-code") return json(200, { access_token: "cal-token-1", refresh_token: "cal-refresh-1", expires_in: 3600 });
+        if (f.get("code") === "no-refresh") return json(200, { access_token: "cal-token-x", expires_in: 3600 });
+        return json(400, { error: "invalid_grant" });
+      }
+      if (f.get("grant_type") === "refresh_token") {
+        if (f.get("refresh_token") === "cal-refresh-1") return json(200, { access_token: "cal-token-2", refresh_token: "cal-refresh-2", expires_in: 3600 });
+        if (f.get("refresh_token") === "cal-refresh-2") return json(200, { access_token: "cal-token-3", expires_in: 3600 });
+        return json(400, { error: "invalid_grant" });
+      }
+      return json(400, { error: "unsupported_grant_type" });
+    }
+    if (url.startsWith("https://api.calendar.example/")) {
+      if (!["Bearer cal-token-1", "Bearer cal-token-2", "Bearer cal-token-3"].includes(headers.authorization ?? ""))
+        return new Response(JSON.stringify({ error: "invalid_token" }), { status: 401 });
+      return new Response(JSON.stringify({ next: { when: "Tuesday 14 October, 10:00", room: "Workshop 2" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     const exchange = exchanges.find((x) => x.method === method && x.url === url);
     if (!exchange) {
       unmatched.push(`${method} ${url}`);

@@ -245,8 +245,11 @@ type State = {
   reason: string;
   stepsTaken: string[];
   approval: ApprovalRequest | null;
+  /** When the turn began: a new run's start, before any call it makes (D4's audit order). */
+  began: string;
 };
 const stateOf = (run: RunRow, starting: boolean): State => ({
+  began: new Date().toISOString(),
   run,
   starting,
   values: { ...run.values },
@@ -425,10 +428,10 @@ function turnOf(ctx: Ctx, st: State, calls: ModelCall[]): ProcedureTurn {
       const values = JSON.stringify(st.values);
       if (st.starting) {
         const inserted = await db.query(
-          `INSERT INTO ai_procedure_runs(workspace_id,id,conversation_id,procedure_id,procedure_version,status,step,waiting_for,retries,"values",reason,ended_at)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,${ended ? "now()" : "NULL"})
+          `INSERT INTO ai_procedure_runs(workspace_id,id,conversation_id,procedure_id,procedure_version,status,step,waiting_for,retries,"values",reason,ended_at,started_at)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,${ended ? "now()" : "NULL"},$12)
            ON CONFLICT DO NOTHING RETURNING id`,
-          [w, r.id, ctx.conversationId, r.procedure_id, r.procedure_version, st.status, st.step, st.waitingFor, st.retries, values, st.reason],
+          [w, r.id, ctx.conversationId, r.procedure_id, r.procedure_version, st.status, st.step, st.waitingFor, st.retries, values, record, st.began],
         );
         return inserted.rows.length > 0;
       }
@@ -436,7 +439,7 @@ function turnOf(ctx: Ctx, st: State, calls: ModelCall[]): ProcedureTurn {
         `UPDATE ai_procedure_runs SET status=$3,step=$4,waiting_for=$5,retries=$6,"values"=$7,reason=$8,updated_at=now(),
            ended_at=${ended ? "now()" : "NULL"},version=version+1
          WHERE workspace_id=$1 AND id=$2 AND status='waiting' AND version::text=$9 RETURNING id`,
-        [w, r.id, st.status, st.step, st.waitingFor, st.retries, values, st.reason, r.version],
+        [w, r.id, st.status, st.step, st.waitingFor, st.retries, values, record, r.version],
       );
       return updated.rows.length > 0;
     },

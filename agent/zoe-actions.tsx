@@ -46,6 +46,7 @@ type Detail = {
     secrets: { name: string; hint: string; updatedAt: string }[];
     writes: { enabled: boolean; by: string | null; at: string | null };
     liveAccess: "read" | "write" | null;
+    oauth: { connected: boolean; by: string | null; at: string | null };
   };
   paused: boolean;
   versions: { version: number; publishedAt: string; by: string | null }[];
@@ -90,8 +91,23 @@ const AUTH_NAMES: Record<Definition["auth"]["type"], string> = {
   api_key: "API key in a header",
   bearer: "Bearer token",
   oauth_client_credentials: "OAuth 2 (client credentials)",
+  oauth_authorization_code: "OAuth 2 (connect on your workspace's behalf)",
 };
 const SECRET_NAMES = { api_key: "API key", token: "Bearer token", client_secret: "Client secret" };
+/** Where a service sends a manager back after connecting (D4): the agent app itself. */
+const redirectUri = () => `${window.location.origin}/agent`;
+/** D4: what the app found when a service sent a manager back (postgres-inbox finishes the connection). */
+export const OAUTH_NOTICE = "relay-oauth";
+function takeNotice(): { id?: string; ok?: boolean; error?: string } | null {
+  try {
+    const raw = sessionStorage.getItem(OAUTH_NOTICE);
+    if (!raw) return null;
+    sessionStorage.removeItem(OAUTH_NOTICE);
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 const Chip = ({ result }: { result: string }) => {
   const [label, hue] = RESULT_NAMES[result] ?? [result, "slate"];
   return (
@@ -108,6 +124,20 @@ export function ActionsPage({ menu, page }: { menu: SideMenuState; page: Page })
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  // D4: back from a service's sign-in page: show the connector and how it went.
+  useEffect(() => {
+    const read = () => {
+      const n = takeNotice();
+      if (!n) return;
+      if (n.id) setOpen(n.id);
+      if (n.ok) setNotice("Connected.");
+      if (n.error) setError(n.error);
+    };
+    read();
+    window.addEventListener(OAUTH_NOTICE, read);
+    return () => window.removeEventListener(OAUTH_NOTICE, read);
+  }, []);
   const load = () =>
     api<{ connectors: Summary[]; writes: Writes }>("zoe?view=connectors")
       .then((d) => {
@@ -121,7 +151,12 @@ export function ActionsPage({ menu, page }: { menu: SideMenuState; page: Page })
   if (open)
     return (
       <Frame menu={menu} page={page} wide>
-        <ConnectorEditor id={open} onBack={() => setOpen(null)} />
+        {notice && (
+          <p role="status" className="pg-muted">
+            {notice}
+          </p>
+        )}
+        <ConnectorEditor key={open + notice} id={open} onBack={() => (setOpen(null), setNotice(""))} />
       </Frame>
     );
   return (
@@ -526,7 +561,11 @@ function ConnectorEditor({ id, onBack }: { id: string; onBack: () => void }) {
                     ? { type, header: "X-Api-Key" }
                     : type === "oauth_client_credentials"
                       ? { type, tokenUrl: "https://", clientId: "", scope: "" }
-                      : { type },
+                      : type === "oauth_authorization_code"
+                        ? { type, authorizeUrl: "https://", tokenUrl: "https://", clientId: "", scope: "" }
+                        : type === "bearer"
+                          ? { type }
+                          : { type: "none" },
               });
             }}
           >
@@ -542,6 +581,32 @@ function ConnectorEditor({ id, onBack }: { id: string; onBack: () => void }) {
               value={def.auth.header}
               onChange={(e) => set({ auth: { type: "api_key", header: e.target.value } })}
             />
+          )}
+          {def.auth.type === "oauth_authorization_code" && (
+            <>
+              <input
+                aria-label="Authorization address"
+                value={def.auth.authorizeUrl}
+                onChange={(e) => set({ auth: { ...(def.auth as Extract<Definition["auth"], { type: "oauth_authorization_code" }>), authorizeUrl: e.target.value } })}
+              />
+              <input
+                aria-label="Token address"
+                value={def.auth.tokenUrl}
+                onChange={(e) => set({ auth: { ...(def.auth as Extract<Definition["auth"], { type: "oauth_authorization_code" }>), tokenUrl: e.target.value } })}
+              />
+              <input
+                aria-label="Client ID"
+                value={def.auth.clientId}
+                placeholder="Client ID"
+                onChange={(e) => set({ auth: { ...(def.auth as Extract<Definition["auth"], { type: "oauth_authorization_code" }>), clientId: e.target.value } })}
+              />
+              <input
+                aria-label="Scope"
+                value={def.auth.scope}
+                placeholder="Scope (include offline access)"
+                onChange={(e) => set({ auth: { ...(def.auth as Extract<Definition["auth"], { type: "oauth_authorization_code" }>), scope: e.target.value } })}
+              />
+            </>
           )}
           {def.auth.type === "oauth_client_credentials" && (
             <>
@@ -587,6 +652,59 @@ function ConnectorEditor({ id, onBack }: { id: string; onBack: () => void }) {
               {stored ? "Replace" : "Save"} {SECRET_NAMES[secretName]}
             </button>
           </form>
+        )}
+        {c.definition.auth.type === "oauth_authorization_code" && (
+          <div className="pg-zoe-oauth" role="group" aria-label="Connection">
+            <p>
+              <span className="pg-zoe-review-why" data-hue={c.oauth.connected ? "green" : "slate"}>
+                {c.oauth.connected ? "Connected" : "Not connected"}
+              </span>{" "}
+              {c.oauth.connected && c.oauth.by && c.oauth.at ? (
+                <small className="pg-muted">
+                  by {c.oauth.by} {ago(c.oauth.at)}: Zoe uses this connection for everyone, and Relay keeps it fresh.
+                </small>
+              ) : (
+                <small className="pg-muted">Connect once, as someone allowed to use the service for your workspace.</small>
+              )}
+            </p>
+            <p className="pg-muted">
+              Register this return address with the service: <code>{redirectUri()}</code>
+            </p>
+            <div className="pg-zoe-review-actions">
+              <button
+                type="button"
+                className="pg-zoe-primary"
+                disabled={busy || dirty || !stored}
+                title={dirty ? "Save the draft first" : !stored ? "Save the client secret first" : undefined}
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    const { url } = await api<{ url: string }>("zoe-connector", { action: "oauth_start", id, redirectUri: redirectUri() });
+                    window.location.assign(url);
+                  } catch (e) {
+                    setError(message(e, "The connection couldn't start."));
+                    setBusy(false);
+                  }
+                }}
+              >
+                {c.oauth.connected ? "Connect again" : "Connect"}
+              </button>
+              {c.oauth.connected && (
+                <button
+                  type="button"
+                  className="pg-zoe-secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm(`Disconnect ${c.name}? Zoe can't use it until someone connects it again.`))
+                      void change({ action: "oauth_disconnect", version: c.version }, "Disconnected.");
+                  }}
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </Card>
 
