@@ -199,6 +199,7 @@ import { changeMonitors, readIncidents, readMonitors } from "./zoe-monitors";
 import { changeConnector, finishOAuth, readConnector, readConnectors, type ConnectorEnvironment } from "./connectors";
 import { changeProcedure, decideApproval, readApproval, readProcedure, readProcedures } from "./procedures";
 import { auditText, readAiAudit } from "./ai-audit";
+import { changeWorkflow, readRun, readRuns, readWorkflow, readWorkflows, runManually } from "./workflows";
 import {
   indexStatus,
   rebuildIndex,
@@ -1216,6 +1217,8 @@ export async function handleApi(
             "/v1/agent/ai-answers",
             "/v1/agent/ai-approval",
             "/v1/agent/ai-audit",
+            "/v1/agent/workflows",
+            "/v1/agent/workflow-runs",
             "/v1/agent/ai-settings",
             "/v1/agent/zoe",
             "/v1/agent/bulk",
@@ -1289,6 +1292,8 @@ export async function handleApi(
               "/v1/agent/zoe-connector",
               "/v1/agent/zoe-procedure",
               "/v1/agent/ai-approval",
+              "/v1/agent/workflow",
+              "/v1/agent/workflow-run",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1648,6 +1653,20 @@ export async function handleApi(
                 p,
                 env.connectors,
               ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/workflow")
+          // Phase 11 W1: a workflow created, saved, published, paused, rolled back, archived or reordered.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeWorkflow(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
+            ),
+          );
+        if (url.pathname === "/v1/agent/workflow-run")
+          // Phase 11 W1: a teammate runs a manual workflow on a conversation.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              runManually(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
             ),
           );
         if (url.pathname === "/v1/agent/ai-approval")
@@ -2199,6 +2218,28 @@ export async function handleApi(
           await tenant(env.connect, workspace, (db) =>
             readAiSettings(db, workspace, principal),
           ),
+        );
+      if (url.pathname === "/v1/agent/workflows")
+        // Phase 11 W1: the workflows by trigger, or one (?id=).
+        return json(
+          await tenant(env.connect, workspace, (db): Promise<unknown> => {
+            const id = url.searchParams.get("id");
+            return id ? readWorkflow(db, workspace, principal, id) : readWorkflows(db, workspace, principal);
+          }),
+        );
+      if (url.pathname === "/v1/agent/workflow-runs")
+        // Phase 11 W1: the run log (filtered), or one run with its steps (?id=).
+        return json(
+          await tenant(env.connect, workspace, (db): Promise<unknown> => {
+            const id = url.searchParams.get("id");
+            return id
+              ? readRun(db, workspace, principal, id)
+              : readRuns(db, workspace, principal, {
+                  workflowId: url.searchParams.get("workflow") ?? undefined,
+                  conversationId: url.searchParams.get("conversation") ?? undefined,
+                  status: url.searchParams.get("status") ?? undefined,
+                });
+          }),
         );
       if (url.pathname === "/v1/agent/ai-audit")
         // Phase 09 D4: Zoe's actions in one conversation, in time order (and as text).

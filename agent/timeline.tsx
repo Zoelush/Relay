@@ -81,7 +81,10 @@ export function describePart(p: TimelinePart, dir: Directory): string {
   const d = p.data;
   const who =
     p.author_type === "system"
-      ? "Relay"
+      ? // Phase 11: a workflow's change names the workflow.
+        typeof d.workflowName === "string"
+        ? `Workflow “${d.workflowName}”`
+        : "Relay"
       : p.author_type === "contact"
         ? "Customer"
         : pick(dir.teammates, p.author_id) || "A teammate";

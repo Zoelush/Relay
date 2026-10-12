@@ -253,6 +253,13 @@ export async function savePolicy(
 /** The first enabled policy whose conditions match; customer conversations only. */
 async function matchPolicy(db: Sql, w: string, c: Conversation) {
   if (c.visibility === "internal" || c.merged_into_id) return null;
+  // Phase 11: a workflow's "apply an SLA" step chose this policy (or none) for the conversation.
+  const forced = (c as Conversation & { sla_forced?: string | null }).sla_forced;
+  if (forced === "none") return null;
+  if (forced) {
+    const chosen = (await policies(db, w)).find((x) => x.id === forced);
+    if (chosen) return chosen;
+  }
   for (const policy of await policies(db, w)) {
     if (!policy.enabled) continue;
     if (!policy.conditions) return policy;

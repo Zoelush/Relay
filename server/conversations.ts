@@ -1,3 +1,4 @@
+import { workflowEvent } from "./workflow-engine";
 import { resolveWake } from "./snooze";
 import {
   assertClosable,
@@ -35,6 +36,9 @@ export type Actor = (
   | { type: "teammate"; principal: string }
   | { type: "contact"; identityId: string; brandId: string; verified?: boolean }
 ) & { originTimezone?: string };
+/** Phase 11: a workflow's run, acting as Relay (its changes are attributed to it). */
+export type WorkflowActor = { type: "workflow"; workflowId: string; runId: string; name: string; originTimezone?: undefined };
+type AnyActor = Actor | WorkflowActor;
 export interface Conversation {
   id: string;
   workspace_id: string;
@@ -283,9 +287,17 @@ export async function access(
   db: Sql,
   w: string,
   c: Conversation,
-  actor: Actor,
+  actor: AnyActor,
   cap: Capability = "conversations.read",
 ) {
+  if (actor.type === "workflow")
+    // Phase 11: a published workflow acts as Relay, attributed to itself in the timeline.
+    return {
+      type: "system",
+      id: "workflow:" + actor.workflowId,
+      name: actor.name,
+      runId: actor.runId,
+    };
   if (actor.type === "teammate") {
     const t = await authorize(db, w, actor.principal, cap);
     return {
@@ -330,7 +342,7 @@ export async function append(
   db: Sql,
   w: string,
   c: Conversation,
-  author: { type: string; id: string; name?: string; originTimezone?: string },
+  author: { type: string; id: string; name?: string; originTimezone?: string; runId?: string },
   kind: string,
   body = "",
   data: Record<string, unknown> = {},
@@ -364,6 +376,10 @@ export async function append(
           ...(author.type === "teammate" && author.name
             ? { authorName: author.name }
             : {}),
+          // Phase 11: a workflow's change names it and its run (loop detection, the timeline).
+          ...(author.type === "system" && author.id.startsWith("workflow:")
+            ? { workflowName: author.name, workflowRun: author.runId }
+            : {}),
         }),
         supersedes,
         version.updated_at,
@@ -387,6 +403,8 @@ export async function append(
       [w, c.id, id, audience, body, version.next_seq],
     );
   c.next_seq = version.next_seq;
+  // Phase 11: what this part triggers (a job per trigger a live workflow listens to).
+  await workflowEvent(db, w, c, part);
   return part;
 }
 async function transition(
@@ -498,7 +516,7 @@ export async function syncUnread(
  */
 function messageContent(
   p: Command,
-  actor: Actor,
+  actor: AnyActor,
 ): { text: string; doc?: RichDoc } {
   if (p.doc === undefined) {
     assert(
@@ -561,14 +579,16 @@ async function prepareMentions(
 export async function command(
   db: Sql,
   w: string,
-  actor: Actor,
+  actor: AnyActor,
   key: string,
   p: Command,
 ) {
   const scope =
     actor.type === "contact"
       ? "contact:" + actor.identityId
-      : "teammate:" + actor.principal;
+      : actor.type === "workflow"
+        ? "workflow:" + actor.runId
+        : "teammate:" + actor.principal;
   return once(db, w, scope, key, p, async () => {
     if (p.action === "start") {
       assert(
@@ -819,9 +839,16 @@ export async function command(
     }
     if (p.action === "reply" || p.action === "note") {
       assert(
-        p.action !== "note" || actor.type === "teammate",
+        p.action !== "note" || actor.type !== "contact",
         "FORBIDDEN",
         "Customers cannot add internal notes.",
+        403,
+      );
+      // TODO(phase 11 W3): messages to the customer from a workflow.
+      assert(
+        actor.type !== "workflow" || p.action === "note",
+        "FORBIDDEN",
+        "Workflows add notes; messages to the customer arrive with customer-facing steps.",
         403,
       );
       assert(
@@ -977,7 +1004,9 @@ export async function command(
       return { ok: true };
     }
     assert(
-      actor.type === "teammate" || p.action === "rating",
+      actor.type === "teammate" ||
+        actor.type === "workflow" ||
+        p.action === "rating",
       "FORBIDDEN",
       "This action requires a teammate.",
       403,

@@ -10,6 +10,7 @@ import { sampleForReview } from "../server/zoe-review";
 import { checkMonitors } from "../server/zoe-monitors";
 import { runConnectorTest } from "../server/connectors";
 import { expireApprovals } from "../server/procedures";
+import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -438,6 +439,9 @@ const relayWorker = {
       "bulk.undo": (job) => runBulkUndo(runtime.connect, job),
       "ticket.broadcast": (job) => runBroadcast(runtime.connect, job),
       "sla.reevaluate": (job) => reevaluateJob(runtime.connect, job),
+      // Phase 11: workflows triggered, and waiting runs resumed.
+      "workflow.start": (job) => startWorkflows(runtime.connect, job),
+      "workflow.resume": (job) => resumeWorkflow(runtime.connect, job),
     };
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>
@@ -523,6 +527,8 @@ const relayWorker = {
           await checkMonitors(runtime.connect, work.workspace);
           // Approvals for writes expire after 24 hours (phase 09 D3).
           await expireApprovals(runtime.connect, work.workspace);
+          // Workflow runs whose wait is over (phase 11).
+          await resumeDueWorkflows(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(
