@@ -1250,6 +1250,10 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-targeting .pg-settings-row select, .pg-targeting .pg-settings-row input { min-width:0; max-width:100%; }
 .pg-zoe-targeted { display:flex; align-items:center; gap:6px; margin-top:3px; font-size:12px; color:var(--pg-text-2); }
 .pg-zoe-skipped { color:var(--pg-warn-text); }
+/* B2b: exactly what was sent to the model, for managers. */
+.pg-zoe-sent { margin-top:4px; font-size:12px; }
+.pg-zoe-sent summary { cursor:pointer; color:var(--pg-accent); }
+.pg-zoe-sent pre { max-height:220px; overflow:auto; margin:6px 0 0; padding:8px 10px; border-radius:8px; background:var(--pg-sunken); color:var(--pg-text); font:11.5px/1.45 ui-monospace, monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
 .pg-colour-sample { display:grid; place-items:center; width:34px; height:34px; border-radius:8px; border:1px solid var(--pg-border); font-weight:600; }
 .pg-settings-tabs { display:flex; flex-wrap:wrap; gap:4px; }
 .pg-settings-tabs button { padding:5px 12px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-surface); color:var(--pg-text); font-size:13px; }

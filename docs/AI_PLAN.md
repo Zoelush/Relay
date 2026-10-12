@@ -88,4 +88,13 @@ Acceptance criteria (phase brief):
     - **No new conditions:** contact and company attributes wait for phase 01.
     - **Migration:** 0050.
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b).
+12. **B2 decisions** (12 October 2026; "go ahead with everything"):
+    - **One branch:** B2a (safety) and B2b (privacy) together.
+    - **Blocked replies fail safe:** "I couldn't find an answer", counting toward the failed-answer limit.
+    - **Redaction** is off by default.
+    - **The model-call record** is kept 90 days.
+    - **Memory** is off by default, for signed-in customers only: their last 3 conversations from the past 90 days, public messages only.
+    - **Email spam and phishing filtering** waits for phase 12.
+    - **Migration:** 0051.
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b), `docs/AI_STEP9.md` (B2).

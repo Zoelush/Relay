@@ -1,5 +1,5 @@
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
-import { authorize } from "./policy";
+import { authorize, can } from "./policy";
 import { afterChange } from "./routing";
 import { availabilityFor } from "./office-hours";
 import {
@@ -32,6 +32,14 @@ import {
 } from "./zoe-specialists";
 import { chooseLanguage, detectLanguage, type LanguageChoice } from "./ai-language";
 import { recordTitles, targetedOut } from "./ai-targeting";
+import { GUARD_REASONS, guardReply, newCanary, type Guard } from "./ai-guard";
+import {
+  memoryFor,
+  recordModelCalls,
+  redactor,
+  type ModelCall,
+  type Remembered,
+} from "./ai-privacy";
 import {
   ALL_LANGUAGES,
   languageName,
@@ -50,6 +58,8 @@ import { customerReply } from "./unread";
 import type { IndexEnvironment } from "./knowledge-index";
 import {
   PROMPT_VERSION,
+  buildClassifyPrompt,
+  buildPrompt,
   guidanceLine,
   jobLine,
   styleLines,
@@ -104,6 +114,10 @@ import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
  * job and her guidance, and hands over to her team.
  * Step Z3b (docs/AI_STEP8.md): content targeted at other customers is left out of retrieval before
  * ranking, and each answer records what was left out, for teammates.
+ * Step B2 (docs/AI_STEP9.md): guards in code check every reply a model writes before it can reach
+ * a customer (`server/ai-guard.ts`); personal data can be redacted before anything is sent to a
+ * model provider, every call is recorded, and a signed-in customer's earlier conversations can be
+ * remembered (`server/ai-privacy.ts`). TODO(phase 12): spam and phishing filtering on email.
  * TODO(phase 09): the actions a specialist may call.
  */
 export type AiEnvironment = {
@@ -418,9 +432,11 @@ async function agentOf(db: Sql, w: string) {
       guidance_version: number;
       languages: string[];
       other_languages: "brand_language" | "hand_over";
+      redact_personal_data: boolean;
+      memory: boolean;
     }>(
       `SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,never_handle,escalation_guidance,resolution_window_hours,version::text AS version,
-         tone,answer_length,formality,answer_guidance,guidance_version,languages,other_languages FROM ai_agents WHERE workspace_id=$1 AND id=$2`,
+         tone,answer_length,formality,answer_guidance,guidance_version,languages,other_languages,redact_personal_data,memory FROM ai_agents WHERE workspace_id=$1 AND id=$2`,
       [w, DEFAULT_AGENT],
     )
   ).rows[0];
@@ -472,6 +488,9 @@ type Context = {
   signedIn: boolean;
   /** The language she answers in, and how she chose it (Z2). */
   language: LanguageChoice;
+  /** B2b: the customer's own names (for redaction), and their earlier conversations (memory). */
+  names: string[];
+  memory: Remembered[];
 };
 
 /** Why the agent won't answer this message now, if it won't. */
@@ -582,7 +601,44 @@ async function context(
         [w, c.primary_identity_id],
       )
     ).rows[0]?.kind === "user";
-  return { c, agent, question, history, chain: language.chain, signedIn, language };
+  // B2b: the customer's names, redacted with the rest when redaction is on; and, for a signed-in
+  // customer when the workspace turned memory on, their earlier conversations.
+  const names = (
+    await db.query<{ name: string }>(
+      `SELECT k.name FROM identity_contact_mappings m JOIN contacts k ON k.workspace_id=m.workspace_id AND k.id=m.contact_id
+       WHERE m.workspace_id=$1 AND m.identity_id=$2 AND k.name<>''`,
+      [w, c.primary_identity_id],
+    )
+  ).rows.flatMap((r) => [r.name, ...r.name.split(/\s+/).filter((part) => part.length >= 3)]);
+  const memory =
+    agent.memory && signedIn ? await memoryFor(db, w, c.primary_identity_id, c.id) : [];
+  return {
+    c,
+    agent,
+    question,
+    history,
+    chain: language.chain,
+    signedIn,
+    language,
+    names: [...new Set(names)],
+    memory,
+  };
+}
+
+/** Internal content a reply must never quote (B2a): internal knowledge, and the conversation's notes. */
+async function internalTexts(db: Sql, w: string, conversationId: string | null) {
+  return (
+    await db.query<{ text: string }>(
+      `(SELECT left(l.published_text,4000) AS text FROM knowledge_records r
+         JOIN knowledge_locales l ON l.workspace_id=r.workspace_id AND l.record_id=r.id
+         WHERE r.workspace_id=$1 AND r.audience='internal' AND l.published_text IS NOT NULL
+         ORDER BY r.updated_at DESC LIMIT 300)
+       UNION ALL
+       (SELECT left(body,4000) AS text FROM conversation_parts
+         WHERE workspace_id=$1 AND conversation_id=$2 AND (audience='internal' OR kind='internal_note') AND body<>'')`,
+      [w, conversationId ?? ""],
+    )
+  ).rows.map((r) => r.text);
 }
 
 /** Each cited record's title, and its help center path when it is published there for this brand. */
@@ -752,6 +808,9 @@ export async function runAiReply(
       specialists: known.specialists,
       routed: routing.ai_routed_at ? { specialistId: routing.ai_specialist_id ?? null } : null,
       forced: null,
+      conversationId: ctx.c.id,
+      names: ctx.names,
+      memory: ctx.memory,
     });
   const { text, locale, retrieval, cited, model, data, body } = decision;
   // What every record of this answer carries (Z2): its language and guidance; and (Z3a) the
@@ -764,10 +823,14 @@ export async function runAiReply(
     specialistId: decision.specialist?.id ?? null,
     specialistReason: decision.specialist?.reason ?? null,
     targetedOut: decision.targetedOut,
+    guard: decision.guard,
+    remembered: decision.remembered,
   };
   const { trigger, outcome, reason } = decision;
   // Written only if nothing changed while the agent worked.
   const written = await tenant(connect, w, async (db) => {
+    // B2b: what was sent to model providers for this message, for audit (made either way).
+    await recordModelCalls(db, w, conversationId, partId, decision.calls);
     const c = await conversation(db, w, conversationId, true);
     const late = await skipReason(db, w, c, partId);
     if (late) {
@@ -917,6 +980,10 @@ type DecideInput = {
   specialists: Specialist[];
   routed: { specialistId: string | null } | null;
   forced: Specialist | null;
+  /** B2: the conversation (null in the Playground), the customer's names, and remembered conversations. */
+  conversationId: string | null;
+  names: string[];
+  memory: Remembered[];
 };
 export type Decision = {
   trigger: Trigger | null;
@@ -941,6 +1008,11 @@ export type Decision = {
   handoverTeamId: string | null;
   /** Z3b: records targeted at other customers, left out of retrieval for this one. */
   targetedOut: string[];
+  /** B2a: the guard that blocked the model's reply, if one did. */
+  guard: Guard | null;
+  /** B2b: what was sent to model providers, and the conversations she remembered. */
+  calls: ModelCall[];
+  remembered: string[];
 };
 
 /**
@@ -959,6 +1031,14 @@ async function decide(
   const locale = input.language.answer;
   const text = strings(locale, input.voice.formality);
   const who = { signedIn: input.signedIn, brandId: input.brandId };
+  // B2b: what goes to a model provider, redacted when the workspace says so, and recorded.
+  const r = redactor(agent.redact_personal_data, input.names);
+  const calls: ModelCall[] = [];
+  const sentQuestion = r.redact(input.question);
+  const sentHistory = input.history.map((t) => ({ ...t, text: r.redact(t.text) }));
+  const sentMemory = input.memory.map((m) => ({
+    turns: m.turns.map((t) => ({ ...t, text: r.redact(t.text) })),
+  }));
 
   // Z3a: who answers. The specialist the Playground asks for; the conversation's; or, at its first
   // real question, one whose conditions hold, by her keywords in code (the classifier below can
@@ -1017,17 +1097,25 @@ async function decide(
   let ignored: Guideline | undefined;
   if (!trigger && env.classify) {
     let seen: Classification | null = null;
+    const request = {
+      message: sentQuestion,
+      history: sentHistory,
+      locale,
+      topics: topics.map((t) => ({ name: t.name, description: t.description })),
+      guidance: agent.escalation_guidance,
+      spam: applicableGuidance(input.guidance, who).spam.map((g) => `${g.title}: ${g.text}`),
+      // Z3a: only while no specialist has been chosen.
+      specialists: specialist || input.routed ? [] : candidates.map((s) => ({ name: s.name, handles: s.handles })),
+    };
+    calls.push({
+      kind: "classify",
+      model: env.classify.model,
+      sent: buildClassifyPrompt(request).user,
+      redacted: r.on,
+      redactions: {},
+    });
     try {
-      seen = await env.classify.classify({
-        message: input.question,
-        history: input.history,
-        locale,
-        topics: topics.map((t) => ({ name: t.name, description: t.description })),
-        guidance: agent.escalation_guidance,
-        spam: applicableGuidance(input.guidance, who).spam.map((g) => `${g.title}: ${g.text}`),
-        // Z3a: only while no specialist has been chosen.
-        specialists: specialist || input.routed ? [] : candidates.map((s) => ({ name: s.name, handles: s.handles })),
-      });
+      seen = await env.classify.classify(request);
     } catch {
       // Decision (docs/AI_STEP2.md): a failing classifier doesn't hand everything over. The agent
       // answers with A1's safeguards, and two failed answers still hand over.
@@ -1066,6 +1154,7 @@ async function decide(
   let model: string | null = null;
   let applied: string[] = [];
   let excluded: string[] = [];
+  let guard: Guard | null = null;
   // The guidance for whoever answers (Z3a: some applies only when one specialist does), and what
   // she's told about writing: her job, voice and guidelines (Z2).
   const answerGuidance = applicableGuidance(input.guidance, {
@@ -1121,28 +1210,45 @@ async function decide(
       model = env.model.model;
       applied = answerGuidance.map((g) => g.id);
       let raw: ModelReply | null = null;
+      const canary = newCanary();
+      const request = {
+        question: sentQuestion,
+        history: sentHistory,
+        passages: retrieval.passages,
+        locale,
+        agentName: agent.name,
+        // Z2: her voice, and the guidance as data under her rules; Z3a: a specialist's job.
+        style: {
+          ...input.voice,
+          guidance: answerGuidance.map((g) => ({
+            category: g.category,
+            title: g.title,
+            text: g.text,
+          })),
+          job,
+        },
+        // B2: a marker a reply must never contain; the customer's earlier conversations.
+        canary,
+        memory: sentMemory,
+      };
+      calls.push({
+        kind: "answer",
+        model: env.model.model,
+        sent: buildPrompt(request).user,
+        redacted: r.on,
+        redactions: {},
+      });
       try {
-        raw = await env.model.answer({
-          question: input.question,
-          history: input.history,
-          passages: retrieval.passages,
-          locale,
-          agentName: agent.name,
-          // Z2: her voice, and the guidance as data under her rules; Z3a: a specialist's job.
-          style: {
-            ...input.voice,
-            guidance: answerGuidance.map((g) => ({
-              category: g.category,
-              title: g.title,
-              text: g.text,
-            })),
-            job,
-          },
-        });
+        raw = await env.model.answer(request);
       } catch (e) {
         // Retried by the job; after a few attempts the customer is told plainly instead.
         if (input.attempts < GIVE_UP_AFTER) throw e;
       }
+      // B2b: the customer's own values back in place of their placeholders.
+      if (raw?.kind === "answer")
+        raw = { ...raw, sentences: raw.sentences.map((x) => ({ ...x, text: r.restore(x.text) })) };
+      else if (raw?.kind === "clarify")
+        raw = { ...raw, question: r.restore(raw.question), options: raw.options.map((o) => r.restore(o)) };
       const checked = raw
         ? checkReply(
             raw,
@@ -1151,9 +1257,27 @@ async function decide(
           )
         : null;
       const reply = checked?.reply;
+      // B2a: the guards, in code, on what the customer would read.
+      if (reply && reply.kind !== "unknown") {
+        const internal = await tenant(connect, w, (db) => internalTexts(db, w, input.conversationId));
+        guard = guardReply(reply, {
+          canary,
+          given: [
+            ...retrieval.passages.map((p) => `${p.title}\n${p.heading}\n${p.text}`),
+            input.question,
+            ...input.history.filter((t) => t.from === "customer").map((t) => t.text),
+            ...input.memory.flatMap((m) => m.turns.filter((t) => t.from === "customer").map((t) => t.text)),
+          ].join("\n"),
+          internal,
+        });
+      }
       if (!checked || !reply) {
         outcome = "failed";
         reason = `The answering model failed ${input.attempts} times.`;
+        body = text.unknown;
+      } else if (guard) {
+        outcome = "unknown";
+        reason = `Blocked by safety: ${GUARD_REASONS[guard]}.`;
         body = text.unknown;
       } else if (reply.kind === "answer") {
         outcome = "answered";
@@ -1219,6 +1343,9 @@ async function decide(
     settles,
     handoverTeamId: team(),
     targetedOut: excluded,
+    guard,
+    calls: calls.map((c) => ({ ...c, redactions: r.counts() })),
+    remembered: model ? input.memory.map((m) => m.conversationId) : [],
   };
 }
 
@@ -1332,6 +1459,9 @@ export async function previewAiReply(
     specialists: prepared.specialists,
     routed: null,
     forced: prepared.forced,
+    conversationId: null,
+    names: [],
+    memory: [],
   });
   const titles = new Map(guidanceList.map((g) => [g.id, g]));
   const used = new Set(d.retrieval.passages.map((x) => x.chunkId));
@@ -1388,6 +1518,9 @@ export async function previewAiReply(
     })),
     // Z3a: the specialist who'd answer and why (null: Zoe herself).
     specialist: d.specialist,
+    // B2: a guard that blocked her reply; what would be sent to the model providers.
+    guard: d.guard,
+    sent: d.calls,
     // Z3b: content targeted at other customers, left out for this one.
     skipped: {
       count: d.targetedOut.length,
@@ -1682,6 +1815,9 @@ export async function readAiSettings(db: Sql, w: string, principal: string) {
       // Z2: the languages she answers in, and what she does when a customer writes in another.
       languages: a.languages,
       otherLanguages: a.other_languages,
+      // B2b: privacy, both off by default.
+      redactPersonalData: a.redact_personal_data,
+      memory: a.memory,
       version: a.version,
     },
     teams,
@@ -1742,6 +1878,10 @@ export async function saveAiSettings(
     p.otherLanguages === undefined ? current.agent.otherLanguages : String(p.otherLanguages);
   if (!["brand_language", "hand_over"].includes(otherLanguages))
     invalid("Choose what she does when a customer writes in another language.");
+  // B2b: privacy switches; left as they are when not sent.
+  const redact =
+    p.redactPersonalData === undefined ? current.agent.redactPersonalData : p.redactPersonalData === true;
+  const memory = p.memory === undefined ? current.agent.memory : p.memory === true;
   // A2b: rules, never-handle topics and guidance; left as they are when not sent.
   const rules =
     p.rules === undefined ? current.rules : await validRules(db, w, p.rules);
@@ -1751,7 +1891,7 @@ export async function saveAiSettings(
   await db.query(
     `UPDATE ai_agents SET enabled=$3,handover_team_id=$4,answer_hours=$5,out_of_hours=$6,failed_limit=$7,escalate_on_sentiment=$8,
      never_handle=$9,escalation_guidance=$10,resolution_window_hours=$11,confidence_threshold=$12,languages=$13,other_languages=$14,
-     version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+     redact_personal_data=$15,memory=$16,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
     [
       w,
       DEFAULT_AGENT,
@@ -1767,6 +1907,8 @@ export async function saveAiSettings(
       Math.round(threshold * 100) / 100,
       languages,
       otherLanguages,
+      redact,
+      memory,
     ],
   );
   await saveRules(db, w, DEFAULT_AGENT, rules);
@@ -1808,12 +1950,15 @@ async function record(
     specialistReason?: string | null;
     /** Z3b: what targeting left out for this customer. */
     targetedOut?: string[];
+    /** B2: the guard that blocked the reply, and the conversations she remembered. */
+    guard?: Guard | null;
+    remembered?: string[];
   },
 ) {
   await db.query(
     `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms,trigger,handover_team_id,
-       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
+       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out,guard,remembered)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
     [
       w,
       crypto.randomUUID(),
@@ -1844,6 +1989,8 @@ async function record(
       a.specialistId ?? null,
       a.specialistReason ?? null,
       (a.targetedOut ?? []).slice(0, 100),
+      a.guard ?? null,
+      a.remembered ?? [],
     ],
   );
   if (a.retrieval?.passages.length && a.outcome !== "skipped")
@@ -1886,9 +2033,11 @@ export async function aiAnswers(
       specialist_id: string | null;
       specialist_reason: string | null;
       targeted_out: string[];
+      guard: string | null;
+      remembered: string[];
     }>(
       `SELECT question_part_id,reply_part_id,outcome,reason,top_score,threshold,cited,model,prompt_version,created_at,trigger,
-         agent_id,language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out
+         agent_id,language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out,guard,remembered
        FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at`,
       [w, c.id],
     )
@@ -1898,6 +2047,20 @@ export async function aiAnswers(
   const titles = await recordTitles(db, w, [
     ...new Set(answers.flatMap((a) => a.targeted_out.slice(0, 3))),
   ]);
+  // B2b: what was sent to model providers, for managers only (it's the conversation's text).
+  const manager = await can(db, w, principal, "workspace.manage");
+  const sent = new Map<string, { kind: string; model: string; sent: string; redacted: boolean; redactions: Record<string, number> }[]>();
+  if (manager)
+    for (const call of (
+      await db.query<{ question_part_id: string; kind: string; model: string; sent: string; redacted: boolean; redactions: Record<string, number> }>(
+        "SELECT question_part_id,kind,model,sent,redacted,redactions FROM ai_model_calls WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at",
+        [w, c.id],
+      )
+    ).rows)
+      sent.set(call.question_part_id, [
+        ...(sent.get(call.question_part_id) ?? []),
+        { kind: call.kind, model: call.model, sent: call.sent, redacted: call.redacted, redactions: call.redactions },
+      ]);
   // Z2: the voice and guideline titles of each guidance version an answer was given.
   const versions = new Map<number, Awaited<ReturnType<typeof guidanceAt>>>();
   for (const a of answers)
@@ -1934,6 +2097,11 @@ export async function aiAnswers(
           count: a.targeted_out.length,
           titles: a.targeted_out.slice(0, 3).map((id) => titles.get(id) ?? "Removed content"),
         },
+        // B2: the guard that blocked her reply, the conversations she remembered, and (for
+        // managers) exactly what was sent to the model providers.
+        guard: a.guard,
+        remembered: a.remembered.length,
+        sent: manager ? (sent.get(a.question_part_id) ?? []) : null,
       };
     }),
   };

@@ -6,6 +6,7 @@ import { initials } from "./card";
 import { hueOf, useAgentName, ZoeMark } from "./colour";
 import { languageName, type Voice } from "../lib/zoe-voice";
 import { voiceSummary } from "./zoe-labels";
+import { GUARD_NAMES, redactionWords } from "./zoe-guidance";
 
 export type TimelinePart = {
   id: string;
@@ -304,6 +305,11 @@ type AiAnswer = {
   specialist: { name: string; reason: string } | null;
   /** Z3b: content targeted at other customers, left out for this one. */
   targetedOut: { count: number; titles: string[] };
+  /** B2: a guard that blocked her reply; how many earlier conversations she remembered; and, for
+   * managers, exactly what was sent to the model providers (null for others). */
+  guard: string | null;
+  remembered: number;
+  sent: { kind: string; model: string; sent: string; redacted: boolean; redactions: Record<string, number> }[] | null;
 };
 const OUTCOMES: Record<string, string> = {
   answered: "Answered from content",
@@ -375,6 +381,38 @@ function AiReplyDetails({ p }: { p: TimelinePart }) {
                   <dt>Specialist</dt>
                   <dd>
                     {answer.specialist.name}: {answer.specialist.reason}
+                  </dd>
+                </>
+              )}
+              {answer.guard && (
+                <>
+                  <dt>Safety</dt>
+                  <dd>
+                    Her reply was blocked before it reached the customer: it contained{" "}
+                    {GUARD_NAMES[answer.guard] ?? answer.guard}.
+                  </dd>
+                </>
+              )}
+              {answer.remembered > 0 && (
+                <>
+                  <dt>Remembered</dt>
+                  <dd>
+                    {answer.remembered} earlier{" "}
+                    {answer.remembered === 1 ? "conversation" : "conversations"} with this customer
+                  </dd>
+                </>
+              )}
+              {answer.sent && answer.sent.length > 0 && (
+                <>
+                  <dt>Sent to the model</dt>
+                  <dd>
+                    {redactionWords(answer.sent[answer.sent.length - 1].redactions, answer.sent[0].redacted)}
+                    <details className="pg-zoe-sent">
+                      <summary>Show exactly what was sent</summary>
+                      {answer.sent.map((c, i) => (
+                        <pre key={i} aria-label={`Sent to ${c.model} (${c.kind})`}>{c.sent}</pre>
+                      ))}
+                    </details>
                   </dd>
                 </>
               )}

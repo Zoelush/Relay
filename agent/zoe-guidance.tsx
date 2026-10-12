@@ -84,8 +84,34 @@ export type PreviewResult = {
   specialist: { id: string; name: string; reason: string } | null;
   /** Z3b: content targeted at other customers, left out for this one. */
   skipped: { count: number; titles: string[] };
+  /** B2: the guard that blocked her reply, and what would be sent to the model providers. */
+  guard: string | null;
+  sent: { kind: string; model: string; sent: string; redacted: boolean; redactions: Record<string, number> }[];
   latencyMs: number;
 };
+/** B2: the guards, in words. */
+export const GUARD_NAMES: Record<string, string> = {
+  canary: "her confidential marker",
+  prompt: "her instructions",
+  personal_data: "someone else's personal data",
+  internal: "internal content",
+};
+/** "2 emails and 1 phone number redacted" (B2b), or that nothing was. */
+export function redactionWords(r: Record<string, number>, redacted: boolean) {
+  if (!redacted) return "Not redacted (redaction is off)";
+  const names: Record<string, [string, string]> = {
+    email: ["email address", "email addresses"],
+    phone: ["phone number", "phone numbers"],
+    card: ["card number", "card numbers"],
+    iban: ["IBAN", "IBANs"],
+    ip: ["IP address", "IP addresses"],
+    name: ["name", "names"],
+  };
+  const parts = Object.entries(r)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n} ${(names[k] ?? [k, k])[n === 1 ? 0 : 1]}`);
+  return parts.length ? `${parts.join(", ")} redacted` : "Nothing to redact";
+}
 /** "Skipped for this customer: Enterprise SLA, VIP returns" (Z3b), or nothing. */
 export const skippedWords = (s: { count: number; titles: string[] }) =>
   s.count

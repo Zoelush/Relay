@@ -47,6 +47,7 @@ import { CoalescedPublisher } from "../server/publication";
 import { processKnowledgeFile } from "../server/knowledge-files";
 import { processBrandAsset } from "../server/brand-assets";
 import { resolveQuiet } from "../server/ai-resolutions";
+import { purgeModelCalls } from "../server/ai-privacy";
 import {
   runIndex,
   scheduleIndex,
@@ -708,6 +709,8 @@ export async function startLocalRelay(
           lastPurge.set(w, Date.now());
           await purgeDrafts(db.connect, w);
           await purgeHelpSearches(db.connect, w);
+          // What was sent to model providers is kept 90 days (phase 08, B2b).
+          await purgeModelCalls(db.connect, w);
           await purgeInlineImages(db.connect, env.attachments, w);
           // The nightly near-duplicate check (phase 07, C2b).
           await scheduleDuplicateCheck(db.connect, w);

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased: safety and privacy (phase 08, B2)
+
+- **Safety guards in code** on every reply a model writes. Each blocks the reply when it finds:
+  - her secret marker (a canary)
+  - her instructions
+  - personal data that isn't the customer's own or in the content
+  - quoted internal content
+
+  A blocked reply becomes "I couldn't find an answer", and teammates see why in "Why this reply", the Playground and Performance.
+- **A hostile corpus** of 41 cases in nine languages, run against a model that obeys every injection.
+- **Privacy settings** (Zoe › Settings), off by default:
+  - redaction of personal data before anything reaches the model, with the customer's own details put back in her reply
+  - memory of a signed-in customer's last three conversations
+- **A record of every model call** with exactly what was sent, for managers, kept 90 days.
+- **Migration** 0051 with rollback. **Tests:**
+  - unit: `tests/ai-safety.test.ts`, `tests/ai-privacy.test.ts`
+  - browser: `tests/browser/ai-safety-privacy.spec.ts`
+
+  Details: `docs/AI_STEP9.md`.
+
 ## Unreleased: content targeting (phase 08, Z3b)
 
 - **Who Zoe uses it for:** on every article, snippet and file in Knowledge, and on each website for all its pages. Either everyone who may see it, or only customers and conversations that match conditions (the escalation rules' list).
