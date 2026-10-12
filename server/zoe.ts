@@ -7,6 +7,7 @@ import { targetingChoices } from "./ai-targeting";
 import type { Condition } from "./ai-escalation";
 import { reviewEnabled, reviewedGaps } from "./zoe-review";
 import { incidentSummary } from "./zoe-monitors";
+import { actionsEnabled } from "./connectors";
 
 /**
  * Zoe, Relay's AI agent, in the agent app (phase 08, step Z1; docs/AI_STEP5.md): her identity per
@@ -333,6 +334,8 @@ export async function zoeOverview(db: Sql, w: string, principal: string) {
           )
         ).rows[0]
       : null,
+    // Phase 09 D1: whether Train › Actions (data connectors) is on.
+    actions: await actionsEnabled(db, w),
     // C2b: open incidents, while monitors are on (null when off).
     incidents: await incidentSummary(db, w),
     gaps: await gaps(db, w, 6),

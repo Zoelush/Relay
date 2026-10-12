@@ -134,6 +134,42 @@ export async function safeFetch(
   }
 }
 
+/**
+ * A connector's request (phase 09 D1): any method, with headers and a body, under the same address
+ * checks. Redirects are never followed (a connector's address is exact, and a redirect could carry
+ * its credentials elsewhere); the body comes back for every status, capped.
+ */
+export async function safeRequest(
+  raw: string,
+  policy: FetchPolicy,
+  init: { method: string; headers: Record<string, string>; body?: string },
+  limits: { maxBytes: number; timeoutMs: number },
+): Promise<Fetched> {
+  const send = policy.fetch ?? fetch;
+  const signal = AbortSignal.timeout(limits.timeoutMs);
+  const url = checkAddress(raw, policy);
+  try {
+    const response = await send(url.toString(), {
+      method: init.method,
+      redirect: "manual",
+      signal,
+      headers: { "user-agent": CONNECTOR_AGENT, ...init.headers },
+      body: init.body,
+    });
+    return {
+      status: response.status,
+      url: url.toString(),
+      headers: response.headers,
+      body: await readCapped(response, limits.maxBytes),
+    };
+  } catch (e) {
+    if (e instanceof FetchRefused) throw e;
+    if (signal.aborted) throw new FetchRefused("TIMEOUT");
+    throw new FetchRefused("UNREACHABLE");
+  }
+}
+export const CONNECTOR_AGENT = "RelayBot/1.0 (Relay data connector)";
+
 async function readCapped(response: Response, max: number) {
   const declared = Number(response.headers.get("content-length"));
   if (declared > max) {

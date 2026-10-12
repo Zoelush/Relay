@@ -1416,3 +1416,26 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-zoe-incident-banner > svg { flex:none; color:var(--pg-tint-rose); }
 .pg-zoe-incident-banner > span { display:flex; flex-direction:column; gap:2px; flex:1; min-width:0; }
 .pg-zoe-incident-banner small { font-size:12.5px; }
+/* Phase 09 D1: Zoe's data connectors (agent/zoe-actions.tsx). */
+.pg-zoe-connector { display:flex; flex-direction:column; gap:14px; }
+.pg-zoe-connector-head { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+.pg-zoe-connector-head > .pg-settings-field { flex:1; min-width:220px; }
+.pg-zoe-connector-request { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.pg-zoe-connector-request > input:not([type]) { flex:1; min-width:200px; }
+.pg-zoe-connector-request input[type="number"] { width:90px; }
+.pg-zoe-connector-sub { margin:10px 0 4px; font-size:12px; letter-spacing:.3px; color:var(--pg-text-2); }
+.pg-zoe-mono { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; overflow-wrap:anywhere; }
+.pg-zoe-connector textarea { width:100%; resize:vertical; }
+.pg-zoe-rows-wrap { display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%; overflow-x:auto; }
+.pg-zoe-rows { border-collapse:collapse; font-size:13px; }
+.pg-zoe-rows th { padding:0 6px 4px 0; text-align:left; font-size:12px; font-weight:600; color:var(--pg-text-2); white-space:nowrap; }
+.pg-zoe-rows td { padding:2px 6px 2px 0; }
+.pg-zoe-rows input:not([type="checkbox"]), .pg-zoe-rows select { min-width:110px; }
+.pg-zoe-calls { width:100%; border-collapse:collapse; font-size:13px; }
+.pg-zoe-calls th, .pg-zoe-calls td { padding:6px 8px 6px 0; border-top:1px solid var(--pg-border-subtle); text-align:left; vertical-align:top; }
+.pg-zoe-calls thead th { border-top:0; font-size:12px; color:var(--pg-text-2); font-weight:600; }
+.pg-zoe-test-result { display:flex; flex-direction:column; gap:10px; margin-top:6px; }
+.pg-zoe-test-result p { margin:0; display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:13px; }
+.pg-zoe-connector-form { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+.pg-zoe-connector-form > .pg-settings-field { flex:0 1 360px; min-width:220px; }
+.pg-zoe-test-result pre { white-space:pre-wrap; overflow-wrap:anywhere; }

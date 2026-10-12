@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   Activity,
   Siren,
+  Plug,
   FlaskConical,
   MessageCircle,
   MessageSquareQuote,
@@ -47,6 +48,7 @@ import {
 import { SpecialistsPage } from "./zoe-specialists";
 import { ReviewPage, ReviewedGaps, type ReviewedGapsData } from "./zoe-review";
 import { IncidentBanner, IncidentsPage, MonitorsPage } from "./zoe-monitors";
+import { ActionsPage } from "./zoe-actions";
 import {
   OUTCOME_HUES,
   OUTCOME_NAMES,
@@ -66,7 +68,8 @@ import { languageName, type Voice } from "../lib/zoe-voice";
  * (docs/AI_STEP7.md) Train › Specialists (agent/zoe-specialists.tsx); C2a (docs/AI_STEP11.md) Analyze ›
  * Review (agent/zoe-review.tsx), while `zoe_review_v1` is on; C2b (docs/AI_STEP12.md) Analyze › Monitors
  * and Incidents (agent/zoe-monitors.tsx), while `zoe_monitors_v1` is on.
- * Her test suite runs from the command line (`npm run eval`, C1). TODO(phase 09): Train › Actions.
+ * Her test suite runs from the command line (`npm run eval`, C1). Phase 09 D1 (docs/ACTIONS_STEP1.md) adds
+ * Train › Actions (agent/zoe-actions.tsx), while `ai_actions_v1` is on.
  */
 type PageId =
   | "overview"
@@ -74,6 +77,7 @@ type PageId =
   | "specialists"
   | "escalation"
   | "content"
+  | "actions"
   | "playground"
   | "messenger"
   | "performance"
@@ -134,6 +138,15 @@ const PAGES: {
     hue: "amber",
     description:
       "What she answers from: published knowledge switched on for the AI agent, and never internal content.",
+  },
+  {
+    id: "actions",
+    label: "Actions",
+    group: "Train",
+    icon: Plug,
+    hue: "teal",
+    description:
+      "Data connectors: what she may look up in your systems, with only the values you choose sent and returned.",
   },
   {
     id: "playground",
@@ -255,14 +268,17 @@ export function Zoe({
   const [reviewOn, setReviewOn] = useState(false);
   // C2b: Monitors and Incidents, while monitors are on.
   const [monitorsOn, setMonitorsOn] = useState(false);
+  // Phase 09 D1: Actions, while data connectors are on.
+  const [actionsOn, setActionsOn] = useState(false);
   useEffect(() => {
-    api<{ agent: { name: string; enabled: boolean }; review: unknown; incidents: unknown }>(
+    api<{ agent: { name: string; enabled: boolean }; review: unknown; incidents: unknown; actions: boolean }>(
       "zoe?view=overview",
     )
       .then((o) => {
         setAgent(o.agent);
         setReviewOn(!!o.review);
         setMonitorsOn(!!o.incidents);
+        setActionsOn(!!o.actions);
       })
       .catch(() => setAgent({ name: "Zoe", enabled: false }));
   }, []);
@@ -270,7 +286,8 @@ export function Zoe({
   const pages = PAGES.filter(
     (p) =>
       (p.id !== "review" || reviewOn) &&
-      ((p.id !== "monitors" && p.id !== "incidents") || monitorsOn),
+      ((p.id !== "monitors" && p.id !== "incidents") || monitorsOn) &&
+      (p.id !== "actions" || actionsOn),
   );
   const current = pages.find((p) => p.id === page) ?? PAGES[0];
   const entry = (p: (typeof PAGES)[number]) => (
@@ -347,6 +364,8 @@ export function Zoe({
               page={asPage(current)}
               onKnowledge={onKnowledge}
             />
+          ) : current.id === "actions" ? (
+            <ActionsPage menu={menu} page={asPage(current)} />
           ) : current.id === "playground" ? (
             <Playground {...props} page={asPage(current)} />
           ) : current.id === "messenger" ? (

@@ -49,6 +49,8 @@ import { processBrandAsset } from "../server/brand-assets";
 import { resolveQuiet } from "../server/ai-resolutions";
 import { sampleForReview } from "../server/zoe-review";
 import { checkMonitors } from "../server/zoe-monitors";
+import { runConnectorTest } from "../server/connectors";
+import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
   runIndex,
@@ -119,6 +121,9 @@ export async function startLocalRelay(
     zoeReview?: boolean;
     /** Zoe's monitors and incidents (phase 08, C2b). */
     zoeMonitors?: boolean;
+    /** Data connectors (phase 09, D1): on unless turned off; tests pass a fetch with recorded responses. */
+    aiActions?: boolean;
+    connectors?: { policy?: FetchPolicy; sleep?: (ms: number) => Promise<void> };
     /** Its model and vector store; by default the test embedder and a local store. */
     index?: IndexEnvironment;
     /** The AI agent's models (phase 08); stand-ins by default. */
@@ -143,12 +148,17 @@ export async function startLocalRelay(
     clients = new Set<RealtimeClient>(),
     sockets = new Map<import("ws").WebSocket, RealtimeClient>();
   const secret = () => crypto.randomUUID() + crypto.randomUUID();
-  let keys = { session: secret(), identity: secret(), bridge: secret() };
+  let keys = { session: secret(), identity: secret(), bridge: secret(), connector: secret() };
   if (options.directory) {
     await mkdir(options.directory, { recursive: true });
     const path = resolve(options.directory, "local-secrets.json");
     try {
       keys = JSON.parse(await readFile(path, "utf8"));
+      // Data connectors (phase 09 D1) arrived later: add their key to an older file, once.
+      if (!keys.connector) {
+        keys.connector = secret();
+        await writeFile(path, JSON.stringify(keys), { mode: 0o600 });
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       await writeFile(path, JSON.stringify(keys), { mode: 0o600, flag: "wx" });
@@ -220,6 +230,8 @@ export async function startLocalRelay(
     notify: publish,
     sync: options.sync ?? {},
     knowledgeIndex: options.index ?? localIndex(options.directory),
+    // Data connectors (phase 09 D1): a local key; calls go only where the policy allows.
+    connectors: { key: keys.connector, ...options.connectors },
   };
   // The AI agent (phase 08): offline stand-ins locally, unless a test passes its own.
   env.ai = {
@@ -526,6 +538,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='zoe_monitors_v1'",
         [w, options.zoeMonitors !== false],
       );
+      // Data connectors (phase 09, D1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='ai_actions_v1'",
+        [w, options.aiActions !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -657,6 +674,7 @@ export async function startLocalRelay(
   handlers["knowledge.duplicates"] = (job) =>
     runDuplicates(db.connect, env.knowledgeIndex!, job);
   handlers["ai.reply"] = (job) => runAiReply(db.connect, env.ai!, job);
+  handlers["connector.test"] = (job) => runConnectorTest(db.connect, env.connectors!, job);
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
