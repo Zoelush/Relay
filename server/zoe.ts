@@ -426,6 +426,8 @@ export async function zoePerformance(db: Sql, w: string, principal: string) {
       escalated: outcomes.escalated ?? 0,
       skipped: outcomes.skipped ?? 0,
       spam: outcomes.spam ?? 0,
+      // Phase 09 D2: turns a procedure took.
+      procedure: outcomes.procedure ?? 0,
     },
     triggers,
     languages,

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: procedures (phase 09, D2)
+
+- **Zoe › Train › Procedures:** tasks written as numbered steps, compiled into a fixed plan shown before publishing.
+  - **Steps:** ask for, look up, if, say, go to, resolve, hand over, stop.
+  - **Starting:** keywords start one; values with a pattern are taken from the first message.
+  - **Versions:** immutable, and kept for a running conversation.
+- **Verification** before every look-up: rules per channel with escalation-rule conditions, and a fallback that requires a signed-in customer by default.
+- **Failures** are told plainly to the customer, then handed over with a teammate-only note. A person asked for, or an escalation rule, ends a procedure.
+- **Migration:** 0055, with rollback.
+- **Details:** `docs/ACTIONS_STEP2.md`.
+
 ## Unreleased: data connectors (phase 09, D1)
 
 - **Zoe › Train › Actions,** behind `ai_actions_v1` (off by default): read-only HTTP connectors.

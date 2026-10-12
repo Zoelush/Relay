@@ -179,7 +179,11 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     connect,
     attachments,
     knowledgeIndex: knowledgeIndex(env),
-    ai: aiAgent(env),
+    // Procedures (phase 09 D2) call connectors from the reply job.
+    ai: (() => {
+      const ai = aiAgent(env);
+      return ai && env.RELAY_CONNECTOR_KEY ? { ...ai, connectors: { key: env.RELAY_CONNECTOR_KEY } } : ai;
+    })(),
     sessionSecret: env.SESSION_SECRET,
     identityMaster: env.IDENTITY_MASTER,
     connectors: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,

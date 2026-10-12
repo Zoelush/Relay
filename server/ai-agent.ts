@@ -71,6 +71,8 @@ import {
   type Turn,
 } from "./ai-model";
 import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
+import { procedureTurn } from "./procedures";
+import type { ConnectorEnvironment } from "./connectors";
 
 /**
  * The AI agent (phase 08, step A1; docs/AI_STEP1.md), behind `ai_agent_v1`: it answers customers
@@ -126,6 +128,8 @@ export type AiEnvironment = {
   index: IndexEnvironment;
   /** Reads messages for handover triggers (A2a). Without it, only the fixed triggers apply. */
   classify?: ClassifierPort;
+  /** Data connectors for procedures (phase 09 D2); without them a look-up fails and hands over. */
+  connectors?: ConnectorEnvironment;
 };
 export const DEFAULT_AGENT = "default";
 /** At most this many earlier messages go to the model. */
@@ -378,7 +382,7 @@ const INFORMAL: Record<string, Partial<Strings>> = {
   },
 };
 /** The "Talk to a person" button's words in every language, as the customer sends them. */
-const PERSON_LABELS = new Set(
+export const PERSON_LABELS = new Set(
   Object.values(STRINGS).map((t) => t.person.toLowerCase()),
 );
 /** Her fixed replies in a language (its own, or its base language's, or English), in a register. */
@@ -786,6 +790,87 @@ export async function runAiReply(
     // Z3a: her specialists that are on.
     specialists: await specialistsOf(db, w, ctx.agent.id, true),
   }));
+  // Phase 09 D2: a procedure takes the message when one is running here or its keywords start one.
+  // A person asked for, or an escalation rule, ends it and leaves the message to her as usual.
+  const turn = await procedureTurn(
+    connect,
+    { connectors: env.connectors, classify: env.classify },
+    {
+      w,
+      agentId: ctx.agent.id,
+      conversationId: ctx.c.id,
+      question: ctx.question,
+      locale: ctx.language.answer,
+      facts: known.facts,
+      personLabels: PERSON_LABELS,
+      redact: ctx.agent.redact_personal_data,
+      names: ctx.names,
+    },
+  );
+  if (turn && "runId" in turn) {
+    const text = strings(ctx.language.answer, ctx.agent.formality);
+    const written = await tenant(connect, w, async (db) => {
+      await recordModelCalls(db, w, conversationId, partId, turn.calls);
+      const c = await conversation(db, w, conversationId, true);
+      const late = await skipReason(db, w, c, partId);
+      if (late || !(await turn.commit(db))) {
+        await record(db, w, {
+          agentId: ctx.agent.id,
+          conversationId: c.id,
+          partId,
+          outcome: "skipped",
+          reason: late || "The procedure moved on while this message waited.",
+          threshold: ctx.agent.confidence_threshold,
+        });
+        return null;
+      }
+      let replyPartId: string | undefined;
+      if (turn.messages.length) {
+        const part = await append(db, w, c, { type: "ai", id: ctx.agent.id }, "ai_reply", turn.messages.join("\n\n"), {});
+        replyPartId = part.id;
+        await customerReply(db, w, c, part.seq);
+      }
+      let team: string | null = null;
+      if (turn.status === "escalated") {
+        const handed = await handOver(db, w, c, {
+          agent: ctx.agent,
+          trigger: "procedure",
+          reason: turn.reason,
+          text,
+          locale: ctx.language.answer,
+        });
+        replyPartId = replyPartId ?? handed.replyPartId;
+        team = handed.team;
+      } else {
+        await db.query(
+          "UPDATE conversations SET ai_state='pending' WHERE workspace_id=$1 AND id=$2 AND (ai_state IS NULL OR ai_state IN ('pending','resolved'))",
+          [w, c.id],
+        );
+        await syncUnread(db, w, c);
+      }
+      await record(db, w, {
+        agentId: ctx.agent.id,
+        conversationId: c.id,
+        partId,
+        replyPartId,
+        outcome: turn.status === "escalated" ? "escalated" : "procedure",
+        reason: turn.reason,
+        threshold: ctx.agent.confidence_threshold,
+        latency: Date.now() - started,
+        trigger: turn.status === "escalated" ? "procedure" : null,
+        handoverTeamId: team,
+        language: ctx.language.answer,
+        detectedLanguage: ctx.language.detected,
+        procedureRunId: turn.runId,
+      });
+      return replyPartId ?? null;
+    });
+    return {
+      done: true,
+      result: written ? { outcome: turn.status === "escalated" ? "escalated" : "procedure", replyPartId: written } : { skipped: true },
+    };
+  }
+  const ended = turn && "abandon" in turn ? turn : null;
   // Z3a: the conversation's specialist, once chosen (a null id: Zoe herself).
   const routing = ctx.c as { ai_specialist_id?: string | null; ai_routed_at?: unknown };
   // A failing model throws, and the job retries; decide gives up on the last attempts.
@@ -830,7 +915,9 @@ export async function runAiReply(
   // Written only if nothing changed while the agent worked.
   const written = await tenant(connect, w, async (db) => {
     // B2b: what was sent to model providers for this message, for audit (made either way).
-    await recordModelCalls(db, w, conversationId, partId, decision.calls);
+    await recordModelCalls(db, w, conversationId, partId, [...(ended?.calls ?? []), ...decision.calls]);
+    // D2: a procedure the customer left (they asked for a person) ends with this message.
+    if (ended) await ended.abandon(db);
     const c = await conversation(db, w, conversationId, true);
     const late = await skipReason(db, w, c, partId);
     if (late) {
@@ -1559,8 +1646,10 @@ export type Trigger =
   | "topic"
   | "guidance"
   | "language"
-  | "spam";
+  | "spam"
+  | "procedure";
 const TRIGGERS: Record<Trigger, string> = {
+  procedure: "A procedure handed over",
   rule: "An escalation rule matched",
   language: "The customer wrote in a language she doesn't answer in",
   spam: "Spam, by the workspace's guidance",
@@ -1970,12 +2059,14 @@ async function record(
     /** B2: the guard that blocked the reply, and the conversations she remembered. */
     guard?: Guard | null;
     remembered?: string[];
+    /** Phase 09 D2: the procedure run that took the message. */
+    procedureRunId?: string | null;
   },
 ) {
   await db.query(
     `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms,trigger,handover_team_id,
-       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out,guard,remembered)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
+       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out,guard,remembered,procedure_run_id)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
     [
       w,
       crypto.randomUUID(),
@@ -2008,6 +2099,7 @@ async function record(
       (a.targetedOut ?? []).slice(0, 100),
       a.guard ?? null,
       a.remembered ?? [],
+      a.procedureRunId ?? null,
     ],
   );
   if (a.retrieval?.passages.length && a.outcome !== "skipped")

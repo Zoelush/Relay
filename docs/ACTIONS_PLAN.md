@@ -18,4 +18,10 @@ Brief: `docs/BUILD_PHASES.md` phase 09. Approved on 12 October 2026.
 5. **Verifying customers:** a website-verified sign-in only; email and SMS codes wait for phase 12.
 6. **Approvals:** a card in the conversation. If nobody acts within 24 hours, the procedure is abandoned and handed over.
 
-Handoffs: `docs/ACTIONS_STEP1.md` (D1).
+7. **D2 decisions** (12 October 2026):
+   - **The compiler is deterministic** (a numbered-steps grammar) and its plan is shown before publishing. Claude drafting plans, phrasing and extraction without a pattern wait for a key.
+   - **Verification falls back to signed in by default.**
+   - **Leaving a procedure:** a person asked for or an escalation rule ends it.
+   - **Retries:** three failed tries at an input hand over.
+
+Handoffs: `docs/ACTIONS_STEP1.md` (D1), `docs/ACTIONS_STEP2.md` (D2).

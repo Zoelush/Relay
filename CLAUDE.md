@@ -32,8 +32,11 @@ targeting), B2 (safety and privacy), C1 (the evaluation harness), C2a (the revie
 complete, with the Claude evaluation baseline waiting for a key. Monitors (`server/zoe-monitors.ts`,
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
-(conversation, part, author) or a `zoe_incident` (incident only). Phase 09 (`docs/ACTIONS_PLAN.md`): D1 (data connectors, `server/connectors.ts`, `ai_actions_v1`) is
-done locally (`docs/ACTIONS_STEP1.md`); next is D2 (procedures). A connector sends only declared inputs
+(conversation, part, author) or a `zoe_incident` (incident only). Phase 09 (`docs/ACTIONS_PLAN.md`): D1 (data connectors, `server/connectors.ts`, `ai_actions_v1`)
+and D2 (procedures, `server/procedures.ts`, `lib/procedure-plan.ts`) are done locally
+(`docs/ACTIONS_STEP1.md`, `STEP2.md`); next is D3 (write actions). A procedure's control flow is its
+compiled plan, never the model; `runAiReply` asks `procedureTurn` first, and `verified` (the
+verification rules) gates every connector call in a conversation. A connector sends only declared inputs
 and Zoe gets only mapped values; every call goes through `runConnector` (audit row, rate limit,
 `safeRequest`), and tests use `tests/fixtures/connectors.ts`, never the network. Zoe's review
 queue (`server/zoe-review.ts`, `zoe_review_v1`) is filled by the sweep (`sampleForReview`); a rating is
