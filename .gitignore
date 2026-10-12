@@ -55,3 +55,6 @@ next-env.d.ts
 
 /public/agent/
 /public/portal/
+
+# Evaluation run reports (phase 08 C1); the baseline is committed.
+/eval/reports/

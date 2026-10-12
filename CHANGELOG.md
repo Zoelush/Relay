@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: the evaluation harness (phase 08, C1)
+
+- **A golden set of 200 cases:** answerable, multilingual, multi-turn, unanswerable, out-of-scope, ambiguous, hostile and escalation, against fixed knowledge for a fictional bike shop.
+- **Six simulated customers** run through the real reply job.
+- **Eight scores:** correctness, groundedness, refusal, escalation, clarification, safety, simulated and overall. They're compared with a committed baseline, and `npm test` fails if any falls.
+- **`npm run eval`:**
+  - `--update` records a baseline
+  - `--compare threshold=0.2|length=…|prompt=<file>` shows scores before and after a change
+  - `--model claude` uses a key from `.dev.vars`
+- **Found by the harness:** short French, Spanish and German questions answered in English. Language detection now weighs words unique to one language, and multilingual went from 16/24 to 24/24.
+- **Details:** `docs/AI_STEP10.md`.
+
 ## Unreleased: safety and privacy (phase 08, B2)
 
 - **Safety guards in code** on every reply a model writes. Each blocks the reply when it finds:

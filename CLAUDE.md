@@ -27,8 +27,11 @@ messenger page (`/messenger/frame.html?preview=1`); in preview mode it fetches a
 Phase 08 (the AI agent, `docs/AI_PLAN.md`):
 steps A1 (answering core), A2a (handover), A2b (escalation rules, topics, guidance), A3 (the
 resolution ledger), Z1 (Zoe's home), Z2 (how Zoe answers), Z3a (specialists), Z3b (content
-targeting) and B2 (safety and privacy) are done locally (`docs/AI_STEP1.md` to `AI_STEP9.md`); next is
-C1 (the evaluation harness).
+targeting), B2 (safety and privacy) and C1 (the evaluation harness) are done locally
+(`docs/AI_STEP1.md` to `AI_STEP10.md`); next is C2 (review queue and monitors). `npm test` runs the
+evaluation (`eval/`, `tests/eval.test.ts`) and fails when a score falls below
+`eval/baseline.stand-in.json`; a change that improves Zoe updates the baseline with
+`npm run eval -- --update`, and a new behaviour gets golden cases in `eval/golden.ts`.
 The AI agent is **Zoe**: her area is `agent/zoe.tsx`
 (`#zoe/<page>`, in the strip between Inbox and Knowledge), her data `server/zoe.ts`; the reply job and
 her Playground share `decide()` in `server/ai-agent.ts`, and the Playground must never write. Her voice

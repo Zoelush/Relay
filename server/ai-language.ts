@@ -13,16 +13,22 @@ import { ALL_LANGUAGES, type OtherLanguages } from "../lib/zoe-voice";
 /** Short words that mark each Latin-script language, without accents (as `normalize` leaves them). */
 const WORDS: Record<string, string[]> = {
   en: "the and is are was were you your my me how what when where why which who can could would should will do does did have has not this that with for from about there it i im dont cant please thanks thank of to an be if or any get".split(" "),
-  fr: "le les des du un une et est je vous tu mon ma mes pour pas que qui quoi comment quand pourquoi combien quel quelle avec sur dans il elle nous ce cette mais merci bonjour salut puis peux faire sont j qu l ai suis votre vos ne au aux voudrais pouvez".split(" "),
-  es: "el los las un una y es que del por para como cuando donde porque cuanto cual mi mis tu usted con no se lo puedo hola gracias quiero tengo esta estoy son pero muy hay al su sus nos me le ya tambien hacer puede necesito".split(" "),
-  pt: "o os um uma e que do da dos das em no na nos nas para por como quando onde porque quanto meu minha teu tua nao com se posso ola obrigado obrigada quero tenho esta estou sao mas muito voce voces isso isto ao pelo pela sua seu ja tambem fazer pode preciso eu ele ela oi ajuda".split(" "),
-  it: "il lo gli le un una e che di del della dei per come quando dove perche quanto mio mia non con si posso ciao grazie voglio ho sono questo questa ci mi ti ma anche gia fare puo devo vorrei buongiorno sto hai ha cosa quale".split(" "),
-  de: "der die das und ist ich sie du nicht ein eine einen mit fur wie was wann warum wo mein meine kann konnen bitte danke auf zu es den dem haben habe hallo mir mich sind wir ihr ihre uber auch noch schon aber oder wenn dass bei nach von gibt mochte".split(" "),
-  nl: "de het een en is ik je jij u niet van voor met hoe wat wanneer waarom mijn kan kunnen alstublieft bedankt dank op te er dat die zijn heb hebben waar hoi hallo ook nog al maar of wil graag mag moet kun jullie uw welke deze dit wie".split(" "),
+  fr: "le les des du un une et est je vous tu mon ma mes pour pas que qui quoi comment quand pourquoi combien quel quelle avec sur dans il elle nous ce cette mais merci bonjour salut puis peux faire sont j qu l ai suis votre vos ne au aux voudrais pouvez quels quelles jours".split(" "),
+  es: "el los las un una y es que del por para como cuando donde porque cuanto cual mi mis tu usted con no se lo puedo hola gracias quiero tengo esta estoy son pero muy hay al su sus nos me le ya tambien hacer puede necesito cuantos cuantas cuales dias".split(" "),
+  pt: "o os um uma e que do da dos das em no na nos nas para por como quando onde porque quanto meu minha teu tua nao com se posso ola obrigado obrigada quero tenho esta estou sao mas muito voce voces isso isto ao pelo pela sua seu ja tambem fazer pode preciso eu ele ela oi ajuda quantos quantas qual demora".split(" "),
+  it: "il lo gli le un una e che di del della dei per come quando dove perche quanto mio mia non con si posso ciao grazie voglio ho sono questo questa ci mi ti ma anche gia fare puo devo vorrei buongiorno sto hai ha cosa quale quanti quante giorni".split(" "),
+  de: "der die das und ist ich sie du nicht ein eine einen mit fur wie was wann warum wo mein meine kann konnen bitte danke auf zu es den dem haben habe hallo mir mich sind wir ihr ihre uber auch noch schon aber oder wenn dass bei nach von gibt mochte lange dauert kostet wieviel welche".split(" "),
+  nl: "de het een en is ik je jij u niet van voor met hoe wat wanneer waarom mijn kan kunnen alstublieft bedankt dank op te er dat die zijn heb hebben waar hoi hallo ook nog al maar of wil graag mag moet kun jullie uw welke deze dit wie hoeveel duurt kost lang".split(" "),
 };
 const SETS = Object.fromEntries(
   Object.entries(WORDS).map(([l, w]) => [l, new Set(w)]),
 );
+/**
+ * How many languages use each word (C1): a word of four letters or more that only one language
+ * uses ("combien", "cuántos", "dauert") counts double. Short words are often shared ("de").
+ */
+const SHARED = new Map<string, number>();
+for (const set of Object.values(SETS)) for (const w of set) SHARED.set(w, (SHARED.get(w) ?? 0) + 1);
 /** Words only Brazilian or European Portuguese tends to use. */
 const BRAZIL = /\b(voce|voces|equipe|contato|celular|cadastro|onibus|banheiro|a gente|est(ou|a|amos|ao) \w+ndo)\b/;
 const PORTUGAL = /\b(equipa|contacto|telemovel|registo|autocarro|comboio|casa de banho|queres|podes|tens|est(ou|a|amos|ao) a \w+(ar|er|ir))\b/;
@@ -53,11 +59,19 @@ export function detectLanguage(text: string): string | null {
   const plain = normalize(text);
   const tokens = plain.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   const scores = Object.entries(SETS)
-    .map(([l, set]) => ({ l, n: tokens.filter((t) => set.has(t)).length }))
+    .map(([l, set]) => ({
+      l,
+      n: tokens
+        .filter((t) => set.has(t))
+        .reduce((sum, t) => sum + (t.length >= 4 && SHARED.get(t) === 1 ? 2 : 1), 0),
+      words: tokens.filter((t) => set.has(t)).length,
+    }))
     .sort((a, b) => b.n - a.n);
   const [best, next] = scores;
-  // Two marking words at least, and twice as many as any other language's.
-  if (best.n < 2 || best.n < 2 * next.n) return null;
+  // Two marking words, or one of its own in a message of three words or more; and twice the
+  // weight of any other language's.
+  const enough = best.words >= 2 || (best.words === 1 && best.n === 2 && tokens.length >= 3);
+  if (!enough || best.n < 2 * next.n) return null;
   if (best.l !== "pt") return best.l;
   const words = " " + tokens.join(" ") + " ";
   const br = BRAZIL.test(words),
