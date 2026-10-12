@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: write actions (phase 09, D3)
+
+- **Write connectors** (POST, PUT, PATCH, DELETE) that Zoe uses only after a manager turns their writes on, past a warning.
+- **Signed-in customers only:** an unverified customer is refused and nothing is sent.
+- **Approval:** when a connector asks for it, a teammate approves each write on a card in the conversation's team-only note. Denied, expired or cancelled, nothing is sent and the customer is handed over.
+- **Never sent twice:**
+  - **Idempotency keys:** an optional header carries the same key on every attempt; without one, a write is never retried.
+  - **Retried jobs:** one never resends an approved write.
+- **"Pause all write actions":** the workspace's kill switch.
+- **Migration:** 0056, with a rollback that archives write connectors.
+- **Details:** `docs/ACTIONS_STEP3.md`.
+
 ## Unreleased: procedures (phase 09, D2)
 
 - **Zoe › Train › Procedures:** tasks written as numbered steps, compiled into a fixed plan shown before publishing.

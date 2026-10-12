@@ -14,7 +14,7 @@
  *   6. Say "It's on its way and should arrive on {{eta}}."
  *   7. Resolve.
  *
- * Actions: Ask for <input>. Look up <connector>. If <value> is / is not / contains "<text>", or
+ * Actions: Ask for <input>. Look up <connector> (or Use / Run, for one that changes things). If <value> is / is not / contains "<text>", or
  * is empty / is not empty, go to step <n>. Say "<text>" (with {{value}} placeholders). Go to
  * step <n>. Resolve. Hand over. Stop.
  */
@@ -37,7 +37,15 @@ export type Source = {
 };
 export type Step =
   | { line: number; kind: "ask"; input: string }
-  | { line: number; kind: "call"; connectorId: string; connector: string }
+  | {
+      line: number;
+      kind: "call";
+      connectorId: string;
+      connector: string;
+      /** D3: it changes things (a signed-in customer only; approval as the connector says). */
+      write?: boolean;
+      approval?: boolean;
+    }
   | {
       line: number;
       kind: "branch";
@@ -57,8 +65,17 @@ export type Plan = {
   onFailure: string;
   connectors: { id: string; name: string }[];
 };
-/** What the compiler knows of a connector: its customer inputs and its outputs. */
-export type ConnectorRef = { id: string; name: string; asks: string[]; outputs: string[] };
+/** What the compiler knows of a connector: its customer inputs and its outputs; and (D3) whether
+ * it writes, whether its writes are on, and whether each write needs approval. */
+export type ConnectorRef = {
+  id: string;
+  name: string;
+  asks: string[];
+  outputs: string[];
+  write?: boolean;
+  writesEnabled?: boolean;
+  approval?: boolean;
+};
 
 export const blankSource = (): Source => ({
   description: "",
@@ -135,7 +152,7 @@ export function compile(source: Source, connectors: ConnectorRef[]): Plan {
   const known = new Set(inputNames);
   // Outputs of every connector the plan looks up can be named anywhere (absent until looked up).
   for (const text of raw) {
-    const m = /^(?:look up|call)\s+(.+?)\.?$/i.exec(text);
+    const m = /^(?:look up|call|use|run)\s+(.+?)\.?$/i.exec(text);
     const c = m && connectors.find((x) => x.name.toLowerCase() === m[1].trim().toLowerCase());
     if (c) for (const o of c.outputs) known.add(o);
   }
@@ -162,14 +179,18 @@ export function compile(source: Source, connectors: ConnectorRef[]): Plan {
       if (!inputNames.has(m[1])) throw new CompileError(`Add ${m[1]} to what to collect first.`, line);
       return { line, kind: "ask", input: m[1] };
     }
-    if ((m = /^(?:look up|call)\s+(.+?)\.?$/i.exec(text))) {
+    if ((m = /^(?:look up|call|use|run)\s+(.+?)\.?$/i.exec(text))) {
       const c = connectors.find((x) => x.name.toLowerCase() === m![1].trim().toLowerCase());
       if (!c) throw new CompileError(`There's no published connector called “${m[1].trim()}”.`, line);
+      if (c.write && !c.writesEnabled)
+        throw new CompileError(`${c.name} changes things: turn on its writes under Actions first.`, line);
       for (const a of c.asks)
         if (!inputNames.has(a))
           throw new CompileError(`${c.name} needs ${a} from the customer: add it to what to collect.`, line);
       if (!used.some((u) => u.id === c.id)) used.push({ id: c.id, name: c.name });
-      return { line, kind: "call", connectorId: c.id, connector: c.name };
+      return c.write
+        ? { line, kind: "call", connectorId: c.id, connector: c.name, write: true, approval: !!c.approval }
+        : { line, kind: "call", connectorId: c.id, connector: c.name };
     }
     if ((m = /^if\s+([a-z][a-z0-9_]*)\s+(is not|is|contains)\s+"([^"]*)",?\s+go to step\s+(\d+)\.?$/i.exec(text)))
       return {
@@ -196,7 +217,7 @@ export function compile(source: Source, connectors: ConnectorRef[]): Plan {
     if (/^hand over\.?$/i.test(text)) return { line, kind: "end", outcome: "escalated" };
     if (/^stop\.?$/i.test(text)) return { line, kind: "end", outcome: "abandoned" };
     throw new CompileError(
-      "Start the step with Ask for, Look up, If, Say, Go to step, Resolve, Hand over or Stop.",
+      "Start the step with Ask for, Look up (or Use), If, Say, Go to step, Resolve, Hand over or Stop.",
       line,
     );
   });
@@ -242,7 +263,9 @@ export function describe(plan: Plan): string[] {
       case "ask":
         return `${n} Ask for ${plan.inputs.find((x) => x.name === s.input)?.label ?? s.input}, unless it's already known.`;
       case "call":
-        return `${n} Look up ${s.connector} (a verified customer only, by your verification rules).`;
+        return s.write
+          ? `${n} Change something with ${s.connector}: a signed-in customer only${s.approval ? ", after a teammate approves it" : ""}.`
+          : `${n} Look up ${s.connector} (a verified customer only, by your verification rules).`;
       case "branch": {
         const how =
           s.op === "empty" ? "is empty" : s.op === "not_empty" ? "isn't empty" : `${s.op === "is_not" ? "isn't" : s.op === "contains" ? "contains" : "is"} “${s.text}”`;

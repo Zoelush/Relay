@@ -50,6 +50,7 @@ import { resolveQuiet } from "../server/ai-resolutions";
 import { sampleForReview } from "../server/zoe-review";
 import { checkMonitors } from "../server/zoe-monitors";
 import { runConnectorTest } from "../server/connectors";
+import { expireApprovals } from "../server/procedures";
 import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
@@ -61,7 +62,7 @@ import {
   runDuplicates,
   scheduleDuplicateCheck,
 } from "../server/knowledge-health";
-import { runAiReply } from "../server/ai-agent";
+import { runAiReply, runProcedureResume } from "../server/ai-agent";
 import {
   claudeAnswerModel,
   claudeClassifier,
@@ -677,6 +678,7 @@ export async function startLocalRelay(
     runDuplicates(db.connect, env.knowledgeIndex!, job);
   handlers["ai.reply"] = (job) => runAiReply(db.connect, env.ai!, job);
   handlers["connector.test"] = (job) => runConnectorTest(db.connect, env.connectors!, job);
+  handlers["procedure.resume"] = (job) => runProcedureResume(db.connect, env.ai!, job);
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
@@ -739,6 +741,8 @@ export async function startLocalRelay(
         await sampleForReview(db.connect, w);
         // Zoe's monitors, once an hour (phase 08 C2b).
         await checkMonitors(db.connect, w);
+        // Approvals for writes expire after 24 hours (phase 09 D3).
+        await expireApprovals(db.connect, w);
         // Websites due a sync (phase 07, C1b), checked once a minute.
         if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
           lastSyncCheck.set(w, Date.now());

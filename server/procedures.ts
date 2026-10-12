@@ -1,4 +1,5 @@
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
+import { enqueueJob } from "./jobs";
 import { authorize } from "./policy";
 import { zoeAccess } from "./zoe";
 import { actionsEnabled, pinnedVersion, runConnector, type ConnectorEnvironment } from "./connectors";
@@ -60,60 +61,99 @@ export function verified(
  * What Zoe says around a procedure, in her nine languages (usual register). A native speaker
  * should check these, as with Z2's strings.
  */
-const PHRASES: Record<string, { retry: string; verify: string; failed: string; done: string }> = {
+const PHRASES: Record<
+  string,
+  { retry: string; verify: string; failed: string; done: string; approval: string; stillWaiting: string; denied: string; expired: string }
+> = {
   en: {
     retry: "Sorry, I didn't catch that.",
     verify: "I can only look that up for customers who are signed in.",
     failed: "I couldn't check that just now.",
     done: "Is there anything else I can help with?",
+    approval: "I've asked a teammate to approve this. I'll carry on here as soon as they do.",
+    stillWaiting: "A teammate still needs to approve this. I'll carry on here as soon as they do.",
+    denied: "A teammate decided not to go ahead with this.",
+    expired: "This couldn't be approved in time.",
   },
   fr: {
     retry: "Désolé, je n'ai pas bien compris.",
     verify: "Je ne peux vérifier cela que pour les clients connectés.",
     failed: "Je n'ai pas pu vérifier cela pour le moment.",
     done: "Puis-je vous aider pour autre chose ?",
+    approval: "J'ai demandé à un membre de l'équipe de valider cela. Je reprends ici dès que c'est fait.",
+    stillWaiting: "Un membre de l'équipe doit encore valider cela. Je reprends ici dès que c'est fait.",
+    denied: "Un membre de l'équipe a décidé de ne pas donner suite.",
+    expired: "Cela n'a pas pu être validé à temps.",
   },
   es: {
     retry: "Perdona, no lo he entendido.",
     verify: "Solo puedo consultarlo para clientes que hayan iniciado sesión.",
     failed: "No he podido comprobarlo ahora mismo.",
     done: "¿Puedo ayudarte con algo más?",
+    approval: "He pedido a alguien del equipo que lo apruebe. Continuaré aquí en cuanto lo haga.",
+    stillWaiting: "Alguien del equipo todavía tiene que aprobarlo. Continuaré aquí en cuanto lo haga.",
+    denied: "Alguien del equipo ha decidido no seguir adelante.",
+    expired: "No se ha podido aprobar a tiempo.",
   },
   de: {
     retry: "Entschuldigung, das habe ich nicht verstanden.",
     verify: "Das kann ich nur für angemeldete Kunden nachsehen.",
     failed: "Das konnte ich gerade nicht prüfen.",
     done: "Kann ich Ihnen sonst noch helfen?",
+    approval: "Ich habe ein Teammitglied gebeten, das freizugeben. Ich mache hier weiter, sobald es freigegeben ist.",
+    stillWaiting: "Ein Teammitglied muss das noch freigeben. Ich mache hier weiter, sobald es freigegeben ist.",
+    denied: "Ein Teammitglied hat entschieden, das nicht auszuführen.",
+    expired: "Das konnte nicht rechtzeitig freigegeben werden.",
   },
   pt: {
     retry: "Desculpe, não percebi.",
     verify: "Só posso consultar isso para clientes com sessão iniciada.",
     failed: "Não consegui verificar isso agora.",
     done: "Posso ajudar com mais alguma coisa?",
+    approval: "Pedi a um membro da equipa que aprove isto. Continuo aqui assim que o fizer.",
+    stillWaiting: "Um membro da equipa ainda tem de aprovar isto. Continuo aqui assim que o fizer.",
+    denied: "Um membro da equipa decidiu não avançar com isto.",
+    expired: "Não foi possível aprovar isto a tempo.",
   },
   "pt-BR": {
     retry: "Desculpe, não entendi.",
     verify: "Só consigo consultar isso para clientes que fizeram login.",
     failed: "Não consegui verificar isso agora.",
     done: "Posso ajudar com mais alguma coisa?",
+    approval: "Pedi a alguém da equipe para aprovar isso. Continuo aqui assim que aprovarem.",
+    stillWaiting: "Alguém da equipe ainda precisa aprovar isso. Continuo aqui assim que aprovarem.",
+    denied: "Alguém da equipe decidiu não seguir com isso.",
+    expired: "Não foi possível aprovar isso a tempo.",
   },
   it: {
     retry: "Scusa, non ho capito.",
     verify: "Posso verificarlo solo per i clienti che hanno effettuato l'accesso.",
     failed: "Non sono riuscita a verificarlo in questo momento.",
     done: "Posso aiutarti in altro?",
+    approval: "Ho chiesto a un membro del team di approvarlo. Continuo qui appena lo fa.",
+    stillWaiting: "Un membro del team deve ancora approvarlo. Continuo qui appena lo fa.",
+    denied: "Un membro del team ha deciso di non procedere.",
+    expired: "Non è stato possibile approvarlo in tempo.",
   },
   nl: {
     retry: "Sorry, dat begreep ik niet.",
     verify: "Ik kan dat alleen opzoeken voor klanten die zijn ingelogd.",
     failed: "Ik kon dat nu niet controleren.",
     done: "Kan ik je ergens anders mee helpen?",
+    approval: "Ik heb een teamlid gevraagd dit goed te keuren. Ik ga hier verder zodra dat gebeurd is.",
+    stillWaiting: "Een teamlid moet dit nog goedkeuren. Ik ga hier verder zodra dat gebeurd is.",
+    denied: "Een teamlid heeft besloten dit niet door te zetten.",
+    expired: "Dit kon niet op tijd worden goedgekeurd.",
   },
   ar: {
     retry: "عذرًا، لم أفهم ذلك.",
     verify: "لا يمكنني البحث عن ذلك إلا للعملاء الذين سجّلوا الدخول.",
     failed: "لم أتمكن من التحقق من ذلك الآن.",
     done: "هل هناك أي شيء آخر يمكنني مساعدتك فيه؟",
+    approval: "طلبتُ من أحد أعضاء الفريق الموافقة على ذلك. سأتابع هنا بمجرد موافقته.",
+    stillWaiting: "لا يزال أحد أعضاء الفريق بحاجة إلى الموافقة على ذلك. سأتابع هنا بمجرد موافقته.",
+    denied: "قرر أحد أعضاء الفريق عدم المتابعة في ذلك.",
+    expired: "تعذّرت الموافقة على ذلك في الوقت المحدد.",
   },
 };
 const phrases = (locale: string) => PHRASES[locale] ?? PHRASES[locale.split("-")[0]] ?? PHRASES.en;
@@ -125,6 +165,8 @@ const phrases = (locale: string) => PHRASES[locale] ?? PHRASES[locale.split("-")
 const STEP_BUDGET = 50;
 /** Tries at an input before she hands over. */
 const MAX_RETRIES = 2;
+/** D3: how long a write waits for a teammate's approval. */
+export const APPROVAL_HOURS = 24;
 
 type RunRow = {
   id: string;
@@ -138,6 +180,18 @@ type RunRow = {
   name: string;
   plan: Plan;
 };
+/** D3: an approval a write step asks for, written with the turn. */
+export type ApprovalRequest = {
+  id: string;
+  connectorId: string;
+  connector: string;
+  version: number;
+  step: number;
+  method: string;
+  /** What would be sent, sensitive inputs redacted. */
+  summary: Record<string, unknown>;
+  expiresAt: string;
+};
 export type ProcedureTurn = {
   runId: string;
   procedure: string;
@@ -148,6 +202,8 @@ export type ProcedureTurn = {
   /** For teammates: what happened, in words. */
   reason: string;
   calls: ModelCall[];
+  /** D3: an approval to ask a teammate for (a team-only note), with the run waiting on it. */
+  approval: ApprovalRequest | null;
   /** Writes the run's new state, in the reply's transaction; false if it changed meanwhile. */
   commit: (db: Sql) => Promise<boolean>;
 };
@@ -163,10 +219,248 @@ function extract(input: Plan["inputs"][number], message: string, whole: boolean)
   return whole && text && text.length <= 200 && !/[\r\n]/.test(text) ? text : null;
 }
 
+/** One write's idempotency key: the same for every attempt at this step of this run. */
+async function idempotencyKey(runId: string, step: number) {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`relay-write:${runId}:${step}`)));
+  return [...bytes.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+type Ctx = {
+  w: string;
+  agentId: string;
+  conversationId: string;
+  locale: string;
+  facts: Facts;
+  verification: { rules: VerificationRule[]; fallback: Requirement };
+};
+type State = {
+  run: RunRow;
+  starting: boolean;
+  values: Record<string, unknown>;
+  step: number;
+  waitingFor: string | null;
+  retries: number;
+  messages: string[];
+  status: ProcedureTurn["status"];
+  reason: string;
+  stepsTaken: string[];
+  approval: ApprovalRequest | null;
+};
+const stateOf = (run: RunRow, starting: boolean): State => ({
+  run,
+  starting,
+  values: { ...run.values },
+  step: run.step,
+  waitingFor: run.waiting_for,
+  retries: run.retries,
+  messages: [],
+  status: "waiting",
+  reason: "",
+  stepsTaken: [],
+  approval: null,
+});
+
+/**
+ * Runs the plan from where it stands until it needs the customer (or a teammate's approval) or
+ * ends. `approved` is an approval granted for the write at the current step (a resumed run).
+ */
+async function advance(connect: Connect, env: ProcedureEnvironment, ctx: Ctx, st: State, approved: string | null) {
+  const { w } = ctx;
+  const plan = st.run.plan;
+  const say = phrases(ctx.locale);
+  const finish = (s: ProcedureTurn["status"], why: string) => {
+    st.status = s;
+    st.reason = why;
+  };
+  const failed = (why: string) => {
+    st.messages.push(plan.onFailure ? fill(plan.onFailure, st.values) : say.failed);
+    finish("escalated", why);
+  };
+  for (let budget = 0; st.status === "waiting" && budget < STEP_BUDGET; budget++) {
+    if (budget === STEP_BUDGET - 1) {
+      finish("escalated", "The procedure went round in a loop.");
+      break;
+    }
+    const s = plan.steps[st.step];
+    if (!s) {
+      finish("abandoned", "The procedure ran out of steps.");
+      break;
+    }
+    st.stepsTaken.push(String(st.step + 1));
+    if (s.kind === "ask") {
+      const i = plan.inputs.find((x) => x.name === s.input)!;
+      const v = st.values[i.name];
+      if (v !== undefined && v !== null && v !== "") {
+        st.step++;
+        continue;
+      }
+      st.waitingFor = i.name;
+      st.messages.push(i.question);
+      st.reason = `Asked for ${i.label}.`;
+      break;
+    }
+    if (s.kind === "call") {
+      // Approved writes passed these checks when their approval was asked for.
+      if (!approved) {
+        const check = verified(ctx.verification.rules, ctx.verification.fallback, ctx.facts, "messenger");
+        if (!check.ok) {
+          st.messages.push(say.verify);
+          finish("escalated", `${s.connector} needs a signed-in customer${check.rule ? ` (verification rule “${check.rule}”)` : " (the fallback rule)"}, and this one isn't.`);
+          break;
+        }
+      }
+      if (!env.connectors) {
+        failed(`${s.connector} can't run here: connectors aren't configured.`);
+        break;
+      }
+      const pinned = await tenant(connect, w, async (db) => {
+        const version = await pinnedVersion(db, w, s.connectorId, ctx.conversationId);
+        const def = version
+          ? (
+              await db.query<{ definition: Definition }>(
+                "SELECT definition FROM ai_connector_versions WHERE workspace_id=$1 AND connector_id=$2 AND version=$3",
+                [w, s.connectorId, version],
+              )
+            ).rows[0]?.definition
+          : null;
+        return version && def ? { version, def } : null;
+      });
+      if (!pinned) {
+        failed(`${s.connector} isn't published any more.`);
+        break;
+      }
+      const write = pinned.def.access === "write";
+      const given = Object.fromEntries(plan.inputs.map((i) => [i.name, st.values[i.name]]));
+      // D3: a write changes things, so only for a customer the website verified, whatever the rules.
+      if (write && !ctx.facts.signedIn) {
+        st.messages.push(say.verify);
+        finish("escalated", `${s.connector} changes things, so it needs a signed-in customer, and this one isn't. Nothing was sent.`);
+        break;
+      }
+      if (write && pinned.def.approval === "always" && !approved) {
+        const id = crypto.randomUUID();
+        st.approval = {
+          id,
+          connectorId: s.connectorId,
+          connector: s.connector,
+          version: pinned.version,
+          step: st.step,
+          method: pinned.def.method,
+          summary: Object.fromEntries(
+            pinned.def.inputs
+              .filter((i) => i.source === "customer")
+              .map((i) => {
+                const v = given[i.name];
+                const empty = v === undefined || v === null || v === "";
+                return [i.label, empty ? null : i.sensitive ? "[redacted]" : v];
+              }),
+          ),
+          expiresAt: new Date(Date.now() + APPROVAL_HOURS * 3_600_000).toISOString(),
+        };
+        st.waitingFor = `approval:${id}`;
+        st.messages.push(say.approval);
+        st.reason = `Waiting for a teammate to approve ${s.connector}.`;
+        break;
+      }
+      const call = await runConnector(connect, env.connectors, w, {
+        connectorId: s.connectorId,
+        version: pinned.version,
+        values: given,
+        source: "agent",
+        invokedBy: ctx.agentId,
+        conversationId: ctx.conversationId,
+        approvalId: approved ?? undefined,
+        idempotencyKey: write ? await idempotencyKey(st.run.id, st.step) : undefined,
+      });
+      approved = null;
+      if (call.result !== "ok") {
+        failed(`${s.connector} failed (${call.result}${call.error ? `: ${call.error}` : ""}).`);
+        break;
+      }
+      Object.assign(st.values, call.outputs);
+      st.step++;
+      continue;
+    }
+    if (s.kind === "branch") {
+      st.step = holds(s, st.values) ? s.to : st.step + 1;
+      continue;
+    }
+    if (s.kind === "say") {
+      st.messages.push(fill(s.text, st.values));
+      st.step++;
+      continue;
+    }
+    if (s.kind === "goto") {
+      st.step = s.to;
+      continue;
+    }
+    if (s.kind === "end") {
+      if (s.outcome === "resolved") {
+        if (!st.messages.length) st.messages.push(say.done);
+        finish("resolved", "Resolved.");
+      } else if (s.outcome === "escalated") finish("escalated", "Its plan hands over.");
+      else finish("abandoned", "Its plan stops here; she answers as usual from now on.");
+      break;
+    }
+  }
+}
+
+/** The turn: what she says, and a commit that writes the run (checked against its version). */
+function turnOf(ctx: Ctx, st: State, calls: ModelCall[]): ProcedureTurn {
+  const { w } = ctx;
+  const r = st.run;
+  if (st.status === "waiting" && !st.reason) st.reason = "Waiting for the customer.";
+  const record = `Procedure “${r.name}” (version ${r.procedure_version})${st.stepsTaken.length ? `, steps ${st.stepsTaken.join(", ")}` : ""}: ${st.reason}`;
+  return {
+    runId: r.id,
+    procedure: r.name,
+    version: r.procedure_version,
+    messages: st.messages,
+    status: st.status,
+    reason: record,
+    calls,
+    approval: st.approval,
+    commit: async (db) => {
+      const ended = st.status !== "waiting";
+      const values = JSON.stringify(st.values);
+      if (st.starting) {
+        const inserted = await db.query(
+          `INSERT INTO ai_procedure_runs(workspace_id,id,conversation_id,procedure_id,procedure_version,status,step,waiting_for,retries,"values",reason,ended_at)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,${ended ? "now()" : "NULL"})
+           ON CONFLICT DO NOTHING RETURNING id`,
+          [w, r.id, ctx.conversationId, r.procedure_id, r.procedure_version, st.status, st.step, st.waitingFor, st.retries, values, st.reason],
+        );
+        return inserted.rows.length > 0;
+      }
+      const updated = await db.query(
+        `UPDATE ai_procedure_runs SET status=$3,step=$4,waiting_for=$5,retries=$6,"values"=$7,reason=$8,updated_at=now(),
+           ended_at=${ended ? "now()" : "NULL"},version=version+1
+         WHERE workspace_id=$1 AND id=$2 AND status='waiting' AND version::text=$9 RETURNING id`,
+        [w, r.id, st.status, st.step, st.waitingFor, st.retries, values, st.reason, r.version],
+      );
+      return updated.rows.length > 0;
+    },
+  };
+}
+
+const RUN_FIELDS = `r.id,r.procedure_id,r.procedure_version,r.step,r.waiting_for,r.retries,r."values",r.version::text AS version,p.name,v.plan
+  FROM ai_procedure_runs r JOIN ai_procedures p ON p.workspace_id=r.workspace_id AND p.id=r.procedure_id
+  JOIN ai_procedure_versions v ON v.workspace_id=r.workspace_id AND v.procedure_id=r.procedure_id AND v.version=r.procedure_version`;
+async function verificationOf(db: Sql, w: string, agentId: string) {
+  const a = (
+    await db.query<{ verification_rules: VerificationRule[]; verification_fallback: Requirement }>(
+      "SELECT verification_rules,verification_fallback FROM ai_agents WHERE workspace_id=$1 AND id=$2",
+      [w, agentId],
+    )
+  ).rows[0];
+  return { rules: a.verification_rules, fallback: a.verification_fallback };
+}
+
 /**
  * A customer message's turn in a procedure, or null when none applies (Zoe answers as usual). A
- * person asked for, or an escalation rule, ends a running procedure and leaves the message to her
- * usual handover. Connector calls happen here, outside any transaction; `commit` writes the run.
+ * person asked for, or an escalation rule, ends a running procedure (and cancels an approval it
+ * waits on) and leaves the message to her usual handover. Connector calls happen here, outside
+ * any transaction; `commit` writes the run.
  */
 export async function procedureTurn(
   connect: Connect,
@@ -187,13 +481,10 @@ export async function procedureTurn(
   const loaded = await tenant(connect, w, async (db) => {
     if (!(await actionsEnabled(db, w))) return null;
     const active = (
-      await db.query<RunRow>(
-        `SELECT r.id,r.procedure_id,r.procedure_version,r.step,r.waiting_for,r.retries,r."values",r.version::text AS version,p.name,v.plan
-         FROM ai_procedure_runs r JOIN ai_procedures p ON p.workspace_id=r.workspace_id AND p.id=r.procedure_id
-         JOIN ai_procedure_versions v ON v.workspace_id=r.workspace_id AND v.procedure_id=r.procedure_id AND v.version=r.procedure_version
-         WHERE r.workspace_id=$1 AND r.conversation_id=$2 AND r.status='waiting'`,
-        [w, input.conversationId],
-      )
+      await db.query<RunRow>(`SELECT ${RUN_FIELDS} WHERE r.workspace_id=$1 AND r.conversation_id=$2 AND r.status='waiting'`, [
+        w,
+        input.conversationId,
+      ])
     ).rows[0];
     const live = active
       ? []
@@ -205,15 +496,9 @@ export async function procedureTurn(
             [w, input.agentId],
           )
         ).rows;
-    const agent = (
-      await db.query<{ verification_rules: VerificationRule[]; verification_fallback: Requirement }>(
-        "SELECT verification_rules,verification_fallback FROM ai_agents WHERE workspace_id=$1 AND id=$2",
-        [w, input.agentId],
-      )
-    ).rows[0];
     // An escalation rule that matches this customer hands over before anything else (A2b).
     const escalation = matchRule(await rulesOf(db, w, input.agentId), input.facts);
-    return { active, live, agent, escalation };
+    return { active, live, verification: await verificationOf(db, w, input.agentId), escalation };
   });
   if (!loaded) return null;
   let run: RunRow | null = loaded.active ?? null;
@@ -257,166 +542,150 @@ export async function procedureTurn(
     return {
       calls,
       abandon: async (db) => {
+        const why = wantsPerson ? "The customer asked for a person." : "An escalation rule matched.";
         await db.query(
           `UPDATE ai_procedure_runs SET status='abandoned',reason=$3,ended_at=now(),updated_at=now(),version=version+1
            WHERE workspace_id=$1 AND id=$2 AND status='waiting'`,
-          [w, r.id, wantsPerson ? "The customer asked for a person." : "An escalation rule matched."],
+          [w, r.id, why],
+        );
+        await db.query(
+          `UPDATE ai_action_approvals SET status='cancelled',decided_at=now(),note=$3,version=version+1
+           WHERE workspace_id=$1 AND run_id=$2 AND status='pending'`,
+          [w, r.id, why],
         );
       },
     };
   }
 
-  const plan = run.plan;
+  const ctx: Ctx = {
+    w,
+    agentId: input.agentId,
+    conversationId: input.conversationId,
+    locale: input.locale,
+    facts: input.facts,
+    verification: loaded.verification,
+  };
+  const st = stateOf(run, starting);
   const say = phrases(input.locale);
-  const values: Record<string, unknown> = { ...run.values };
-  const messages: string[] = [];
-  let step = run.step;
-  let waitingFor: string | null = run.waiting_for;
-  let retries = run.retries;
-  let status: ProcedureTurn["status"] = "waiting";
-  let reason = "";
-  const stepsTaken: string[] = [];
-  const finish = (s: ProcedureTurn["status"], why: string) => {
-    status = s;
-    reason = why;
-  };
-  const failed = (why: string) => {
-    messages.push(plan.onFailure ? fill(plan.onFailure, values) : say.failed);
-    finish("escalated", why);
-  };
-
+  if (st.waitingFor?.startsWith("approval:")) {
+    // D3: a teammate hasn't decided yet; nothing moves until they do.
+    st.messages.push(say.stillWaiting);
+    st.reason = "Still waiting for a teammate's approval.";
+    return turnOf(ctx, st, calls);
+  }
   if (starting) {
     // Values already in the first message (by pattern) needn't be asked for.
-    for (const i of plan.inputs) {
+    for (const i of run.plan.inputs) {
       const v = i.pattern ? extract(i, input.question, false) : null;
-      if (v !== null) values[i.name] = v;
+      if (v !== null) st.values[i.name] = v;
     }
-  } else if (waitingFor) {
-    const wanted = plan.inputs.find((i) => i.name === waitingFor)!;
+  } else if (st.waitingFor) {
+    const wanted = run.plan.inputs.find((i) => i.name === st.waitingFor)!;
     const v = extract(wanted, input.question, true);
     if (v === null) {
-      retries++;
-      if (retries > MAX_RETRIES) finish("escalated", `She couldn't get ${wanted.label} after ${MAX_RETRIES + 1} tries.`);
-      else {
-        messages.push(`${say.retry} ${wanted.question}`);
-        reason = `Asked again for ${wanted.label}.`;
+      st.retries++;
+      if (st.retries > MAX_RETRIES) {
+        st.status = "escalated";
+        st.reason = `She couldn't get ${wanted.label} after ${MAX_RETRIES + 1} tries.`;
+      } else {
+        st.messages.push(`${say.retry} ${wanted.question}`);
+        st.reason = `Asked again for ${wanted.label}.`;
       }
-    } else {
-      values[wanted.name] = v;
-      waitingFor = null;
-      retries = 0;
-      step++;
+      return turnOf(ctx, st, calls);
     }
+    st.values[wanted.name] = v;
+    st.waitingFor = null;
+    st.retries = 0;
+    st.step++;
   }
+  await advance(connect, env, ctx, st, null);
+  return turnOf(ctx, st, calls);
+}
 
-  // The plan runs until it needs the customer or ends.
-  for (let budget = 0; status === "waiting" && !reason.startsWith("Asked again") && budget < STEP_BUDGET; budget++) {
-    if (budget === STEP_BUDGET - 1) {
-      finish("escalated", "The procedure went round in a loop.");
-      break;
-    }
-    const s = plan.steps[step];
-    if (!s) {
-      finish("abandoned", "The procedure ran out of steps.");
-      break;
-    }
-    stepsTaken.push(String(step + 1));
-    if (s.kind === "ask") {
-      const i = plan.inputs.find((x) => x.name === s.input)!;
-      if (values[i.name] !== undefined && values[i.name] !== null && values[i.name] !== "") {
-        step++;
-        continue;
-      }
-      waitingFor = i.name;
-      messages.push(i.question);
-      reason = `Asked for ${i.label}.`;
-      break;
-    }
-    if (s.kind === "call") {
-      const check = verified(loaded.agent.verification_rules, loaded.agent.verification_fallback, input.facts, "messenger");
-      if (!check.ok) {
-        messages.push(say.verify);
-        finish("escalated", `${s.connector} needs a signed-in customer${check.rule ? ` (verification rule “${check.rule}”)` : " (the fallback rule)"}, and this one isn't.`);
-        break;
-      }
-      if (!env.connectors) {
-        failed(`${s.connector} can't run here: connectors aren't configured.`);
-        break;
-      }
-      const version = await tenant(connect, w, (db) => pinnedVersion(db, w, s.connectorId, input.conversationId));
-      if (!version) {
-        failed(`${s.connector} isn't published any more.`);
-        break;
-      }
-      const call = await runConnector(connect, env.connectors, w, {
-        connectorId: s.connectorId,
-        version,
-        values: Object.fromEntries(plan.inputs.map((i) => [i.name, values[i.name]])),
-        source: "agent",
-        invokedBy: input.agentId,
-        conversationId: input.conversationId,
-      });
-      if (call.result !== "ok") {
-        failed(`${s.connector} failed (${call.result}${call.error ? `: ${call.error}` : ""}).`);
-        break;
-      }
-      Object.assign(values, call.outputs);
-      step++;
-      continue;
-    }
-    if (s.kind === "branch") {
-      step = holds(s, values) ? s.to : step + 1;
-      continue;
-    }
-    if (s.kind === "say") {
-      messages.push(fill(s.text, values));
-      step++;
-      continue;
-    }
-    if (s.kind === "goto") {
-      step = s.to;
-      continue;
-    }
-    if (s.kind === "end") {
-      if (s.outcome === "resolved") {
-        if (!messages.length) messages.push(say.done);
-        finish("resolved", "Resolved.");
-      } else if (s.outcome === "escalated") finish("escalated", "Its plan hands over.");
-      else finish("abandoned", "Its plan stops here; she answers as usual from now on.");
-      break;
-    }
-  }
-  if (status === "waiting" && !reason) reason = "Waiting for the customer.";
-  const r = run;
-  const record = `Procedure “${r.name}” (version ${r.procedure_version})${stepsTaken.length ? `, steps ${stepsTaken.join(", ")}` : ""}: ${reason}`;
-  return {
-    runId: r.id,
-    procedure: r.name,
-    version: r.procedure_version,
-    messages,
-    status,
-    reason: record,
-    calls,
-    commit: async (db) => {
-      const ended = status !== "waiting";
-      if (starting) {
-        const inserted = await db.query(
-          `INSERT INTO ai_procedure_runs(workspace_id,id,conversation_id,procedure_id,procedure_version,status,step,waiting_for,retries,"values",reason,ended_at)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,${ended ? "now()" : "NULL"})
-           ON CONFLICT DO NOTHING RETURNING id`,
-          [w, r.id, input.conversationId, r.procedure_id, r.procedure_version, status, step, waitingFor, retries, JSON.stringify(values), reason],
-        );
-        return inserted.rows.length > 0;
-      }
-      const updated = await db.query(
-        `UPDATE ai_procedure_runs SET status=$3,step=$4,waiting_for=$5,retries=$6,"values"=$7,reason=$8,updated_at=now(),
-           ended_at=${ended ? "now()" : "NULL"},version=version+1
-         WHERE workspace_id=$1 AND id=$2 AND status='waiting' AND version::text=$9 RETURNING id`,
-        [w, r.id, status, step, waitingFor, retries, JSON.stringify(values), reason, r.version],
-      );
-      return updated.rows.length > 0;
-    },
+/**
+ * D3: a teammate decided (or the approval expired): the run waiting on it moves on. Approved, the
+ * write runs (with its approval and idempotency key) and the plan continues; denied or expired, the
+ * customer is told and handed over. The caller posts the turn.
+ */
+export async function resumeTurn(
+  connect: Connect,
+  env: ProcedureEnvironment,
+  w: string,
+  approvalId: string,
+): Promise<{ turn: ProcedureTurn; conversationId: string; agentId: string; locale: string } | null> {
+  const loaded = await tenant(connect, w, async (db) => {
+    const a = (
+      await db.query<{ status: string; run_id: string; conversation_id: string; connector: string | null; note: string }>(
+        `SELECT a.status,a.run_id,a.conversation_id,a.note,(SELECT c.name FROM ai_connectors c WHERE c.workspace_id=a.workspace_id AND c.id=a.connector_id) AS connector
+         FROM ai_action_approvals a WHERE a.workspace_id=$1 AND a.id=$2`,
+        [w, approvalId],
+      )
+    ).rows[0];
+    if (!a || a.status === "pending" || a.status === "cancelled") return null;
+    const run = (
+      await db.query<RunRow>(`SELECT ${RUN_FIELDS} WHERE r.workspace_id=$1 AND r.id=$2 AND r.status='waiting' AND r.waiting_for=$3`, [
+        w,
+        a.run_id,
+        `approval:${approvalId}`,
+      ])
+    ).rows[0];
+    if (!run) return null;
+    const agentId = (await db.query<{ id: string }>("SELECT agent_id AS id FROM ai_procedures WHERE workspace_id=$1 AND id=$2", [w, run.procedure_id])).rows[0].id;
+    const locale =
+      (
+        await db.query<{ language: string | null }>(
+          "SELECT language FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 AND language IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+          [w, a.conversation_id],
+        )
+      ).rows[0]?.language ?? "en";
+    // A resumed job that ran this write already (and failed afterwards) never sends it again.
+    const attempted =
+      (await db.query("SELECT 1 FROM ai_connector_calls WHERE workspace_id=$1 AND approval_id=$2 LIMIT 1", [w, approvalId])).rows.length > 0;
+    return { a, run, agentId, locale, attempted, verification: await verificationOf(db, w, agentId) };
+  });
+  if (!loaded) return null;
+  const { a, run, agentId, locale } = loaded;
+  const ctx: Ctx = {
+    w,
+    agentId,
+    conversationId: a.conversation_id,
+    locale,
+    // Checked when the approval was asked for; an approved write doesn't check again.
+    facts: { signedIn: true, emailDomains: [], brand: "", language: locale, page: "", tags: [], attributes: {} },
+    verification: loaded.verification,
   };
+  const st = stateOf(run, false);
+  st.waitingFor = null;
+  const say = phrases(locale);
+  if (a.status === "approved" && loaded.attempted) {
+    st.messages.push(phrases(locale).failed);
+    st.status = "escalated";
+    st.reason = `${a.connector ?? "The write"} was already attempted once under this approval; it isn't sent again. Check the service before retrying.`;
+  } else if (a.status === "approved") await advance(connect, env, ctx, st, approvalId);
+  else {
+    st.messages.push(a.status === "denied" ? say.denied : say.expired);
+    st.status = "escalated";
+    st.reason =
+      a.status === "denied"
+        ? `A teammate denied ${a.connector ?? "the write"}${a.note ? `: “${a.note}”` : ""}. Nothing was sent.`
+        : `Nobody approved ${a.connector ?? "the write"} within ${APPROVAL_HOURS} hours. Nothing was sent.`;
+  }
+  return { turn: turnOf(ctx, st, []), conversationId: a.conversation_id, agentId, locale };
+}
+
+/** D3: approvals past their 24 hours expire; each one's run is then resumed (and handed over). */
+export async function expireApprovals(connect: Connect, w: string) {
+  return tenant(connect, w, async (db) => {
+    const expired = (
+      await db.query<{ id: string }>(
+        `UPDATE ai_action_approvals SET status='expired',decided_at=now(),version=version+1
+         WHERE workspace_id=$1 AND status='pending' AND expires_at<=now() RETURNING id`,
+        [w],
+      )
+    ).rows;
+    for (const e of expired) await enqueueJob(db, w, "procedure.resume", { approvalId: e.id }, {});
+    return expired.length;
+  });
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -431,8 +700,8 @@ async function access(db: Sql, w: string, principal: string) {
 /** Published connectors, as the compiler sees them. */
 async function connectorRefs(db: Sql, w: string): Promise<ConnectorRef[]> {
   return (
-    await db.query<{ id: string; name: string; definition: Definition }>(
-      `SELECT c.id,c.name,v.definition FROM ai_connectors c
+    await db.query<{ id: string; name: string; definition: Definition; writes_enabled: boolean }>(
+      `SELECT c.id,c.name,v.definition,c.writes_enabled FROM ai_connectors c
        JOIN ai_connector_versions v ON v.workspace_id=c.workspace_id AND v.connector_id=c.id AND v.version=c.live_version
        WHERE c.workspace_id=$1 AND NOT c.archived`,
       [w],
@@ -440,8 +709,12 @@ async function connectorRefs(db: Sql, w: string): Promise<ConnectorRef[]> {
   ).rows.map((c) => ({
     id: c.id,
     name: c.name,
-    asks: c.definition.inputs.filter((i) => i.source === "customer").map((i) => i.name),
+    // Only what it can't do without: an optional input it may simply not get.
+    asks: c.definition.inputs.filter((i) => i.source === "customer" && i.required).map((i) => i.name),
     outputs: c.definition.outputs.map((o) => o.name),
+    write: c.definition.access === "write",
+    writesEnabled: c.writes_enabled,
+    approval: c.definition.approval !== "never",
   }));
 }
 /** The source compiled, or why it doesn't compile. */
@@ -630,5 +903,92 @@ export async function changeProcedure(db: Sql, w: string, principal: string, key
       return readProcedures(db, w, principal);
     }
     return invalid("Unknown procedure change.");
+  });
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Approvals (D3)                                                                              */
+
+/** One approval, for the card in the conversation (anyone who can read conversations). */
+export async function readApproval(db: Sql, w: string, principal: string, id: string) {
+  await authorize(db, w, principal, "conversations.read");
+  const a = (
+    await db.query<{
+      id: string;
+      conversation_id: string;
+      connector: string | null;
+      connector_version: number;
+      method: string | null;
+      summary: Record<string, unknown>;
+      status: string;
+      requested_at: string;
+      expires_at: string;
+      decided_by_name: string | null;
+      decided_at: string | null;
+      note: string;
+      version: string;
+      result: string | null;
+    }>(
+      `SELECT a.id,a.conversation_id,c.name AS connector,a.connector_version,v.definition->>'method' AS method,a.summary,a.status,a.requested_at,a.expires_at,
+         t.name AS decided_by_name,a.decided_at,a.note,a.version::text AS version,
+         (SELECT k.result FROM ai_connector_calls k WHERE k.workspace_id=a.workspace_id AND k.approval_id=a.id ORDER BY k.created_at DESC LIMIT 1) AS result
+       FROM ai_action_approvals a
+       LEFT JOIN ai_connectors c ON c.workspace_id=a.workspace_id AND c.id=a.connector_id
+       LEFT JOIN ai_connector_versions v ON v.workspace_id=a.workspace_id AND v.connector_id=a.connector_id AND v.version=a.connector_version
+       LEFT JOIN teammates t ON t.workspace_id=a.workspace_id AND t.id=a.decided_by
+       WHERE a.workspace_id=$1 AND a.id=$2`,
+      [w, id],
+    )
+  ).rows[0];
+  assert(a, "APPROVAL_NOT_FOUND", "That approval isn't available.", 404);
+  const iso = (v: string | null) => (v ? new Date(v).toISOString() : null);
+  return {
+    id: a.id,
+    conversationId: a.conversation_id,
+    connector: a.connector ?? "A removed connector",
+    method: a.method,
+    summary: a.summary,
+    status: a.status,
+    requestedAt: iso(a.requested_at),
+    expiresAt: iso(a.expires_at),
+    decidedBy: a.decided_by_name,
+    decidedAt: iso(a.decided_at),
+    note: a.note,
+    version: a.version,
+    // What happened when it ran (after approval), from the audit.
+    result: a.result,
+  };
+}
+
+/**
+ * A teammate (anyone who can reply in conversations) approves or denies a write, once, by
+ * version, with an optional note. The procedure resumes in a job.
+ */
+export async function decideApproval(db: Sql, w: string, principal: string, key: string, p: Record<string, unknown>) {
+  const t = await authorize(db, w, principal, "conversations.reply");
+  assert(await actionsEnabled(db, w), "ACTIONS_DISABLED", "Procedures are not enabled for this workspace.", 404);
+  return once(db, w, "ai-approval:" + principal, key, p, async () => {
+    const decision = p.decision;
+    if (decision !== "approve" && decision !== "deny") throw new DomainError("INVALID_APPROVAL", "Approve or deny it.", 400);
+    const note = typeof p.note === "string" ? p.note.trim() : "";
+    if (note.length > 1000) throw new DomainError("INVALID_APPROVAL", "Keep the note to 1,000 characters.", 400);
+    const id = String(p.id ?? "");
+    const row = (
+      await db.query<{ status: string; version: string }>("SELECT status,version::text AS version FROM ai_action_approvals WHERE workspace_id=$1 AND id=$2", [
+        w,
+        id,
+      ])
+    ).rows[0];
+    assert(row, "APPROVAL_NOT_FOUND", "That approval isn't available.", 404);
+    if (row.status !== "pending")
+      throw new DomainError("APPROVAL_DECIDED", `This was already ${row.status === "approved" ? "approved" : row.status === "denied" ? "denied" : row.status}.`, 409);
+    if (row.version !== String(p.version ?? "")) throw new DomainError("APPROVAL_CHANGED", "This approval changed. Reload to see it.", 409);
+    await db.query(
+      `UPDATE ai_action_approvals SET status=$3,decided_by=$4,decided_at=now(),note=$5,version=version+1
+       WHERE workspace_id=$1 AND id=$2 AND status='pending'`,
+      [w, id, decision === "approve" ? "approved" : "denied", t.id, note],
+    );
+    await enqueueJob(db, w, "procedure.resume", { approvalId: id }, { teammateId: t.id });
+    return readApproval(db, w, principal, id);
   });
 }

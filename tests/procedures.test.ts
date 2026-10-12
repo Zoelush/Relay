@@ -48,7 +48,7 @@ test("a procedure's steps compile into a fixed plan, or say which step to fix", 
   fails("1. Go to step 9.", "Step 1: There's no step 9.");
   fails("1. Ask for order_id.\n3. Resolve.", "Step 2: Number the steps 1, 2, 3 in order.");
   fails("1. Ask for order_id.", "Step 1: Finish the last step with Resolve, Hand over, Stop or Go to step.");
-  fails("1. Refund the order.\n2. Resolve.", "Step 1: Start the step with Ask for, Look up, If, Say, Go to step, Resolve, Hand over or Stop.");
+  fails("1. Refund the order.\n2. Resolve.", "Step 1: Start the step with Ask for, Look up (or Use), If, Say, Go to step, Resolve, Hand over or Stop.");
   fails("1. Resolve.", "Give at least one keyword that starts it.", { keywords: [] });
 });
 

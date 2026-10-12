@@ -140,7 +140,7 @@ export function ProceduresPage({ menu, page }: { menu: SideMenuState; page: Page
                       </small>
                     </span>
                     <span className="pg-zoe-review-why" data-hue={RUN_NAMES[r.status]?.[1] ?? "slate"}>
-                      {RUN_NAMES[r.status]?.[0] ?? r.status}
+                      {r.status === "waiting" && r.reason.includes("approve") ? "Waiting for approval" : (RUN_NAMES[r.status]?.[0] ?? r.status)}
                     </span>
                   </li>
                 ))}

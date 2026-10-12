@@ -6,6 +6,7 @@ import { Card, Frame, message, type Page } from "./settings-ui";
 import { ago } from "./zoe-labels";
 import {
   INPUT_SOURCES,
+  METHODS,
   SECRET_FOR,
   blankDefinition,
   type ConnectorInput,
@@ -17,18 +18,22 @@ import {
  * Train › Actions (phase 09, step D1; docs/ACTIONS_STEP1.md), while `ai_actions_v1` is on: Zoe's data
  * connectors. Each is edited as a draft, tested in the console (a job that calls the service with
  * sample values and shows the exact request and response, credentials masked), and published as
- * an immutable version. Credentials are write-only here.
+ * an immutable version. Credentials are write-only here. D3 (docs/ACTIONS_STEP3.md): a connector can
+ * write (change things); Zoe uses one only after a manager turns its writes on, past a warning, and
+ * the workspace's kill switch pauses every write at once.
  */
 type Summary = {
   id: string;
   name: string;
   description: string;
   access: string;
+  writesEnabled: boolean;
   method: string;
   liveVersion: number | null;
   changed: boolean;
   lastCall: { result: string; at: string } | null;
 };
+type Writes = { paused: boolean; by: string | null; at: string | null };
 type Detail = {
   connector: {
     id: string;
@@ -39,7 +44,10 @@ type Detail = {
     liveVersion: number | null;
     changed: boolean;
     secrets: { name: string; hint: string; updatedAt: string }[];
+    writes: { enabled: boolean; by: string | null; at: string | null };
+    liveAccess: "read" | "write" | null;
   };
+  paused: boolean;
   versions: { version: number; publishedAt: string; by: string | null }[];
   calls: {
     id: string;
@@ -95,13 +103,17 @@ const Chip = ({ result }: { result: string }) => {
 
 export function ActionsPage({ menu, page }: { menu: SideMenuState; page: Page }) {
   const [list, setList] = useState<Summary[] | null>(null);
+  const [writes, setWrites] = useState<Writes | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const load = () =>
-    api<{ connectors: Summary[] }>("zoe?view=connectors")
-      .then((d) => setList(d.connectors))
+    api<{ connectors: Summary[]; writes: Writes }>("zoe?view=connectors")
+      .then((d) => {
+        setList(d.connectors);
+        setWrites(d.writes);
+      })
       .catch((e) => setError(message(e, "This page could not be loaded.")));
   useEffect(() => {
     if (!open) void load();
@@ -152,8 +164,8 @@ export function ActionsPage({ menu, page }: { menu: SideMenuState; page: Page })
                 <header>
                   <Plug size={16} aria-hidden="true" />
                   <strong>{c.name}</strong>
-                  <span className="pg-zoe-review-why" data-hue="sky">
-                    Read · {c.method}
+                  <span className="pg-zoe-review-why" data-hue={c.access === "write" ? "amber" : "sky"}>
+                    {c.access === "write" ? `Write · ${c.method}${c.writesEnabled ? "" : " · off"}` : `Read · ${c.method}`}
                   </span>
                   <span className="pg-zoe-review-why" data-hue={c.liveVersion ? "green" : "slate"}>
                     {c.liveVersion ? `Live, version ${c.liveVersion}` : "Not published"}
@@ -184,6 +196,44 @@ export function ActionsPage({ menu, page }: { menu: SideMenuState; page: Page })
             account, with only the values you choose sent and returned.
           </p>
         ))}
+      {writes && (
+        <Card
+          title="Write actions"
+          description="Connectors that change things in your systems. Pausing stops every write at once, for Zoe and the test console, until you resume."
+        >
+          <div className="pg-zoe-review-actions">
+            <span className="pg-zoe-review-why" data-hue={writes.paused ? "rose" : "green"}>
+              {writes.paused ? "Paused" : "Allowed"}
+            </span>
+            {writes.by && writes.at && (
+              <small className="pg-muted">
+                {writes.paused ? "Paused" : "Resumed"} by {writes.by} {ago(writes.at)}
+              </small>
+            )}
+            <button
+              type="button"
+              className={writes.paused ? "pg-zoe-primary" : "pg-zoe-secondary"}
+              disabled={busy}
+              onClick={async () => {
+                if (!writes.paused && !window.confirm("Pause every write action now? Zoe hands over instead of changing anything.")) return;
+                setBusy(true);
+                setError("");
+                try {
+                  const d = await api<{ connectors: Summary[]; writes: Writes }>("zoe-connector", { action: "pause", paused: !writes.paused });
+                  setList(d.connectors);
+                  setWrites(d.writes);
+                } catch (e) {
+                  setError(message(e, "That could not be saved."));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {writes.paused ? "Resume write actions" : "Pause all write actions"}
+            </button>
+          </div>
+        </Card>
+      )}
     </Frame>
   );
 }
@@ -301,9 +351,85 @@ function ConnectorEditor({ id, onBack }: { id: string; onBack: () => void }) {
         </div>
       </header>
       <p className="pg-muted">
-        Read only: it looks things up and changes nothing. Conversations keep the version they started
-        with; publishing changes what new conversations use.
+        {def.access === "write"
+          ? "Write: it changes things in your service. Zoe uses it only once its writes are on, only for signed-in customers, and (if you choose) after a teammate approves each one."
+          : "Read only: it looks things up and changes nothing."}{" "}
+        Conversations keep the version they started with; publishing changes what new conversations use.
       </p>
+
+      {c.liveAccess === "write" && (
+        <Card
+          title="Writes"
+          description={
+            data.paused
+              ? "Write actions are paused for the whole workspace: nothing is written until they're resumed under Actions."
+              : "Whether Zoe may use this connector to change things."
+          }
+        >
+          <div className="pg-zoe-review-actions">
+            <span className="pg-zoe-review-why" data-hue={c.writes.enabled ? "amber" : "slate"}>
+              {c.writes.enabled ? "Writes on" : "Writes off"}
+            </span>
+            {c.writes.enabled && c.writes.by && c.writes.at && (
+              <small className="pg-muted">
+                Turned on by {c.writes.by} {ago(c.writes.at)}
+              </small>
+            )}
+            <button
+              type="button"
+              className={c.writes.enabled ? "pg-zoe-secondary" : "pg-zoe-primary"}
+              disabled={busy}
+              onClick={() => {
+                if (c.writes.enabled) return void change({ action: "writes", version: c.version, enabled: false }, "Writes turned off.");
+                if (
+                  window.confirm(
+                    `Turn on writes for ${c.name}? Zoe will be able to change things in this service for signed-in customers, in procedures you publish${def.approval === "always" ? ", after a teammate approves each one" : ", without asking a teammate"}.`,
+                  )
+                )
+                  void change({ action: "writes", version: c.version, enabled: true, acknowledged: true }, "Writes turned on.");
+              }}
+            >
+              {c.writes.enabled ? "Turn writes off" : "Turn writes on"}
+            </button>
+          </div>
+        </Card>
+      )}
+
+      <Card title="Access" description="Whether it only looks things up, or changes things.">
+        <div className="pg-zoe-connector-request">
+          <select
+            aria-label="Access"
+            value={def.access ?? "read"}
+            onChange={(e) => {
+              const access = e.target.value as Definition["access"];
+              set({ access, method: METHODS[access][0], retries: access === "write" ? 0 : def.retries });
+            }}
+          >
+            <option value="read">Read: looks things up</option>
+            <option value="write">Write: changes things</option>
+          </select>
+          {def.access === "write" && (
+            <>
+              <select aria-label="Approval" value={def.approval ?? "always"} onChange={(e) => set({ approval: e.target.value as Definition["approval"] })}>
+                <option value="always">A teammate approves each write</option>
+                <option value="never">No approval needed</option>
+              </select>
+              <input
+                aria-label="Idempotency header"
+                value={def.idempotencyHeader ?? ""}
+                placeholder="Idempotency-Key (optional)"
+                onChange={(e) => set({ idempotencyHeader: e.target.value })}
+              />
+            </>
+          )}
+        </div>
+        {def.access === "write" && (
+          <small className="pg-muted">
+            With an idempotency header, Relay sends the same key on every attempt at one write, so it can retry safely. Without
+            one, a write that may have gone through is never sent again.
+          </small>
+        )}
+      </Card>
 
       <Card title="Description" description="What it does, in a sentence or two, for your team.">
         <textarea
@@ -360,8 +486,11 @@ function ConnectorEditor({ id, onBack }: { id: string; onBack: () => void }) {
       <Card title="Request" description="Where it goes. Relay only calls public https addresses, and never follows redirects.">
         <div className="pg-zoe-connector-request">
           <select aria-label="Method" value={def.method} onChange={(e) => set({ method: e.target.value as Definition["method"] })}>
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
+            {METHODS[def.access ?? "read"].map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
           </select>
           <input aria-label="Base address" value={def.baseUrl} placeholder="https://api.example.com/v1" onChange={(e) => set({ baseUrl: e.target.value })} />
           <input aria-label="Path" value={def.path} placeholder="/orders/{{order_id}}" onChange={(e) => set({ path: e.target.value })} />
@@ -370,7 +499,7 @@ function ConnectorEditor({ id, onBack }: { id: string; onBack: () => void }) {
         <Pairs label="Query values" rows={def.query} onChange={(query) => set({ query })} />
         <h4 className="pg-zoe-connector-sub">Headers</h4>
         <Pairs label="Headers" rows={def.headers} onChange={(headers) => set({ headers })} />
-        {def.method === "POST" && (
+        {def.method !== "GET" && def.method !== "DELETE" && (
           <label className="pg-settings-field">
             <span>Body (JSON)</span>
             <textarea

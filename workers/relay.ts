@@ -9,6 +9,7 @@ import { resolveQuiet } from "../server/ai-resolutions";
 import { sampleForReview } from "../server/zoe-review";
 import { checkMonitors } from "../server/zoe-monitors";
 import { runConnectorTest } from "../server/connectors";
+import { expireApprovals } from "../server/procedures";
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -24,7 +25,7 @@ import {
   runDuplicates,
   scheduleDuplicateCheck,
 } from "../server/knowledge-health";
-import { runAiReply, type AiEnvironment } from "../server/ai-agent";
+import { runAiReply, runProcedureResume, type AiEnvironment } from "../server/ai-agent";
 import {
   claudeAnswerModel,
   claudeClassifier,
@@ -456,6 +457,10 @@ const relayWorker = {
     if (runtime.ai)
       handlers["ai.reply"] = (job) =>
         runAiReply(runtime.connect, runtime.ai!, job);
+    // A procedure resumed after a teammate's decision on a write (phase 09 D3).
+    if (runtime.ai)
+      handlers["procedure.resume"] = (job) =>
+        runProcedureResume(runtime.connect, runtime.ai!, job);
     // A data connector's test console (phase 09 D1), when its key is set.
     if (runtime.connectors)
       handlers["connector.test"] = (job) =>
@@ -516,6 +521,8 @@ const relayWorker = {
           await sampleForReview(runtime.connect, work.workspace);
           // Zoe's monitors, once an hour (phase 08 C2b).
           await checkMonitors(runtime.connect, work.workspace);
+          // Approvals for writes expire after 24 hours (phase 09 D3).
+          await expireApprovals(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(

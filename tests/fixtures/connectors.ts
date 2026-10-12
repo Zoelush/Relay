@@ -55,6 +55,32 @@ export const ORDER_STATUS = {
   },
 };
 
+/** A write (D3): cancels an order, with an idempotency key and a teammate's approval. */
+export const CANCEL_ORDER = {
+  name: "Cancel order",
+  definition: {
+    description: "Cancels an order that hasn't shipped.",
+    access: "write",
+    method: "POST",
+    baseUrl: "https://api.shop.example/v1",
+    path: "/orders/{{order_id}}/cancel",
+    query: [],
+    headers: [],
+    body: '{"reason": "{{reason}}"}',
+    inputs: [
+      ORDER_LOOKUP.definition.inputs[0],
+      { name: "reason", label: "Reason", type: "string", source: "customer", required: false, sensitive: true, pattern: "", maxLength: 200 },
+    ],
+    outputs: [{ name: "status", label: "Status", path: "order.status", type: "string", sensitive: false }],
+    auth: { type: "api_key", header: "X-Api-Key" },
+    timeoutMs: 1000,
+    retries: 1,
+    rateLimit: 60,
+    approval: "always",
+    idempotencyHeader: "Idempotency-Key",
+  },
+};
+
 export const ACCOUNT_STATUS = {
   name: "Account status",
   definition: {
@@ -103,6 +129,11 @@ export const EXCHANGES: Exchange[] = [
   { method: "GET", url: shop("A2222"), responses: [{ status: 200, body: "<html>maintenance</html>", headers: { "content-type": "text/html" } }] },
   { method: "GET", url: shop("A3333"), responses: [{ status: 200, body: order("shipped", { total: "a lot" }) }] },
   { method: "GET", url: "https://api.shop.example/v1/orders/A1001", responses: [{ status: 200, body: order("shipped") }] },
+  // Writes (D3).
+  { method: "POST", url: "https://api.shop.example/v1/orders/A1001/cancel", responses: [{ status: 200, body: { order: { id: "A1001", status: "cancelled" } } }] },
+  { method: "POST", url: "https://api.shop.example/v1/orders/A2002/cancel", responses: [{ status: 200, body: { order: { id: "A2002", status: "cancelled" } } }] },
+  { method: "POST", url: "https://api.shop.example/v1/orders/A9999/cancel", responses: ["timeout"] },
+  { method: "POST", url: "https://api.shop.example/v1/orders/A5000/cancel", responses: [{ status: 500, body: { error: "busy" } }, { status: 200, body: { order: { status: "cancelled" } } }] },
   { method: "GET", url: "https://api.shop.example/v1/orders/A9999", responses: ["timeout"] },
   { method: "POST", url: "https://auth.crm.example/oauth/token", responses: [{ status: 200, body: { access_token: "crm-token-1", token_type: "Bearer", expires_in: 3600 } }] },
   {

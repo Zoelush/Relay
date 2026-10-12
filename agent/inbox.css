@@ -1446,3 +1446,9 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-zoe-plan-connectors li { display:flex; flex-direction:column; gap:2px; }
 .pg-zoe-review-why { white-space:nowrap; }
 .pg-zoe-rows input[aria-label="Collect question"] { min-width:300px; }
+/* Phase 09 D3: approving a write Zoe asked to run (agent/timeline.tsx). */
+.pg-approval { display:flex; flex-direction:column; gap:8px; margin-top:8px; padding:10px 12px; border-radius:10px; background:var(--pg-surface); border:1px solid var(--pg-border); }
+.pg-approval p { margin:0; font-size:13px; }
+.pg-approval input { width:100%; }
+.pg-approval-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.pg-approval-actions button:not(.pg-primary) { padding:6px 12px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); }
