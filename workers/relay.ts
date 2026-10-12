@@ -6,6 +6,7 @@ import {
 import { processKnowledgeFile } from "../server/knowledge-files";
 import { processBrandAsset } from "../server/brand-assets";
 import { resolveQuiet } from "../server/ai-resolutions";
+import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
   runIndex,
@@ -507,6 +508,8 @@ const relayWorker = {
             await purgeDrafts(runtime.connect, work.workspace);
             // Help center searches are kept for 180 days (phase 07, B2).
             await purgeHelpSearches(runtime.connect, work.workspace);
+          // What was sent to model providers is kept 90 days (phase 08, B2b).
+          await purgeModelCalls(runtime.connect, work.workspace);
             await purgeInlineImages(
               runtime.connect,
               runtime.attachments,

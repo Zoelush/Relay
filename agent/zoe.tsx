@@ -25,6 +25,7 @@ import {
   GuidanceCard,
   HandoverCards,
   LanguagesCard,
+  PrivacyCard,
   ResolutionsCard,
   Rules,
   TopicsCard,
@@ -33,7 +34,13 @@ import {
   type Condition,
   type TargetingChoices,
 } from "./settings-ai";
-import { GuidancePage, skippedWords, type PreviewResult } from "./zoe-guidance";
+import {
+  GUARD_NAMES,
+  GuidancePage,
+  redactionWords,
+  skippedWords,
+  type PreviewResult,
+} from "./zoe-guidance";
 import { SpecialistsPage } from "./zoe-specialists";
 import {
   OUTCOME_HUES,
@@ -685,6 +692,7 @@ function SettingsPage({ menu, page, setAgent, agent }: PageProps & { page: Page 
         <>
           <AnsweringCard form={ai.form} set={ai.set} />
           <LanguagesCard form={ai.form} set={ai.set} />
+          <PrivacyCard form={ai.form} set={ai.set} />
           {identities.map((i) => (
             <IdentityCard
               key={i.brandId}
@@ -1197,6 +1205,26 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
                     <dd>{skippedWords(result.skipped)}</dd>
                   </>
                 )}
+                {result.guard && (
+                  <>
+                    <dt>Safety</dt>
+                    <dd>Her reply was blocked: it contained {GUARD_NAMES[result.guard] ?? result.guard}.</dd>
+                  </>
+                )}
+                {result.sent.length > 0 && (
+                  <>
+                    <dt>Sent to the model</dt>
+                    <dd>
+                      {redactionWords(result.sent[result.sent.length - 1].redactions, result.sent[0].redacted)}
+                      <details className="pg-zoe-sent">
+                        <summary>Show exactly what would be sent</summary>
+                        {result.sent.map((c, i) => (
+                          <pre key={i} aria-label={`Sent to ${c.model} (${c.kind})`}>{c.sent}</pre>
+                        ))}
+                      </details>
+                    </dd>
+                  </>
+                )}
                 <dt>Confidence</dt>
                 <dd>
                   {result.confidence === null ? (
@@ -1350,6 +1378,7 @@ type PerformanceData = {
   triggers: { trigger: string; count: number }[];
   languages: { language: string; count: number }[];
   specialists: { id: string | null; name: string | null; answers: number; handovers: number }[];
+  blocked: { guard: string; count: number }[];
   resolutions: { confirmed: number; quiet: number; reversals: number; net: number };
   medianLatencyMs: number | null;
   confidence: number | null;
@@ -1399,6 +1428,21 @@ function PerformancePage({ menu, page }: PageProps & { page: Page }) {
               </ul>
             </Card>
           )}
+          <Card title="Blocked by safety" description="Replies a model wrote that the guards in code stopped before they reached a customer, by what they contained. The customer was told she couldn't answer.">
+            {data.blocked.length ? (
+              <ul className="pg-zoe-bars" aria-label="Blocked by safety">
+                {data.blocked.map((b) => (
+                  <li key={b.guard} data-hue="rose">
+                    <span>{GUARD_NAMES[b.guard] ?? b.guard}</span>
+                    <span className="pg-zoe-bar"><span style={{ width: bar(b.count, data.blocked.reduce((a, x) => a + x.count, 0)) }} /></span>
+                    <strong>{b.count}</strong>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="pg-zoe-empty">None in the last {data.days} days.</p>
+            )}
+          </Card>
           <Card title="Languages she replied in" description="Each reply's language: what the customer wrote in, or the brand's when it isn't one of hers.">
             {data.languages.length ? (
               <ul className="pg-zoe-bars" aria-label="Languages">

@@ -71,6 +71,9 @@ export type Settings = {
     /** The languages she answers in, and what she does with others (Z2). */
     languages: string[];
     otherLanguages: "brand_language" | "hand_over";
+    /** B2b: privacy, both off by default. */
+    redactPersonalData: boolean;
+    memory: boolean;
     version: string;
   };
   teams: Choice[];
@@ -119,6 +122,8 @@ const formOf = (s: Settings): Form => ({
   threshold: s.agent.threshold,
   languages: s.agent.languages,
   otherLanguages: s.agent.otherLanguages,
+  redactPersonalData: s.agent.redactPersonalData,
+  memory: s.agent.memory,
   rules: s.rules,
   topics: s.topics,
   guidance: s.guidance,
@@ -240,6 +245,47 @@ export function LanguagesCard({ form, set }: Omit<Section, "data">) {
           </label>
         ))}
       </fieldset>
+    </Card>
+  );
+}
+
+/** What reaches the model provider, and what she remembers (B2b). */
+export function PrivacyCard({ form, set }: Omit<Section, "data">) {
+  return (
+    <Card
+      title="Privacy"
+      description="What's sent to the model provider, and whether she remembers a customer. Managers can see exactly what was sent for each answer, in “Why this reply”, for 90 days."
+    >
+      <label className="pg-settings-toggle">
+        <input
+          type="checkbox"
+          checked={form.redactPersonalData}
+          onChange={(e) => set({ redactPersonalData: e.target.checked })}
+        />
+        <span>
+          <strong>Redact personal data before it&apos;s sent to the model</strong>
+          <small className="pg-muted">
+            Email addresses, phone and card numbers, IBANs, IP addresses and the customer&apos;s
+            name become placeholders such as [email 1]. Her reply puts the customer&apos;s own
+            details back.
+          </small>
+        </span>
+      </label>
+      <label className="pg-settings-toggle">
+        <input
+          type="checkbox"
+          checked={form.memory}
+          onChange={(e) => set({ memory: e.target.checked })}
+        />
+        <span>
+          <strong>Remember a signed-in customer&apos;s earlier conversations</strong>
+          <small className="pg-muted">
+            Their last three conversations from the past 90 days, public messages only, as
+            context. Never for visitors, whose browser may be shared. Each answer records what
+            she remembered.
+          </small>
+        </span>
+      </label>
     </Card>
   );
 }

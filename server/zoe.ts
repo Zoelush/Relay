@@ -349,6 +349,13 @@ export async function zoePerformance(db: Sql, w: string, principal: string) {
       [w, from],
     )
   ).rows.map((r) => ({ language: r.language, count: r.n }));
+  // B2a: replies the guards in code blocked, by guard.
+  const blocked = (
+    await db.query<{ guard: string; n: number }>(
+      "SELECT guard,count(*)::int AS n FROM ai_answers WHERE workspace_id=$1 AND created_at>=$2 AND guard IS NOT NULL GROUP BY guard ORDER BY count(*) DESC,guard",
+      [w, from],
+    )
+  ).rows.map((r) => ({ guard: r.guard, count: r.n }));
   // Who answered (Z3a): each specialist, and Zoe herself.
   const names = new Map(
     (await specialistsOf(db, w, agent.id)).map((s) => [s.id, s.name]),
@@ -406,6 +413,7 @@ export async function zoePerformance(db: Sql, w: string, principal: string) {
     triggers,
     languages,
     specialists: bySpecialist,
+    blocked,
     resolutions: {
       confirmed: ledger.confirmed,
       quiet: ledger.quiet,
