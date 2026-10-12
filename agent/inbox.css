@@ -1396,3 +1396,23 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-zoe-review-fix { display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; margin-top:6px; }
 .pg-zoe-review-fix label { display:flex; flex-direction:column; gap:4px; font-size:12.5px; }
 .pg-zoe-review-fix select { max-width:280px; }
+/* C2b: Zoe's monitors and incidents (agent/zoe-monitors.tsx). */
+.pg-zoe-monitors, .pg-zoe-incidents { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:12px; }
+.pg-zoe-monitor, .pg-zoe-incident { display:flex; flex-direction:column; gap:8px; padding:14px 16px; border:1px solid var(--pg-border); border-radius:14px; background:var(--pg-surface); }
+.pg-zoe-monitor > header, .pg-zoe-incident > header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.pg-zoe-monitor p, .pg-zoe-incident p { margin:0; font-size:13px; line-height:1.5; }
+.pg-zoe-monitor-numbers { display:flex; gap:28px; flex-wrap:wrap; margin:0; }
+.pg-zoe-monitor-numbers dt { font-size:12px; color:var(--pg-text-2); }
+.pg-zoe-monitor-numbers dd { margin:2px 0 0; font-size:20px; font-weight:650; font-variant-numeric:tabular-nums; }
+.pg-zoe-monitor-form { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.pg-zoe-incident { border-color:var(--pg-tint-rose); }
+.pg-zoe-incident > header svg { color:var(--pg-tint-rose); }
+.pg-zoe-incident-detail { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px 24px; padding:10px 12px; border-radius:10px; background:var(--pg-sunken); }
+.pg-zoe-incident-detail h4 { margin:0 0 6px; font-size:12px; letter-spacing:.3px; color:var(--pg-text-2); }
+.pg-zoe-incident-detail ul { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:4px; font-size:13px; }
+.pg-zoe-incidents-none { display:flex; align-items:center; gap:8px; }
+.pg-zoe-incidents-none svg { color:var(--pg-tint-green); }
+.pg-zoe-incident-banner { display:flex; align-items:center; gap:12px; padding:12px 16px; border-radius:14px; background:var(--pg-tint-rose-bg); color:var(--pg-text); }
+.pg-zoe-incident-banner > svg { flex:none; color:var(--pg-tint-rose); }
+.pg-zoe-incident-banner > span { display:flex; flex-direction:column; gap:2px; flex:1; min-width:0; }
+.pg-zoe-incident-banner small { font-size:12.5px; }

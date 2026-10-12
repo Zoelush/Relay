@@ -48,6 +48,7 @@ import { processKnowledgeFile } from "../server/knowledge-files";
 import { processBrandAsset } from "../server/brand-assets";
 import { resolveQuiet } from "../server/ai-resolutions";
 import { sampleForReview } from "../server/zoe-review";
+import { checkMonitors } from "../server/zoe-monitors";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
   runIndex,
@@ -116,6 +117,8 @@ export async function startLocalRelay(
     knowledgeHealth?: boolean;
     /** Zoe's review queue (phase 08, C2a). */
     zoeReview?: boolean;
+    /** Zoe's monitors and incidents (phase 08, C2b). */
+    zoeMonitors?: boolean;
     /** Its model and vector store; by default the test embedder and a local store. */
     index?: IndexEnvironment;
     /** The AI agent's models (phase 08); stand-ins by default. */
@@ -518,6 +521,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='zoe_review_v1'",
         [w, options.zoeReview !== false],
       );
+      // Zoe's monitors and incidents (phase 08, C2b).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='zoe_monitors_v1'",
+        [w, options.zoeMonitors !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -709,6 +717,8 @@ export async function startLocalRelay(
         await resolveQuiet(db.connect, w);
         // Answers for Zoe's review queue: pushbacks, and yesterday's sample once (phase 08 C2a).
         await sampleForReview(db.connect, w);
+        // Zoe's monitors, once an hour (phase 08 C2b).
+        await checkMonitors(db.connect, w);
         // Websites due a sync (phase 07, C1b), checked once a minute.
         if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
           lastSyncCheck.set(w, Date.now());

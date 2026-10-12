@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased: Zoe's monitors and incidents (phase 08, C2b)
+
+- **Zoe › Analyze › Monitors and Incidents,** behind `zoe_monitors_v1` (off by default).
+- **Six monitors:** the "I don't know" rate, handovers, blocked by safety, errors, "That helped" and rated bad in review.
+  - **Checks:** each compares the last 24 hours with the 7 days before, once an hour.
+  - **Settings:** each can be switched off or set to low, medium or high sensitivity.
+- **Incidents:**
+  - **Opening:** a sharp change opens one (one per monitor at a time).
+  - **What it shows:** the numbers, example conversations, and what changed in her settings, guidance, specialists or content shortly before.
+  - **Closing:** acknowledged or resolved with a note. It also resolves itself after two normal checks, or when its monitor is switched off.
+- **Alerts:** an in-app notification for everyone who manages Zoe, and a banner on her Overview while one is open.
+- **Migration:** 0053, with rollback.
+- **Details:** `docs/AI_STEP12.md`.
+
 ## Unreleased: Zoe's review queue (phase 08, C2a)
 
 - **Zoe › Analyze › Review,** behind `zoe_review_v1` (off by default). It lists answers Zoe gave from content for a lead to rate:

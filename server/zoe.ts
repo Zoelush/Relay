@@ -6,6 +6,7 @@ import { specialistsOf } from "./zoe-specialists";
 import { targetingChoices } from "./ai-targeting";
 import type { Condition } from "./ai-escalation";
 import { reviewEnabled, reviewedGaps } from "./zoe-review";
+import { incidentSummary } from "./zoe-monitors";
 
 /**
  * Zoe, Relay's AI agent, in the agent app (phase 08, step Z1; docs/AI_STEP5.md): her identity per
@@ -332,6 +333,8 @@ export async function zoeOverview(db: Sql, w: string, principal: string) {
           )
         ).rows[0]
       : null,
+    // C2b: open incidents, while monitors are on (null when off).
+    incidents: await incidentSummary(db, w),
     gaps: await gaps(db, w, 6),
     articles: await mostUsed(db, w, 6),
   };

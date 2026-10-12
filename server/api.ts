@@ -195,6 +195,7 @@ import {
 import { changeGuidance, readGuidance, readGuidanceVersion } from "./zoe-guidance";
 import { changeSpecialist, readSpecialists, specialistNames } from "./zoe-specialists";
 import { changeReview, gapsForHealth, readReview } from "./zoe-review";
+import { changeMonitors, readIncidents, readMonitors } from "./zoe-monitors";
 import {
   indexStatus,
   rebuildIndex,
@@ -1277,6 +1278,7 @@ export async function handleApi(
               "/v1/agent/zoe-guidance",
               "/v1/agent/zoe-specialist",
               "/v1/agent/zoe-review",
+              "/v1/agent/zoe-monitors",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1599,6 +1601,19 @@ export async function handleApi(
           return json(
             await tenant(env.connect, workspace, (db) =>
               changeReview(
+                db,
+                workspace,
+                principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/zoe-monitors")
+          // Phase 08 C2b: a monitor's setting, or an incident acknowledged or resolved.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeMonitors(
                 db,
                 workspace,
                 principal,
@@ -2105,6 +2120,10 @@ export async function handleApi(
             ? readSpecialists
             : view === "review"
             ? readReview
+            : view === "monitors"
+            ? readMonitors
+            : view === "incidents"
+            ? readIncidents
             : view === "guidance"
             ? url.searchParams.has("version")
               ? (db, w, principal) => readGuidanceVersion(db, w, principal, version)

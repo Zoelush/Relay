@@ -3,10 +3,12 @@ import { api } from "./api";
 
 export type Notification = {
   id: string;
-  kind: "mention";
-  conversationId: string;
-  conversationTitle: string;
-  actorName: string;
+  /** A mention in a note, or (phase 08 C2b) an incident Zoe's monitors opened. */
+  kind: "mention" | "zoe_incident";
+  conversationId: string | null;
+  conversationTitle: string | null;
+  actorName: string | null;
+  incidentId: string | null;
   excerpt: string;
   createdAt: string;
   readAt: string | null;
@@ -18,10 +20,13 @@ export type Notification = {
  */
 export function NotificationsPanel({
   onOpen,
+  onIncident,
   onClose,
   onError,
 }: {
   onOpen: (conversationId: string) => void;
+  /** Opens Zoe's incidents. */
+  onIncident: () => void;
   onClose: () => void;
   onError: (e: unknown) => void;
 }) {
@@ -89,12 +94,14 @@ export function NotificationsPanel({
                   onClick={() => {
                     if (!n.readAt) void markRead({ ids: [n.id] });
                     onClose();
-                    onOpen(n.conversationId);
+                    if (n.kind === "zoe_incident") onIncident();
+                    else if (n.conversationId) onOpen(n.conversationId);
                   }}
                 >
                   <strong>
-                    {n.actorName} mentioned you in{" "}
-                    {n.conversationTitle || "a conversation"}
+                    {n.kind === "zoe_incident"
+                      ? "Incident: Zoe's behaviour changed sharply"
+                      : `${n.actorName} mentioned you in ${n.conversationTitle || "a conversation"}`}
                   </strong>
                   <span>{n.excerpt}</span>
                   <time dateTime={n.createdAt}>
