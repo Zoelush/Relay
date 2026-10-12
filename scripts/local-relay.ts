@@ -51,6 +51,7 @@ import { sampleForReview } from "../server/zoe-review";
 import { checkMonitors } from "../server/zoe-monitors";
 import { runConnectorTest } from "../server/connectors";
 import { expireApprovals } from "../server/procedures";
+import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
@@ -125,6 +126,8 @@ export async function startLocalRelay(
     /** Data connectors (phase 09, D1): on unless turned off; tests pass a fetch with recorded responses. */
     aiActions?: boolean;
     connectors?: { policy?: FetchPolicy; sleep?: (ms: number) => Promise<void> };
+    /** Workflows (phase 11), likewise on unless turned off. */
+    workflows?: boolean;
     /** Its model and vector store; by default the test embedder and a local store. */
     index?: IndexEnvironment;
     /** The AI agent's models (phase 08); stand-ins by default. */
@@ -546,6 +549,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='ai_actions_v1'",
         [w, options.aiActions !== false],
       );
+      // Workflows (phase 11, W1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='workflows_v1'",
+        [w, options.workflows !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -679,6 +687,9 @@ export async function startLocalRelay(
   handlers["ai.reply"] = (job) => runAiReply(db.connect, env.ai!, job);
   handlers["connector.test"] = (job) => runConnectorTest(db.connect, env.connectors!, job);
   handlers["procedure.resume"] = (job) => runProcedureResume(db.connect, env.ai!, job);
+  // Phase 11: workflows triggered, and waiting runs resumed.
+  handlers["workflow.start"] = (job) => startWorkflows(db.connect, job);
+  handlers["workflow.resume"] = (job) => resumeWorkflow(db.connect, job);
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
@@ -743,6 +754,8 @@ export async function startLocalRelay(
         await checkMonitors(db.connect, w);
         // Approvals for writes expire after 24 hours (phase 09 D3).
         await expireApprovals(db.connect, w);
+        // Workflow runs whose wait is over (phase 11).
+        await resumeDueWorkflows(db.connect, w);
         // Websites due a sync (phase 07, C1b), checked once a minute.
         if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
           lastSyncCheck.set(w, Date.now());

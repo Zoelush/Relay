@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased: the workflow engine (phase 11, W1)
+
+- **Workflows stored as data,** behind `workflows_v1` (off by default): one trigger, who it runs for, and lettered paths of steps with branches and waits.
+- **Versions:** immutable, with rollback. Publishing is refused, with the reasons, for unreachable paths, broken links, endless paths or missing references.
+- **Triggers** from the timeline: conversation started, messages, replies, notes, assignment, tags, state, attributes, tickets, SLA breaches, and manual. Changes by Zoe, bulk actions and workflows fire them too.
+- **Conditions:** nested, evaluated in code. Background actions run through the same path as teammates' changes.
+- **Waits:** a duration, until office hours, or until a condition holds or times out.
+- **A run log:** every node, condition (with inputs) and action (with result).
+- **Protection:**
+  - loops stopped, with at most 100 steps per run and 20 runs per conversation an hour
+  - a failing step fails only its run
+- **Migration:** 0058, with rollback.
+- **Details:** `docs/WORKFLOWS_STEP1.md`.
+
 ## Unreleased: OAuth on the workspace's behalf and the audit view (phase 09, D4)
 
 - **Connecting a service:** connectors can connect on the workspace's behalf with OAuth 2:
