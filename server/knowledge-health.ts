@@ -16,7 +16,9 @@ import { indexEnabled, type IndexEnvironment } from "./knowledge-index";
  *   by the `knowledge.duplicates` job over the active index version, nightly and on demand. The
  *   report shows the latest finished check while the next runs; a dismissed pair stays hidden
  *   until either record publishes a change.
- * - **Topics with no content:** an interface only (`ContentGapsPort`); TODO(phase 14).
+ * - **Topics with no content:** through `ContentGapsPort`. Phase 08 C2a supplies answers reviewers
+ *   rated as missing or outdated content (`server/zoe-review.ts`), while Zoe's review queue is on;
+ *   TODO(phase 14): topics found by clustering customer questions.
  */
 export const DUPLICATE_SIMILARITY = 0.92;
 /** Neighbours asked of the vector store per passage. */
@@ -161,7 +163,7 @@ export async function knowledgeHealth(
       : {
           available: false,
           reason:
-            "Topics customers ask about with no matching content arrive with reporting.",
+            "Answers rated as missing content in Zoe's review appear here while her review queue is on. Topics found automatically arrive with reporting.",
         },
   };
 }

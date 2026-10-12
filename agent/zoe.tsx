@@ -5,6 +5,7 @@ import {
   BookOpen,
   CheckCircle2,
   CircleHelp,
+  ClipboardCheck,
   FlaskConical,
   MessageCircle,
   MessageSquareQuote,
@@ -42,6 +43,7 @@ import {
   type PreviewResult,
 } from "./zoe-guidance";
 import { SpecialistsPage } from "./zoe-specialists";
+import { ReviewPage, ReviewedGaps, type ReviewedGapsData } from "./zoe-review";
 import {
   OUTCOME_HUES,
   OUTCOME_NAMES,
@@ -58,7 +60,8 @@ import { languageName, type Voice } from "../lib/zoe-voice";
  * and Intercom organise their agents: Overview; Train (Guidance, Escalation, Content); Test
  * (Playground); Deploy (Messenger); Analyze (Performance, Knowledge gaps, Resolutions); Settings.
  * Z2 (docs/AI_STEP6.md) adds Train › Guidance (agent/zoe-guidance.tsx) and her languages; Z3a
- * (docs/AI_STEP7.md) Train › Specialists (agent/zoe-specialists.tsx).
+ * (docs/AI_STEP7.md) Train › Specialists (agent/zoe-specialists.tsx); C2a (docs/AI_STEP11.md) Analyze ›
+ * Review (agent/zoe-review.tsx), while `zoe_review_v1` is on.
  * TODO(phase 08 C1): Test › Test suites. TODO(phase 09): Train › Actions.
  */
 type PageId =
@@ -70,6 +73,7 @@ type PageId =
   | "playground"
   | "messenger"
   | "performance"
+  | "review"
   | "gaps"
   | "resolutions"
   | "settings";
@@ -151,6 +155,15 @@ const PAGES: {
     description: "What she did over the last 30 days, and why.",
   },
   {
+    id: "review",
+    label: "Review",
+    group: "Analyze",
+    icon: ClipboardCheck,
+    hue: "rose",
+    description:
+      "Rate a sample of her answers, and every answer a customer pushed back on. Bad ones for missing or outdated content become knowledge gaps.",
+  },
+  {
     id: "gaps",
     label: "Knowledge gaps",
     group: "Analyze",
@@ -211,13 +224,19 @@ export function Zoe({
   const [agent, setAgent] = useState<{ name: string; enabled: boolean } | null>(
     null,
   );
+  // C2a: the Review page is listed while the review queue is on.
+  const [reviewOn, setReviewOn] = useState(false);
   useEffect(() => {
-    api<{ agent: { name: string; enabled: boolean } }>("zoe?view=overview")
-      .then((o) => setAgent(o.agent))
+    api<{ agent: { name: string; enabled: boolean }; review: unknown }>("zoe?view=overview")
+      .then((o) => {
+        setAgent(o.agent);
+        setReviewOn(!!o.review);
+      })
       .catch(() => setAgent({ name: "Zoe", enabled: false }));
   }, []);
   const name = agent?.name ?? "Zoe";
-  const current = PAGES.find((p) => p.id === page) ?? PAGES[0];
+  const pages = PAGES.filter((p) => p.id !== "review" || reviewOn);
+  const current = pages.find((p) => p.id === page) ?? PAGES[0];
   const entry = (p: (typeof PAGES)[number]) => (
     <li key={p.id} data-hue={p.hue}>
       <button
@@ -263,7 +282,7 @@ export function Zoe({
               <section key={g} className="pg-menu-section">
                 <h2 className="pg-settings-group">{g}</h2>
                 <ul className="pg-menu-entries">
-                  {PAGES.filter((p) => p.group === g).map(entry)}
+                  {pages.filter((p) => p.group === g).map(entry)}
                 </ul>
               </section>
             ))}
@@ -302,6 +321,8 @@ export function Zoe({
             />
           ) : current.id === "performance" ? (
             <PerformancePage {...props} page={asPage(current)} />
+          ) : current.id === "review" ? (
+            <ReviewPage menu={menu} page={asPage(current)} onGaps={() => onPage("gaps")} />
           ) : current.id === "gaps" ? (
             <GapsPage {...props} page={asPage(current)} />
           ) : current.id === "resolutions" ? (
@@ -358,6 +379,7 @@ type OverviewData = {
   voice: Voice & { guidelines: number; version: number; languages: number };
   specialists: string[];
   content: number;
+  review: { waiting: number; gaps: number } | null;
   gaps: { question: string; count: number; lastAt: string; conversationId: string }[];
   articles: { recordId: string; title: string; count: number }[];
 };
@@ -493,6 +515,20 @@ function Overview({ menu, name, onPage, agent, setAgent }: PageProps) {
                 confidence and her sources.
                 <small>Nothing reaches a customer</small>
               </ActionCard>
+              {data.review && (
+                <ActionCard
+                  hue="rose"
+                  icon={ClipboardCheck}
+                  title="Review"
+                  onClick={() => onPage("review")}
+                >
+                  Rate a sample of her answers. Bad ones for missing content become knowledge gaps.
+                  <small>
+                    {plural(data.review.waiting, "answer")} to review ·{" "}
+                    {plural(data.review.gaps, "open gap")}
+                  </small>
+                </ActionCard>
+              )}
             </div>
             <div className="pg-zoe-panels">
               <section className="pg-zoe-panel" aria-labelledby="zoe-gaps">
@@ -1480,7 +1516,11 @@ function PerformancePage({ menu, page }: PageProps & { page: Page }) {
 }
 
 function GapsPage({ menu, page }: PageProps & { page: Page }) {
-  const { data, error } = useView<{ days: number; gaps: OverviewData["gaps"] }>("gaps");
+  const { data, error } = useView<{
+    days: number;
+    gaps: OverviewData["gaps"];
+    reviewed: ReviewedGapsData | null;
+  }>("gaps");
   return (
     <Frame menu={menu} page={page}>
       {error && (
@@ -1512,6 +1552,7 @@ function GapsPage({ menu, page }: PageProps & { page: Page }) {
           )}
         </Card>
       )}
+      {data?.reviewed && <ReviewedGaps initial={data.reviewed} />}
     </Frame>
   );
 }

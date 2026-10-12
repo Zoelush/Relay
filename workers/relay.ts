@@ -6,6 +6,7 @@ import {
 import { processKnowledgeFile } from "../server/knowledge-files";
 import { processBrandAsset } from "../server/brand-assets";
 import { resolveQuiet } from "../server/ai-resolutions";
+import { sampleForReview } from "../server/zoe-review";
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -498,6 +499,8 @@ const relayWorker = {
             await scheduleIndex(runtime.connect, work.workspace);
           // AI answers the customer didn't come back to: resolved (phase 08 A3).
           await resolveQuiet(runtime.connect, work.workspace);
+          // Answers for Zoe's review queue: pushbacks, and yesterday's sample once (phase 08 C2a).
+          await sampleForReview(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(
@@ -508,8 +511,8 @@ const relayWorker = {
             await purgeDrafts(runtime.connect, work.workspace);
             // Help center searches are kept for 180 days (phase 07, B2).
             await purgeHelpSearches(runtime.connect, work.workspace);
-          // What was sent to model providers is kept 90 days (phase 08, B2b).
-          await purgeModelCalls(runtime.connect, work.workspace);
+            // What was sent to model providers is kept 90 days (phase 08, B2b).
+            await purgeModelCalls(runtime.connect, work.workspace);
             await purgeInlineImages(
               runtime.connect,
               runtime.attachments,

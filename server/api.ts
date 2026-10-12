@@ -194,6 +194,7 @@ import {
 } from "./zoe";
 import { changeGuidance, readGuidance, readGuidanceVersion } from "./zoe-guidance";
 import { changeSpecialist, readSpecialists, specialistNames } from "./zoe-specialists";
+import { changeReview, gapsForHealth, readReview } from "./zoe-review";
 import {
   indexStatus,
   rebuildIndex,
@@ -1275,6 +1276,7 @@ export async function handleApi(
               "/v1/agent/zoe-playground",
               "/v1/agent/zoe-guidance",
               "/v1/agent/zoe-specialist",
+              "/v1/agent/zoe-review",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1584,6 +1586,19 @@ export async function handleApi(
           return json(
             await tenant(env.connect, workspace, (db) =>
               changeSpecialist(
+                db,
+                workspace,
+                principal,
+                req.headers.get("idempotency-key") ?? "",
+                p,
+              ),
+            ),
+          );
+        if (url.pathname === "/v1/agent/zoe-review")
+          // Phase 08 C2a: an answer rated, the daily sample size, or a content gap fixed or dismissed.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeReview(
                 db,
                 workspace,
                 principal,
@@ -2088,6 +2103,8 @@ export async function handleApi(
         ) => Promise<unknown> =
           view === "specialists"
             ? readSpecialists
+            : view === "review"
+            ? readReview
             : view === "guidance"
             ? url.searchParams.has("version")
               ? (db, w, principal) => readGuidanceVersion(db, w, principal, version)
@@ -2264,8 +2281,9 @@ export async function handleApi(
         );
       if (url.pathname === "/v1/agent/knowledge-health")
         return json(
-          await tenant(env.connect, workspace, (db) =>
-            knowledgeHealth(db, workspace, principal),
+          await tenant(env.connect, workspace, async (db) =>
+            // C2a: answers reviewers rated as missing content, while Zoe's review queue is on.
+            knowledgeHealth(db, workspace, principal, await gapsForHealth(db, workspace)),
           ),
         );
       if (url.pathname === "/v1/agent/knowledge-retrieve")

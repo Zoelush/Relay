@@ -14,7 +14,8 @@ Branch per step, behind `ai_agent_v1` (off by default; on for the local relay). 
 | **Z3b: Content targeting** | Conditions on articles, snippets, files and websites: Zoe uses an item only for customers who pass both its targeting and the specialist's scope. Zoe only; the help center keeps its own visibility. |
 | **B2: Safety and privacy** | A hostile-content corpus. Guarantees against disclosing other customers' data, internal content or the system prompt. Redaction of personal data before the model provider (workspace setting), with an audit of what was sent. Memory across a customer's conversations behind a workspace switch (off by default), recorded on the conversation. |
 | **C1: Evaluation harness** | A golden set of 200 or more cases (answerable, unanswerable, ambiguous, multi-turn, out-of-scope, hostile, multilingual). Scores for groundedness, correctness, refusal and escalation. The build fails on regression. Simulated-customer tests. The acceptance demo: scores before and after a deliberate prompt change. |
-| **C2: Review queue and monitors** | Leads sample and rate real answers; bad ones go to a content gap list, feeding content health. Monitors that alert on sharp changes in behaviour, with an incident view. |
+| **C2a: Review queue** (C2 split on 12 October 2026) | Leads sample and rate real answers; bad ones go to a content gap list, feeding content health. |
+| **C2b: Monitors and incidents** | Monitors that alert on sharp changes in behaviour, with an incident view. |
 
 Acceptance criteria (phase brief):
 - eval scores before and after a deliberate prompt change (C1)
@@ -105,4 +106,12 @@ Acceptance criteria (phase brief):
     - **Grading with Haiku waits for C2.**
     - **No migration.**
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b), `docs/AI_STEP9.md` (B2), `docs/AI_STEP10.md` (C1).
+14. **C2a decisions** (12 October 2026):
+    - **C2 is two steps.**
+    - **Who reviews:** the queue is for those who manage Zoe.
+    - **What reaches it:** only answers from content. Every pushback joins (the customer asked for a person or seemed upset straight after), plus a daily random sample of 10, settable from 0 to 50, taken once each UTC day is over.
+    - **Ratings:** each answer is rated once, good or bad, and a bad rating names what was wrong.
+    - **Content gaps:** a bad rating for missing or outdated content opens one, listed on Knowledge gaps and in content health's "Topics with no content" (until now unavailable).
+    - **Scoring with Haiku waits for a key.**
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b), `docs/AI_STEP9.md` (B2), `docs/AI_STEP10.md` (C1), `docs/AI_STEP11.md` (C2a).
