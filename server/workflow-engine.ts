@@ -143,12 +143,52 @@ export async function workflowEvent(db: Sql, w: string, c: Conversation, part: P
 /* ------------------------------------------------------------------------------------------ */
 /* Facts and conditions                                                                        */
 
-type Facts = Record<string, unknown> & {
+export type Facts = Record<string, unknown> & {
   tags: string[];
   attributes: Record<string, unknown>;
   contactAttributes: Record<string, unknown>;
   emailDomains: string[];
 };
+
+/** What a conversation's facts are made from: read one at a time here, or in bulk for W2's estimate. */
+export type FactSources = {
+  conversation: Conversation & { ai_state?: string | null; sla_breached?: boolean; sla_overdue?: boolean; channel?: string };
+  tags: string[];
+  contact: { role: string | null; profile: Record<string, unknown> | null; kind: string | null } | undefined;
+  emails: string[];
+  /** The customer's latest message, and the brand's locale: the customer's language. */
+  latest: string;
+  brandLocale: string;
+  message: string;
+  officeHours: "open" | "closed";
+  source: Source;
+  timedOut: boolean;
+};
+export function buildFacts(s: FactSources): Facts {
+  const c = s.conversation;
+  return {
+    "conversation.status": c.status,
+    "conversation.priority": !!c.priority,
+    "conversation.assignee": c.assigned || null,
+    "conversation.team": c.team_id ?? null,
+    "conversation.brand": c.brand_id,
+    "conversation.channel": c.channel ?? "messenger",
+    // The customer's language: what their latest message is written in, else the brand's.
+    "conversation.language": (detectLanguage(s.latest) ?? s.brandLocale).split("-")[0],
+    "conversation.ai_state": c.ai_state ?? null,
+    "conversation.sla": c.sla_breached ? "breached" : c.sla_overdue ? "overdue" : null,
+    "message.text": s.message,
+    "contact.signed_in": s.contact?.kind === "user",
+    "contact.role": s.contact?.role ?? "visitor",
+    office_hours: s.officeHours,
+    "change.by": s.source,
+    "wait.timed_out": s.timedOut,
+    tags: s.tags,
+    attributes: (c.attributes as Record<string, unknown>) ?? {},
+    contactAttributes: s.contact?.profile ?? {},
+    emailDomains: s.emails.map((e) => e.split("@").pop()!.toLowerCase()),
+  };
+}
 
 /** What conditions test, read once per evaluation. */
 async function factsFor(db: Sql, w: string, c: Conversation, run: { source: Source; partId: string | null; timedOut?: boolean }): Promise<Facts> {
@@ -171,7 +211,7 @@ async function factsFor(db: Sql, w: string, c: Conversation, run: { source: Sour
        WHERE m.workspace_id=$1 AND m.identity_id=$2 AND e.verified`,
       [w, c.primary_identity_id],
     )
-  ).rows;
+  ).rows.map((e) => e.email);
   const message = run.partId
     ? ((await db.query<{ body: string }>("SELECT body FROM conversation_parts WHERE workspace_id=$1 AND id=$2", [w, run.partId])).rows[0]?.body ?? "")
     : "";
@@ -186,29 +226,18 @@ async function factsFor(db: Sql, w: string, c: Conversation, run: { source: Sour
     (await db.query<{ locale: string | null }>("SELECT settings->>'locale' AS locale FROM brands WHERE workspace_id=$1 AND id=$2", [w, c.brand_id])).rows[0]
       ?.locale ?? "en";
   const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id }, "en");
-  const row = c as Conversation & { ai_state?: string | null; sla_breached?: boolean; sla_overdue?: boolean; channel?: string };
-  return {
-    "conversation.status": c.status,
-    "conversation.priority": !!c.priority,
-    "conversation.assignee": c.assigned || null,
-    "conversation.team": c.team_id ?? null,
-    "conversation.brand": c.brand_id,
-    "conversation.channel": row.channel ?? "messenger",
-    // The customer's language: what their latest message is written in, else the brand's.
-    "conversation.language": (detectLanguage(latest) ?? brandLocale).split("-")[0],
-    "conversation.ai_state": row.ai_state ?? null,
-    "conversation.sla": row.sla_breached ? "breached" : row.sla_overdue ? "overdue" : null,
-    "message.text": message,
-    "contact.signed_in": contact?.kind === "user",
-    "contact.role": contact?.role ?? "visitor",
-    office_hours: !hours || hours.open ? "open" : "closed",
-    "change.by": run.source,
-    "wait.timed_out": !!run.timedOut,
+  return buildFacts({
+    conversation: c,
     tags,
-    attributes: (c.attributes as Record<string, unknown>) ?? {},
-    contactAttributes: contact?.profile ?? {},
-    emailDomains: emails.map((e) => e.email.split("@").pop()!.toLowerCase()),
-  };
+    contact,
+    emails,
+    latest,
+    brandLocale,
+    message,
+    officeHours: !hours || hours.open ? "open" : "closed",
+    source: run.source,
+    timedOut: !!run.timedOut,
+  });
 }
 
 type Evaluated = { field: string; key?: string; op: string; value?: unknown; actual: unknown; result: boolean };
@@ -270,14 +299,24 @@ async function holds(db: Sql, w: string, c: Condition, f: Facts): Promise<Evalua
   return { field: c.field, ...(c.key ? { key: c.key } : {}), op: c.op, ...(c.value !== undefined ? { value: c.value } : {}), actual, result };
 }
 
-/** A group (all or any, nested), with every condition it evaluated. An empty group holds. */
-export async function evaluate(db: Sql, w: string, g: Group, f: Facts): Promise<{ result: boolean; checks: Evaluated[] }> {
+/**
+ * A group (all or any, nested), with every condition it evaluated. An empty group holds. Fields
+ * in `assume` aren't evaluated but taken to hold (W2's estimate, for what depends on the moment).
+ */
+export async function evaluate(
+  db: Sql,
+  w: string,
+  g: Group,
+  f: Facts,
+  assume: ReadonlySet<string> = new Set(),
+): Promise<{ result: boolean; checks: Evaluated[] }> {
   const checks: Evaluated[] = [];
   const walk = async (x: Group): Promise<boolean> => {
     if (!x.items.length) return true;
     const results: boolean[] = [];
     for (const item of x.items) {
       if ("items" in item) results.push(await walk(item));
+      else if (assume.has(item.field)) results.push(true);
       else {
         const e = await holds(db, w, item, f);
         checks.push(e);

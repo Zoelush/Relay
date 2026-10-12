@@ -200,6 +200,8 @@ import { changeConnector, finishOAuth, readConnector, readConnectors, type Conne
 import { changeProcedure, decideApproval, readApproval, readProcedure, readProcedures } from "./procedures";
 import { auditText, readAiAudit } from "./ai-audit";
 import { changeWorkflow, readRun, readRuns, readWorkflow, readWorkflows, runManually } from "./workflows";
+import { estimateWorkflow } from "./workflow-estimate";
+import { workflowsEnabled } from "./workflow-engine";
 import {
   indexStatus,
   rebuildIndex,
@@ -1219,6 +1221,7 @@ export async function handleApi(
             "/v1/agent/ai-audit",
             "/v1/agent/workflows",
             "/v1/agent/workflow-runs",
+            "/v1/agent/workflow-estimate",
             "/v1/agent/ai-settings",
             "/v1/agent/zoe",
             "/v1/agent/bulk",
@@ -2227,6 +2230,13 @@ export async function handleApi(
             return id ? readWorkflow(db, workspace, principal, id) : readWorkflows(db, workspace, principal);
           }),
         );
+      if (url.pathname === "/v1/agent/workflow-estimate")
+        // Phase 11 W2: how many recent conversations "who it runs for" lets through (?when=).
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            estimateWorkflow(db, workspace, principal, url.searchParams.get("when") ?? ""),
+          ),
+        );
       if (url.pathname === "/v1/agent/workflow-runs")
         // Phase 11 W1: the run log (filtered), or one run with its steps (?id=).
         return json(
@@ -2702,6 +2712,10 @@ export async function handleApi(
               // Phase 08 Z1: Zoe's own area, for managers while the AI agent is on.
               zoe:
                 (await aiEnabled(db, workspace)) &&
+                (await can(db, workspace, principal, "workspace.manage")),
+              // Phase 11 W2: the Workflows area, for managers while workflows are on.
+              workflows:
+                (await workflowsEnabled(db, workspace)) &&
                 (await can(db, workspace, principal, "workspace.manage")),
             },
             // Zoe's name, for her replies and views in the inbox (null while the agent is off).

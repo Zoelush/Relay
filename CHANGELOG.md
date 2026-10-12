@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased: the workflow builder (phase 11, W2)
+
+- **A Workflows area** in the icon strip, for managers while `workflows_v1` is on, linked from Settings.
+- **The list,** grouped by trigger in priority order:
+  - drag a row (or use its arrows) to reorder
+  - filter by state, and search
+  - each row shows its state, version, who updated it, and runs in the last 30 days
+- **The builder:** a canvas of the trigger and lettered paths.
+  - Drag cards, connect ways on, or drop one on empty canvas for a new path.
+  - Zoom, fit, tidy up, and a list of paths.
+  - Undo and redo everything.
+  - A panel edits triggers, nested conditions, steps, branches and waits.
+- **A live estimate** of how many recent conversations "who it runs for" lets through.
+- **Publishing is blocked with each reason listed** and the card flagged; the server's refusals are shown too.
+- **Versions:** with restore. Pause, resume and archive.
+- **Migration:** 0059 (card positions), with rollback.
+- **Details:** `docs/WORKFLOWS_STEP2.md`.
+
 ## Unreleased: the workflow engine (phase 11, W1)
 
 - **Workflows stored as data,** behind `workflows_v1` (off by default): one trigger, who it runs for, and lettered paths of steps with branches and waits.

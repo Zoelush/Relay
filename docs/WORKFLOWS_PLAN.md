@@ -44,4 +44,10 @@ Brief: `docs/BUILD_PHASES.md` phase 11. Phase 10 (the agent copilot) was skipped
    - **"Apply an SLA"** sets `conversations.sla_forced`, which SLA matching honours.
    - **Limits:** at most 100 steps per run, 20 runs per conversation per hour, and 3 workflows in a chain.
 
-Handoffs: `docs/WORKFLOWS_STEP1.md` (W1).
+8. **W2 decisions** (12 October 2026):
+   - **The builder is its own area in the strip** (`#workflows`), for managers, with a Settings link card. Intercom keeps Workflows in its AI agent's menu, but Relay's Zoe area exists only while the AI agent is on, and workflows don't need it.
+   - **Card positions live in `workflows.layout`,** beside the draft and outside versions, so moving cards is never an unpublished change.
+   - **The builder checks drafts with the engine's own `validate` and `problems`;** the server adds missing references.
+   - **The live estimate is judged by the engine's own `evaluate`,** over at most 500 conversations from the last 30 days, in one query (about 48 ms). It isn't compiled to SQL, as W1's note planned: the customer's language is detected in code, so SQL couldn't judge it. Conditions that depend on the moment a run starts are taken to hold and named ("at most").
+
+Handoffs: `docs/WORKFLOWS_STEP1.md` (W1), `docs/WORKFLOWS_STEP2.md` (W2).

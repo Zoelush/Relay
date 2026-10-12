@@ -1,6 +1,7 @@
 /**
  * A workflow's definition (phase 11, step W1; docs/WORKFLOWS_STEP1.md), shared by the engine
- * (`server/workflow-engine.ts`), its API (`server/workflows.ts`) and, from W2, the builder.
+ * (`server/workflow-engine.ts`), its API (`server/workflows.ts`) and the builder (W2,
+ * `agent/workflow-builder.tsx`), which checks drafts with the same `validate` and `problems`.
  *
  * A workflow is one trigger and a directed graph of lettered *paths*, stored as data. Each path is
  * a list of steps, then a way on: end, go to another path, branch on conditions (first match
@@ -326,18 +327,28 @@ export function validate(raw: unknown): Definition {
   return { trigger: { type: type as Trigger, options }, when, paths };
 }
 
+/**
+ * A path's ways on, each a handle on the builder's canvas: `next` (go to), `b0`… (branches),
+ * `else`, `met` and `timedOut`. An empty target is a way on not yet connected.
+ */
+export function outlets(p: Path): { id: string; label: string; target: string }[] {
+  const n = p.next;
+  if (n.type === "goto") return [{ id: "next", label: "Then", target: n.path }];
+  if (n.type === "branch")
+    return [...n.branches.map((b, i) => ({ id: "b" + i, label: b.label, target: b.path })), { id: "else", label: "Else", target: n.else }];
+  if (n.type === "wait_until")
+    return [
+      { id: "met", label: "When it holds", target: n.met },
+      { id: "timedOut", label: "If it times out", target: n.timedOut },
+    ];
+  return [];
+}
+const targets = (p: Path) => outlets(p).map((o) => o.target);
+
 /** What blocks publishing: each in words. Empty: it can be published. */
 export function problems(def: Definition): string[] {
   const out: string[] = [];
   const ids = new Set(def.paths.map((p) => p.id));
-  const targets = (p: Path): string[] =>
-    p.next.type === "goto"
-      ? [p.next.path]
-      : p.next.type === "branch"
-        ? [...p.next.branches.map((b) => b.path), p.next.else]
-        : p.next.type === "wait_until"
-          ? [p.next.met, p.next.timedOut]
-          : [];
   for (const p of def.paths) {
     for (const t of targets(p)) if (!t) out.push(`Path ${p.id}: a way on doesn't lead anywhere. Choose its path.`);
       else if (!ids.has(t)) out.push(`Path ${p.id}: it leads to path ${t}, which doesn't exist.`);
@@ -369,4 +380,66 @@ export function problems(def: Definition): string[] {
   for (const p of def.paths) if (seen.has(p.id) && !ends.has(p.id)) out.push(`Path ${p.id} never reaches an end.`);
   if (def.trigger.type === "contact_attribute_changed" && !def.trigger.options.key) out.push("Choose which customer attribute fires it.");
   return out;
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* The builder's layout (W2)                                                                   */
+
+/**
+ * Where each card sits on the canvas: `trigger` and each path's letter. Kept beside the draft,
+ * not in versions, so moving cards never counts as an unpublished change.
+ */
+export type Layout = Record<string, { x: number; y: number }>;
+export const LAYOUT_COLUMN = 380;
+export const LAYOUT_ROW = 260;
+
+/** A layout in shape: known cards only, finite positions within the canvas. */
+export function checkLayout(raw: unknown, def: Definition): Layout {
+  const keys = new Set(["trigger", ...def.paths.map((p) => p.id)]);
+  const out: Layout = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const p = (v ?? {}) as { x?: unknown; y?: unknown };
+    if (keys.has(k) && Number.isFinite(p.x) && Number.isFinite(p.y))
+      out[k] = { x: Math.max(-1e5, Math.min(1e5, Math.round(p.x as number))), y: Math.max(-1e5, Math.min(1e5, Math.round(p.y as number))) };
+  }
+  return out;
+}
+
+/**
+ * Cards in columns by their distance from the trigger (the first path next to it), in path order
+ * within a column; paths that can't be reached go in a last column. Used for "Tidy up" and for
+ * cards without a saved position.
+ */
+export function autoLayout(def: Definition): Layout {
+  const depth = new Map<string, number>();
+  const byId = new Map(def.paths.map((p) => [p.id, p]));
+  const queue = def.paths.length ? [def.paths[0].id] : [];
+  if (queue.length) depth.set(queue[0], 1);
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const t of targets(byId.get(id)!))
+      if (byId.has(t) && !depth.has(t)) {
+        depth.set(t, depth.get(id)! + 1);
+        queue.push(t);
+      }
+  }
+  const last = Math.max(1, ...depth.values()) + 1;
+  const rows = new Map<number, number>();
+  const out: Layout = { trigger: { x: 0, y: 0 } };
+  for (const p of def.paths) {
+    const col = depth.get(p.id) ?? last;
+    const row = rows.get(col) ?? 0;
+    rows.set(col, row + 1);
+    out[p.id] = { x: col * LAYOUT_COLUMN, y: row * LAYOUT_ROW };
+  }
+  return out;
+}
+
+/** The next free letter: A…Z, then AA, AB… */
+export function nextLetter(def: Definition): string {
+  const taken = new Set(def.paths.map((p) => p.id));
+  const letters = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+  for (const id of [...letters, ...letters.flatMap((a) => letters.map((b) => a + b))]) if (!taken.has(id)) return id;
+  return "ZZ";
 }

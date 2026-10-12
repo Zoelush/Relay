@@ -43,6 +43,7 @@ const routes = {
     "ai-audit",
     "workflows",
     "workflow-runs",
+    "workflow-estimate",
     "zoe",
     "bulk",
     "ticket-types",

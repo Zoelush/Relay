@@ -5,12 +5,14 @@ import {
   LATER_TRIGGERS,
   TRIGGERS,
   blankDefinition,
+  checkLayout,
   customerFacing,
   DefinitionError,
   problems,
   validate,
   type Definition,
   type Group,
+  type Layout,
   type Trigger,
 } from "../lib/workflow-definition";
 
@@ -19,7 +21,9 @@ import {
  * manage the workspace: a draft is saved in any state, published only when it has no problems
  * (graph and references), and every publish is an immutable version; rollback publishes an older
  * version again as the next one. Within a trigger, priority decides which customer-facing
- * workflow runs. The run log is read here too. The builder arrives in W2.
+ * workflow runs. The run log is read here too. The builder (W2, `agent/workflow-builder.tsx`)
+ * saves the draft with its cards' positions (`layout`, outside versions) and reads, with each
+ * workflow, what its pickers offer.
  */
 async function access(db: Sql, w: string, principal: string) {
   const t = await authorize(db, w, principal, "workspace.manage");
@@ -37,13 +41,14 @@ type Row = {
   priority: number;
   state: "draft" | "live" | "paused";
   draft: Definition;
+  layout: Layout;
   live_version: number | null;
   live: Definition | null;
   version: string;
   updated_at: string;
   updated_name: string | null;
 };
-const ROW = `w.id,w.name,w.trigger,w.priority,w.state,w.draft,w.live_version,w.version::text AS version,w.updated_at,
+const ROW = `w.id,w.name,w.trigger,w.priority,w.state,w.draft,w.layout,w.live_version,w.version::text AS version,w.updated_at,
   (SELECT t.name FROM teammates t WHERE t.workspace_id=w.workspace_id AND t.id=w.updated_by) AS updated_name,
   (SELECT v.definition FROM workflow_versions v WHERE v.workspace_id=w.workspace_id AND v.workflow_id=w.id AND v.version=w.live_version) AS live
   FROM workflows w`;
@@ -133,7 +138,23 @@ export async function readWorkflows(db: Sql, w: string, principal: string) {
   };
 }
 
-/** One workflow: its draft, what blocks publishing it, and its versions. */
+/** What the builder's pickers offer: this workspace's tags, teams, teammates and so on. */
+async function options(db: Sql, w: string) {
+  const list = async <T = { id: string; name: string }>(sql: string) => (await db.query<T & object>(sql, [w])).rows;
+  return {
+    tags: await list("SELECT id,name FROM tags WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id"),
+    teams: await list("SELECT id,name FROM teams WHERE workspace_id=$1 ORDER BY lower(name),id"),
+    teammates: await list("SELECT id,name FROM teammates WHERE workspace_id=$1 ORDER BY lower(name),id"),
+    brands: await list("SELECT id,name FROM brands WHERE workspace_id=$1 ORDER BY lower(name),id"),
+    attributes: await list<{ id: string; name: string; type: string; options: unknown }>(
+      "SELECT id,name,value_type AS type,options FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='conversation' AND archived_at IS NULL ORDER BY lower(name),id",
+    ),
+    slaPolicies: await list("SELECT id,name FROM sla_policies WHERE workspace_id=$1 AND NOT archived ORDER BY position,id"),
+    ticketTypes: await list("SELECT id,name FROM ticket_types WHERE workspace_id=$1 AND NOT archived ORDER BY lower(name),id"),
+  };
+}
+
+/** One workflow: its draft, what blocks publishing it, its versions, and what its pickers offer. */
 export async function readWorkflow(db: Sql, w: string, principal: string, id: string) {
   await access(db, w, principal);
   const r = (await db.query<Row>(`SELECT ${ROW} WHERE w.workspace_id=$1 AND w.id=$2 AND NOT w.archived`, [w, id])).rows[0];
@@ -153,11 +174,16 @@ export async function readWorkflow(db: Sql, w: string, principal: string, id: st
       priority: r.priority,
       version: r.version,
       definition: r.draft,
+      layout: r.layout,
       liveVersion: r.live_version,
       changed: !r.live || !same(r.draft, r.live),
+      customerFacing: customerFacing(r.draft),
+      updatedAt: new Date(r.updated_at).toISOString(),
+      updatedBy: r.updated_name,
       problems: [...problems(r.draft), ...(await references(db, w, r.draft))],
     },
     versions,
+    options: await options(db, w),
   };
 }
 
@@ -199,12 +225,13 @@ export async function changeWorkflow(db: Sql, w: string, principal: string, key:
       if (await taken(name)) invalid(`There's already a workflow called ${name}.`);
       const trigger = String(p.trigger ?? "first_message");
       const draft = def(p.definition ?? blankDefinition(trigger as Trigger));
+      const layout = checkLayout(p.layout, draft);
       const id = crypto.randomUUID();
       const last = (await db.query<{ n: number | null }>("SELECT max(priority) AS n FROM workflows WHERE workspace_id=$1 AND trigger=$2 AND NOT archived", [w, draft.trigger.type]))
         .rows[0].n;
       await db.query(
-        "INSERT INTO workflows(workspace_id,id,name,trigger,priority,draft,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$7)",
-        [w, id, name, draft.trigger.type, (last ?? -1) + 1, JSON.stringify(draft), t.id],
+        "INSERT INTO workflows(workspace_id,id,name,trigger,priority,draft,layout,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)",
+        [w, id, name, draft.trigger.type, (last ?? -1) + 1, JSON.stringify(draft), JSON.stringify(layout), t.id],
       );
       return readWorkflow(db, w, principal, id);
     }
@@ -242,7 +269,16 @@ export async function changeWorkflow(db: Sql, w: string, principal: string, key:
       const name = nameOf(p.name);
       if (await taken(name, id)) invalid(`There's already a workflow called ${name}.`);
       const draft = def(p.definition);
-      await db.query(`UPDATE workflows SET name=$4,draft=$5,${touch} WHERE workspace_id=$1 AND id=$2`, [w, id, t.id, name, JSON.stringify(draft)]);
+      // Card positions: as given, else as they were (for cards that still exist).
+      const layout = checkLayout(p.layout === undefined ? (await db.query<{ layout: Layout }>("SELECT layout FROM workflows WHERE workspace_id=$1 AND id=$2", [w, id])).rows[0].layout : p.layout, draft);
+      await db.query(`UPDATE workflows SET name=$4,draft=$5,layout=$6,${touch} WHERE workspace_id=$1 AND id=$2`, [
+        w,
+        id,
+        t.id,
+        name,
+        JSON.stringify(draft),
+        JSON.stringify(layout),
+      ]);
       return readWorkflow(db, w, principal, id);
     }
     if (p.action === "publish") {
