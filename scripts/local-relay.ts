@@ -47,6 +47,7 @@ import { CoalescedPublisher } from "../server/publication";
 import { processKnowledgeFile } from "../server/knowledge-files";
 import { processBrandAsset } from "../server/brand-assets";
 import { resolveQuiet } from "../server/ai-resolutions";
+import { sampleForReview } from "../server/zoe-review";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
   runIndex,
@@ -113,6 +114,8 @@ export async function startLocalRelay(
     knowledgeIndex?: boolean;
     /** The content health report (phase 07, C2b). */
     knowledgeHealth?: boolean;
+    /** Zoe's review queue (phase 08, C2a). */
+    zoeReview?: boolean;
     /** Its model and vector store; by default the test embedder and a local store. */
     index?: IndexEnvironment;
     /** The AI agent's models (phase 08); stand-ins by default. */
@@ -510,6 +513,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='knowledge_health_v1'",
         [w, options.knowledgeHealth !== false],
       );
+      // Zoe's review queue (phase 08, C2a).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='zoe_review_v1'",
+        [w, options.zoeReview !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -699,6 +707,8 @@ export async function startLocalRelay(
         await scheduleIndex(db.connect, w);
         // AI answers the customer didn't come back to: resolved (phase 08 A3).
         await resolveQuiet(db.connect, w);
+        // Answers for Zoe's review queue: pushbacks, and yesterday's sample once (phase 08 C2a).
+        await sampleForReview(db.connect, w);
         // Websites due a sync (phase 07, C1b), checked once a minute.
         if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
           lastSyncCheck.set(w, Date.now());

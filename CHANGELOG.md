@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: Zoe's review queue (phase 08, C2a)
+
+- **Zoe › Analyze › Review,** behind `zoe_review_v1` (off by default). It lists answers Zoe gave from content for a lead to rate:
+  - every answer a customer pushed back on (asked for a person, or seemed upset, straight after)
+  - a daily random sample, 10 by default, settable from 0 to 50
+- **Ratings:** good or bad, once each. A bad rating says what was wrong, with an optional note. The page shows the share rated good, what was wrong, and what's waiting.
+- **Content gaps:** a bad answer for missing or outdated content becomes one. It's listed on Knowledge gaps ("Found in review"), where it's marked fixed (optionally naming the content) or dismissed, and in content health's "Topics with no content."
+- **Migration:** 0052, with rollback.
+- **Details:** `docs/AI_STEP11.md`.
+
 ## Unreleased: the evaluation harness (phase 08, C1)
 
 - **A golden set of 200 cases:** answerable, multilingual, multi-turn, unanswerable, out-of-scope, ambiguous, hostile and escalation, against fixed knowledge for a fictional bike shop.

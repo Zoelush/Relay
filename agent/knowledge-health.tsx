@@ -49,7 +49,12 @@ type Report = {
           similarity: number;
         }[];
       };
-  gaps: { available: false; reason: string } | { available: true };
+  gaps:
+    | { available: false; reason: string }
+    | {
+        available: true;
+        topics: { topic: string; conversations: number; examples: string[] }[];
+      };
 };
 const SOURCE_NAMES: Record<string, string> = {
   article: "Article",
@@ -359,9 +364,31 @@ export function ContentHealth({
             <h3 id="health-gaps">Topics with no content</h3>
             <p className="pg-muted">
               {report.gaps.available
-                ? "Questions customers ask that nothing answers."
+                ? "Questions customers asked that Zoe's reviewers found no content for (or only outdated content), in the last 90 days."
                 : report.gaps.reason}
             </p>
+            {report.gaps.available &&
+              (report.gaps.topics.length ? (
+                <ul className="pg-settings-list" aria-label="Topics with no content">
+                  {report.gaps.topics.map((t, i) => (
+                    <li key={i}>
+                      <span>
+                        <strong>{t.topic}</strong>
+                        {t.examples.map((e, j) => (
+                          <small key={j} className="pg-muted">
+                            “{e}”
+                          </small>
+                        ))}
+                      </span>
+                      <span className="pg-muted">
+                        {t.conversations} {t.conversations === 1 ? "answer" : "answers"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="pg-muted">None open.</p>
+              ))}
           </section>
         </>
       )}

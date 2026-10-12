@@ -5,6 +5,7 @@ import { assetId, assetUrl } from "./brand-assets";
 import { specialistsOf } from "./zoe-specialists";
 import { targetingChoices } from "./ai-targeting";
 import type { Condition } from "./ai-escalation";
+import { reviewEnabled, reviewedGaps } from "./zoe-review";
 
 /**
  * Zoe, Relay's AI agent, in the agent app (phase 08, step Z1; docs/AI_STEP5.md): her identity per
@@ -321,6 +322,16 @@ export async function zoeOverview(db: Sql, w: string, principal: string) {
     // Z3a: her specialists that are on.
     specialists: (await specialistsOf(db, w, agent.id, true)).map((s) => s.name),
     content: counts.content,
+    // C2a: the review queue, while it's on: answers waiting, and content gaps reviewers opened.
+    review: (await reviewEnabled(db, w))
+      ? (
+          await db.query<{ waiting: number; gaps: number }>(
+            `SELECT (SELECT count(*) FROM ai_reviews WHERE workspace_id=$1 AND rating IS NULL)::int AS waiting,
+               (SELECT count(*) FROM ai_content_gaps WHERE workspace_id=$1 AND status='open')::int AS gaps`,
+            [w],
+          )
+        ).rows[0]
+      : null,
     gaps: await gaps(db, w, 6),
     articles: await mostUsed(db, w, 6),
   };
@@ -426,10 +437,13 @@ export async function zoePerformance(db: Sql, w: string, principal: string) {
   };
 }
 
-/** Knowledge gaps: the questions Zoe couldn't answer, most asked first. */
+/**
+ * Knowledge gaps: the questions Zoe couldn't answer, most asked first; and (C2a, while the review
+ * queue is on) answers reviewers rated as missing or outdated content.
+ */
 export async function zoeGaps(db: Sql, w: string, principal: string) {
   await zoeAccess(db, w, principal);
-  return { days: DAYS, gaps: await gaps(db, w, 50) };
+  return { days: DAYS, gaps: await gaps(db, w, 50), reviewed: await reviewedGaps(db, w) };
 }
 
 /** Content: what Zoe may use (switched on for the AI agent, published, not internal). */
