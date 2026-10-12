@@ -222,6 +222,8 @@ export function claudeAnswerModel(
     model?: string;
     fetch?: typeof fetch;
     endpoint?: string;
+    /** C1: the evaluation harness's deliberate prompt change (never used in production). */
+    adjustSystem?: (system: string) => string;
   } = {},
 ): AnswerModel {
   const model = options.model ?? "claude-sonnet-5-5";
@@ -229,7 +231,9 @@ export function claudeAnswerModel(
   return {
     model,
     async answer(request) {
-      const { system, user } = buildPrompt(request);
+      const built = buildPrompt(request);
+      const system = options.adjustSystem ? options.adjustSystem(built.system) : built.system;
+      const user = built.user;
       const response = await send(
         options.endpoint ?? "https://api.anthropic.com/v1/messages",
         {

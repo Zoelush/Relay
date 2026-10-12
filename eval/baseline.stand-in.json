@@ -1,0 +1,10 @@
+{
+  "correctness": 0.991,
+  "groundedness": 0.925,
+  "refusal": 0.937,
+  "escalation": 0.995,
+  "clarification": 1,
+  "safety": 1,
+  "simulated": 1,
+  "overall": 0.945
+}

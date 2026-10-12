@@ -97,4 +97,12 @@ Acceptance criteria (phase brief):
     - **Email spam and phishing filtering** waits for phase 12.
     - **Migration:** 0051.
 
-Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b), `docs/AI_STEP9.md` (B2).
+13. **C1 decisions** (12 October 2026):
+    - **Built against the offline stand-in,** as asked; the Claude run waits for a key.
+    - **Fixed evaluation knowledge,** a fictional bike shop.
+    - **The committed stand-in baseline gates `npm test`.**
+    - **The deliberate change** is a weaker confidence threshold for the stand-in, and a prompt file with Claude.
+    - **Grading with Haiku waits for C2.**
+    - **No migration.**
+
+Handoffs: `docs/AI_STEP1.md` (A1), `docs/AI_STEP2.md` (A2a), `docs/AI_STEP3.md` (A2b), `docs/AI_STEP4.md` (A3), `docs/AI_STEP5.md` (Z1), `docs/AI_STEP6.md` (Z2), `docs/AI_STEP7.md` (Z3a), `docs/AI_STEP8.md` (Z3b), `docs/AI_STEP9.md` (B2), `docs/AI_STEP10.md` (C1).

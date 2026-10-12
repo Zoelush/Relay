@@ -1373,6 +1373,21 @@ export async function previewAiReply(
       400,
     );
   const signedIn = p.signedIn === true;
+  // C1: earlier turns, for a follow-up question (the evaluation harness's multi-turn cases).
+  const raw = p.history === undefined ? [] : p.history;
+  if (!Array.isArray(raw) || raw.length > 10)
+    throw new DomainError("INVALID_PLAYGROUND", "Give at most ten earlier messages.", 400);
+  const history: Turn[] = raw.map((t) => {
+    const o = (t ?? {}) as Record<string, unknown>;
+    const text = typeof o.text === "string" ? o.text.trim() : "";
+    if ((o.from !== "customer" && o.from !== "agent") || !text || text.length > 2000)
+      throw new DomainError(
+        "INVALID_PLAYGROUND",
+        "Each earlier message needs who sent it (customer or agent) and up to 2,000 characters.",
+        400,
+      );
+    return { from: o.from, text };
+  });
   const prepared = await tenant(connect, w, async (db) => {
     await authorize(db, w, principal, "workspace.manage");
     assert(
@@ -1444,7 +1459,7 @@ export async function previewAiReply(
     w,
     agent: prepared.agent,
     question,
-    history: [],
+    history,
     chain: prepared.language.chain,
     signedIn,
     brandId: prepared.brandId,
@@ -1518,6 +1533,8 @@ export async function previewAiReply(
     })),
     // Z3a: the specialist who'd answer and why (null: Zoe herself).
     specialist: d.specialist,
+    // C1: the records she cited, for the evaluation harness's groundedness score.
+    cited: d.cited,
     // B2: a guard that blocked her reply; what would be sent to the model providers.
     guard: d.guard,
     sent: d.calls,
