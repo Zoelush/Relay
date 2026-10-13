@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: the channel contract (phase 12, E1)
+
+- **One contract for every channel:** what it can do, receiving, sending with a delivery status, and addresses. The messenger is its first adapter, and the code that assumed the messenger now asks the channel.
+- **Inbound messages** are received once, threaded into their conversation, and recorded with their channel.
+- **One person across channels:** customers' channel addresses join one contact only when the channel verifies them.
+- **Replies go to the channel the customer last wrote on,** with a delivery status in the inbox (sent, delivered, read, not delivered).
+- **One gate for every send:** the new suppression list (Settings › Channels): bounces, complaints, opt-outs and manual blocks. Opt-outs can't be lifted by the team.
+- **Office hours per channel.**
+- **Behind `channels_v1`,** off by default.
+- **Migration:** 0062, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP1.md`.
+
 ## Unreleased: the run log, alerts, templates, more triggers and acceptance (phase 11, W4)
 
 - **The run log:** every run, filtered by workflow, outcome, trigger and conversation. Each opens to every step, condition and action.

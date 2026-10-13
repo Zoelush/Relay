@@ -229,7 +229,8 @@ export function buildFacts(s: FactSources): Facts {
     "conversation.assignee": c.assigned || null,
     "conversation.team": c.team_id ?? null,
     "conversation.brand": c.brand_id,
-    "conversation.channel": c.channel ?? "messenger",
+    // Phase 12: the channel the conversation is on now (where replies go).
+    "conversation.channel": c.current_channel ?? c.channel ?? "messenger",
     // The customer's language: what their latest message is written in, else the brand's.
     "conversation.language": (detectLanguage(s.latest) ?? s.brandLocale).split("-")[0],
     "conversation.ai_state": c.ai_state ?? null,
@@ -289,7 +290,7 @@ export async function factsFor(
   const brandLocale =
     (await db.query<{ locale: string | null }>("SELECT settings->>'locale' AS locale FROM brands WHERE workspace_id=$1 AND id=$2", [w, c.brand_id])).rows[0]
       ?.locale ?? "en";
-  const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id }, "en");
+  const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id, channel: c.current_channel ?? null }, "en");
   // W4: the page their messenger last reported (for this brand).
   const pageUrl =
     (
@@ -1175,7 +1176,7 @@ async function act(
     }
     case "reply_time": {
       // The customer's messenger says it in their language, from `replyTime` and `availability`.
-      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id }, "en");
+      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id, channel: c.current_channel ?? null }, "en");
       const replyTime = await expectedReply(db, w, c.brand_id);
       const text =
         !hours || hours.open
@@ -1207,7 +1208,7 @@ async function act(
       return { label: `Wait ${Math.round(Number(o.seconds) / 60)} minutes`, result: "waiting", detail: { until }, wait: { state: { kind: "duration" }, until } };
     }
     case "wait_office_hours": {
-      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id }, "en");
+      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id, channel: c.current_channel ?? null }, "en");
       if (!hours || hours.open || !hours.nextOpenAt) return { label: "Wait until office hours", result: "open now" };
       return {
         label: "Wait until office hours",

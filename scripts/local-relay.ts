@@ -54,6 +54,7 @@ import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import { changeWorkflow } from "../server/workflows";
 import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
+import { registerChannel, runDelivery, type ChannelAdapter } from "../server/channels";
 import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
@@ -141,6 +142,10 @@ export async function startLocalRelay(
     /** Website sync's fetch policy and renderer (tests reach a local test site this way). */
     sync?: SyncEnvironment;
     longTimeline?: boolean;
+    /** Phase 12: channels besides the messenger (tests register stand-ins; each step adds its own). */
+    channels?: ChannelAdapter[];
+    /** Channels (phase 12), likewise on unless turned off. */
+    channelsFlag?: boolean;
     /** Development seed (phase 11 W2): a draft workflow to open in the builder. */
     exampleWorkflow?: boolean;
   } = {},
@@ -558,6 +563,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='workflows_v1'",
         [w, options.workflows !== false],
       );
+      // Channels (phase 12, E1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channels_v1'",
+        [w, options.channelsFlag !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -785,6 +795,9 @@ export async function startLocalRelay(
   handlers["workflow.start"] = (job) => startWorkflows(db.connect, job, { connectors: env.connectors });
   handlers["workflow.resume"] = (job) => resumeWorkflow(db.connect, job, { connectors: env.connectors });
   handlers["workflow.timed"] = (job) => runTimedWorkflows(db.connect, job);
+  // Phase 12: replies delivered on their conversation's channel.
+  const unregister = (options.channels ?? []).map(registerChannel);
+  handlers["channel.deliver"] = (job) => runDelivery(db.connect, {}, job);
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
@@ -1190,6 +1203,7 @@ export async function startLocalRelay(
         if (client.subscriptions.has(conversationId)) socket.terminate();
     },
     async close() {
+      for (const off of unregister) off();
       stopped = true;
       clearInterval(maintenanceTimer);
       await maintenance;

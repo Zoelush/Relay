@@ -102,6 +102,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
     pages.push("brands");
     if (await flag(db, w, "messenger_v2")) pages.push("messenger");
     if (await flag(db, w, "portal_v1")) pages.push("portal");
+    // Phase 12 E1: the suppression list, while channels are on.
+    if (await flag(db, w, "channels_v1")) pages.push("suppressions");
   }
   if (await has("macros.use")) pages.push("macros");
   if (await flag(db, w, "agent_inbox_views_v1")) pages.push("views");

@@ -27,6 +27,7 @@ import {
   type LucideIcon,
   Bot,
   Workflow,
+  Ban,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -44,6 +45,7 @@ import {
 } from "./settings-ui";
 import { MacroManager, type MacroList } from "./macros";
 import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
+import { SuppressionsPage } from "./settings-suppressions";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -182,6 +184,14 @@ const PAGES: Page[] = [
     description:
       "Who sees which requests, portal addresses and custom domains.",
     icon: DoorOpen,
+    group: "Channels",
+  },
+  {
+    // Phase 12 E1: addresses nothing is sent to, on any channel.
+    id: "suppressions",
+    label: "Suppression list",
+    description: "Addresses nothing is sent to: bounces, complaints, opt-outs and blocks.",
+    icon: Ban,
     group: "Channels",
   },
   {
@@ -445,6 +455,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "suppressions" ? (
+            <SuppressionsPage menu={menu} page={current} />
           ) : current.id === "tags" ? (
             <TagsPage menu={menu} page={current} onChanged={onDirectory} />
           ) : current.id === "attributes" ? (

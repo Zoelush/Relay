@@ -204,6 +204,7 @@ import { estimateWorkflow } from "./workflow-estimate";
 import { simulateWorkflow, simulationConversations } from "./workflow-simulate";
 import { workflowsEnabled } from "./workflow-engine";
 import { pageVisited, receiveWebhook } from "./workflow-triggers";
+import { changeSuppression, readDeliveries, readSuppressions } from "./channels";
 import {
   indexStatus,
   rebuildIndex,
@@ -1236,6 +1237,8 @@ export async function handleApi(
             "/v1/agent/workflow-runs",
             "/v1/agent/workflow-estimate",
             "/v1/agent/workflow-conversations",
+            "/v1/agent/suppressions",
+            "/v1/agent/deliveries",
             "/v1/agent/ai-settings",
             "/v1/agent/zoe",
             "/v1/agent/bulk",
@@ -1312,6 +1315,7 @@ export async function handleApi(
               "/v1/agent/workflow",
               "/v1/agent/workflow-run",
               "/v1/agent/workflow-simulate",
+              "/v1/agent/suppression",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1678,6 +1682,13 @@ export async function handleApi(
           return json(
             await tenant(env.connect, workspace, (db) =>
               changeWorkflow(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
+            ),
+          );
+        if (url.pathname === "/v1/agent/suppression")
+          // Phase 12 E1: an address added to the suppression list, or a manual block lifted.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeSuppression(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
             ),
           );
         if (url.pathname === "/v1/agent/workflow-simulate")
@@ -2261,6 +2272,14 @@ export async function handleApi(
           await tenant(env.connect, workspace, (db) =>
             estimateWorkflow(db, workspace, principal, url.searchParams.get("when") ?? ""),
           ),
+        );
+      if (url.pathname === "/v1/agent/suppressions")
+        // Phase 12 E1: the suppression list (Settings).
+        return json(await tenant(env.connect, workspace, (db) => readSuppressions(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/deliveries")
+        // Phase 12 E1: how a conversation's replies were delivered on its channel.
+        return json(
+          await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
       if (url.pathname === "/v1/agent/workflow-conversations")
         // Phase 11 W3: conversations to simulate a workflow against (?q=).

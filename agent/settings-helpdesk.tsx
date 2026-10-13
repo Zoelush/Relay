@@ -442,7 +442,7 @@ type CalendarRow = {
   calendar: Calendar;
 };
 type Assignment = {
-  scope: "workspace" | "brand" | "team";
+  scope: "workspace" | "brand" | "team" | "channel";
   scopeId: string;
   calendarId: string;
 };
@@ -490,6 +490,8 @@ export function OfficeHoursPage({
     assignments: Assignment[];
     brands: Named[];
     teams: Named[];
+    /** Phase 12 E1: channels with their own hours (while channels are on). */
+    channels?: Named[];
   } | null>(null);
   const [editing, setEditing] = useState<CalendarRow | "new" | null>(null);
   const [error, setError] = useState("");
@@ -619,18 +621,25 @@ export function OfficeHoursPage({
       {data && data.calendars.length > 0 && (
         <Card
           title="Who uses which hours"
-          description="A conversation uses its team's hours, else its brand's, else the workspace's. With none, it counts as always open."
+          description={
+            data.channels?.length
+              ? "A conversation uses its team's hours, else its channel's, else its brand's, else the workspace's. With none, it counts as always open."
+              : "A conversation uses its team's hours, else its brand's, else the workspace's. With none, it counts as always open."
+          }
         >
           {choose("Workspace", "workspace", "", "Always open")}
           {data.brands.map((b) =>
             choose(`Brand: ${b.name}`, "brand", b.id, "The workspace's hours"),
+          )}
+          {data.channels?.map((ch) =>
+            choose(`Channel: ${ch.name}`, "channel", ch.id, "The brand's or workspace's hours"),
           )}
           {data.teams.map((t) =>
             choose(
               `Team: ${t.name}`,
               "team",
               t.id,
-              "The brand's or workspace's hours",
+              data.channels?.length ? "The channel's, brand's or workspace's hours" : "The brand's or workspace's hours",
             ),
           )}
         </Card>

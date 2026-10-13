@@ -1,0 +1,73 @@
+# Phase 12: Omnichannel (plan)
+
+Brief: `docs/BUILD_PHASES.md` phase 12. It needs phase 04 (done). Drafted on 13 October 2026. E1 was approved that day ("go ahead with E1"), with the recommendations below.
+
+The brief's order is the plan's order:
+1. the adapter contract
+2. email, completely (the hard one)
+3. the other channels, as repetitions of the contract
+
+Every provider sits behind a port with an offline stand-in, as Zoe's models do. Tests use recorded exchanges (`tests/fixtures/`), never the network. Locally, the dev relay delivers to a mailbox you can read (and the same for each channel), so everything works before any account exists.
+
+## Where Relay is today
+
+**Already there:**
+- `conversations.channel` and `conversation_parts.channel` exist, always `messenger`.
+- Attachments have storage and a scanner.
+- People have contacts with several emails and phones. Identities are `anonymous` or `user` (the messenger's).
+- Nothing sends or receives email yet. Customers are only told of replies in the messenger.
+
+**Messenger assumptions in the code** (each becomes a question to the channel's adapter):
+- Zoe answers only on the messenger (`queueAiReply`).
+- Verification rules are messenger-only.
+- Part delivery assumes the messenger.
+- Office hours are per brand or team, not per channel.
+
+## Steps
+
+| Step | Scope |
+|---|---|
+| **E1: The channel contract** | One interface every channel implements: `receive` (inbound payload to a part), `send` (outbound part to a delivery with status), `capabilities` (rich text, attachments, buttons, length limits, session windows), and `identify` (the channel's own identifier to a contact). The messenger becomes its first adapter, and the messenger assumptions above go through it. Also: a delivery record per outbound part (queued, sent, delivered, read, failed, with the reason); one suppression list consulted by every send path; the channel shown on each part; office hours per channel; and identities for channel addresses (email, phone, and so on) resolving to one contact, without merging an unverified address into a signed-in user. |
+| **E2: Email in** | MIME parsing (multipart, inline images, character sets, attachments, size limits). Threading by Message-ID, In-Reply-To and References, with a subject-and-participants fallback. Quoted history and signatures stripped, with the full original behind a control. Auto-replies, out-of-office and bounces detected and never treated as the customer's reply. Inbound HTML sanitised, with remote content blocked by default. Attachments scanned. Each brand gets an inbound address, and forwarding from the brand's own support address is verified. Acceptance: **the 50-email corpus** (forwarded chains, Outlook and Gmail quoting, mobile signatures, auto-replies, bounces, non-Latin character sets), each with its expected result. |
+| **E3: Email out** | A per-brand sending domain, with its SPF, DKIM and DMARC records shown and checked (with status in Settings). A plain-text alternative for every HTML mail. Reply-to routing back to the conversation, with a signed address per conversation. The composer replies by email on email conversations. Messenger conversations email the customer when they're away, with a switch for whether the email includes the conversation's content. Deliverability: bounce and complaint webhooks, the suppression list (hard bounces and complaints added), per-domain rate limiting, and a reputation dashboard. Acceptance: **a suppressed address is never sent to, through any path**, tested by enumerating every send path (teammate, workflow, Zoe, notifications). |
+| **E4: Email in the inbox** | The email view: subject, recipients and CC, quoted history shown on request, and blocked images loaded on request. Side conversations (from the gap audit, deferred here): an email thread attached to a conversation, inheriting its assignment, with replies cross-posted into the parent timeline. Workflows gain "inbound email" (a trigger) and "send an email" (a step), from the `TODO(phase 12)`s. Zoe on email, including the gap audit's "human in the loop" (she drafts and a teammate approves) as a setting. Monitor incident alerts by email. |
+| **E5: WhatsApp Business** | Number registration, template messages (submitted for approval, stored, with their status), the 24-hour customer-service window with a clear "window closed: send a template" state in the composer, opt-in records, media, and delivery and read receipts. |
+| **E6: SMS** | Numbers per country, segment counting and cost estimate in the composer, the mandatory opt-out keywords (STOP and local equivalents) writing a permanent suppression record, and the consent model. |
+| **E7: Instagram and Facebook Messenger** | Account connection, messages and story replies, the platforms' own messaging windows, and attachments. |
+| **E8: Slack and Discord** | Connect a Slack workspace or Discord server: community messages become conversations, and replies go back to their thread. |
+| **E9: Voice** | Number provisioning, inbound calls answered, recording and transcription with a consent step and per-region settings, the transcript written to the conversation as parts, voicemail, and warm transfer to a teammate with context. Zoe on voice uses the phase 08 pipeline, with speakable formatting and a strict barge-in and silence policy. |
+
+Each step ships the usual: migration and rollback, seed, unit tests, an end-to-end happy path and failure path, a CHANGELOG entry and a handoff (`docs/OMNICHANNEL_STEP<n>.md`). Each channel has its own flag, off by default: `channel_email_v1`, `channel_whatsapp_v1`, and so on.
+
+## Decisions (proposed)
+
+1. **Providers sit behind ports, chosen per deployment.** Each channel's provider is an adapter. Its webhook signatures are verified before anything is read, and its credentials are encrypted like connector secrets.
+2. **Email in arrives through Cloudflare Email Routing,** into the Worker Relay already deploys on (an Email Worker). It costs nothing extra and keeps mail out of third parties until it's parsed. A brand's own support address forwards to its Relay inbound address. Locally, `.eml` files are posted to the dev relay.
+3. **Email out goes through Amazon SES** (with its SNS bounce and complaint notifications), over the AWS request signing Relay already uses for storage (`aws4fetch`). Postmark is the alternative: its transactional deliverability is better, but it costs more per message. The port allows either.
+4. **WhatsApp uses Meta's Cloud API directly,** not through a reseller: no markup, and templates and windows straight from the source. **SMS and voice use Twilio:** it has the widest country coverage, and programmable voice with recording, transcription and media streams (for Zoe on calls). **Instagram and Facebook use Meta's Graph API. Slack** uses its Events API (a webhook). **Discord** has no webhook for incoming messages, so a Durable Object keeps its gateway connection.
+5. **Who a channel's sender is:** an inbound email's From address is believed only when the message passes DMARC (the inbound authentication results).
+   - **When it doesn't pass:** the conversation still opens, but the address isn't verified, isn't merged into a signed-in user, and can't satisfy verification rules for connectors.
+   - **Phones:** the same for SMS. WhatsApp numbers are verified by Meta.
+6. **One delivery pipeline:** every outbound part to a non-messenger channel is a job, retried with backoff, then dead-lettered.
+   - **Status:** its status is a delivery row the inbox shows ("Sent", "Delivered", "Failed: mailbox full").
+   - **The single gate:** every send passes `mayDeliver` (suppression, the channel's window, consent). A send path that skips it is a test failure, through the enumeration in E3.
+7. **Subscription types arrive in phase 13** (outbound). Phase 12's suppression list covers hard bounces, complaints, opt-out keywords and manual blocks, and `mayDeliver` has a place for subscription checks: `TODO(phase 13)`.
+8. **Inbound HTML is sanitised on the server once, when it's received**, to an allowlist, with remote images rewritten to load only on request. The inbox never renders raw mail.
+9. **Size limits:** 25 MB a message, 10 MB an attachment, 100 attachments a message. Larger mail is kept as "too large" with its headers, and the sender is told.
+
+## Needs you
+
+- **Providers (decision 3 and 4):** SES (recommended) or Postmark for email; Meta direct for WhatsApp; Twilio for SMS and voice. Say if you'd rather use others (for example Vonage or Telnyx).
+- **Accounts:** none are needed to build and test (stand-ins and recorded exchanges). Each channel needs its own to go live: an AWS account with SES out of the sandbox, a Meta Business account with a WhatsApp number, a Twilio account, and Slack and Discord apps. Credentials go in `.dev.vars` and `wrangler secret put`, never in chat.
+- **The 50-email corpus:** I'll assemble it from public, synthetic examples of each kind (no real people's mail). If you have real ones you're allowed to use, anonymised, they'd make it stronger.
+- **Scope:** E5 to E9 are large, and each is a whole integration. If you'd rather stop after email (E1 to E4) and come back to the others later, say so. The brief's acceptance criteria are both email ones.
+
+10. **E1 decisions** (13 October 2026):
+    - **The messenger's own path stays.** Its customers have a signed session and its parts are delivered as they're written, so it's an adapter without `receive` or `send`, and without deliveries. Other channels come in through `receiveInbound`.
+    - **Replies go to the conversation's current channel,** the one the customer last wrote on: `conversations.current_channel`, with `channel` kept as the first.
+    - **A channel's address is an identity of kind `channel`,** with the address kept (`identity_addresses`) so there's somewhere to send.
+    - **The gate is in the delivery job,** right before sending, so no path can reach a provider around it.
+    - **Suppression is per channel and address.** Opt-outs and complaints can't be lifted by a teammate.
+    - **Office hours by channel** come after the team's and before the brand's.
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1).

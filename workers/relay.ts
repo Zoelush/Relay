@@ -12,6 +12,7 @@ import { runConnectorTest } from "../server/connectors";
 import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
+import { runDelivery } from "../server/channels";
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -446,6 +447,9 @@ const relayWorker = {
       "workflow.resume": (job) => resumeWorkflow(runtime.connect, job, { connectors: runtime.connectors }),
       // W4: schedules, unanswered customers and SLAs about to breach.
       "workflow.timed": (job) => runTimedWorkflows(runtime.connect, job),
+      // Phase 12: a reply delivered on its conversation's channel.
+      // TODO(phase 12 E3): provider credentials (email first) in the channel environment.
+      "channel.deliver": (job) => runDelivery(runtime.connect, {}, job),
     };
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>
