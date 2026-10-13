@@ -14,7 +14,7 @@ import type { Conversation } from "./conversations";
  */
 export const SAMPLE = 500;
 export const DAYS = 30;
-const MOMENT: Field[] = ["message.text", "office_hours", "team.available", "change.by", "wait.timed_out"];
+const MOMENT: Field[] = ["message.text", "office_hours", "team.available", "change.by", "wait.timed_out", "page.url", "trigger.data"];
 
 type Row = Conversation & {
   ai_state: string | null;

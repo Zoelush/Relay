@@ -1603,3 +1603,36 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-wf-checks { margin:0; padding-left:18px; font-size:12px; color:var(--pg-text-2); }
 .pg-wf-checks li[data-result="false"] { color:var(--pg-danger-text); }
+/* W4: alerts for failing workflows, the run log, templates and webhooks. */
+.pg-wf-alerts { display:flex; flex-direction:column; gap:8px; }
+.pg-wf-builder > .pg-wf-alerts { margin:8px 16px 0; }
+.pg-wf-alert { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 12px; border:1px solid var(--pg-danger-border); border-radius:10px; background:var(--pg-danger-bg); color:var(--pg-danger-text); font-size:13px; }
+.pg-wf-alert > div { flex:1; min-width:200px; display:flex; flex-direction:column; gap:2px; }
+.pg-wf-alert span { overflow-wrap:anywhere; }
+.pg-wf-state[data-state="failing"] { background:var(--pg-danger-bg); color:var(--pg-danger-text); }
+.pg-wf-runlog { display:flex; flex-direction:column; gap:12px; }
+.pg-wf-runlog-filters { display:flex; gap:8px; flex-wrap:wrap; }
+.pg-wf-runlog-filters select, .pg-wf-runlog-filters input { padding:6px 8px; border:1px solid var(--pg-input-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); font:inherit; font-size:13px; }
+.pg-wf-runs { width:100%; border-collapse:collapse; font-size:13px; background:var(--pg-surface); border:1px solid var(--pg-border); border-radius:10px; overflow:hidden; }
+.pg-wf-runs th { text-align:left; padding:8px 10px; color:var(--pg-text-2); font-weight:600; border-bottom:1px solid var(--pg-border); background:var(--pg-sunken); }
+.pg-wf-runs td { padding:8px 10px; border-bottom:1px solid var(--pg-border-subtle); vertical-align:top; }
+.pg-wf-runs tr[data-selected="true"] td { background:var(--pg-selected); }
+.pg-wf-run-why { max-width:360px; overflow-wrap:anywhere; color:var(--pg-text-2); }
+.pg-wf-run-status { display:inline-flex; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:600; background:var(--pg-chip); color:var(--pg-text-2); }
+.pg-wf-run-status[data-status="completed"] { background:var(--pg-tint-green-bg); color:var(--pg-tint-green); }
+.pg-wf-run-status[data-status="failed"] { background:var(--pg-danger-bg); color:var(--pg-danger-text); }
+.pg-wf-run-status[data-status="waiting"], .pg-wf-run-status[data-status="running"] { background:var(--pg-tint-sky-bg); color:var(--pg-tint-sky); }
+.pg-wf-run-detail { padding:14px; border:1px solid var(--pg-border); border-radius:12px; background:var(--pg-surface); }
+.pg-wf-run-detail > header { display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; }
+.pg-wf-run-detail > header > div { flex:1; min-width:0; }
+.pg-wf-run-detail h3 { margin:0; font-size:15px; }
+.pg-wf-run-detail p { margin:2px 0 0; font-size:13px; }
+.pg-wf-io { display:block; font-size:11.5px; color:var(--pg-text-2); white-space:pre-wrap; overflow-wrap:anywhere; }
+.pg-wf-template-about { flex-basis:100%; margin:0; font-size:13px; }
+.pg-wf-hook { display:flex; flex-direction:column; align-items:flex-start; gap:6px; padding:8px 10px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-sunken); font-size:13px; }
+.pg-wf-hook code { max-width:100%; overflow-wrap:anywhere; font-size:12px; }
+@media (max-width: 900px) {
+  .pg-wf-runs thead { display:none; }
+  .pg-wf-runs tr { display:flex; flex-wrap:wrap; gap:4px 10px; padding:8px 10px; border-bottom:1px solid var(--pg-border-subtle); }
+  .pg-wf-runs td { padding:0; border:0; }
+}

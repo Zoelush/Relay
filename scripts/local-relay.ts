@@ -53,6 +53,7 @@ import { runConnectorTest } from "../server/connectors";
 import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import { changeWorkflow } from "../server/workflows";
+import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
 import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
@@ -783,6 +784,7 @@ export async function startLocalRelay(
   // W3: workflows call read connectors with the same key and fetch policy as Zoe.
   handlers["workflow.start"] = (job) => startWorkflows(db.connect, job, { connectors: env.connectors });
   handlers["workflow.resume"] = (job) => resumeWorkflow(db.connect, job, { connectors: env.connectors });
+  handlers["workflow.timed"] = (job) => runTimedWorkflows(db.connect, job);
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
@@ -849,6 +851,8 @@ export async function startLocalRelay(
         await expireApprovals(db.connect, w);
         // Workflow runs whose wait is over (phase 11).
         await resumeDueWorkflows(db.connect, w);
+        // Time triggers (phase 11 W4), checked once a minute.
+        await checkTimedWorkflows(db.connect, w);
         // Websites due a sync (phase 07, C1b), checked once a minute.
         if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
           lastSyncCheck.set(w, Date.now());

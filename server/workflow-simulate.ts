@@ -187,6 +187,13 @@ export async function simulateWorkflow(
       go(d.chosen === "resolved" ? n.resolved : d.chosen === "handedOver" ? n.handedOver : n.timedOut, d.chosen === "resolved" ? "Resolved" : d.chosen === "handedOver" ? "Handed over" : "No outcome");
       continue;
     }
+    // W4: the conversation goes on in a reusable workflow, as its own run.
+    if (n.type === "workflow") {
+      const name =
+        (await db.query<{ name: string }>("SELECT name FROM workflows WHERE workspace_id=$1 AND id=$2", [w, n.workflowId])).rows[0]?.name ?? "a missing workflow";
+      trace.push({ path: here, step: null, kind: "end", label: `Would pass to “${name}” (it runs on its own; test it there)` });
+      return { trace, visited, ended: "passed" as const, conversationId: c.id };
+    }
     // A connector: never called in a simulation.
     const named = (await db.query<{ name: string }>("SELECT name FROM ai_connectors WHERE workspace_id=$1 AND id=$2", [w, n.connectorId])).rows[0]?.name ?? "its connector";
     const d = decide(`${here}:connector`, [

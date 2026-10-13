@@ -217,6 +217,9 @@ export type FactSources = {
   officeHours: "open" | "closed";
   source: Source;
   timedOut: boolean;
+  /** W4: the page the customer's messenger is on, and what a webhook sent. */
+  pageUrl?: string;
+  triggerData?: Record<string, unknown>;
 };
 export function buildFacts(s: FactSources): Facts {
   const c = s.conversation;
@@ -237,7 +240,9 @@ export function buildFacts(s: FactSources): Facts {
     office_hours: s.officeHours,
     "change.by": s.source,
     "wait.timed_out": s.timedOut,
+    "page.url": s.pageUrl ?? "",
     tags: s.tags,
+    triggerData: s.triggerData ?? {},
     attributes: (c.attributes as Record<string, unknown>) ?? {},
     contactAttributes: s.contact?.profile ?? {},
     emailDomains: s.emails.map((e) => e.split("@").pop()!.toLowerCase()),
@@ -245,7 +250,12 @@ export function buildFacts(s: FactSources): Facts {
 }
 
 /** What conditions test, read once per evaluation (and by W3's simulation). */
-export async function factsFor(db: Sql, w: string, c: Conversation, run: { source: Source; partId: string | null; timedOut?: boolean }): Promise<Facts> {
+export async function factsFor(
+  db: Sql,
+  w: string,
+  c: Conversation,
+  run: { source: Source; partId: string | null; timedOut?: boolean; data?: Record<string, unknown> },
+): Promise<Facts> {
   const tags = (await db.query<{ tag_id: string }>("SELECT tag_id FROM conversation_tags WHERE workspace_id=$1 AND conversation_id=$2", [w, c.id])).rows.map(
     (r) => r.tag_id,
   );
@@ -280,6 +290,14 @@ export async function factsFor(db: Sql, w: string, c: Conversation, run: { sourc
     (await db.query<{ locale: string | null }>("SELECT settings->>'locale' AS locale FROM brands WHERE workspace_id=$1 AND id=$2", [w, c.brand_id])).rows[0]
       ?.locale ?? "en";
   const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id }, "en");
+  // W4: the page their messenger last reported (for this brand).
+  const pageUrl =
+    (
+      await db.query<{ page_url: string | null }>(
+        "SELECT page_url FROM messenger_sessions WHERE workspace_id=$1 AND identity_id=$2 AND brand_id=$3 ORDER BY expires_at DESC LIMIT 1",
+        [w, c.primary_identity_id, c.brand_id],
+      )
+    ).rows[0]?.page_url ?? "";
   return buildFacts({
     conversation: c,
     tags,
@@ -291,6 +309,8 @@ export async function factsFor(db: Sql, w: string, c: Conversation, run: { sourc
     officeHours: !hours || hours.open ? "open" : "closed",
     source: run.source,
     timedOut: !!run.timedOut,
+    pageUrl,
+    triggerData: run.data ?? {},
   });
 }
 
@@ -326,7 +346,9 @@ async function holds(db: Sql, w: string, c: Condition, f: Facts): Promise<Evalua
         ? f.attributes[c.key!]
         : c.field === "contact.attribute"
           ? f.contactAttributes[c.key!]
-          : f[c.field];
+          : c.field === "trigger.data"
+            ? (f.triggerData as Record<string, unknown>)[c.key!]
+            : f[c.field];
     switch (c.op) {
       case "is":
         result = typeof c.value === "boolean" ? actual === c.value : text(actual).toLowerCase() === text(c.value).toLowerCase();
@@ -392,6 +414,7 @@ type RunRow = {
   conversation_id: string | null;
   trigger: string;
   trigger_part_id: string | null;
+  trigger_data: Record<string, unknown>;
   source: Source;
   chain: string[];
   status: string;
@@ -405,7 +428,7 @@ type RunRow = {
   name: string;
   definition: Definition;
 };
-const RUN = `r.id,r.workflow_id,r.workflow_version,r.conversation_id,r.trigger,r.trigger_part_id,r.source,r.chain,r.status,r.path,r.step,r.wait,
+const RUN = `r.id,r.workflow_id,r.workflow_version,r.conversation_id,r.trigger,r.trigger_part_id,r.trigger_data,r.source,r.chain,r.status,r.path,r.step,r.wait,
   r.nodes,r.steps,r.started_at,r.version::text AS version,w.name,v.definition
   FROM workflow_runs r JOIN workflows w ON w.workspace_id=r.workspace_id AND w.id=r.workflow_id
   JOIN workflow_versions v ON v.workspace_id=r.workspace_id AND v.workflow_id=r.workflow_id AND v.version=r.workflow_version`;
@@ -423,17 +446,57 @@ async function log(
   );
 }
 async function finish(db: Sql, w: string, runId: string, status: "completed" | "failed", reason: string, error = "") {
+  const run = (
+    await db.query<{ workflow_id: string }>(
+      `UPDATE workflow_runs SET status=$3,reason=$4,error=$5,ended_at=now(),duration_ms=GREATEST(0,(extract(epoch from now()-started_at)*1000)::int),
+         wait=NULL,wait_until=NULL,version=version+1 WHERE workspace_id=$1 AND id=$2 RETURNING workflow_id`,
+      [w, runId, status, reason, error],
+    )
+  ).rows[0];
+  if (run) await watchFailures(db, w, run.workflow_id, runId, status, error);
+}
+
+/** W4: three failed runs in a row open an alert (and notify managers once); a completed run closes it. */
+export const FAILURES_FOR_ALERT = 3;
+async function watchFailures(db: Sql, w: string, workflowId: string, runId: string, status: "completed" | "failed", error: string) {
+  if (status === "completed") {
+    await db.query(
+      "UPDATE workflow_alerts SET resolved_at=now(),resolution='recovered' WHERE workspace_id=$1 AND workflow_id=$2 AND resolved_at IS NULL",
+      [w, workflowId],
+    );
+    return;
+  }
+  const recent = (
+    await db.query<{ status: string }>(
+      `SELECT status FROM workflow_runs WHERE workspace_id=$1 AND workflow_id=$2 AND status IN ('completed','failed')
+       ORDER BY ended_at DESC NULLS LAST,started_at DESC LIMIT $3`,
+      [w, workflowId, FAILURES_FOR_ALERT],
+    )
+  ).rows;
+  const open = (
+    await db.query<{ id: string }>("SELECT id FROM workflow_alerts WHERE workspace_id=$1 AND workflow_id=$2 AND resolved_at IS NULL", [w, workflowId])
+  ).rows[0];
+  if (open) {
+    await db.query("UPDATE workflow_alerts SET failures=failures+1,last_error=$3,last_run_id=$4 WHERE workspace_id=$1 AND id=$2", [w, open.id, error, runId]);
+    return;
+  }
+  if (recent.length < FAILURES_FOR_ALERT || recent.some((r) => r.status !== "failed")) return;
+  const id = crypto.randomUUID();
   await db.query(
-    `UPDATE workflow_runs SET status=$3,reason=$4,error=$5,ended_at=now(),duration_ms=GREATEST(0,(extract(epoch from now()-started_at)*1000)::int),
-       wait=NULL,wait_until=NULL,version=version+1 WHERE workspace_id=$1 AND id=$2`,
-    [w, runId, status, reason, error],
+    "INSERT INTO workflow_alerts(workspace_id,id,workflow_id,failures,last_error,last_run_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
+    [w, id, workflowId, FAILURES_FOR_ALERT, error, runId],
+  );
+  const name = (await db.query<{ name: string }>("SELECT name FROM workflows WHERE workspace_id=$1 AND id=$2", [w, workflowId])).rows[0]?.name ?? "A workflow";
+  await db.query(
+    `INSERT INTO notifications(workspace_id,id,teammate_id,kind,workflow_alert_id,excerpt)
+     SELECT $1,gen_random_uuid()::text,t.id,'workflow_alert',$2,$3 FROM teammates t
+     JOIN role_capabilities p ON p.workspace_id=t.workspace_id AND p.role_id=t.role_id AND p.capability='workspace.manage'
+     WHERE t.workspace_id=$1
+     ON CONFLICT DO NOTHING`,
+    [w, id, `“${name}” failed ${FAILURES_FOR_ALERT} times in a row: ${error}`.slice(0, 140)],
   );
 }
 
-/**
- * The `workflow.start` job: the live workflows for a trigger, in priority order, each checked and
- * either started or recorded as skipped; then the started ones run.
- */
 /** What a run needs from outside: connectors (W3), when this runtime has them. */
 export type WorkflowEnvironment = { connectors?: ConnectorEnvironment };
 
@@ -462,18 +525,25 @@ async function answerIfFree(db: Sql, w: string, c: Conversation, jobId: string) 
   if (last) await queueAiReply(db, w, await conversation(db, w, c.id), last.id);
 }
 
+/**
+ * The `workflow.start` job: the live workflows for a trigger, in priority order, each checked and
+ * either started or recorded as skipped; then the started ones run.
+ */
 export async function startWorkflows(connect: Connect, job: Job, env: WorkflowEnvironment = {}) {
   const w = job.workspace_id;
   const p = job.payload as {
     conversationId: string;
     trigger: Trigger;
-    options: { tagId?: string; attributeId?: string; key?: string };
+    options: { tagId?: string; attributeId?: string; key?: string; url?: string };
     partId: string | null;
     source: Source;
     causedBy: string | null;
     workflowId?: string;
     deferAi?: boolean;
     answering?: string | null;
+    /** W4: fire once per occurrence (time and browsing triggers), and what a webhook or page gave. */
+    key?: string;
+    data?: Record<string, unknown>;
   };
   const started = await tenant(connect, w, async (db) => {
     if (!(await workflowsEnabled(db, w))) return [];
@@ -521,7 +591,8 @@ export async function startWorkflows(connect: Connect, job: Job, env: WorkflowEn
       if (o.tagId && o.tagId !== p.options.tagId) continue;
       if (o.attributeId && o.attributeId !== p.options.attributeId) continue;
       if (o.key && o.key !== p.options.key) continue;
-      const facts = await factsFor(db, w, c, { source: p.source, partId: p.partId });
+      if (o.url && !String(p.options.url ?? "").includes(o.url)) continue;
+      const facts = await factsFor(db, w, c, { source: p.source, partId: p.partId, data: p.data });
       const who = await evaluate(db, w, def.when, facts);
       if (!who.result) continue;
       const id = crypto.randomUUID();
@@ -540,11 +611,16 @@ export async function startWorkflows(connect: Connect, job: Job, env: WorkflowEn
                 : budget <= 0
                   ? `This conversation already had ${MAX_RUNS_PER_HOUR} workflow runs in the last hour.`
                   : null;
-      await db.query(
-        `INSERT INTO workflow_runs(workspace_id,id,workflow_id,workflow_version,conversation_id,trigger,trigger_part_id,source,chain,status,path,reason,ended_at,duration_ms)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,${skip ? "now(),0" : "NULL,NULL"})`,
-        [w, id, wf.id, wf.live_version, c.id, p.trigger, p.partId, p.source, chain, skip ? "skipped" : "running", def.paths[0].id, skip ?? ""],
-      );
+      const inserted = (
+        await db.query(
+          `INSERT INTO workflow_runs(workspace_id,id,workflow_id,workflow_version,conversation_id,trigger,trigger_part_id,source,chain,status,path,reason,ended_at,duration_ms,trigger_key,trigger_data)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,${skip ? "now(),0" : "NULL,NULL"},$13,$14)
+           ON CONFLICT (workspace_id,workflow_id,conversation_id,trigger_key) WHERE trigger_key IS NOT NULL DO NOTHING RETURNING id`,
+          [w, id, wf.id, wf.live_version, c.id, p.trigger, p.partId, p.source, chain, skip ? "skipped" : "running", def.paths[0].id, skip ?? "", p.key ?? null, JSON.stringify(p.data ?? {})],
+        )
+      ).rows.length;
+      // W4: this occurrence already fired it (a message still unanswered, the same SLA target).
+      if (!inserted) continue;
       await log(db, w, id, {
         kind: "trigger",
         label: TRIGGERS[p.trigger].label,
@@ -820,6 +896,36 @@ export async function runWorkflow(connect: Connect, w: string, runId: string, re
           return wait({ kind: "zoe", since: new Date().toISOString() }, inSeconds(next.timeoutSeconds));
         }
 
+        // W4: the conversation goes on in a reusable workflow (its own run, in the same chain).
+        if (next.type === "workflow") {
+          const target = (
+            await db.query<{ name: string }>(
+              "SELECT name FROM workflows WHERE workspace_id=$1 AND id=$2 AND trigger='reusable' AND state='live' AND NOT archived",
+              [w, next.workflowId],
+            )
+          ).rows[0];
+          if (!target) throw new DomainError("WORKFLOW_NOT_FOUND", "The reusable workflow it passes to isn't live.", 404);
+          await log(db, w, runId, { path: path.id, kind: "goto", label: `Passed to “${target.name}”`, result: "passed" });
+          await finish(db, w, runId, "completed", `Passed to “${target.name}”.`);
+          await enqueueJob(
+            db,
+            w,
+            "workflow.start",
+            {
+              conversationId: c.id,
+              trigger: "reusable",
+              options: {},
+              partId: run.trigger_part_id,
+              source: "workflow",
+              causedBy: runId,
+              workflowId: next.workflowId,
+              data: run.trigger_data,
+            },
+            {},
+          );
+          return "stop";
+        }
+
         // W3: a read connector, for a customer the verification rules allow.
         if (next.type === "connector") {
           const fail = (why: string) => go(next.failed, "branch", why);
@@ -838,7 +944,7 @@ export async function runWorkflow(connect: Connect, w: string, runId: string, re
             : null;
           if (!version || !def) return fail(`${named.name} isn't published`);
           if (def.access === "write") return fail(`${named.name} changes things: workflows call read connectors only`);
-          const f = await factsFor(db, w, c, { source: run.source, partId: run.trigger_part_id });
+          const f = await factsFor(db, w, c, { source: run.source, partId: run.trigger_part_id, data: run.trigger_data });
           const agentId = (await db.query<{ id: string }>("SELECT id FROM ai_agents WHERE workspace_id=$1 ORDER BY id LIMIT 1", [w])).rows[0]?.id;
           const v = agentId ? await verificationOf(db, w, agentId) : { rules: [], fallback: "signed_in" as const };
           const check = verified(
@@ -854,7 +960,7 @@ export async function runWorkflow(connect: Connect, w: string, runId: string, re
           return { connectorId: next.connectorId, connector: named.name, version, values, path: path.id };
         }
 
-        const facts = await factsFor(db, w, c, { source: run.source, partId: run.trigger_part_id, timedOut });
+        const facts = await factsFor(db, w, c, { source: run.source, partId: run.trigger_part_id, timedOut, data: run.trigger_data });
         if (next.type === "branch") {
           for (const b of next.branches) {
             const e = await evaluate(db, w, b.when, facts);

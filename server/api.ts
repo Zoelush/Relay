@@ -203,6 +203,7 @@ import { changeWorkflow, readRun, readRuns, readWorkflow, readWorkflows, runManu
 import { estimateWorkflow } from "./workflow-estimate";
 import { simulateWorkflow, simulationConversations } from "./workflow-simulate";
 import { workflowsEnabled } from "./workflow-engine";
+import { pageVisited, receiveWebhook } from "./workflow-triggers";
 import {
   indexStatus,
   rebuildIndex,
@@ -983,6 +984,17 @@ export async function handleApi(
           );
         throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
       });
+    }
+    // Phase 11 W4: another system calls a workflow's webhook (its secret as a bearer token).
+    const hook = /^\/v1\/hooks\/([A-Za-z0-9_-]{1,100})\/workflows\/([0-9a-f-]{36})$/.exec(url.pathname);
+    if (hook && req.method === "POST") {
+      const p = await readBody(req, 16_000);
+      const token = /^Bearer (.+)$/.exec(req.headers.get("authorization") ?? "")?.[1] ?? "";
+      return json(
+        await tenant(env.connect, hook[1], (db) =>
+          receiveWebhook(db, hook[1], hook[2], token, req.headers.get("idempotency-key") ?? "", p),
+        ),
+      );
     }
     if (url.pathname === "/v1/messenger/boot" && req.method === "POST") {
       const p = await readBody(req);
@@ -2235,9 +2247,12 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/workflows")
         // Phase 11 W1: the workflows by trigger, or one (?id=).
         return json(
-          await tenant(env.connect, workspace, (db): Promise<unknown> => {
+          await tenant(env.connect, workspace, async (db): Promise<unknown> => {
             const id = url.searchParams.get("id");
-            return id ? readWorkflow(db, workspace, principal, id) : readWorkflows(db, workspace, principal);
+            if (!id) return readWorkflows(db, workspace, principal);
+            // W4: its webhook's full address, on this API's origin.
+            const d = await readWorkflow(db, workspace, principal, id);
+            return { ...d, workflow: { ...d.workflow, hook: { ...d.workflow.hook, url: new URL(d.workflow.hook.path, url.origin).href } } };
           }),
         );
       if (url.pathname === "/v1/agent/workflow-estimate")
@@ -2265,6 +2280,8 @@ export async function handleApi(
                   workflowId: url.searchParams.get("workflow") ?? undefined,
                   conversationId: url.searchParams.get("conversation") ?? undefined,
                   status: url.searchParams.get("status") ?? undefined,
+                  trigger: url.searchParams.get("trigger") ?? undefined,
+                  before: url.searchParams.get("before") ?? undefined,
                 });
           }),
         );
@@ -3081,6 +3098,8 @@ export async function handleApi(
                   "UPDATE messenger_sessions SET page_url=$3,version=version+1 WHERE workspace_id=$1 AND id=$2",
                   [s.workspace, s.sessionId, pageUrl(p.pageUrl)],
                 );
+                // Phase 11 W4: a page-visit workflow may fire for their open conversation.
+                await pageVisited(db, s.workspace, s, pageUrl(p.pageUrl));
                 return { ok: true };
               },
             ),

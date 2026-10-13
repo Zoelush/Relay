@@ -84,6 +84,7 @@ const SECTIONS: [string, Field[]][] = [
   ["Customer", ["contact.signed_in", "contact.role", "contact.email_domain", "contact.attribute"]],
   ["Availability", ["office_hours", "team.available"]],
   ["The change", ["change.by", "wait.timed_out"]],
+  ["The trigger", ["page.url", "trigger.data"]],
 ];
 const LANGUAGES = ["en", "fr", "de", "es", "it", "pt", "nl", "pl", "sv", "da", "nb", "fi", "ja", "zh", "ko", "ar", "tr", "ru"];
 

@@ -2,6 +2,8 @@ import { assert, DomainError, once, type Sql } from "./db";
 import { authorize } from "./policy";
 import { startManual, workflowsEnabled } from "./workflow-engine";
 import { actionsEnabled } from "./connectors";
+import { newHookSecret } from "./workflow-triggers";
+import { TEMPLATES, fromTemplate } from "../lib/workflow-templates";
 import type { Definition as ConnectorDefinition } from "../lib/connector-definition";
 import {
   LATER_TRIGGERS,
@@ -44,13 +46,14 @@ type Row = {
   state: "draft" | "live" | "paused";
   draft: Definition;
   layout: Layout;
+  hook_secret_hash: string | null;
   live_version: number | null;
   live: Definition | null;
   version: string;
   updated_at: string;
   updated_name: string | null;
 };
-const ROW = `w.id,w.name,w.trigger,w.priority,w.state,w.draft,w.layout,w.live_version,w.version::text AS version,w.updated_at,
+const ROW = `w.id,w.name,w.trigger,w.priority,w.state,w.draft,w.layout,w.hook_secret_hash,w.live_version,w.version::text AS version,w.updated_at,
   (SELECT t.name FROM teammates t WHERE t.workspace_id=w.workspace_id AND t.id=w.updated_by) AS updated_name,
   (SELECT v.definition FROM workflow_versions v WHERE v.workspace_id=w.workspace_id AND v.workflow_id=w.id AND v.version=w.live_version) AS live
   FROM workflows w`;
@@ -78,7 +81,7 @@ async function callable(db: Sql, w: string) {
 }
 
 /** What a definition names that doesn't exist in this workspace: each a problem for publishing. */
-async function references(db: Sql, w: string, def: Definition) {
+async function references(db: Sql, w: string, def: Definition, self = "") {
   const out: string[] = [];
   const ids = async (sql: string) => new Set((await db.query<{ id: string }>(sql, [w])).rows.map((r) => r.id));
   const tags = await ids("SELECT id FROM tags WHERE workspace_id=$1 AND archived_at IS NULL");
@@ -118,6 +121,14 @@ async function references(db: Sql, w: string, def: Definition) {
       if (s.type === "ticket_create" && !types.has(v("typeId"))) out.push(`${where}: its ticket type doesn't exist.`);
       if (s.type === "collect" && s.options.into === "conversation" && !attributes.has(v("attributeId"))) out.push(`${where}: its attribute doesn't exist.`);
     });
+    if (p.next.type === "workflow" && p.next.workflowId) {
+      const target = (
+        await db.query<{ trigger: string; state: string }>("SELECT trigger,state FROM workflows WHERE workspace_id=$1 AND id=$2 AND NOT archived", [w, p.next.workflowId])
+      ).rows[0];
+      if (p.next.workflowId === self) out.push(`Path ${p.id}: it passes to itself.`);
+      else if (!target || target.trigger !== "reusable") out.push(`Path ${p.id}: the workflow it passes to isn't a reusable one.`);
+      else if (target.state !== "live") out.push(`Path ${p.id}: the reusable workflow it passes to isn't live.`);
+    }
     if (p.next.type === "connector") {
       const n = p.next;
       const where = `Path ${p.id}, its connector`;
@@ -147,6 +158,7 @@ export async function readWorkflows(db: Sql, w: string, principal: string) {
       )
     ).rows.map((r) => [r.workflow_id, r]),
   );
+  const alerts = await alertsOf(db, w);
   const view = (r: Row) => {
     const n = counts.get(r.id);
     return {
@@ -160,6 +172,7 @@ export async function readWorkflows(db: Sql, w: string, principal: string) {
       updatedAt: new Date(r.updated_at).toISOString(),
       updatedBy: r.updated_name,
       runs: { completed: n?.completed ?? 0, failed: n?.failed ?? 0, skipped: n?.skipped ?? 0, active: n?.active ?? 0, last: n?.last ? new Date(n.last).toISOString() : null },
+      failing: alerts.some((a) => a.workflowId === r.id),
     };
   };
   return {
@@ -171,6 +184,14 @@ export async function readWorkflows(db: Sql, w: string, principal: string) {
       workflows: rows.filter((r) => r.trigger === t).map(view),
     })),
     later: LATER_TRIGGERS,
+    alerts,
+    // W4: what a new workflow can start from (each asks for the tags and teams it needs).
+    templates: TEMPLATES.map((x) => ({ id: x.id, name: x.name, category: x.category, description: x.description, slots: x.slots })),
+    // What templates' slots are filled with.
+    choices: {
+      tags: (await db.query<{ id: string; name: string }>("SELECT id,name FROM tags WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id", [w])).rows,
+      teams: (await db.query<{ id: string; name: string }>("SELECT id,name FROM teams WHERE workspace_id=$1 ORDER BY lower(name),id", [w])).rows,
+    },
   };
 }
 
@@ -189,6 +210,36 @@ async function options(db: Sql, w: string) {
     ticketTypes: await list("SELECT id,name FROM ticket_types WHERE workspace_id=$1 AND NOT archived ORDER BY lower(name),id"),
     connectors: await callable(db, w),
   };
+}
+
+/** W4: workflows another can pass to (reusable ones), but itself. */
+async function reusableOf(db: Sql, w: string, self: string) {
+  return (
+    await db.query<{ id: string; name: string; state: string }>(
+      "SELECT id,name,state FROM workflows WHERE workspace_id=$1 AND trigger='reusable' AND NOT archived AND id<>$2 ORDER BY lower(name),id",
+      [w, self],
+    )
+  ).rows;
+}
+
+/** W4: open alerts (workflows failing again and again), newest first; one workflow's if given. */
+async function alertsOf(db: Sql, w: string, workflowId?: string) {
+  return (
+    await db.query<{ id: string; workflow_id: string; name: string; opened_at: string; failures: number; last_error: string; last_run_id: string | null }>(
+      `SELECT a.id,a.workflow_id,w.name,a.opened_at,a.failures,a.last_error,a.last_run_id FROM workflow_alerts a
+       JOIN workflows w ON w.workspace_id=a.workspace_id AND w.id=a.workflow_id
+       WHERE a.workspace_id=$1 AND a.resolved_at IS NULL AND NOT w.archived AND ($2::text IS NULL OR a.workflow_id=$2) ORDER BY a.opened_at DESC`,
+      [w, workflowId ?? null],
+    )
+  ).rows.map((a) => ({
+    id: a.id,
+    workflowId: a.workflow_id,
+    workflow: a.name,
+    openedAt: new Date(a.opened_at).toISOString(),
+    failures: a.failures,
+    lastError: a.last_error,
+    lastRunId: a.last_run_id,
+  }));
 }
 
 /** One workflow: its draft, what blocks publishing it, its versions, and what its pickers offer. */
@@ -217,10 +268,13 @@ export async function readWorkflow(db: Sql, w: string, principal: string, id: st
       customerFacing: customerFacing(r.draft),
       updatedAt: new Date(r.updated_at).toISOString(),
       updatedBy: r.updated_name,
-      problems: [...problems(r.draft), ...(await references(db, w, r.draft))],
+      problems: [...problems(r.draft), ...(await references(db, w, r.draft, r.id))],
+      // W4: its webhook (when it has that trigger), and an alert while it keeps failing.
+      hook: { path: `/v1/hooks/${w}/workflows/${r.id}`, configured: !!r.hook_secret_hash },
+      alert: (await alertsOf(db, w, r.id))[0] ?? null,
     },
     versions,
-    options: await options(db, w),
+    options: { ...(await options(db, w)), reusable: await reusableOf(db, w, id) },
   };
 }
 
@@ -230,6 +284,17 @@ export async function readWorkflow(db: Sql, w: string, principal: string, id: st
  */
 export async function changeWorkflow(db: Sql, w: string, principal: string, key: string, p: Record<string, unknown>) {
   const t = await access(db, w, principal);
+  if (p.action === "hook_secret") {
+    // W4: a new webhook secret, shown once. Not kept with the idempotency record (it would hold
+    // the secret): a repeat makes another, which replaces this one.
+    const id = String(p.id ?? "");
+    const row = (await db.query<{ version: string; trigger: string }>("SELECT version::text AS version,trigger FROM workflows WHERE workspace_id=$1 AND id=$2 AND NOT archived", [w, id])).rows[0];
+    assert(row, "WORKFLOW_NOT_FOUND", "That workflow isn't available.", 404);
+    if (String(p.version ?? "") !== row.version) throw new DomainError("WORKFLOW_CHANGED", "Someone else changed this workflow. Reload to see it.", 409);
+    const { secret, hash } = await newHookSecret();
+    await db.query("UPDATE workflows SET hook_secret_hash=$3,version=version+1,updated_by=$4,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, id, hash, t.id]);
+    return { ...(await readWorkflow(db, w, principal, id)), secret };
+  }
   return once(db, w, "workflow:" + principal, key, p, async () => {
     const nameOf = (v: unknown) => {
       const s = typeof v === "string" ? v.trim().replace(/\s+/g, " ") : "";
@@ -257,11 +322,26 @@ export async function changeWorkflow(db: Sql, w: string, principal: string, key:
         await db.query("UPDATE workflows SET priority=$3,version=version+1,updated_by=$4,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, id, i, t.id]);
       return readWorkflows(db, w, principal);
     }
+    if (p.action === "dismiss_alert") {
+      await db.query(
+        "UPDATE workflow_alerts SET resolved_at=now(),resolved_by=$3,resolution='dismissed' WHERE workspace_id=$1 AND workflow_id=$2 AND resolved_at IS NULL",
+        [w, String(p.id ?? ""), t.id],
+      );
+      return readWorkflows(db, w, principal);
+    }
     if (p.action === "create") {
       const name = nameOf(p.name);
       if (await taken(name)) invalid(`There's already a workflow called ${name}.`);
       const trigger = String(p.trigger ?? "first_message");
-      const draft = def(p.definition ?? blankDefinition(trigger as Trigger));
+      // W4: from a template, its slots (tags, teams) filled in.
+      let template: Definition | null = null;
+      if (typeof p.template === "string")
+        try {
+          template = fromTemplate(p.template, (p.slots ?? {}) as Record<string, unknown>).definition;
+        } catch (e) {
+          invalid((e as Error).message);
+        }
+      const draft = def(p.definition ?? template ?? blankDefinition(trigger as Trigger));
       const layout = checkLayout(p.layout, draft);
       const id = crypto.randomUUID();
       const last = (await db.query<{ n: number | null }>("SELECT max(priority) AS n FROM workflows WHERE workspace_id=$1 AND trigger=$2 AND NOT archived", [w, draft.trigger.type]))
@@ -283,7 +363,7 @@ export async function changeWorkflow(db: Sql, w: string, principal: string, key:
     if (String(p.version ?? "") !== row.version) throw new DomainError("WORKFLOW_CHANGED", "Someone else changed this workflow. Reload to see it.", 409);
     const touch = "version=version+1,updated_by=$3,updated_at=now()";
     const publish = async (definition: Definition, restoredFrom: number | null) => {
-      const blockers = [...problems(definition), ...(await references(db, w, definition))];
+      const blockers = [...problems(definition), ...(await references(db, w, definition, id))];
       if (blockers.length) throw new DomainError("WORKFLOW_INVALID", `It can't be published yet: ${blockers[0]}`, 400, { problems: blockers });
       const version =
         ((await db.query<{ v: number | null }>("SELECT max(version) AS v FROM workflow_versions WHERE workspace_id=$1 AND workflow_id=$2", [w, id])).rows[0].v ?? 0) + 1;
@@ -406,22 +486,39 @@ const runView = (r: RunRow) => ({
 });
 
 /** Runs, newest first, filtered by workflow, conversation and status. */
-export async function readRuns(db: Sql, w: string, principal: string, f: { workflowId?: string; conversationId?: string; status?: string }) {
+export async function readRuns(
+  db: Sql,
+  w: string,
+  principal: string,
+  f: { workflowId?: string; conversationId?: string; status?: string; trigger?: string; before?: string },
+) {
   await access(db, w, principal);
   const values: unknown[] = [w];
   const where = ["r.workspace_id=$1"];
   if (f.workflowId) where.push(`r.workflow_id=$${values.push(f.workflowId)}`);
   if (f.conversationId) where.push(`r.conversation_id=$${values.push(f.conversationId)}`);
   if (f.status) where.push(`r.status=$${values.push(f.status)}`);
+  if (f.trigger) where.push(`r.trigger=$${values.push(f.trigger)}`);
+  // W4: the next page, older than the last run shown ("<started_at ISO>|<id>").
+  if (f.before) {
+    const [at, id] = f.before.split("|");
+    if (at && id && !Number.isNaN(Date.parse(at))) where.push(`(r.started_at,r.id)<($${values.push(at)}::timestamptz,$${values.push(id)})`);
+  }
   const rows = (
     await db.query<RunRow>(
       `SELECT r.id,r.workflow_id,w.name,r.workflow_version,r.conversation_id,r.trigger,r.source,r.status,r.path,r.reason,r.error,r.steps,r.started_at,r.ended_at,r.duration_ms,r.wait_until
        FROM workflow_runs r JOIN workflows w ON w.workspace_id=r.workspace_id AND w.id=r.workflow_id
-       WHERE ${where.join(" AND ")} ORDER BY r.started_at DESC,r.id LIMIT 100`,
+       WHERE ${where.join(" AND ")} ORDER BY r.started_at DESC,r.id DESC LIMIT 51`,
       values,
     )
   ).rows;
-  return { runs: rows.map(runView) };
+  const page = rows.slice(0, 50);
+  const last = page.at(-1);
+  return {
+    runs: page.map(runView),
+    next: rows.length > 50 && last ? `${new Date(last.started_at).toISOString()}|${last.id}` : null,
+    alerts: await alertsOf(db, w, f.workflowId),
+  };
 }
 
 /** One run: every node visited, condition evaluated (with inputs) and action taken (with result). */

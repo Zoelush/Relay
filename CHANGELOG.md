@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased: the run log, alerts, templates, more triggers and acceptance (phase 11, W4)
+
+- **The run log:** every run, filtered by workflow, outcome, trigger and conversation. Each opens to every step, condition and action.
+- **An alert when a workflow keeps failing** (three failed runs in a row). It shows on the list, the run log and the builder, notifies managers, and closes on recovery or when dismissed.
+- **Ten templates,** each asking for the tags and teams it needs.
+- **New triggers:**
+  - on a schedule
+  - the customer hasn't replied
+  - before an SLA breach
+  - the customer visits a page
+  - another system calls the workflow's webhook (secret and idempotency key)
+- **Reusable workflows:** "Used by other workflows", passed to from any path.
+- **The acceptance demo:** `docs/WORKFLOWS_ACCEPTANCE.md`, also run by the browser tests.
+- **Migration:** 0061, with rollback.
+- **Details:** `docs/WORKFLOWS_STEP4.md`.
+
 ## Unreleased: customer-facing workflow steps and simulation (phase 11, W3)
 
 - **Workflows talk to customers** in the messenger, as "Automation":

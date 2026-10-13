@@ -3,8 +3,9 @@ import { api } from "./api";
 
 export type Notification = {
   id: string;
-  /** A mention in a note, or (phase 08 C2b) an incident Zoe's monitors opened. */
-  kind: "mention" | "zoe_incident";
+  /** A mention in a note, (phase 08 C2b) an incident Zoe's monitors opened, or (phase 11 W4) a failing workflow. */
+  kind: "mention" | "zoe_incident" | "workflow_alert";
+  workflowId?: string | null;
   conversationId: string | null;
   conversationTitle: string | null;
   actorName: string | null;
@@ -21,12 +22,15 @@ export type Notification = {
 export function NotificationsPanel({
   onOpen,
   onIncident,
+  onWorkflowAlert,
   onClose,
   onError,
 }: {
   onOpen: (conversationId: string) => void;
   /** Opens Zoe's incidents. */
   onIncident: () => void;
+  /** Opens a failing workflow's runs (phase 11 W4). */
+  onWorkflowAlert?: (workflowId: string) => void;
   onClose: () => void;
   onError: (e: unknown) => void;
 }) {
@@ -95,12 +99,15 @@ export function NotificationsPanel({
                     if (!n.readAt) void markRead({ ids: [n.id] });
                     onClose();
                     if (n.kind === "zoe_incident") onIncident();
+                    else if (n.kind === "workflow_alert") onWorkflowAlert?.(n.workflowId ?? "");
                     else if (n.conversationId) onOpen(n.conversationId);
                   }}
                 >
                   <strong>
                     {n.kind === "zoe_incident"
                       ? "Incident: Zoe's behaviour changed sharply"
+                      : n.kind === "workflow_alert"
+                        ? "A workflow keeps failing"
                       : `${n.actorName} mentioned you in ${n.conversationTitle || "a conversation"}`}
                   </strong>
                   <span>{n.excerpt}</span>

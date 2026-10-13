@@ -33,8 +33,11 @@ complete, with the Claude evaluation baseline waiting for a key. Monitors (`serv
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
 (conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 11 (`docs/WORKFLOWS_PLAN.md`, behind `workflows_v1`):
-W1 (the engine), W2 (the builder) and W3 (customer-facing steps and simulation) are done locally
-(`docs/WORKFLOWS_STEP1.md` to `STEP3.md`); next is W4 (run log pages, alerts, templates, acceptance). A workflow's
+W1 (the engine), W2 (the builder), W3 (customer-facing steps and simulation) and W4 (run log, alerts,
+templates, more triggers, reusable workflows) are done locally (`docs/WORKFLOWS_STEP1.md` to `STEP4.md`;
+acceptance demo `docs/WORKFLOWS_ACCEPTANCE.md`): phase 11 is complete locally. Time and page triggers fire once
+per occurrence through `workflow_runs.trigger_key` (unique); a webhook's secret is kept only as a hash, never in an
+idempotency record; every run's end goes through `finish`, which keeps the failing alert right. A workflow's
 message to a customer is a `workflow_message` part, never a `teammate_reply`; Zoe is queued for a customer's
 message only when `workflowHolds` is false; workflows call read connectors only, between transactions, under the
 verification rules; simulation (`server/workflow-simulate.ts`) runs in a read-only transaction and must stay

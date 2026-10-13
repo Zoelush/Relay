@@ -11,6 +11,7 @@ import { checkMonitors } from "../server/zoe-monitors";
 import { runConnectorTest } from "../server/connectors";
 import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
+import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -443,6 +444,8 @@ const relayWorker = {
       // W3: read connectors, when their key is set.
       "workflow.start": (job) => startWorkflows(runtime.connect, job, { connectors: runtime.connectors }),
       "workflow.resume": (job) => resumeWorkflow(runtime.connect, job, { connectors: runtime.connectors }),
+      // W4: schedules, unanswered customers and SLAs about to breach.
+      "workflow.timed": (job) => runTimedWorkflows(runtime.connect, job),
     };
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>
@@ -530,6 +533,8 @@ const relayWorker = {
           await expireApprovals(runtime.connect, work.workspace);
           // Workflow runs whose wait is over (phase 11).
           await resumeDueWorkflows(runtime.connect, work.workspace);
+          // Time triggers (phase 11 W4), checked once a minute.
+          await checkTimedWorkflows(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(
