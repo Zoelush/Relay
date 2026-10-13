@@ -1,0 +1,13 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Ali Hassan <ali@customer.example>
+To: support@acme.example
+Subject: Re: Your request
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-37@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+X-Autoreply: yes
+
+VGhhbmtzLCB3ZSByZWNlaXZlZCB5b3VyIGVtYWlsLgo=

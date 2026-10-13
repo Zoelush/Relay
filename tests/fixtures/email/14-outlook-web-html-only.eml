@@ -1,0 +1,17 @@
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Leo Rossi <leo@customer.example>
+To: support@acme.example
+Subject: RE: Receipt
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-14@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+PGh0bWw+PGJvZHk+PHA+Q2FuIHlvdSBzZW5kIHRoZSByZWNlaXB0IGFnYWluPzwvcD48ZGl2IGlk
+PSJhcHBlbmRvbnNlbmQiPjwvZGl2PjxociBzdHlsZT0iZGlzcGxheTppbmxpbmUtYmxvY2s7d2lk
+dGg6OTglIj48ZGl2IGlkPSJkaXZScGx5RndkTXNnIiBkaXI9Imx0ciI+PGZvbnQgZmFjZT0iQ2Fs
+aWJyaSI+PGI+RnJvbTo8L2I+IEFjbWUgU3VwcG9ydCAmbHQ7c3VwcG9ydEBhY21lLmV4YW1wbGUm
+Z3Q7PGJyPjxiPlNlbnQ6PC9iPiBNb25kYXksIE9jdG9iZXIgMTIsIDIwMjYgOToxNSBBTTwvZm9u
+dD48L2Rpdj48ZGl2PkhlcmUgaXMgeW91ciByZWNlaXB0LjwvZGl2PjwvYm9keT48L2h0bWw+

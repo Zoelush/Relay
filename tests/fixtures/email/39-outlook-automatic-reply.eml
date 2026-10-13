@@ -1,0 +1,13 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Sam Okafor <sam@customer.example>
+To: support@acme.example
+Subject: Automatic reply: Account access
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-39@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+X-Auto-Response-Suppress: All
+
+SSdtIG91dCBvZiB0aGUgb2ZmaWNlIHVudGlsIE1vbmRheS4K

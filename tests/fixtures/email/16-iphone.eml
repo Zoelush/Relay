@@ -1,0 +1,14 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Emma Wilson <emma@customer.example>
+To: support@acme.example
+Subject: Re: Booking
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-16@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+UGVyZmVjdCwgc2VlIHlvdSB0aGVuLgoKU2VudCBmcm9tIG15IGlQaG9uZQoKPiBPbiAxMiBPY3Qg
+MjAyNiwgYXQgMDk6MTUsIEFjbWUgU3VwcG9ydCA8c3VwcG9ydEBhY21lLmV4YW1wbGU+IHdyb3Rl
+Ogo+Cj4gWW91ciBib29raW5nIGlzIGNvbmZpcm1lZCBmb3IgRnJpZGF5Lgo=

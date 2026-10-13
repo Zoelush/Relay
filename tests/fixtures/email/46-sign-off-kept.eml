@@ -1,0 +1,10 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Ravi Patel <ravi@customer.example>
+To: support@acme.example
+Subject: Feature request
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-46@mail.example.net>
+
+Q291bGQgeW91IGFkZCBkYXJrIG1vZGUgdG8gdGhlIGRhc2hib2FyZD8KCkJlc3QsClJhdmkK

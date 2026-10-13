@@ -1,0 +1,15 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Omar Haddad <omar@customer.example>
+To: support@acme.example
+Subject: RE: Trial
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-13@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+UGxlYXNlIGV4dGVuZCBpdCBieSBhIHdlZWsuCgpHZXQgT3V0bG9vayBmb3IgQW5kcm9pZAoKRnJv
+bTogQWNtZSBTdXBwb3J0IDxzdXBwb3J0QGFjbWUuZXhhbXBsZT4KU2VudDogTW9uZGF5LCBPY3Rv
+YmVyIDEyLCAyMDI2IDk6MTU6MDAgQU0KVG86IE9tYXIgSGFkZGFkClN1YmplY3Q6IFRyaWFsCgpZ
+b3VyIHRyaWFsIGVuZHMgc29vbi4K

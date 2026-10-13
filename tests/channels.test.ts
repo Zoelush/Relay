@@ -110,7 +110,7 @@ test("the channel contract: inbound threaded once, identities kept apart unless 
       [c1],
     );
     assert.deepEqual(contact, [{ name: "Pat", email: "pat@example.com", verified: false, address: "pat@example.com" }]);
-    assert.deepEqual(await inbound(message({ externalId: "m1", address: "pat@example.com", text: "My order is late" })), { conversationId: c1, partId: first.partId, duplicate: true });
+    assert.deepEqual(await inbound(message({ externalId: "m1", address: "pat@example.com", text: "My order is late" })), { conversationId: c1, partId: first.partId, duplicate: true, identityId: null });
     const second = await inbound(message({ externalId: "m2", address: "pat@example.com", text: "Any news?", threadKeys: ["<m1@mail>"] }));
     assert.equal(second.conversationId, c1);
     assert.equal((await sql("a", "SELECT count(*)::int AS n FROM conversation_parts WHERE conversation_id=$1 AND kind='customer_message'", [c1]))[0].n, 2);
@@ -119,11 +119,8 @@ test("the channel contract: inbound threaded once, identities kept apart unless 
     const auto = await inbound(message({ externalId: "m3", address: "pat@example.com", text: "I'm away", threadKeys: ["<m1@mail>"], automatic: true }));
     const [autoPart] = await sql("a", "SELECT kind,audience FROM conversation_parts WHERE id=$1", [auto.partId]);
     assert.deepEqual(autoPart, { kind: "system_event", audience: "internal" });
-    assert.deepEqual(await inbound(message({ externalId: "m4", address: "nobody@example.com", text: "Out of office", automatic: true })), {
-      conversationId: null,
-      partId: null,
-      automatic: true,
-    });
+    const dropped = await inbound(message({ externalId: "m4", address: "nobody@example.com", text: "Out of office", automatic: true }));
+    assert.deepEqual({ ...dropped, identityId: undefined }, { conversationId: null, partId: null, automatic: true, identityId: undefined });
 
     // Identity: an unverified address never joins a signed-in user with it; a verified one does.
     await tenant(db.connect, "a", async (q) => {

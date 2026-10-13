@@ -55,6 +55,10 @@ import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/wo
 import { changeWorkflow } from "../server/workflows";
 import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
 import { registerChannel, runDelivery, type ChannelAdapter } from "../server/channels";
+import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
+/** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
+export const LOCAL_EMAIL_DOMAIN = "inbound.relay.localhost";
+export const LOCAL_AUTHSERV = "relay.localhost";
 import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
@@ -146,6 +150,10 @@ export async function startLocalRelay(
     channels?: ChannelAdapter[];
     /** Channels (phase 12), likewise on unless turned off. */
     channelsFlag?: boolean;
+    /** Email in (phase 12 E2), likewise on unless turned off. */
+    emailFlag?: boolean;
+    /** Development seed (phase 12 E2): two example emails in the demo workspace. */
+    exampleEmail?: boolean;
     /** Development seed (phase 11 W2): a draft workflow to open in the builder. */
     exampleWorkflow?: boolean;
   } = {},
@@ -245,7 +253,9 @@ export async function startLocalRelay(
     knowledgeIndex: options.index ?? localIndex(options.directory),
     // Data connectors (phase 09 D1): a local key; calls go only where the policy allows.
     connectors: { key: keys.connector, ...options.connectors },
+    emailDomain: LOCAL_EMAIL_DOMAIN,
   };
+  const emailEnv: EmailEnvironment = { storage: env.attachments, domain: LOCAL_EMAIL_DOMAIN, trustedAuthServ: [LOCAL_AUTHSERV] };
   // The AI agent (phase 08): offline stand-ins locally, unless a test passes its own.
   env.ai = {
     model: options.ai?.model ?? standInAnswerModel(),
@@ -568,6 +578,16 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channels_v1'",
         [w, options.channelsFlag !== false],
       );
+      // Email in (phase 12, E2): each brand an inbound address; the demo's default brand's is fixed,
+      // `demo+support@inbound.relay.localhost`, to send to locally.
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channel_email_v1'",
+        [w, options.emailFlag !== false],
+      );
+      await sql.query(
+        "INSERT INTO email_settings(workspace_id,brand_id,token) VALUES($1,'default',$2) ON CONFLICT DO NOTHING",
+        [w, "support"],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -798,6 +818,18 @@ export async function startLocalRelay(
   // Phase 12: replies delivered on their conversation's channel.
   const unregister = (options.channels ?? []).map(registerChannel);
   handlers["channel.deliver"] = (job) => runDelivery(db.connect, {}, job);
+  // Phase 12 E2: emails received at inbound addresses, read into their conversations.
+  handlers["email.receive"] = (job) => receiveEmailJob(db.connect, emailEnv, job);
+  // Development seed (phase 12 E2): a Gmail reply with its quote, and one with attachments, sent to
+  // the demo's inbound address once (their Message-IDs are checked first).
+  if (options.exampleEmail && options.emailFlag !== false && options.channelsFlag !== false)
+    for (const file of ["01-gmail-reply.eml", "47-attachments.eml"]) {
+      const raw = new Uint8Array(await readFile(new URL(`../tests/fixtures/email/${file}`, import.meta.url)));
+      const seen = await tenant(db.connect, "demo", async (q) =>
+        (await q.query("SELECT 1 FROM email_inbound WHERE workspace_id='demo' AND envelope_from=$1", ["seed:" + file])).rows.length,
+      );
+      if (!seen) await acceptEmail(db.connect, emailEnv, { raw, to: `demo+support@${LOCAL_EMAIL_DOMAIN}`, from: "seed:" + file });
+    }
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
@@ -996,6 +1028,8 @@ export async function startLocalRelay(
           );
           const limit = req.url?.startsWith(LOCAL_STORAGE_PATH)
             ? LOCAL_UPLOAD_LIMIT
+            : req.url === "/dev/email"
+              ? 25 * 1024 * 1024 + 4096
             : agentRoute
               ? Math.max(24000, bodyLimit(agentRoute[1]) + 4096)
               : 24000;
@@ -1027,6 +1061,17 @@ export async function startLocalRelay(
       }),
     );
   const api = serve(apiOrigin, async (req) => {
+    // Phase 12 E2: a raw email posted here arrives as if by Email Routing (loopback only):
+    // `X-Envelope-To` is the inbound address, `X-Envelope-From` the sender.
+    if (new URL(req.url).pathname === "/dev/email" && req.method === "POST") {
+      const result = await acceptEmail(db.connect, emailEnv, {
+        raw: new Uint8Array(await req.arrayBuffer()),
+        to: req.headers.get("x-envelope-to") ?? "",
+        from: req.headers.get("x-envelope-from") ?? "",
+      });
+      if (result.accepted) void publish(String(req.headers.get("x-envelope-to")).split("+")[0], "");
+      return Response.json(result, { status: result.accepted ? 202 : 550 });
+    }
     const { value: response, timing } = await db.measure(() =>
       new URL(req.url).pathname.startsWith("/v1/")
         ? handleApi(req, env)
@@ -1248,6 +1293,7 @@ if (
     // (RELAY_LOCAL_INBOX_VIEWS=false). Deployed workspaces default to off.
     inboxViews: process.env.RELAY_LOCAL_INBOX_VIEWS !== "false",
     longTimeline: true,
+    exampleEmail: true,
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),

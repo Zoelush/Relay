@@ -70,4 +70,13 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Suppression is per channel and address.** Opt-outs and complaints can't be lifted by a teammate.
     - **Office hours by channel** come after the team's and before the brand's.
 
-Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1).
+11. **E2 decisions** (13 October 2026):
+    - **The workspace is in the inbound address** (`<workspace>+<token>@<domain>`), so mail is routed without a cross-workspace lookup. The token finds the brand and can be replaced.
+    - **Mail is refused at the door** when the address is unknown or it's over 25 MB, so the sender's server tells the sender (decision 9 said "kept as too large"). Nothing about it is kept.
+    - **The raw email is kept only until it's read,** in quarantine storage, then deleted. The part holds only the new text, and `email_messages` the full email with its safe HTML.
+    - **A DMARC pass is believed only from a trusted receiver's Authentication-Results** (Cloudflare's, deployed), never from headers an earlier hop could have written.
+    - **Threading's fallback** is the same subject from the same sender within 30 days, for messages only, never for automatic mail.
+    - **Forwarding is confirmed by a forwarded message** that names the support address (To, Cc or Delivered-To). Gmail's confirmation email is shown in Settings, not opened as a conversation.
+    - **Until E3, the email adapter has no `send`.** A reply on an email conversation fails at once with a reason, rather than retrying.
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2).

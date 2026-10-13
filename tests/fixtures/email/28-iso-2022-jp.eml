@@ -1,0 +1,16 @@
+Content-Type: text/plain; charset="iso-2022-jp"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+From: =?iso-2022-jp?b?GyRCOzNFRBsoQiAbJEIyVjtSGyhC?= <hanako@customer.example>
+To: support@acme.example
+Subject: =?iso-2022-jp?b?UmU6IBskQkNtSjgkSyREJCQkRhsoQg==?=
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-28@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+注文番号は1042です。
+
+2026年10月12日(月) 9:15 Acme Support <support@acme.example>:
+
+> 注文番号を教えてください。

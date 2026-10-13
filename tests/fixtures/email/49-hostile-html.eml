@@ -1,0 +1,19 @@
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Ana Lima <ana@customer.example>
+To: support@acme.example
+Subject: Account check
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-49@mail.example.net>
+Authentication-Results: evil.example; dmarc=pass header.from=customer.example
+
+PGh0bWw+PGhlYWQ+PHN0eWxlPmJvZHl7YmFja2dyb3VuZDp1cmwoaHR0cHM6Ly90cmFja2VyLmV4
+YW1wbGUvcy5naWYpfTwvc3R5bGU+PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0PjwvaGVhZD48Ym9k
+eSBvbmxvYWQ9InN0ZWFsKCkiPjxwIHN0eWxlPSJjb2xvcjpyZWQ7cG9zaXRpb246Zml4ZWQ7YmFj
+a2dyb3VuZDp1cmwoaHR0cHM6Ly90LmV4YW1wbGUveCkiPlBsZWFzZSBjaGVjayBteSBhY2NvdW50
+LjwvcD48aW1nIHNyYz0iaHR0cHM6Ly90cmFja2VyLmV4YW1wbGUvcGl4ZWwuZ2lmIiB3aWR0aD0i
+MSIgaGVpZ2h0PSIxIj48YSBocmVmPSJqYXZhc2NyaXB0OmFsZXJ0KDEpIj5jbGljazwvYT4gPGEg
+aHJlZj0iaHR0cHM6Ly9oZWxwLmV4YW1wbGUvZ3VpZGUiPmd1aWRlPC9hPjxpZnJhbWUgc3JjPSJo
+dHRwczovL2V2aWwuZXhhbXBsZSI+PC9pZnJhbWU+PGZvcm0gYWN0aW9uPSJodHRwczovL2V2aWwu
+ZXhhbXBsZSI+PGlucHV0IG5hbWU9InBhc3N3b3JkIj48L2Zvcm0+PC9ib2R5PjwvaHRtbD4=

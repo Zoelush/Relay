@@ -1,0 +1,15 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: MAILER-DAEMON@mx.customer.example
+To: support@acme.example
+Subject: failure notice
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-44@mail.example.net>
+
+SGkuIFRoaXMgaXMgdGhlIHFtYWlsLXNlbmQgcHJvZ3JhbSBhdCBteC5jdXN0b21lci5leGFtcGxl
+LgpJJ20gYWZyYWlkIEkgd2Fzbid0IGFibGUgdG8gZGVsaXZlciB5b3VyIG1lc3NhZ2UgdG8gdGhl
+IGZvbGxvd2luZyBhZGRyZXNzZXMuClRoaXMgaXMgYSBwZXJtYW5lbnQgZXJyb3I7IEkndmUgZ2l2
+ZW4gdXAuIFNvcnJ5IGl0IGRpZG4ndCB3b3JrIG91dC4KCjxub2JvZHlAY3VzdG9tZXIuZXhhbXBs
+ZT46CjU1MCA1LjEuMSA8bm9ib2R5QGN1c3RvbWVyLmV4YW1wbGU+OiBSZWNpcGllbnQgYWRkcmVz
+cyByZWplY3RlZDogVXNlciB1bmtub3duCg==

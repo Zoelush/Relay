@@ -1,0 +1,12 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Yuki Tanaka <yuki@customer.example>
+To: support@acme.example
+Subject: Re: Coupon
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-19@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+VGhlIGNvZGUgc2F5cyBleHBpcmVkLgoKU2VudCBmcm9tIFNhbXN1bmcgTW9iaWxlCg==

@@ -27,6 +27,8 @@ export interface AttachmentStorage {
   getQuarantine(
     key: string,
   ): Promise<{ bytes: Uint8Array; type: string } | null>;
+  /** Phase 12 E2: bytes the server received itself (an email, its attachments) into quarantine. */
+  putQuarantine?(key: string, bytes: Uint8Array, type: string): Promise<void>;
   scan(bytes: Uint8Array): Promise<"clean" | "infected">;
   putClean(
     key: string,

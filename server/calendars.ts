@@ -1,4 +1,4 @@
-import { channels, channelsEnabled } from "./channels";
+import { channels, channelsEnabled, enabledChannels } from "./channels";
 import { channelLabel } from "../lib/channels";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize, can } from "./policy";
@@ -109,7 +109,7 @@ export async function listCalendars(db: Sql, w: string, principal: string) {
     brands: await named("brands"),
     teams: await named("teams"),
     // Phase 12 E1: channels have their own hours, while channels are on.
-    channels: (await channelsEnabled(db, w)) ? channels().map((a) => ({ id: a.id, name: channelLabel(a.id) })) : [],
+    channels: (await channelsEnabled(db, w)) ? (await enabledChannels(db, w)).map((a) => ({ id: a.id, name: channelLabel(a.id) })) : [],
     canManage: await can(db, w, principal, "workspace.manage"),
   };
 }

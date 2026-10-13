@@ -28,6 +28,7 @@ import {
   Bot,
   Workflow,
   Ban,
+  Mail,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -46,6 +47,7 @@ import {
 import { MacroManager, type MacroList } from "./macros";
 import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
 import { SuppressionsPage } from "./settings-suppressions";
+import { EmailPage } from "./settings-email";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -184,6 +186,14 @@ const PAGES: Page[] = [
     description:
       "Who sees which requests, portal addresses and custom domains.",
     icon: DoorOpen,
+    group: "Channels",
+  },
+  {
+    // Phase 12 E2: each brand's inbound address and forwarding.
+    id: "email",
+    label: "Email",
+    description: "Inbound addresses, forwarding from your support address, and the latest mail.",
+    icon: Mail,
     group: "Channels",
   },
   {
@@ -455,6 +465,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "email" ? (
+            <EmailPage menu={menu} page={current} />
           ) : current.id === "suppressions" ? (
             <SuppressionsPage menu={menu} page={current} />
           ) : current.id === "tags" ? (

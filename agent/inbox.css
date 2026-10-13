@@ -25,6 +25,8 @@
   --pg-tint-teal:#0b6359; --pg-tint-teal-bg:#d9f2ed; --pg-tint-green:#286131; --pg-tint-green-bg:#dff2e0;
   --pg-tint-sky:#0b5e86; --pg-tint-sky-bg:#dcf0fa; --pg-tint-slate:#3d495c; --pg-tint-slate-bg:#e6eaf0;
   --pg-zoe-from:#0b7285; --pg-zoe-to:#047857; --pg-on-zoe:#fff; --pg-zoe-text:#0a6670; --pg-zoe-bg:#e1f4f0; --pg-zoe-border:#a6dccf;
+  /* Phase 12 E2: an email's own paper and ink, light in both themes: emails are written for white. */
+  --pg-email-paper:#ffffff; --pg-email-ink:#1f2933;
 }
 :root[data-agent-theme="dark"] {
   color-scheme: dark;
@@ -42,6 +44,7 @@
   --pg-tint-teal:#86ddd0; --pg-tint-teal-bg:#123531; --pg-tint-green:#9fd8a8; --pg-tint-green-bg:#1a3320;
   --pg-tint-sky:#94cdee; --pg-tint-sky-bg:#133046; --pg-tint-slate:#c0c9d6; --pg-tint-slate-bg:#272c36;
   --pg-zoe-from:#0b7285; --pg-zoe-to:#047857; --pg-on-zoe:#fff; --pg-zoe-text:#62d6c3; --pg-zoe-bg:#10302b; --pg-zoe-border:#22594f;
+  --pg-email-paper:#ffffff; --pg-email-ink:#1f2933;
 }
 .pg-inbox {
   display: flex;
@@ -1644,3 +1647,18 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-part-channel { display:inline-flex; align-items:center; gap:4px; margin-left:6px; padding:0 6px; border-radius:999px; background:var(--pg-chip); color:var(--pg-text-2); font-size:11px; font-weight:500; }
 .pg-delivery { display:block; margin-top:4px; font-size:11.5px; color:var(--pg-text-3); }
 .pg-delivery[data-status="failed"], .pg-delivery[data-status="suppressed"] { color:var(--pg-danger-text); }
+/* Phase 12 E2: an email's full view, and its subject on the message. */
+.pg-email-view { display:flex; flex-direction:column; gap:10px; }
+.pg-email-head { display:flex; align-items:flex-start; gap:8px; }
+.pg-email-head h2 { flex:1; margin:0; overflow-wrap:anywhere; }
+.pg-email-meta { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; margin:0; font-size:13px; }
+.pg-email-meta dt { color:var(--pg-muted); }
+.pg-email-meta dd { margin:0; overflow-wrap:anywhere; }
+.pg-email-verified { display:inline-flex; align-items:center; gap:3px; margin-left:6px; padding:0 6px; border-radius:999px; font-size:11.5px; background:var(--pg-note-bg); color:var(--pg-note-text); }
+.pg-email-verified[data-verified="true"] { background:var(--pg-tint-green-bg); color:var(--pg-tint-green); }
+.pg-email-blocked { margin:0; padding:6px 10px; border-radius:8px; background:var(--pg-info-bg); font-size:13px; }
+.pg-email-frame { width:100%; height:min(60vh,520px); border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-email-paper); }
+.pg-email-text { margin:0; padding:10px; max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-sunken); font:inherit; font-size:13px; }
+.pg-email-files { margin:0; padding-left:18px; font-size:13px; }
+.pg-email-subject { display:block; margin-bottom:4px; font-size:12px; color:var(--pg-text-2); font-weight:600; }
+.pg-email-open { margin-top:4px; padding:0; border:0; background:none; color:var(--pg-accent); font-size:12px; text-decoration:underline; cursor:pointer; }

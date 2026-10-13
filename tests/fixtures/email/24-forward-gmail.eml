@@ -1,0 +1,14 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Jane Doe <jane@customer.example>
+To: support@acme.example
+Subject: Fwd: Payment declined
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-24@mail.example.net>
+
+Q2FuIHlvdSBoZWxwIHdpdGggdGhpcz8gSXQgY2FtZSBmcm9tIG91ciBiYW5rLgoKLS0tLS0tLS0t
+LSBGb3J3YXJkZWQgbWVzc2FnZSAtLS0tLS0tLS0KRnJvbTogQmFuayBOb3RpY2VzIDxub3RpY2Vz
+QGJhbmsuZXhhbXBsZT4KRGF0ZTogTW9uLCBPY3QgMTIsIDIwMjYgYXQgODowMCBBTQpTdWJqZWN0
+OiBQYXltZW50IGRlY2xpbmVkClRvOiA8amFuZUBjdXN0b21lci5leGFtcGxlPgoKWW91ciBwYXlt
+ZW50IHRvIEFjbWUgd2FzIGRlY2xpbmVkLgo=

@@ -1,0 +1,14 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Lukas Weber <lukas@customer.example>
+To: support@acme.example
+Subject: Re: Lieferung
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-06@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+RGFua2UsIGRhcyBQYWtldCBpc3QgYW5nZWtvbW1lbi4KCkFtIE1vLiwgMTIuIE9rdC4gMjAyNiB1
+bSAwOToxNSBVaHIgc2NocmllYiBBY21lIFN1cHBvcnQgPHN1cHBvcnRAYWNtZS5leGFtcGxlPjoK
+Cj4gSWhyIFBha2V0IGlzdCB1bnRlcndlZ3MuCg==

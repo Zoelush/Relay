@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased: email in (phase 12, E2)
+
+- **Each brand gets an inbound address.** The brand's own support address forwards to it, and Settings › Email shows when forwarding is working (and Gmail's confirmation, to finish setting it up).
+- **Every email becomes a conversation or joins its thread,** threaded by Message-ID, In-Reply-To and References, then by subject and sender.
+- **Only the new text shows.** Quoted history, signatures and mobile sign-offs are stripped in many languages, and the full email is behind "Show the full email".
+- **Email HTML is made safe when it arrives** and shown in a sandboxed frame. Remote images stay blocked until a teammate loads them.
+- **Automatic replies and bounces never count as the customer's reply.** They're shown to teammates only, and hard bounces go on the suppression list.
+- **Senders are verified only by DMARC.** Attachments are scanned before they're shown.
+- **Acceptance:** a 50-email corpus (Gmail, Outlook, Apple, mobile, forwarded chains, eight character sets, auto-replies, bounces), each email with its expected result.
+- **Behind `channel_email_v1`,** off by default. Sending replies comes in E3.
+- **Migration:** 0063, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP2.md`.
+
 ## Unreleased: the channel contract (phase 12, E1)
 
 - **One contract for every channel:** what it can do, receiving, sending with a delivery status, and addresses. The messenger is its first adapter, and the code that assumed the messenger now asks the channel.

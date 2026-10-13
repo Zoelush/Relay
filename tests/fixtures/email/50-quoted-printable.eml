@@ -1,0 +1,13 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: quoted-printable
+From: Kwame Mensah <kwame@customer.example>
+To: support@acme.example
+Subject: Upgrade quote
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-50@mail.example.net>
+Authentication-Results: mx.cloudflare.net;
+ dmarc=fail header.from=customer.example
+
+Hello! I'd like to upgrade to the Team plan =F0=9F=9A=80 =E2=80=94 could yo=
+u send a quote for twelve seats with annual billing, please? Thanks so much.

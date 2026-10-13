@@ -92,6 +92,10 @@ test("state and assignment descriptions cover snooze, wake, reopen and unassign"
     "Ada reopened this conversation",
   );
   assert.equal(
+    describePart(part("state_change", { from: null, to: "open" }, { author_type: "system" }), dir),
+    "The conversation started",
+  );
+  assert.equal(
     describePart(part("assignment_change", { after: { teammate: "", team: null } }), dir),
     "Ada unassigned this conversation",
   );

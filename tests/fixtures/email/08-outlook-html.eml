@@ -1,0 +1,33 @@
+Content-Type: multipart/alternative;
+ boundary="===============1975897610396738766=="
+MIME-Version: 1.0
+From: Mei Chen <mei@customer.example>
+To: support@acme.example
+Subject: RE: Invoice copy
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-08@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+--===============1975897610396738766==
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+VGhhbmtzLCByZWNlaXZlZC4KCl9fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fCkZyb206
+IEFjbWUgU3VwcG9ydCA8c3VwcG9ydEBhY21lLmV4YW1wbGU+ClNlbnQ6IE1vbmRheSwgT2N0b2Jl
+ciAxMiwgMjAyNiA5OjE1IEFNClRvOiBTYW0gT2thZm9yIDxzYW1AY3VzdG9tZXIuZXhhbXBsZT4K
+U3ViamVjdDogUkU6IEFjY291bnQgYWNjZXNzCgpDb3VsZCB5b3UgY29uZmlybSB0aGUgZW1haWwg
+b24gdGhlIGFjY291bnQ/Cg==
+
+--===============1975897610396738766==
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PGRpdj5UaGFua3MsIHJlY2VpdmVkLjwvZGl2PjxkaXYgaWQ9ImFwcGVuZG9u
+c2VuZCI+PC9kaXY+PGhyPjxkaXYgaWQ9ImRpdlJwbHlGd2RNc2ciPjxiPkZyb206PC9iPiBBY21l
+IFN1cHBvcnQ8YnI+PGI+U2VudDo8L2I+IE1vbmRheTwvZGl2PjxkaXY+Q291bGQgeW91IGNvbmZp
+cm0/PC9kaXY+PC9ib2R5PjwvaHRtbD4=
+
+--===============1975897610396738766==--

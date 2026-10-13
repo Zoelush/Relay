@@ -1,0 +1,16 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Priya Nair <priya@customer.example>
+To: support@acme.example
+Subject: RE: Password reset
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-12@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+RG9uZSwgSSdtIGJhY2sgaW4uIFRoYW5rcyEKCkdldCBPdXRsb29rIGZvciBpT1MKCl9fX19fX19f
+X19fX19fX19fX19fX19fX19fX19fX19fCkZyb206IEFjbWUgU3VwcG9ydCA8c3VwcG9ydEBhY21l
+LmV4YW1wbGU+ClNlbnQ6IE1vbmRheSwgT2N0b2JlciAxMiwgMjAyNiA5OjE1IEFNClRvOiBTYW0g
+T2thZm9yIDxzYW1AY3VzdG9tZXIuZXhhbXBsZT4KU3ViamVjdDogUkU6IEFjY291bnQgYWNjZXNz
+CgpDb3VsZCB5b3UgY29uZmlybSB0aGUgZW1haWwgb24gdGhlIGFjY291bnQ/Cg==

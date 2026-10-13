@@ -1,0 +1,15 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Ravi Patel <ravi@customer.example>
+To: support@acme.example
+Subject: Re: Refund
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-02@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+WWVzIHBsZWFzZSwgcmVmdW5kIHRvIHRoZSBvcmlnaW5hbCBjYXJkLgoKT24gTW9uLCBPY3QgMTIs
+IDIwMjYgYXQgOToxNSBBTSBBY21lIFN1cHBvcnQgPHN1cHBvcnRAYWNtZS4KZXhhbXBsZT4gd3Jv
+dGU6Cgo+IFRoYW5rcyBmb3Igd3JpdGluZyBpbi4gQ291bGQgeW91IHNlbmQgeW91ciBvcmRlciBu
+dW1iZXI/Cj4KPiBCZXN0LAo+IEFjbWUgU3VwcG9ydAo=

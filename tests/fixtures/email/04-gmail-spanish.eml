@@ -1,0 +1,14 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: =?utf-8?b?THVjw61hIEfDs21leg==?= <lucia@customer.example>
+To: support@acme.example
+Subject: Re: Pedido
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-04@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+R3JhY2lhcywgeWEgbG8gcmVjaWLDrS4KCkVsIGx1biwgMTIgb2N0IDIwMjYgYSBsYXMgOToxNSwg
+QWNtZSBTdXBwb3J0ICg8c3VwcG9ydEBhY21lLmV4YW1wbGU+KSBlc2NyaWJpw7M6Cgo+IFN1IHBl
+ZGlkbyBoYSBzaWRvIGVudmlhZG8uCg==
