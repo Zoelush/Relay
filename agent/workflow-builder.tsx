@@ -18,6 +18,8 @@ import {
 import "@xyflow/react/dist/base.css";
 import {
   FlaskConical,
+  ListChecks,
+  Copy,
   AlertTriangle,
   ArrowLeft,
   History,
@@ -39,6 +41,8 @@ import {
 import { api, InboxError } from "./api";
 import { ago } from "./zoe-labels";
 import { describeGroup, describeStep, Duration, GroupEditor, StepsEditor, type Options } from "./workflow-parts";
+import { AlertBanners, type Alert } from "./workflow-runs";
+import { timezones } from "./settings-ui";
 import {
   LATER_TRIGGERS,
   MAX_PATHS,
@@ -81,9 +85,12 @@ export type Detail = {
     updatedAt: string;
     updatedBy: string | null;
     problems: string[];
+    /** W4: its webhook's address and whether it has a secret, and an alert while it keeps failing. */
+    hook: { path: string; url?: string; configured: boolean };
+    alert: Alert | null;
   };
   versions: { version: number; publishedAt: string; by: string | null; restoredFrom: number | null }[];
-  options: Options;
+  options: Options & { reusable: { id: string; name: string; state: string }[] };
 };
 type Draft = { name: string; definition: Definition; layout: Layout };
 type Estimate = { sample: number; matched: number; days: number; limit: number; assumed: string[] };
@@ -96,6 +103,7 @@ const NEXT_TYPES: { type: Next["type"]; label: string }[] = [
   { type: "buttons", label: "Ask with reply buttons" },
   { type: "zoe", label: "Let Zoe answer" },
   { type: "connector", label: "Call a connector" },
+  { type: "workflow", label: "Pass to a reusable workflow" },
 ];
 const STATE_NAMES = { draft: "Draft", live: "Live", paused: "Paused" };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -225,7 +233,7 @@ const connect = setOutlet;
 /* ------------------------------------------------------------------------------------------ */
 /* The builder                                                                                 */
 
-export function WorkflowBuilder(props: { id: string; onBack: () => void; onConversation?: (id: string) => void }) {
+export function WorkflowBuilder(props: { id: string; onBack: () => void; onRuns: (workflowId: string) => void }) {
   return (
     <ReactFlowProvider>
       <Builder {...props} />
@@ -233,7 +241,7 @@ export function WorkflowBuilder(props: { id: string; onBack: () => void; onConve
   );
 }
 
-function Builder({ id, onBack }: { id: string; onBack: () => void }) {
+function Builder({ id, onBack, onRuns }: { id: string; onBack: () => void; onRuns: (workflowId: string) => void }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loadError, setLoadError] = useState("");
   const load = useCallback(
@@ -264,10 +272,10 @@ function Builder({ id, onBack }: { id: string; onBack: () => void }) {
         )}
       </section>
     );
-  return <Editor key={detail.workflow.id} initial={detail} onBack={onBack} />;
+  return <Editor key={detail.workflow.id} initial={detail} onBack={onBack} onRuns={onRuns} />;
 }
 
-function Editor({ initial, onBack }: { initial: Detail; onBack: () => void }) {
+function Editor({ initial, onBack, onRuns }: { initial: Detail; onBack: () => void; onRuns: (workflowId: string) => void }) {
   const [detail, setDetail] = useState(initial);
   const w = detail.workflow;
   const o = detail.options;
@@ -581,6 +589,9 @@ function Editor({ initial, onBack }: { initial: Detail; onBack: () => void }) {
           <button type="button" className="pg-wf-icon" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!history.canRedo} onClick={history.redo}>
             <Redo2 size={16} aria-hidden="true" />
           </button>
+          <button type="button" className="pg-zoe-secondary" onClick={() => (dirty && !window.confirm("Leave without saving your changes?") ? null : onRuns(w.id))}>
+            <ListChecks size={14} aria-hidden="true" /> Runs
+          </button>
           <button type="button" className="pg-zoe-secondary" aria-pressed={panel === "test"} onClick={() => setPanel(panel === "test" ? "edit" : "test")}>
             <FlaskConical size={14} aria-hidden="true" /> Test
           </button>
@@ -625,6 +636,7 @@ function Editor({ initial, onBack }: { initial: Detail; onBack: () => void }) {
           </button>
         </span>
       </header>
+      {w.alert && <AlertBanners alerts={[w.alert]} onRuns={onRuns} />}
       {error && (
         <p role="alert" className="pg-attr-error pg-wf-error">
           {error}
@@ -764,9 +776,26 @@ function Editor({ initial, onBack }: { initial: Detail; onBack: () => void }) {
               onRemove={def.paths.length > 1 ? () => removePaths([current.id]) : undefined}
               onSelect={focusPath}
               onAdd={(handle) => addPath(undefined, { node: current.id, handle })}
+              reusable={detail.options.reusable}
             />
           ) : (
-            <TriggerPanel def={def} o={o} onChange={setDef} estimate={estimate} estimateError={estimateError} />
+            <TriggerPanel
+              def={def}
+              o={o}
+              onChange={setDef}
+              estimate={estimate}
+              estimateError={estimateError}
+              hook={{
+                url: w.hook.url ?? w.hook.path,
+                configured: w.hook.configured,
+                dirty,
+                make: async () => {
+                  const d = await api<Detail & { secret: string }>("workflow", { action: "hook_secret", id: w.id, version: w.version });
+                  apply(d);
+                  return d.secret;
+                },
+              }}
+            />
           )}
         </aside>
       </div>
@@ -793,14 +822,19 @@ function TriggerPanel({
   onChange,
   estimate,
   estimateError,
+  hook,
 }: {
   def: Definition;
   o: Options;
   onChange: (d: Definition, group?: string | null) => void;
   estimate: Estimate | null;
   estimateError: string;
+  /** W4: the webhook's address, and making its secret (saved workflows only). */
+  hook: { url: string; configured: boolean; dirty: boolean; make: () => Promise<string> };
 }) {
   const t = def.trigger;
+  const setMore = (more: Partial<Definition["trigger"]["options"]>, group: string | null = null) =>
+    onChange({ ...def, trigger: { ...t, options: { ...t.options, ...more } } }, group);
   const setTrigger = (type: Trigger) => onChange({ ...def, trigger: { type, options: {} } });
   const setOption = (k: "tagId" | "attributeId" | "key", v: string) => {
     const options = { ...t.options };
@@ -848,6 +882,53 @@ function TriggerPanel({
         {t.type === "contact_attribute_changed" && (
           <input aria-label="Which customer attribute" placeholder="plan" value={t.options.key ?? ""} onChange={(e) => setOption("key", e.target.value)} />
         )}
+        {t.type === "page_visit" && (
+          <input
+            aria-label="Page address contains"
+            placeholder="/pricing (empty: any page)"
+            value={t.options.url ?? ""}
+            onChange={(e) => setMore({ url: e.target.value || undefined }, "trigger-url")}
+          />
+        )}
+        {(t.type === "unresponsive" || t.type === "sla_before_breach") && (
+          <span className="pg-wf-inline">
+            <span className="pg-muted">{t.type === "unresponsive" ? "No reply for" : "This long before it's due:"}</span>
+            <Duration
+              label={t.type === "unresponsive" ? "No reply for" : "Before the SLA is due"}
+              value={(t.options.minutes ?? (t.type === "unresponsive" ? 60 : 30)) * 60}
+              onChange={(x) => setMore({ minutes: Math.max(1, Math.round(x / 60)) }, "trigger-minutes")}
+            />
+          </span>
+        )}
+        {t.type === "schedule" && (
+          <span className="pg-wf-inline">
+            <select aria-label="How often" value={t.options.every ?? "day"} onChange={(e) => setMore({ every: e.target.value as "day" })}>
+              <option value="hour">Every hour</option>
+              <option value="day">Every day</option>
+              <option value="weekdays">Every weekday</option>
+              <option value="week">Every week</option>
+            </select>
+            {t.options.every === "week" && (
+              <select aria-label="On" value={t.options.weekday ?? 1} onChange={(e) => setMore({ weekday: Number(e.target.value) })}>
+                {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => (
+                  <option key={d} value={i}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            )}
+            <span className="pg-muted">{t.options.every === "hour" ? "at minute" : "at"}</span>
+            <input type="time" aria-label="At" value={t.options.at ?? "09:00"} onChange={(e) => setMore({ at: e.target.value || "09:00" })} />
+            <select aria-label="Time zone" value={t.options.timezone ?? "UTC"} onChange={(e) => setMore({ timezone: e.target.value })}>
+              {timezones(t.options.timezone ?? "UTC").map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
+            </select>
+          </span>
+        )}
+        {t.type === "webhook" && <HookPanel hook={hook} />}
         {TRIGGERS[t.type]?.customer && (
           <p className="pg-muted pg-wf-hint">For this trigger, only the highest-priority customer-facing workflow that matches runs; background workflows all run.</p>
         )}
@@ -878,10 +959,12 @@ function PathPanel({
   onRemove,
   onSelect,
   onAdd,
+  reusable,
 }: {
   path: Path;
   def: Definition;
   o: Options;
+  reusable: { id: string; name: string; state: string }[];
   start: boolean;
   onChange: (fn: (p: Path) => Path, group?: string | null) => void;
   onRemove?: () => void;
@@ -925,6 +1008,8 @@ function PathPanel({
                   ? { type: "zoe", resolved: "", handedOver: "", timeoutSeconds: 86_400, timedOut: "" }
                   : type === "connector"
                     ? { type: "connector", connectorId: o.connectors[0]?.id ?? "", inputs: {}, save: {}, ok: "", failed: "" }
+                    : type === "workflow"
+                      ? { type: "workflow", workflowId: reusable[0]?.id ?? "" }
                     : { type: "wait_until", when: { match: "all", items: [] }, timeoutSeconds: 86_400, met: "", timedOut: "" },
     }));
   return (
@@ -1034,6 +1119,21 @@ function PathPanel({
           </>
         )}
         {n.type === "connector" && <ConnectorEditor n={n} o={o} onChange={onChange} target={target} />}
+        {n.type === "workflow" && (
+          <>
+            <p className="pg-muted pg-wf-hint">The conversation goes on in a reusable workflow (its trigger is “Used by other workflows”); this run ends there.</p>
+            <select aria-label="Reusable workflow" value={n.workflowId} onChange={(e) => onChange((p) => ({ ...p, next: { type: "workflow", workflowId: e.target.value } }))}>
+              {!reusable.some((r) => r.id === n.workflowId) && <option value={n.workflowId}>{n.workflowId ? "(missing)" : "Choose…"}</option>}
+              {reusable.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                  {r.state === "live" ? "" : " (not live)"}
+                </option>
+              ))}
+            </select>
+            {!reusable.length && <p className="pg-muted pg-wf-hint">No reusable workflow yet: create one with the trigger “Used by other workflows”.</p>}
+          </>
+        )}
       </Section>
       {onRemove && (
         <button type="button" className="pg-zoe-secondary pg-wf-danger" onClick={onRemove}>
@@ -1272,10 +1372,10 @@ type Simulation = {
     decision?: { id: string; options: { value: string; label: string }[]; chosen: string };
   }[];
   visited: string[];
-  ended: "completed" | "not run" | "limit" | "failed";
+  ended: "completed" | "not run" | "limit" | "failed" | "passed";
 };
 type Candidate = { id: string; title: string; status: string; customer: string | null; createdAt: string };
-const ENDED = { completed: "It would end there.", "not run": "It wouldn't run for this conversation.", limit: "It would stop: too many steps.", failed: "A real run would fail." };
+const ENDED = { passed: "It would go on in the reusable workflow.", completed: "It would end there.", "not run": "It wouldn't run for this conversation.", limit: "It would stop: too many steps.", failed: "A real run would fail." };
 const shown = (v: unknown) => (v === null || v === undefined || v === "" ? "nothing" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : String(v));
 
 /** A test against a real conversation: the path it would take and every decision, changing nothing. */
@@ -1388,5 +1488,48 @@ function TestPanel({ def, onVisited, onSelect }: { def: Definition; onVisited: (
         </ol>
       )}
     </Section>
+  );
+}
+
+/** W4: a webhook's address and secret (shown once, when made). */
+function HookPanel({ hook }: { hook: { url: string; configured: boolean; dirty: boolean; make: () => Promise<string> } }) {
+  const [secret, setSecret] = useState("");
+  const [error, setError] = useState("");
+  const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => {});
+  return (
+    <div className="pg-wf-hook">
+      <span className="pg-muted">Address (POST)</span>
+      <code>{hook.url}</code>
+      <button type="button" className="pg-zoe-secondary" onClick={() => copy(hook.url)}>
+        <Copy size={14} aria-hidden="true" /> Copy address
+      </button>
+      <span className="pg-muted">
+        {secret ? "Its secret, shown only now:" : hook.configured ? "It has a secret. Replacing it stops the old one." : "It needs a secret before it accepts calls."}
+      </span>
+      {secret && <code data-testid="hook-secret">{secret}</code>}
+      <button
+        type="button"
+        className="pg-zoe-secondary"
+        disabled={hook.dirty}
+        title={hook.dirty ? "Save the draft first" : undefined}
+        onClick={() =>
+          void hook
+            .make()
+            .then((s) => (setSecret(s), setError("")))
+            .catch((e) => setError(errorText(e, "The secret couldn't be made.")))
+        }
+      >
+        {hook.configured ? "Replace the secret" : "Make a secret"}
+      </button>
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      <p className="pg-muted pg-wf-hint">
+        Send <code>Authorization: Bearer &lt;secret&gt;</code>, an <code>Idempotency-Key</code> (the same on retries) and JSON naming <code>conversationId</code>, or the
+        customer&apos;s <code>userId</code> or <code>email</code>, with any <code>data</code> for its conditions (“The webhook&apos;s data”).
+      </p>
+    </div>
   );
 }

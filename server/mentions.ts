@@ -112,7 +112,8 @@ export async function listNotifications(db: Sql, w: string, principal: string) {
   const items = (
     await db.query(
       `SELECT n.id,n.kind,n.conversation_id AS "conversationId",c.title AS "conversationTitle",a.name AS "actorName",
-      n.incident_id AS "incidentId",n.excerpt,n.created_at AS "createdAt",n.read_at AS "readAt"
+      n.incident_id AS "incidentId",n.excerpt,n.created_at AS "createdAt",n.read_at AS "readAt",
+      (SELECT a.workflow_id FROM workflow_alerts a WHERE a.workspace_id=n.workspace_id AND a.id=n.workflow_alert_id) AS "workflowId"
       FROM notifications n LEFT JOIN conversations c ON c.workspace_id=n.workspace_id AND c.id=n.conversation_id
       LEFT JOIN teammates a ON a.workspace_id=n.workspace_id AND a.id=n.actor_teammate_id
       WHERE n.workspace_id=$1 AND n.teammate_id=$2 AND (n.kind<>'mention' OR (c.id IS NOT NULL AND a.id IS NOT NULL))

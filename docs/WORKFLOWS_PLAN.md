@@ -61,4 +61,14 @@ Brief: `docs/BUILD_PHASES.md` phase 11. Phase 10 (the agent copilot) was skipped
    - **Workflows call read connectors only,** under the workspace's verification rules, audited as the workflow's. A call is made between transactions.
    - **Simulation runs in a read-only transaction,** so it can't write. It applies each step's effect to the facts in memory, and asks "Suppose…" where only the future decides.
 
-Handoffs: `docs/WORKFLOWS_STEP1.md` (W1), `docs/WORKFLOWS_STEP2.md` (W2), `docs/WORKFLOWS_STEP3.md` (W3).
+10. **W4 decisions** (13 October 2026):
+   - **The failing alert:** three failed runs in a row (skipped runs don't count). It notifies managers once, and closes when a run completes or a manager dismisses it.
+   - **Firing once:** time and browsing triggers fire once per occurrence, enforced by a unique `trigger_key`.
+     - A schedule runs for every conversation that isn't closed and that "who it runs for" lets through, 500 at a time.
+     - The timed check runs once a minute from the sweep, as a job.
+   - **A page visit** fires only for a conversation that isn't closed. Starting one is proactive messaging (phase 13).
+   - **A webhook:** a per-workflow secret (hash only, shown once), an idempotency key required, and one 401 for every refusal.
+   - **A reusable workflow** is passed to as a way on: the run ends, and the reusable one runs in the same chain.
+   - **Templates ask for their tags and teams** when created. "Topic" and "sentiment" templates use words in the message until those conditions exist.
+
+Handoffs: `docs/WORKFLOWS_STEP1.md` (W1), `docs/WORKFLOWS_STEP2.md` (W2), `docs/WORKFLOWS_STEP3.md` (W3), `docs/WORKFLOWS_STEP4.md` (W4). Acceptance: `docs/WORKFLOWS_ACCEPTANCE.md`. Phase 11 is complete locally.

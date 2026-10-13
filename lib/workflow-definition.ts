@@ -95,19 +95,45 @@ export const TRIGGERS = {
     customer: false,
     firedBy: "A teammate choosing it on a conversation.",
   },
+  // W4: triggers from time, outside systems and the customer's browsing.
+  schedule: {
+    label: "On a schedule",
+    customer: false,
+    firedBy: "Relay, at the times you set, for each conversation that isn't closed (at most 500 a time) that it runs for.",
+  },
+  unresponsive: {
+    label: "The customer hasn't replied",
+    customer: false,
+    firedBy: "Relay, once the customer hasn't answered the team's (or Zoe's, or a workflow's) last message for the time you set. Once per message.",
+  },
+  sla_before_breach: {
+    label: "An SLA is about to be breached",
+    customer: false,
+    firedBy: "Relay, the time you set before an SLA target is due. Once per target.",
+  },
+  page_visit: {
+    label: "The customer visits a page",
+    customer: true,
+    firedBy: "The customer's messenger, when they open a page (whose address contains what you set) while they have a conversation that isn't closed. Once per page per conversation.",
+  },
+  webhook: {
+    label: "Another system calls its webhook",
+    customer: false,
+    firedBy: "A request to the workflow's own address with its secret, naming a conversation, or a customer (their latest conversation that isn't closed).",
+  },
+  reusable: {
+    label: "Used by other workflows",
+    customer: false,
+    firedBy: "Another workflow passing a conversation to it (“Pass to a reusable workflow”). It never starts on its own.",
+  },
 } as const;
 export type Trigger = keyof typeof TRIGGERS;
 /**
  * Triggers phase 11 asks for that need later phases; a workflow can't use them yet.
- * TODO(phase 11 W4): schedule, webhook, page visit, unresponsive customer, before an SLA breach.
- * TODO(phase 12): inbound email. TODO(phase 13): segment entry or exit. TODO(phase 14): event received.
+ * TODO(phase 12): inbound email. TODO(phase 13): segment entry or exit, and a page visit starting a
+ * conversation (proactive messages). TODO(phase 14): event received.
  */
 export const LATER_TRIGGERS: Record<string, string> = {
-  schedule: "W4",
-  webhook: "W4",
-  page_visit: "W4",
-  unresponsive: "W4",
-  sla_before_breach: "W4",
   email_received: "phase 12",
   segment_changed: "phase 13",
   event_received: "phase 14",
@@ -141,6 +167,9 @@ export const FIELDS = {
   "team.available": { label: "Team has someone available", ops: ["is"], values: [true, false], key: true },
   "change.by": { label: "The change was made by", ops: ["is", "is_not"], values: ["customer", "teammate", "zoe", "workflow", "system", "manual"] },
   "wait.timed_out": { label: "The last wait timed out", ops: ["is"], values: [true, false] },
+  // W4: what the customer's browsing on, and what a webhook sent.
+  "page.url": { label: "The page they're on", ops: ["contains", "not_contains", "is"] },
+  "trigger.data": { label: "The webhook's data", ops: ["is", "is_not", "is_set", "is_not_set", "contains"], key: true },
 } as const;
 export type Field = keyof typeof FIELDS;
 /** What conditions can't test yet, and the phase that brings it: refused at publish, never "no match". */
@@ -208,11 +237,28 @@ export type Next =
   /** W3: Zoe answers; on to a path by her outcome. */
   | { type: "zoe"; resolved: string; handedOver: string; timeoutSeconds: number; timedOut: string }
   /** W3: a published read connector, its outputs kept in conversation attributes; on by result. */
-  | { type: "connector"; connectorId: string; inputs: Record<string, ValueSource>; save: Record<string, string>; ok: string; failed: string };
+  | { type: "connector"; connectorId: string; inputs: Record<string, ValueSource>; save: Record<string, string>; ok: string; failed: string }
+  /** W4: the conversation goes on in a reusable workflow; this run ends. */
+  | { type: "workflow"; workflowId: string };
 export const MAX_BUTTONS = 8;
 export type Path = { id: string; label: string; steps: Step[]; next: Next };
+/** A trigger's options: which tag, attribute or page; how long; when a schedule runs. */
+export type TriggerOptions = {
+  tagId?: string;
+  attributeId?: string;
+  key?: string;
+  /** page_visit: the address contains this. */
+  url?: string;
+  /** unresponsive, sla_before_breach: how long (minutes). */
+  minutes?: number;
+  /** schedule: how often, at what time (HH:MM), in which time zone, on which weekday (0 Sunday). */
+  every?: "hour" | "day" | "weekdays" | "week";
+  at?: string;
+  timezone?: string;
+  weekday?: number;
+};
 export type Definition = {
-  trigger: { type: Trigger; options: { tagId?: string; attributeId?: string; key?: string } };
+  trigger: { type: Trigger; options: TriggerOptions };
   /** Who it runs for: checked when it triggers (empty: everyone). */
   when: Group;
   paths: Path[];
@@ -324,6 +370,32 @@ export function validate(raw: unknown): Definition {
   const o = (t.options ?? {}) as Record<string, unknown>;
   const options: Definition["trigger"]["options"] = {};
   for (const k of ["tagId", "attributeId", "key"] as const) if (typeof o[k] === "string" && o[k]) options[k] = String(o[k]).slice(0, 100);
+  if (type === "page_visit" && typeof o.url === "string" && o.url.trim()) options.url = o.url.trim().slice(0, 300);
+  if (type === "unresponsive" || type === "sla_before_breach") {
+    const m = Number(o.minutes ?? (type === "unresponsive" ? 60 : 30));
+    if (!Number.isInteger(m) || m < 1 || m > 30 * 1440) fail("Set the time in whole minutes, up to 30 days.");
+    options.minutes = m;
+  }
+  if (type === "schedule") {
+    const every = String(o.every ?? "day");
+    if (!["hour", "day", "weekdays", "week"].includes(every)) fail("Choose how often it runs.");
+    options.every = every as TriggerOptions["every"];
+    const at = String(o.at ?? "09:00");
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(at)) fail("Give the time as HH:MM.");
+    options.at = at;
+    const tz = String(o.timezone ?? "UTC");
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: tz });
+    } catch {
+      fail("Choose a time zone.");
+    }
+    options.timezone = tz;
+    if (every === "week") {
+      const d = Number(o.weekday ?? 1);
+      if (!Number.isInteger(d) || d < 0 || d > 6) fail("Choose the day of the week.");
+      options.weekday = d;
+    }
+  }
   const count = { n: 0 };
   const when = d.when === undefined ? { match: "all" as const, items: [] } : checkGroup(d.when, 1, count, "Who it runs for");
   if (!Array.isArray(d.paths) || !d.paths.length) fail("Give the workflow at least one path.");
@@ -396,6 +468,8 @@ export function validate(raw: unknown): Definition {
       for (const [k, v] of Object.entries((n.save ?? {}) as Record<string, unknown>))
         if (typeof v === "string" && v && /^[A-Za-z0-9_]{1,60}$/.test(k)) save[k] = v.slice(0, 100);
       next = { type: "connector", connectorId, inputs, save, ok: String(n.ok ?? ""), failed: String(n.failed ?? "") };
+    } else if (n.type === "workflow") {
+      next = { type: "workflow", workflowId: typeof n.workflowId === "string" ? n.workflowId.slice(0, 100) : "" };
     } else return fail(`${where}: choose what happens after its steps.`);
     return {
       id,
@@ -485,13 +559,15 @@ export function problems(def: Definition): string[] {
   while (grew) {
     grew = false;
     for (const p of def.paths)
-      if (!ends.has(p.id) && (p.next.type === "end" || targets(p).some((t) => ends.has(t)))) {
+      // Passing to a reusable workflow ends this one's run (W4).
+      if (!ends.has(p.id) && (p.next.type === "end" || p.next.type === "workflow" || targets(p).some((t) => ends.has(t)))) {
         ends.add(p.id);
         grew = true;
       }
   }
   for (const p of def.paths) if (seen.has(p.id) && !ends.has(p.id)) out.push(`Path ${p.id} never reaches an end.`);
   if (def.trigger.type === "contact_attribute_changed" && !def.trigger.options.key) out.push("Choose which customer attribute fires it.");
+  for (const p of def.paths) if (p.next.type === "workflow" && !p.next.workflowId) out.push(`Path ${p.id}: choose the reusable workflow to pass to.`);
   return out;
 }
 

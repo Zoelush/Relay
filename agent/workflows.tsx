@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, CircleDot, FilePen, GripVertical, Layers, PauseCircle, Plus, Workflow as WorkflowIcon } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, CircleDot, FilePen, GripVertical, History, Layers, PauseCircle, Plus, Workflow as WorkflowIcon } from "lucide-react";
 import { api } from "./api";
 import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
 import { message } from "./settings-ui";
 import { ago } from "./zoe-labels";
 import { TRIGGERS, type Trigger } from "../lib/workflow-definition";
+import { AlertBanners, RunLog, type Alert } from "./workflow-runs";
 
 /** The canvas (React Flow) is its own chunk, loaded when a workflow opens. */
 const WorkflowBuilder = lazy(() => import("./workflow-builder").then((m) => ({ default: m.WorkflowBuilder })));
@@ -25,8 +26,16 @@ type Row = {
   updatedAt: string;
   updatedBy: string | null;
   runs: { completed: number; failed: number; skipped: number; active: number; last: string | null };
+  failing: boolean;
 };
-type List = { triggers: { trigger: Trigger; label: string; customer: boolean; firedBy: string; workflows: Row[] }[] };
+type Named = { id: string; name: string };
+type TemplateInfo = { id: string; name: string; category: string; description: string; slots: { key: string; kind: "tag" | "team"; label: string }[] };
+type List = {
+  triggers: { trigger: Trigger; label: string; customer: boolean; firedBy: string; workflows: Row[] }[];
+  alerts: Alert[];
+  templates: TemplateInfo[];
+  choices: { tags: Named[]; teams: Named[] };
+};
 type Filter = "all" | "live" | "draft" | "paused";
 const FILTERS: { id: Filter; label: string; icon: typeof Layers; hue: string }[] = [
   { id: "all", label: "All workflows", icon: Layers, hue: "slate" },
@@ -36,7 +45,16 @@ const FILTERS: { id: Filter; label: string; icon: typeof Layers; hue: string }[]
 ];
 const STATE_NAMES = { draft: "Draft", live: "Live", paused: "Paused" };
 
-export function Workflows({ open, onOpen }: { open: string | null; onOpen: (id: string | null) => void }) {
+export function Workflows({
+  open,
+  onOpen,
+  onConversation,
+}: {
+  /** A workflow's id (the builder), "runs" or "runs/<workflow id>" (the run log), or null (the list). */
+  open: string | null;
+  onOpen: (id: string | null) => void;
+  onConversation?: (id: string) => void;
+}) {
   const menu = useSideMenu("workflows");
   const [list, setList] = useState<List | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -45,17 +63,25 @@ export function Workflows({ open, onOpen }: { open: string | null; onOpen: (id: 
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState<{ trigger: Trigger; id: string } | null>(null);
+  const runLog = open?.startsWith("runs") ? (open.split("/")[1] ?? "") : null;
   useEffect(() => {
-    if (open) return;
+    if (open && runLog === null) return;
     api<List>("workflows")
       .then(setList)
       .catch((e) => setError(message(e, "Workflows could not be loaded.")));
-  }, [open]);
-  if (open)
+  }, [open, runLog]);
+  const dismiss = async (workflowId: string) => {
+    try {
+      setList(await api<List>("workflow", { action: "dismiss_alert", id: workflowId }));
+    } catch (e) {
+      setError(message(e, "The alert couldn't be dismissed."));
+    }
+  };
+  if (open && runLog === null)
     return (
       <section className="pg-workspace pg-wf" aria-label="Workflows">
         <Suspense fallback={<div className="pg-wf-builder" aria-busy="true" />}>
-          <WorkflowBuilder id={open} onBack={() => onOpen(null)} />
+          <WorkflowBuilder id={open} onBack={() => onOpen(null)} onRuns={(id) => onOpen(`runs/${id}`)} />
         </Suspense>
       </section>
     );
@@ -93,7 +119,13 @@ export function Workflows({ open, onOpen }: { open: string | null; onOpen: (id: 
           <ul className="pg-menu-entries">
             {FILTERS.map((f) => (
               <li key={f.id} data-hue={f.hue}>
-                <button aria-current={filter === f.id ? "page" : undefined} onClick={() => setFilter(f.id)}>
+                <button
+                  aria-current={runLog === null && filter === f.id ? "page" : undefined}
+                  onClick={() => {
+                    setFilter(f.id);
+                    if (runLog !== null) onOpen(null);
+                  }}
+                >
                   <span className="pg-menu-entry-icon" aria-hidden="true">
                     <f.icon size={16} />
                   </span>
@@ -103,30 +135,54 @@ export function Workflows({ open, onOpen }: { open: string | null; onOpen: (id: 
               </li>
             ))}
           </ul>
-          {/* TODO(phase 11 W4): the run log pages, templates and the failing alert join this menu. */}
+          <ul className="pg-menu-entries">
+            <li data-hue="sky">
+              <button aria-current={runLog !== null ? "page" : undefined} onClick={() => onOpen("runs")}>
+                <span className="pg-menu-entry-icon" aria-hidden="true">
+                  <History size={16} />
+                </span>
+                <span className="pg-menu-entry-name">Run log</span>
+                <span className="pg-menu-entry-count">{list?.alerts.length ? <AlertTriangle size={13} aria-label={`${list.alerts.length} failing`} /> : ""}</span>
+              </button>
+            </li>
+          </ul>
         </SideMenu>
         <div className="pg-area-main">
           <header className="pg-top pg-settings-head">
             <ShowMenuButton state={menu} />
             <div>
-              <h2>{FILTERS.find((f) => f.id === filter)!.label}</h2>
-              <p className="pg-muted">Automate what happens in conversations: tag, route, prioritise, apply SLAs and hand over, by trigger and condition.</p>
+              <h2>{runLog !== null ? "Run log" : FILTERS.find((f) => f.id === filter)!.label}</h2>
+              <p className="pg-muted">
+                {runLog !== null
+                  ? "Every run: each step, each condition with what it saw, and each action with its result."
+                  : "Automate what happens in conversations: tag, route, prioritise, apply SLAs and hand over, by trigger and condition."}
+              </p>
             </div>
-            <div className="pg-settings-save">
-              <input type="search" aria-label="Search workflows" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
-              <button type="button" className="pg-primary" onClick={() => setCreating(true)}>
-                <Plus size={14} aria-hidden="true" /> New workflow
-              </button>
-            </div>
+            {runLog === null && (
+              <div className="pg-settings-save">
+                <input type="search" aria-label="Search workflows" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <button type="button" className="pg-primary" onClick={() => setCreating(true)}>
+                  <Plus size={14} aria-hidden="true" /> New workflow
+                </button>
+              </div>
+            )}
           </header>
+          {runLog !== null ? (
+            <div className="pg-settings-body wide">
+              <RunLog key={runLog} workflows={all.map((w) => ({ id: w.id, name: w.name }))} initialWorkflow={runLog} onConversation={onConversation} onDismiss={dismiss} />
+            </div>
+          ) : (
           <div className="pg-settings-body pg-wf-list">
+            <AlertBanners alerts={list?.alerts ?? []} onRuns={(id) => onOpen(`runs/${id}`)} onDismiss={(id) => void dismiss(id)} />
             {error && (
               <p role="alert" className="pg-attr-error">
                 {error}
               </p>
             )}
-            {creating && (
+            {creating && list && (
               <CreateForm
+                templates={list.templates}
+                choices={list.choices}
                 onCancel={() => setCreating(false)}
                 onCreated={(id) => {
                   setCreating(false);
@@ -191,6 +247,11 @@ export function Workflows({ open, onOpen }: { open: string | null; onOpen: (id: 
                             {w.updatedBy ? ` by ${w.updatedBy}` : ""}
                           </span>
                         </span>
+                        {w.failing && (
+                          <span className="pg-wf-state" data-state="failing">
+                            Failing
+                          </span>
+                        )}
                         <span className="pg-wf-state" data-state={w.state}>
                           {STATE_NAMES[w.state]}
                         </span>
@@ -224,17 +285,39 @@ export function Workflows({ open, onOpen }: { open: string | null; onOpen: (id: 
               );
             })}
           </div>
+          )}
         </div>
       </div>
     </section>
   );
 }
 
-function CreateForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (id: string) => void }) {
+function CreateForm({
+  templates,
+  choices,
+  onCancel,
+  onCreated,
+}: {
+  templates: TemplateInfo[];
+  choices: { tags: Named[]; teams: Named[] };
+  onCancel: () => void;
+  onCreated: (id: string) => void;
+}) {
   const [name, setName] = useState("");
   const [trigger, setTrigger] = useState<Trigger>("first_message");
+  const [template, setTemplate] = useState("");
+  const [slots, setSlots] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const chosen = templates.find((t) => t.id === template);
+  const categories = [...new Set(templates.map((t) => t.category))];
+  const pick = (id: string) => {
+    setTemplate(id);
+    setSlots({});
+    const t = templates.find((x) => x.id === id);
+    if (t) setName(t.name);
+  };
+  const missing = chosen?.slots.some((s) => !slots[s.key]);
   return (
     <form
       className="pg-wf-create"
@@ -243,7 +326,7 @@ function CreateForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: 
         setBusy(true);
         setError("");
         try {
-          const d = await api<{ workflow: { id: string } }>("workflow", { action: "create", name, trigger });
+          const d = await api<{ workflow: { id: string } }>("workflow", chosen ? { action: "create", name, template, slots } : { action: "create", name, trigger });
           onCreated(d.workflow.id);
         } catch (err) {
           setError(message(err, "The workflow could not be created."));
@@ -253,20 +336,60 @@ function CreateForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: 
       }}
     >
       <label className="pg-settings-field">
-        <span>Name</span>
-        <input required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} placeholder="Route French conversations" />
-      </label>
-      <label className="pg-settings-field">
-        <span>When</span>
-        <select value={trigger} onChange={(e) => setTrigger(e.target.value as Trigger)}>
-          {(Object.keys(TRIGGERS) as Trigger[]).map((k) => (
-            <option key={k} value={k}>
-              {TRIGGERS[k].label}
-            </option>
+        <span>Start from</span>
+        <select value={template} onChange={(e) => pick(e.target.value)}>
+          <option value="">A blank workflow</option>
+          {categories.map((c) => (
+            <optgroup key={c} label={c}>
+              {templates
+                .filter((t) => t.category === c)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+            </optgroup>
           ))}
         </select>
       </label>
-      <button type="submit" className="pg-primary" disabled={busy || !name.trim()}>
+      <label className="pg-settings-field">
+        <span>Name</span>
+        <input required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} placeholder="Route French conversations" />
+      </label>
+      {!chosen && (
+        <label className="pg-settings-field">
+          <span>When</span>
+          <select value={trigger} onChange={(e) => setTrigger(e.target.value as Trigger)}>
+            {(Object.keys(TRIGGERS) as Trigger[]).map((k) => (
+              <option key={k} value={k}>
+                {TRIGGERS[k].label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {chosen && (
+        <>
+          <p className="pg-muted pg-wf-template-about">{chosen.description}</p>
+          {chosen.slots.map((s) => {
+            const list = s.kind === "tag" ? choices.tags : choices.teams;
+            return (
+              <label className="pg-settings-field" key={s.key}>
+                <span>{s.label}</span>
+                <select value={slots[s.key] ?? ""} onChange={(e) => setSlots((x) => ({ ...x, [s.key]: e.target.value }))}>
+                  <option value="">{list.length ? "Choose…" : `No ${s.kind}s yet: add one in Settings`}</option>
+                  {list.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })}
+        </>
+      )}
+      <button type="submit" className="pg-primary" disabled={busy || !name.trim() || missing}>
         Create and open
       </button>
       <button type="button" className="pg-zoe-secondary" onClick={onCancel}>

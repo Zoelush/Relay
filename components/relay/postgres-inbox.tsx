@@ -165,7 +165,7 @@ const Workflows = lazy(() =>
 /** The Workflows area from the address: `#workflows` ("") or `#workflows/<id>`; null elsewhere. */
 const workflowsFromHash = () => {
   if (typeof window === "undefined") return null;
-  const m = /^#workflows(?:\/([A-Za-z0-9-]+))?$/.exec(window.location.hash);
+  const m = /^#workflows(?:\/([A-Za-z0-9-]+(?:\/[A-Za-z0-9-]+)?))?$/.exec(window.location.hash);
   return m ? (m[1] ?? "") : null;
 };
 /** A page of Zoe's from the address (`#zoe/<page>`), or null when not in her area. */
@@ -1580,6 +1580,10 @@ export default function PostgresInbox({
           <Workflows
             open={workflowOpen}
             onOpen={(id) => setArea("workflows", id ?? "home")}
+            onConversation={(id) => {
+              setArea("inbox");
+              pick(id);
+            }}
           />
         </Suspense>
       )}
@@ -2201,6 +2205,7 @@ export default function PostgresInbox({
         <NotificationsPanel
           onOpen={(id) => pick(id)}
           onIncident={() => setArea("zoe", "incidents")}
+          onWorkflowAlert={(id) => setArea("workflows", id ? `runs/${id}` : "runs")}
           onClose={() => setOverlay(null)}
           onError={report}
         />
