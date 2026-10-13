@@ -25,7 +25,7 @@ export type Availability = {
 export async function availabilityFor(
   db: Sql,
   w: string,
-  at: { brandId: string; teamId?: string | null },
+  at: { brandId: string; teamId?: string | null; channel?: string | null },
   locale: string,
   now = Date.now(),
 ): Promise<Availability> {

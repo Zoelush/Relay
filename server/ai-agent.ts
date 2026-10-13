@@ -1,3 +1,4 @@
+import { channels } from "./channels";
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { authorize, can } from "./policy";
 import { afterChange } from "./routing";
@@ -469,7 +470,8 @@ export async function queueAiReply(
   c: Conversation,
   partId: string,
 ) {
-  if ((c.channel ?? "messenger") !== "messenger") return null;
+  // Phase 12: only on a channel that lets Zoe answer (its adapter says so).
+  if (!channels().find((a) => a.id === (c.current_channel ?? c.channel ?? "messenger"))?.capabilities.ai) return null;
   if (c.visibility === "internal") return null;
   if (!(await aiEnabled(db, w))) return null;
   const agent = await agentOf(db, w);
@@ -1748,7 +1750,7 @@ async function handOver(
   const hours = await availabilityFor(
     db,
     w,
-    { brandId: c.brand_id, teamId: team ?? c.team_id },
+    { brandId: c.brand_id, teamId: team ?? c.team_id, channel: c.current_channel ?? null },
     h.locale,
   );
   const away = !!hours && !hours.open;

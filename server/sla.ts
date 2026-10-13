@@ -459,6 +459,7 @@ export async function syncSla(
         const resolved = await resolveCalendar(db, w, {
           teamId: c.team_id,
           brandId: c.brand_id,
+          channel: (c.current_channel ?? c.channel ?? null) as string | null,
         });
         pinId = resolved.calendarId;
         pinVersion = resolved.version;

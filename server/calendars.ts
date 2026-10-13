@@ -1,3 +1,5 @@
+import { channels, channelsEnabled } from "./channels";
+import { channelLabel } from "../lib/channels";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize, can } from "./policy";
 import {
@@ -12,7 +14,8 @@ import {
  * the calendar's pointer to it, so anything that pinned an earlier version (a running clock, a
  * conversation's metrics) keeps computing with the hours it started under.
  */
-const SCOPES = ["workspace", "brand", "team"] as const;
+/** Phase 12 E1: `channel` (a channel's own hours), between a team's and a brand's. */
+const SCOPES = ["workspace", "brand", "team", "channel"] as const;
 type Scope = (typeof SCOPES)[number];
 export type ResolvedCalendar = {
   source: Scope | "brand_settings" | "default";
@@ -105,6 +108,8 @@ export async function listCalendars(db: Sql, w: string, principal: string) {
     assignments,
     brands: await named("brands"),
     teams: await named("teams"),
+    // Phase 12 E1: channels have their own hours, while channels are on.
+    channels: (await channelsEnabled(db, w)) ? channels().map((a) => ({ id: a.id, name: channelLabel(a.id) })) : [],
     canManage: await can(db, w, principal, "workspace.manage"),
   };
 }
@@ -187,11 +192,18 @@ export async function assignCalendar(
   if (!SCOPES.includes(scope))
     throw new DomainError(
       "INVALID_ASSIGNMENT",
-      "Assign to the workspace, a brand or a team.",
+      "Assign to the workspace, a brand, a team or a channel.",
       400,
     );
   const scopeId = scope === "workspace" ? "" : String(p.scopeId ?? "");
-  if (scope !== "workspace")
+  if (scope === "channel")
+    assert(
+      channels().some((a) => a.id === scopeId),
+      "INVALID_ASSIGNMENT",
+      "Channel unavailable.",
+      404,
+    );
+  else if (scope !== "workspace")
     assert(
       (
         await db.query(
@@ -237,10 +249,11 @@ export async function assignCalendar(
 export async function resolveCalendar(
   db: Sql,
   w: string,
-  at: { teamId?: string | null; brandId?: string | null },
+  at: { teamId?: string | null; brandId?: string | null; channel?: string | null },
 ): Promise<ResolvedCalendar> {
   const candidates: [Scope, string][] = [];
   if (at.teamId) candidates.push(["team", at.teamId]);
+  if (at.channel) candidates.push(["channel", at.channel]);
   if (at.brandId) candidates.push(["brand", at.brandId]);
   for (const [scope, scopeId] of candidates) {
     const found = await assigned(db, w, scope, scopeId);

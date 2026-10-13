@@ -32,7 +32,12 @@ targeting), B2 (safety and privacy), C1 (the evaluation harness), C2a (the revie
 complete, with the Claude evaluation baseline waiting for a key. Monitors (`server/zoe-monitors.ts`,
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
-(conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 11 (`docs/WORKFLOWS_PLAN.md`, behind `workflows_v1`):
+(conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 12 (`docs/OMNICHANNEL_PLAN.md`):
+E1, the channel contract (`server/channels.ts`, `channels_v1`), is done locally (`docs/OMNICHANNEL_STEP1.md`); next is E2 (email
+in). No code outside an adapter asks which channel a conversation is on: it asks `capabilitiesOf` / the adapter. Every
+outbound part on a non-messenger channel is a `channel_deliveries` row sent by `channel.deliver`, which checks
+`mayDeliver` (the suppression list) right before sending; never send to a provider any other way. A channel
+address joins an existing contact only when verified. Phase 11 (`docs/WORKFLOWS_PLAN.md`, behind `workflows_v1`):
 W1 (the engine), W2 (the builder), W3 (customer-facing steps and simulation) and W4 (run log, alerts,
 templates, more triggers, reusable workflows) are done locally (`docs/WORKFLOWS_STEP1.md` to `STEP4.md`;
 acceptance demo `docs/WORKFLOWS_ACCEPTANCE.md`): phase 11 is complete locally. Time and page triggers fire once

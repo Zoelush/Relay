@@ -276,13 +276,13 @@ async function stepEffect(
     case "wait":
       return did(`Would wait ${words(Number(o.seconds))}`, "wait");
     case "wait_office_hours": {
-      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id }, "en");
+      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id, channel: c.current_channel ?? null }, "en");
       return did(!hours || hours.open ? "Office hours are open: wouldn't wait" : `Would wait until office hours (${hours.nextOpenLabel ?? "when they open"})`, "wait");
     }
     case "message":
       return did(`Would send: “${String(o.text)}”`, "message");
     case "reply_time": {
-      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id }, "en");
+      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id, channel: c.current_channel ?? null }, "en");
       const r = await expectedReply(db, w, c.brand_id);
       return did(
         !hours || hours.open

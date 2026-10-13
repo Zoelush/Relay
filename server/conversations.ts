@@ -1,4 +1,5 @@
 import { workflowEvent, workflowHolds } from "./workflow-engine";
+import { capabilitiesOf, queueDelivery } from "./channels";
 import { resolveWake } from "./snooze";
 import {
   assertClosable,
@@ -34,7 +35,14 @@ import { inboundRules } from "./messenger-config";
 
 export type Actor = (
   | { type: "teammate"; principal: string }
-  | { type: "contact"; identityId: string; brandId: string; verified?: boolean }
+  | {
+      type: "contact";
+      identityId: string;
+      brandId: string;
+      verified?: boolean;
+      /** Phase 12: the channel it arrived on (set by `receiveInbound`; the messenger's is the default). */
+      channel?: string;
+    }
 ) & { originTimezone?: string };
 /** Phase 11: a workflow's run, acting as Relay (its changes are attributed to it). */
 export type WorkflowActor = { type: "workflow"; workflowId: string; runId: string; name: string; originTimezone?: undefined };
@@ -64,6 +72,8 @@ export interface Conversation {
   sla_sort_at?: string | null;
   sla_overdue?: boolean;
   sla_breached?: boolean;
+  /** Phase 12: the channel the customer last wrote on, where replies go (`channel` is the first). */
+  current_channel?: string;
   [key: string]: unknown;
 }
 export interface Part {
@@ -116,6 +126,8 @@ export interface Command {
    * buttons, or the expected reply time it shows.
    */
   workflowData?: { options?: string[]; replyTime?: unknown; availability?: unknown };
+  /** Phase 12, honoured only from a channel (`receiveInbound`): what the inbox shows beside it. */
+  channelData?: Record<string, unknown>;
 }
 export type HelpContext = {
   searched?: string;
@@ -353,6 +365,8 @@ export async function append(
   data: Record<string, unknown> = {},
   audience = "public",
   supersedes: string | null = null,
+  /** Phase 12: the channel it arrived on; otherwise the conversation's current one. */
+  channel: string | null = null,
 ): Promise<Part> {
   const version = (
     await db.query<{ next_seq: string; updated_at: string }>(
@@ -374,7 +388,7 @@ export async function append(
         author.type,
         author.id,
         audience,
-        c.channel ?? "messenger",
+        channel ?? c.current_channel ?? c.channel ?? "messenger",
         body,
         JSON.stringify({
           ...data,
@@ -410,6 +424,8 @@ export async function append(
   c.next_seq = version.next_seq;
   // Phase 11: what this part triggers (a job per trigger a live workflow listens to).
   await workflowEvent(db, w, c, part);
+  // Phase 12: a reply on a conversation whose current channel isn't the messenger is delivered.
+  await queueDelivery(db, w, c, part);
   return part;
 }
 async function transition(
@@ -655,13 +671,14 @@ export async function command(
       const id = crypto.randomUUID();
       const c = (
         await db.query<Conversation>(
-          `INSERT INTO conversations(workspace_id,id,brand_id,primary_identity_id,token_hash,name,email,title,created_at,updated_at) VALUES($1,$2,$3,$4,'','Customer','',$5,now(),now()) RETURNING *`,
-          [w, id, actor.brandId, actor.identityId, p.text.slice(0, 70)],
+          `INSERT INTO conversations(workspace_id,id,brand_id,primary_identity_id,token_hash,name,email,title,channel,current_channel,created_at,updated_at)
+           VALUES($1,$2,$3,$4,'','Customer','',$5,$6,$6,now(),now()) RETURNING *`,
+          [w, id, actor.brandId, actor.identityId, p.text.slice(0, 70), actor.channel ?? "messenger"],
         )
       ).rows[0];
       // The calendar in force now (brand, then workspace default; a new conversation has no
       // team yet) is pinned, so later edits to it do not change this conversation's metrics.
-      const calendar = await resolveCalendar(db, w, { brandId: actor.brandId });
+      const calendar = await resolveCalendar(db, w, { brandId: actor.brandId, channel: actor.channel ?? "messenger" });
       if (calendar.calendarId)
         await db.query(
           "UPDATE conversations SET calendar_id=$3,calendar_version=$4,origin_timezone=$5 WHERE workspace_id=$1 AND id=$2",
@@ -697,6 +714,7 @@ export async function command(
         },
         "customer_message",
         p.text.trim(),
+        actor.channel && p.channelData ? p.channelData : {},
       );
       // The AI agent (phase 08) answers when it's on and no teammate has the conversation, and
       // (phase 11 W3) once no customer-facing workflow takes the first message.
@@ -925,6 +943,23 @@ export async function command(
                 : {}),
             }
           : {};
+      // Phase 12: the customer's message moves the conversation to its channel (replies go
+      // there), and a reply must fit what that channel takes. The formatted version is kept for
+      // the inbox; a channel without formatting is sent the plain text.
+      const arrived = actor.type === "contact" ? (actor.channel ?? "messenger") : null;
+      if (arrived && arrived !== (c.current_channel ?? "messenger")) {
+        await db.query("UPDATE conversations SET current_channel=$3 WHERE workspace_id=$1 AND id=$2", [w, c.id, arrived]);
+        c.current_channel = arrived;
+      }
+      if (kind !== "internal_note" && actor.type !== "contact") {
+        const caps = capabilitiesOf(c.current_channel);
+        assert(
+          content.text.length <= caps.maxLength,
+          "MESSAGE_TOO_LONG",
+          `This conversation's channel takes messages of up to ${caps.maxLength.toLocaleString("en")} characters.`,
+          400,
+        );
+      }
       const part = await append(
         db,
         w,
@@ -938,8 +973,11 @@ export async function command(
             : {}),
           ...(content.doc ? { doc: content.doc } : {}),
           ...extra,
+          ...(arrived && actor.type === "contact" && actor.channel && p.channelData ? p.channelData : {}),
         },
         p.action === "note" ? "internal" : "public",
+        null,
+        arrived,
       );
       await recordImages(db, w, part.id, content.doc);
       if (mentioned.length)

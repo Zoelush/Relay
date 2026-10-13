@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { channelLabel, DELIVERY_LABELS, type DeliveryStatus } from "../lib/channels";
 import { LockKeyhole, Paperclip, Sparkles } from "lucide-react";
 import { api } from "./api";
 import { RichText } from "../lib/rich-view";
@@ -18,6 +19,8 @@ export type TimelinePart = {
   conversation_id?: string;
   supersedes_id?: string;
   created_at: string;
+  /** Phase 12: the channel it arrived on or was sent on. */
+  channel?: string;
   data: Record<string, unknown> & {
     authorName?: string;
     attachmentId?: string;
@@ -46,6 +49,10 @@ export type Directory = {
 /** Z3a: which specialist gave each of Zoe's replies, by reply part id. */
 const EMPTY = new Map<string, string>();
 const ReplySpecialists = createContext<Map<string, string>>(EMPTY);
+/** Phase 12 E1: how each reply was delivered on its channel, by part id. */
+type Delivery = { status: DeliveryStatus; error: string };
+const NO_DELIVERIES = new Map<string, Delivery>();
+const Deliveries = createContext<Map<string, Delivery>>(NO_DELIVERIES);
 export const MESSAGES = new Set([
   "customer_message",
   "teammate_reply",
@@ -223,6 +230,7 @@ function Message({
   // Zoe (Z1): her name and mark on her replies and handover notes; and (Z3a) the specialist.
   const agentName = useAgentName();
   const specialist = useContext(ReplySpecialists).get(p.id);
+  const delivery = useContext(Deliveries).get(p.id);
   const workflow = p.kind === "workflow_message" ? `Workflow “${p.data.workflowName ?? "Automation"}”` : null;
   const who = fromCustomer
     ? customer || "Customer"
@@ -265,6 +273,9 @@ function Message({
                     ? `${agentName}${specialist ? ` · ${specialist}` : ""} · AI agent`
                     : "Teammate"))}
           </strong>
+          {p.channel && p.channel !== "messenger" && (
+            <span className="pg-part-channel">via {channelLabel(p.channel)}</span>
+          )}
           {edited && !p.data.deleted && (
             <small className="pg-edited">Edited</small>
           )}
@@ -278,6 +289,12 @@ function Message({
           <p className={p.data.aiHandover ? "pg-handover" : undefined}>{p.body}</p>
         )}
         {p.kind === "ai_reply" && <AiReplyDetails p={p} />}
+        {delivery && (
+          <small className="pg-delivery" data-status={delivery.status} role={delivery.status === "failed" || delivery.status === "suppressed" ? "alert" : undefined}>
+            {DELIVERY_LABELS[delivery.status]}
+            {delivery.status === "failed" && delivery.error ? `: ${delivery.error}` : ""}
+          </small>
+        )}
         {p.kind === "workflow_message" && Array.isArray(p.data.options) && p.data.options.length > 0 && (
           <ul className="pg-wf-sent-buttons" aria-label="Reply buttons">
             {(p.data.options as string[]).map((o) => (
@@ -649,6 +666,20 @@ export function Timeline({
       live = false;
     };
   }, [aiSpecialist, conversationId, replies]);
+  // Phase 12 E1: replies on a channel other than the messenger have a delivery status; fetched
+  // when the conversation has such a part, and again as parts arrive.
+  const onChannel = parts.some((p) => p.channel && p.channel !== "messenger");
+  const [deliveries, setDeliveries] = useState<Map<string, Delivery>>(NO_DELIVERIES);
+  useEffect(() => {
+    if (!onChannel || !conversationId) return;
+    let live = true;
+    api<{ deliveries: { partId: string; status: DeliveryStatus; error: string }[] }>("deliveries?conversation=" + encodeURIComponent(conversationId))
+      .then((r) => live && setDeliveries(new Map(r.deliveries.map((d) => [d.partId, { status: d.status, error: d.error }]))))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [onChannel, conversationId, parts.length]);
   const superseded = new Set(parts.map((p) => p.supersedes_id).filter(Boolean));
   const visible = parts.filter((p) => !superseded.has(p.id));
   const groups: (TimelinePart | TimelinePart[])[] = [];
@@ -660,6 +691,7 @@ export function Timeline({
   }
   return (
     <ReplySpecialists.Provider value={aiSpecialist ? bySpecialist : EMPTY}>
+      <Deliveries.Provider value={onChannel ? deliveries : NO_DELIVERIES}>
       {groups.map((g) =>
         Array.isArray(g) ? (
           <EventRun key={g[0].id} parts={g} dir={dir} />
@@ -672,6 +704,7 @@ export function Timeline({
           />
         ),
       )}
+      </Deliveries.Provider>
     </ReplySpecialists.Provider>
   );
 }

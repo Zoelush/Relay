@@ -132,6 +132,7 @@ export async function seedFoundation(
     "zoe_monitors_v1",
     "ai_actions_v1",
     "workflows_v1",
+    "channels_v1",
   ])
     await db.query(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,false) ON CONFLICT DO NOTHING",
