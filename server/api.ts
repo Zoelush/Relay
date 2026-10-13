@@ -201,6 +201,7 @@ import { changeProcedure, decideApproval, readApproval, readProcedure, readProce
 import { auditText, readAiAudit } from "./ai-audit";
 import { changeWorkflow, readRun, readRuns, readWorkflow, readWorkflows, runManually } from "./workflows";
 import { estimateWorkflow } from "./workflow-estimate";
+import { simulateWorkflow, simulationConversations } from "./workflow-simulate";
 import { workflowsEnabled } from "./workflow-engine";
 import {
   indexStatus,
@@ -1222,6 +1223,7 @@ export async function handleApi(
             "/v1/agent/workflows",
             "/v1/agent/workflow-runs",
             "/v1/agent/workflow-estimate",
+            "/v1/agent/workflow-conversations",
             "/v1/agent/ai-settings",
             "/v1/agent/zoe",
             "/v1/agent/bulk",
@@ -1297,6 +1299,7 @@ export async function handleApi(
               "/v1/agent/ai-approval",
               "/v1/agent/workflow",
               "/v1/agent/workflow-run",
+              "/v1/agent/workflow-simulate",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1663,6 +1666,13 @@ export async function handleApi(
           return json(
             await tenant(env.connect, workspace, (db) =>
               changeWorkflow(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
+            ),
+          );
+        if (url.pathname === "/v1/agent/workflow-simulate")
+          // Phase 11 W3: a workflow run against a real conversation, read-only (it changes nothing).
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              simulateWorkflow(db, workspace, principal, p as Parameters<typeof simulateWorkflow>[3]),
             ),
           );
         if (url.pathname === "/v1/agent/workflow-run")
@@ -2235,6 +2245,13 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) =>
             estimateWorkflow(db, workspace, principal, url.searchParams.get("when") ?? ""),
+          ),
+        );
+      if (url.pathname === "/v1/agent/workflow-conversations")
+        // Phase 11 W3: conversations to simulate a workflow against (?q=).
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            simulationConversations(db, workspace, principal, url.searchParams.get("q") ?? ""),
           ),
         );
       if (url.pathname === "/v1/agent/workflow-runs")

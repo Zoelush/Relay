@@ -380,7 +380,7 @@ export async function readRequest(
           p.author_type === "teammate" && typeof d.authorName === "string"
             ? d.authorName
             : null,
-        body: ["customer_message", "teammate_reply", "ai_reply"].includes(
+        body: ["customer_message", "teammate_reply", "ai_reply", "workflow_message"].includes(
           p.kind,
         )
           ? p.body

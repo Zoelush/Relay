@@ -449,7 +449,7 @@ function turnOf(ctx: Ctx, st: State, calls: ModelCall[]): ProcedureTurn {
 const RUN_FIELDS = `r.id,r.procedure_id,r.procedure_version,r.step,r.waiting_for,r.retries,r."values",r.version::text AS version,p.name,v.plan
   FROM ai_procedure_runs r JOIN ai_procedures p ON p.workspace_id=r.workspace_id AND p.id=r.procedure_id
   JOIN ai_procedure_versions v ON v.workspace_id=r.workspace_id AND v.procedure_id=r.procedure_id AND v.version=r.procedure_version`;
-async function verificationOf(db: Sql, w: string, agentId: string) {
+export async function verificationOf(db: Sql, w: string, agentId: string) {
   const a = (
     await db.query<{ verification_rules: VerificationRule[]; verification_fallback: Requirement }>(
       "SELECT verification_rules,verification_fallback FROM ai_agents WHERE workspace_id=$1 AND id=$2",

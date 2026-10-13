@@ -199,7 +199,8 @@ export async function runConnector(
     connectorId: string;
     version: number | "draft";
     values: Record<string, unknown>;
-    source: "test" | "agent";
+    /** Phase 11 W3: "workflow" calls are a workflow's, invoked by `workflow:<id>`. */
+    source: "test" | "agent" | "workflow";
     invokedBy: string;
     conversationId?: string;
     /** Return the masked request and response (the test console). */
@@ -280,6 +281,8 @@ export async function runConnector(
   const retries = write && !(def.idempotencyHeader && run.idempotencyKey) ? 0 : def.retries;
   try {
     if (write && prepared.paused) throw new Stop("refused", "Write actions are paused for this workspace.");
+    // Phase 11 W3: workflows only read; writes stay with Zoe's procedures and their safeguards.
+    if (write && run.source === "workflow") throw new Stop("refused", "Workflows call read connectors only.");
     if (write && run.source === "agent" && !prepared.writesEnabled)
       throw new Stop("refused", "Writes aren't turned on for this connector.");
     if (prepared.overLimit) throw new Stop("rate_limited", `Over its limit of ${def.rateLimit} calls a minute.`);

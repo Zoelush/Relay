@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased: customer-facing workflow steps and simulation (phase 11, W3)
+
+- **Workflows talk to customers** in the messenger, as "Automation":
+  - send a message
+  - show the expected reply time
+  - collect a reply into their email or an attribute (asked again once if it doesn't fit)
+- **New ways on:**
+  - **Reply buttons:** each button leads to its own path, as do typing instead and no answer.
+  - **"Let Zoe answer":** goes on by whether she resolved it or handed it over.
+  - **"Call a connector":** read connectors only, under the verification rules; outputs can be kept in attributes.
+- **One talks at a time:**
+  - Only the top customer-facing workflow runs for a trigger, and none starts while another is talking.
+  - Zoe waits for workflows, and answers when none takes the message.
+- **Not a teammate's reply:** a workflow's messages never count as one (no first response, no SLA).
+- **Test in the builder:** runs a draft against a real conversation and shows every step and decision, with "Suppose…" choices. Nothing is changed or sent.
+- **Migration:** 0060, with rollback.
+- **Details:** `docs/WORKFLOWS_STEP3.md`.
+
 ## Unreleased: the workflow builder (phase 11, W2)
 
 - **A Workflows area** in the icon strip, for managers while `workflows_v1` is on, linked from Settings.

@@ -50,4 +50,15 @@ Brief: `docs/BUILD_PHASES.md` phase 11. Phase 10 (the agent copilot) was skipped
    - **The builder checks drafts with the engine's own `validate` and `problems`;** the server adds missing references.
    - **The live estimate is judged by the engine's own `evaluate`,** over at most 500 conversations from the last 30 days, in one query (about 48 ms). It isn't compiled to SQL, as W1's note planned: the customer's language is detected in code, so SQL couldn't judge it. Conditions that depend on the moment a run starts are taken to hold and named ("at most").
 
-Handoffs: `docs/WORKFLOWS_STEP1.md` (W1), `docs/WORKFLOWS_STEP2.md` (W2).
+9. **W3 decisions** (13 October 2026):
+   - **A workflow's message is its own part kind, `workflow_message`,** shown to the customer as "Automation". It's never a teammate's reply, which would count as a first response and make Zoe step back.
+   - **Reply buttons reuse the messenger's choices:** a click sends the label as the customer's reply, and the run matches it.
+   - **Customer-facing means talking to the customer, or handing to Zoe.**
+     - Only the highest-priority match runs for a trigger.
+     - None starts while another is still running or waiting in the conversation.
+     - Zoe answers a message only when no workflow holds it: one waiting for that answer, or a customer-facing one that may still start. When none takes it, she answers.
+   - **"Let Zoe answer"** waits for her outcome: a resolution recorded after the wait began (not reversed), a handover, or a timeout.
+   - **Workflows call read connectors only,** under the workspace's verification rules, audited as the workflow's. A call is made between transactions.
+   - **Simulation runs in a read-only transaction,** so it can't write. It applies each step's effect to the facts in memory, and asks "Suppose…" where only the future decides.
+
+Handoffs: `docs/WORKFLOWS_STEP1.md` (W1), `docs/WORKFLOWS_STEP2.md` (W2), `docs/WORKFLOWS_STEP3.md` (W3).

@@ -1,4 +1,4 @@
-import { workflowEvent } from "./workflow-engine";
+import { workflowEvent, workflowHolds } from "./workflow-engine";
 import { resolveWake } from "./snooze";
 import {
   assertClosable,
@@ -111,6 +111,11 @@ export interface Command {
    * receipt's query, and/or the article that didn't help.
    */
   helpContext?: HelpContext | null;
+  /**
+   * Phase 11 W3, honoured only for a workflow's own message (never a client's): its reply
+   * buttons, or the expected reply time it shows.
+   */
+  workflowData?: { options?: string[]; replyTime?: unknown; availability?: unknown };
 }
 export type HelpContext = {
   searched?: string;
@@ -188,7 +193,7 @@ const LATEST_MESSAGE = `LEFT JOIN LATERAL (
     left(p.body,400) AS preview_body,p.data->>'authorName' AS preview_author,p.author_id AS preview_author_id,p.data->>'name' AS preview_file
   FROM conversation_parts p
   WHERE p.workspace_id=c.workspace_id AND p.conversation_id=c.id
-    AND p.kind IN ('customer_message','teammate_reply','internal_note','ai_reply','attachment')
+    AND p.kind IN ('customer_message','teammate_reply','internal_note','ai_reply','attachment','workflow_message')
     AND NOT COALESCE((p.data->>'deleted')::boolean,false)
     AND NOT EXISTS(SELECT 1 FROM conversation_parts s WHERE s.workspace_id=p.workspace_id AND s.supersedes_id=p.id)
   ORDER BY p.seq DESC LIMIT 1
@@ -693,8 +698,10 @@ export async function command(
         "customer_message",
         p.text.trim(),
       );
-      // The AI agent (phase 08) answers when it's on and no teammate has the conversation.
-      await queueAiReply(db, w, c, first.id);
+      // The AI agent (phase 08) answers when it's on and no teammate has the conversation, and
+      // (phase 11 W3) once no customer-facing workflow takes the first message.
+      if (!(await workflowHolds(db, w, c.id, first.id)))
+        await queueAiReply(db, w, c, first.id);
       // For the teammate only: what the customer searched or read first (never delivered to them).
       if (help?.searched || help?.article)
         await append(
@@ -844,13 +851,6 @@ export async function command(
         "Customers cannot add internal notes.",
         403,
       );
-      // TODO(phase 11 W3): messages to the customer from a workflow.
-      assert(
-        actor.type !== "workflow" || p.action === "note",
-        "FORBIDDEN",
-        "Workflows add notes; messages to the customer arrive with customer-facing steps.",
-        403,
-      );
       assert(
         p.action === "note" || c.visibility !== "internal",
         "INTERNAL_TICKET",
@@ -905,12 +905,26 @@ export async function command(
       }
       if (actor.type === "contact" && c.status !== "open")
         await transition(db, w, c, who, "open");
+      // Phase 11 W3: a workflow's message is its own kind: never a teammate's first response.
       const kind =
         p.action === "note"
           ? "internal_note"
           : actor.type === "contact"
             ? "customer_message"
-            : "teammate_reply";
+            : actor.type === "workflow"
+              ? "workflow_message"
+              : "teammate_reply";
+      const extra =
+        kind === "workflow_message" && p.workflowData
+          ? {
+              ...(Array.isArray(p.workflowData.options)
+                ? { options: p.workflowData.options.map(String).slice(0, 8) }
+                : {}),
+              ...(p.workflowData.replyTime !== undefined
+                ? { replyTime: p.workflowData.replyTime, availability: p.workflowData.availability ?? null }
+                : {}),
+            }
+          : {};
       const part = await append(
         db,
         w,
@@ -923,6 +937,7 @@ export async function command(
             ? { clientMutationId: key }
             : {}),
           ...(content.doc ? { doc: content.doc } : {}),
+          ...extra,
         },
         p.action === "note" ? "internal" : "public",
       );
@@ -948,8 +963,12 @@ export async function command(
           "UPDATE conversations SET last_contact_reply_at=$3 WHERE workspace_id=$1 AND id=$2",
           [w, c.id, part.created_at],
         );
-        await queueAiReply(db, w, c, part.id);
+        // Zoe waits while a workflow is waiting for this answer, or may still take it (W3).
+        if (!(await workflowHolds(db, w, c.id, part.id)))
+          await queueAiReply(db, w, c, part.id);
       }
+      // The customer is told of a workflow's message as of a reply (unread, notifications).
+      if (kind === "workflow_message") await customerReply(db, w, c, part.seq);
       let metricsJobId: string | undefined;
       if (kind === "teammate_reply") {
         // A teammate has picked up a conversation the AI agent handed over while the team was

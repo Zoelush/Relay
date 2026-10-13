@@ -440,8 +440,9 @@ const relayWorker = {
       "ticket.broadcast": (job) => runBroadcast(runtime.connect, job),
       "sla.reevaluate": (job) => reevaluateJob(runtime.connect, job),
       // Phase 11: workflows triggered, and waiting runs resumed.
-      "workflow.start": (job) => startWorkflows(runtime.connect, job),
-      "workflow.resume": (job) => resumeWorkflow(runtime.connect, job),
+      // W3: read connectors, when their key is set.
+      "workflow.start": (job) => startWorkflows(runtime.connect, job, { connectors: runtime.connectors }),
+      "workflow.resume": (job) => resumeWorkflow(runtime.connect, job, { connectors: runtime.connectors }),
     };
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>

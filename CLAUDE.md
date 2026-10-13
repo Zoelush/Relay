@@ -33,8 +33,12 @@ complete, with the Claude evaluation baseline waiting for a key. Monitors (`serv
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
 (conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 11 (`docs/WORKFLOWS_PLAN.md`, behind `workflows_v1`):
-W1, the engine, and W2, the builder, are done locally (`docs/WORKFLOWS_STEP1.md`, `STEP2.md`); next is W3
-(customer-facing steps and simulation). The builder (`agent/workflow-builder.tsx`, `#workflows/<id>`) checks drafts with
+W1 (the engine), W2 (the builder) and W3 (customer-facing steps and simulation) are done locally
+(`docs/WORKFLOWS_STEP1.md` to `STEP3.md`); next is W4 (run log pages, alerts, templates, acceptance). A workflow's
+message to a customer is a `workflow_message` part, never a `teammate_reply`; Zoe is queued for a customer's
+message only when `workflowHolds` is false; workflows call read connectors only, between transactions, under the
+verification rules; simulation (`server/workflow-simulate.ts`) runs in a read-only transaction and must stay
+that way. The builder (`agent/workflow-builder.tsx`, `#workflows/<id>`) checks drafts with
 the definition's own `validate` and `problems`, and its live estimate (`server/workflow-estimate.ts`) judges with the
 engine's `evaluate` on `buildFacts`; keep one definition of what a condition means. Card positions live in
 `workflows.layout`, never in versions. Every timeline part

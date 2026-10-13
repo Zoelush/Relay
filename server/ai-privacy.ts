@@ -160,7 +160,7 @@ export async function memoryFor(
         `SELECT kind,body FROM (
            SELECT kind,body,seq FROM conversation_parts
            WHERE workspace_id=$1 AND conversation_id=$2 AND audience='public'
-             AND kind IN ('customer_message','teammate_reply','ai_reply')
+             AND kind IN ('customer_message','teammate_reply','ai_reply','workflow_message')
              AND NOT COALESCE((data->>'deleted')::boolean,false)
            ORDER BY seq DESC LIMIT 6) t ORDER BY seq`,
         [w, c.id],
