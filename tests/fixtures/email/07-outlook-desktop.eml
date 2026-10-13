@@ -1,0 +1,16 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Sam Okafor <sam@customer.example>
+To: support@acme.example
+Subject: RE: Account access
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-07@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+SGksCgpUaGUgZW1haWwgaXMgc2FtQGN1c3RvbWVyLmV4YW1wbGUuCgpLaW5kIHJlZ2FyZHMsClNh
+bQoKX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX18KRnJvbTogQWNtZSBTdXBwb3J0IDxz
+dXBwb3J0QGFjbWUuZXhhbXBsZT4KU2VudDogTW9uZGF5LCBPY3RvYmVyIDEyLCAyMDI2IDk6MTUg
+QU0KVG86IFNhbSBPa2Fmb3IgPHNhbUBjdXN0b21lci5leGFtcGxlPgpTdWJqZWN0OiBSRTogQWNj
+b3VudCBhY2Nlc3MKCkNvdWxkIHlvdSBjb25maXJtIHRoZSBlbWFpbCBvbiB0aGUgYWNjb3VudD8K

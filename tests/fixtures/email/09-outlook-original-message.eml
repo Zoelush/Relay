@@ -1,0 +1,15 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Tom Byrne <tom@customer.example>
+To: support@acme.example
+Subject: RE: Delivery date
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-09@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+RnJpZGF5IGlzIGZpbmUuCgotLS0tLU9yaWdpbmFsIE1lc3NhZ2UtLS0tLQpGcm9tOiBBY21lIFN1
+cHBvcnQgW21haWx0bzpzdXBwb3J0QGFjbWUuZXhhbXBsZV0KU2VudDogTW9uZGF5LCBPY3RvYmVy
+IDEyLCAyMDI2IDk6MTUgQU0KVG86IFRvbSBCeXJuZQpTdWJqZWN0OiBEZWxpdmVyeSBkYXRlCgpX
+b3VsZCBGcmlkYXkgd29yaz8K

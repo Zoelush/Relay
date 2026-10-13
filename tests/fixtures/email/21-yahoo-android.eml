@@ -1,0 +1,14 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Ben Carter <ben@customer.example>
+To: support@acme.example
+Subject: Re: Bill
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-21@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+UGFpZCB0aGlzIG1vcm5pbmcuCgpTZW50IGZyb20gWWFob28gTWFpbCBvbiBBbmRyb2lkCgpPbiBN
+b24sIDEyIE9jdCAyMDI2IGF0IDk6MTUsIEFjbWUgU3VwcG9ydDxzdXBwb3J0QGFjbWUuZXhhbXBs
+ZT4gd3JvdGU6CgpZb3VyIGJpbGwgaXMgZHVlLgo=

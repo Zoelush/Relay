@@ -34,6 +34,8 @@ export type Inbound = {
   threadKeys: string[];
   /** Keys later messages may refer to (for email: its own Message-ID). */
   ownKeys?: string[];
+  /** A looser key (email: subject and sender), used only when no thread key matches, within `days`. */
+  fallback?: { key: string; days: number } | null;
   /** The brand it was sent to. */
   brandId: string;
   /** Anything the inbox shows beside it (a subject, the original before quotes were stripped). */
@@ -56,6 +58,8 @@ export type SendResult =
   | { status: "failed"; error: string; permanent: true; suppress?: "hard_bounce" | "complaint" | "opt_out" };
 export type ChannelAdapter = {
   id: string;
+  /** Its own flag (besides `channels_v1`), when it has one. */
+  flag?: string;
   capabilities: Capabilities;
   /** The address as kept (lower-case email, an E.164 number), or null when it isn't one. */
   address(raw: string): string | null;
@@ -94,6 +98,14 @@ export const channels = () => [...adapters.values()];
 
 export async function channelsEnabled(db: Sql, w: string) {
   return (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='channels_v1' AND enabled", [w])).rows.length > 0;
+}
+/** The channels a workspace has on: the messenger, and each adapter whose flag is on. */
+export async function enabledChannels(db: Sql, w: string) {
+  if (!(await channelsEnabled(db, w))) return [messenger];
+  const flags = new Set(
+    (await db.query<{ name: string }>("SELECT name FROM workspace_features WHERE workspace_id=$1 AND enabled", [w])).rows.map((r) => r.name),
+  );
+  return channels().filter((a) => !a.flag || flags.has(a.flag));
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -162,30 +174,42 @@ export async function channelIdentity(db: Sql, w: string, a: ChannelAdapter, raw
  */
 export async function receiveInbound(db: Sql, w: string, a: ChannelAdapter, m: Inbound) {
   assert(await channelsEnabled(db, w), "CHANNELS_DISABLED", "Channels are not enabled for this workspace.", 404);
+  assert((await enabledChannels(db, w)).includes(a), "CHANNEL_DISABLED", `The ${a.id} channel is not enabled for this workspace.`, 404);
   const seen = (
     await db.query<{ part_id: string; conversation_id: string }>(
       "SELECT part_id,conversation_id FROM channel_messages WHERE workspace_id=$1 AND channel=$2 AND external_id=$3",
       [w, a.id, m.externalId],
     )
   ).rows[0];
-  if (seen) return { conversationId: seen.conversation_id, partId: seen.part_id, duplicate: true };
+  if (seen) return { conversationId: seen.conversation_id, partId: seen.part_id, duplicate: true, identityId: null };
   const { command, conversation } = await import("./conversations");
   const who = await channelIdentity(db, w, a, m.address, m.verified, m.name);
-  const thread = m.threadKeys.length
-    ? (
-        await db.query<{ conversation_id: string }>(
-          `SELECT t.conversation_id FROM channel_threads t JOIN conversations c ON c.workspace_id=t.workspace_id AND c.id=t.conversation_id
-           WHERE t.workspace_id=$1 AND t.channel=$2 AND t.thread_key=ANY($3::text[]) AND c.merged_into_id IS NULL ORDER BY t.created_at DESC LIMIT 1`,
-          [w, a.id, m.threadKeys],
-        )
-      ).rows[0]?.conversation_id
-    : undefined;
+  const thread =
+    (m.threadKeys.length
+      ? (
+          await db.query<{ conversation_id: string }>(
+            `SELECT t.conversation_id FROM channel_threads t JOIN conversations c ON c.workspace_id=t.workspace_id AND c.id=t.conversation_id
+             WHERE t.workspace_id=$1 AND t.channel=$2 AND t.thread_key=ANY($3::text[]) AND c.merged_into_id IS NULL ORDER BY t.created_at DESC LIMIT 1`,
+            [w, a.id, m.threadKeys],
+          )
+        ).rows[0]?.conversation_id
+      : undefined) ??
+    (m.fallback
+      ? (
+          await db.query<{ conversation_id: string }>(
+            `SELECT t.conversation_id FROM channel_threads t JOIN conversations c ON c.workspace_id=t.workspace_id AND c.id=t.conversation_id
+             WHERE t.workspace_id=$1 AND t.channel=$2 AND t.thread_key=$3 AND c.merged_into_id IS NULL AND c.updated_at>now()-make_interval(days=>$4)
+             ORDER BY c.updated_at DESC LIMIT 1`,
+            [w, a.id, m.fallback.key, m.fallback.days],
+          )
+        ).rows[0]?.conversation_id
+      : undefined);
   const actor = { type: "contact" as const, identityId: who.identityId, brandId: m.brandId, verified: who.verified, channel: a.id };
   let conversationId: string;
   let partId: string;
   if (m.automatic) {
     // Nothing to answer: a note for teammates where it belongs, or nowhere.
-    if (!thread) return { conversationId: null, partId: null, automatic: true };
+    if (!thread) return { conversationId: null, partId: null, automatic: true, identityId: who.identityId };
     const { append } = await import("./conversations");
     const c = await conversation(db, w, thread);
     const part = await append(db, w, c, { type: "contact", id: who.identityId }, "system_event", "", { event: "automatic_reply", channel: a.id, ...m.data }, "internal", null, a.id);
@@ -208,10 +232,10 @@ export async function receiveInbound(db: Sql, w: string, a: ChannelAdapter, m: I
       )
     ).rows[0].id;
   }
-  for (const key of [...m.threadKeys, ...(m.ownKeys ?? [])])
+  for (const key of [...m.threadKeys, ...(m.ownKeys ?? []), ...(m.fallback ? [m.fallback.key] : [])])
     await db.query("INSERT INTO channel_threads(workspace_id,channel,thread_key,conversation_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", [w, a.id, key, conversationId]);
   await db.query("INSERT INTO channel_messages(workspace_id,channel,external_id,part_id,conversation_id) VALUES($1,$2,$3,$4,$5)", [w, a.id, m.externalId, partId, conversationId]);
-  return { conversationId, partId, duplicate: false };
+  return { conversationId, partId, duplicate: false, identityId: who.identityId };
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -293,7 +317,11 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
   });
   if (!ready) return { done: true, result: { sent: false } };
   const a = adapterOf(ready.channel);
-  assert(a.send, "CHANNEL_CANT_SEND", `The ${a.id} channel can't send.`, 503);
+  // A channel that can receive but not yet send (email, until E3): said once, not retried.
+  if (!a.send) {
+    await tenant(connect, w, (db) => setStatus(db, w, deliveryId, "failed", `Replies can't be sent by ${a.id} yet.`));
+    return { done: true, result: { sent: false } };
+  }
   let result: SendResult;
   try {
     result = await a.send(
@@ -423,7 +451,7 @@ export async function readSuppressions(db: Sql, w: string, principal: string) {
       liftedBy: r.lifted_name,
       liftable: !r.lifted_at && (r.reason === "manual" || r.reason === "hard_bounce"),
     })),
-    channels: channels()
+    channels: (await enabledChannels(db, w))
       .filter((a) => a.capabilities.address !== "session")
       .map((a) => ({ id: a.id, address: a.capabilities.address })),
   };
@@ -435,7 +463,7 @@ export async function changeSuppression(db: Sql, w: string, principal: string, k
   assert(await channelsEnabled(db, w), "CHANNELS_DISABLED", "Channels are not enabled for this workspace.", 404);
   return once(db, w, "suppression:" + principal, key, p, async () => {
     if (p.action === "add") {
-      const a = adapters.get(String(p.channel ?? ""));
+      const a = (await enabledChannels(db, w)).find((x) => x.id === String(p.channel ?? ""));
       assert(a && a.capabilities.address !== "session", "INVALID_CHANNEL", "Choose a channel with addresses.", 400);
       const address = a.address(String(p.address ?? ""));
       assert(address, "INVALID_ADDRESS", `That isn't a ${a.id} address.`, 400);

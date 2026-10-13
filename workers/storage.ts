@@ -52,11 +52,15 @@ export function r2Attachments(env: StorageEnv): AttachmentStorage {
   return {
     signUpload: (key, type) =>
       signed(env.R2_QUARANTINE_BUCKET, key, "PUT", { "Content-Type": type }),
+    async putQuarantine(key, bytes, type) {
+      await env.ATTACHMENT_QUARANTINE.put(key, bytes, { httpMetadata: { contentType: type } });
+    },
     async getQuarantine(key) {
       const object = await env.ATTACHMENT_QUARANTINE.get(key);
       if (!object) return null;
+      // Phase 12 E2: raw inbound emails (up to 25 MB) share quarantine with attachments (10 MB).
       assert(
-        object.size <= MAX_ATTACHMENT_BYTES,
+        object.size <= (key.includes("/email/") ? 25 * 1024 * 1024 : MAX_ATTACHMENT_BYTES),
         "ATTACHMENT_SIZE",
         "Uploaded file is too large.",
       );

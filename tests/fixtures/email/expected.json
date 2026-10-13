@@ -1,0 +1,443 @@
+{
+ "trustedAuthServ": [
+  "mx.cloudflare.net"
+ ],
+ "emails": [
+  {
+   "file": "01-gmail-reply.eml",
+   "kind": "message",
+   "from": "jane@customer.example",
+   "subject": "Re: Late order",
+   "text": "It's order 1042, placed last Tuesday.",
+   "verified": true,
+   "stripped": true
+  },
+  {
+   "file": "02-gmail-wrapped-header.eml",
+   "kind": "message",
+   "from": "ravi@customer.example",
+   "subject": "Re: Refund",
+   "text": "Yes please, refund to the original card.",
+   "stripped": true
+  },
+  {
+   "file": "03-gmail-quotes-only.eml",
+   "kind": "message",
+   "from": "ana@customer.example",
+   "subject": "Re: Your question",
+   "text": "That works for me, thank you!",
+   "stripped": true
+  },
+  {
+   "file": "04-gmail-spanish.eml",
+   "kind": "message",
+   "from": "lucia@customer.example",
+   "subject": "Re: Pedido",
+   "text": "Gracias, ya lo recibí.",
+   "stripped": true
+  },
+  {
+   "file": "05-gmail-french.eml",
+   "kind": "message",
+   "from": "chloe@customer.example",
+   "subject": "Re: Facture",
+   "text": "Merci, c'est réglé.",
+   "stripped": true
+  },
+  {
+   "file": "06-gmail-german.eml",
+   "kind": "message",
+   "from": "lukas@customer.example",
+   "subject": "Re: Lieferung",
+   "text": "Danke, das Paket ist angekommen.",
+   "stripped": true
+  },
+  {
+   "file": "07-outlook-desktop.eml",
+   "kind": "message",
+   "from": "sam@customer.example",
+   "subject": "RE: Account access",
+   "text": "Hi,\n\nThe email is sam@customer.example.\n\nKind regards,\nSam",
+   "stripped": true
+  },
+  {
+   "file": "08-outlook-html.eml",
+   "kind": "message",
+   "from": "mei@customer.example",
+   "subject": "RE: Invoice copy",
+   "text": "Thanks, received.",
+   "stripped": true
+  },
+  {
+   "file": "09-outlook-original-message.eml",
+   "kind": "message",
+   "from": "tom@customer.example",
+   "subject": "RE: Delivery date",
+   "text": "Friday is fine.",
+   "stripped": true
+  },
+  {
+   "file": "10-outlook-german.eml",
+   "kind": "message",
+   "from": "anna@customer.example",
+   "subject": "AW: Rückgabe",
+   "text": "Bitte holen Sie es am Montag ab.",
+   "stripped": true
+  },
+  {
+   "file": "11-outlook-french.eml",
+   "kind": "message",
+   "from": "hugo@customer.example",
+   "subject": "RE: Abonnement",
+   "text": "Oui, je confirme la résiliation.",
+   "stripped": true
+  },
+  {
+   "file": "12-outlook-ios.eml",
+   "kind": "message",
+   "from": "priya@customer.example",
+   "subject": "RE: Password reset",
+   "text": "Done, I'm back in. Thanks!",
+   "stripped": true
+  },
+  {
+   "file": "13-outlook-android.eml",
+   "kind": "message",
+   "from": "omar@customer.example",
+   "subject": "RE: Trial",
+   "text": "Please extend it by a week.",
+   "stripped": true
+  },
+  {
+   "file": "14-outlook-web-html-only.eml",
+   "kind": "message",
+   "from": "leo@customer.example",
+   "subject": "RE: Receipt",
+   "text": "Can you send the receipt again?",
+   "stripped": true
+  },
+  {
+   "file": "15-apple-mail.eml",
+   "kind": "message",
+   "from": "noah@customer.example",
+   "subject": "Re: Warranty",
+   "text": "The serial number is AC-7731.",
+   "stripped": true
+  },
+  {
+   "file": "16-iphone.eml",
+   "kind": "message",
+   "from": "emma@customer.example",
+   "subject": "Re: Booking",
+   "text": "Perfect, see you then.",
+   "stripped": true
+  },
+  {
+   "file": "17-iphone-french.eml",
+   "kind": "message",
+   "from": "lea@customer.example",
+   "subject": "Re: Réservation",
+   "text": "Parfait, merci.",
+   "stripped": true
+  },
+  {
+   "file": "18-android-galaxy.eml",
+   "kind": "message",
+   "from": "kwame@customer.example",
+   "subject": "Re: Order 2210",
+   "text": "Still waiting for the tracking link.",
+   "stripped": true
+  },
+  {
+   "file": "19-samsung-mobile.eml",
+   "kind": "message",
+   "from": "yuki@customer.example",
+   "subject": "Re: Coupon",
+   "text": "The code says expired.",
+   "stripped": true
+  },
+  {
+   "file": "20-yahoo-html.eml",
+   "kind": "message",
+   "from": "olga@customer.example",
+   "subject": "Re: Shipping address",
+   "text": "Please use my new address: 4 Elm Road.",
+   "stripped": true
+  },
+  {
+   "file": "21-yahoo-android.eml",
+   "kind": "message",
+   "from": "ben@customer.example",
+   "subject": "Re: Bill",
+   "text": "Paid this morning.",
+   "stripped": true
+  },
+  {
+   "file": "22-thunderbird.eml",
+   "kind": "message",
+   "from": "ines@customer.example",
+   "subject": "Re: Export",
+   "text": "The export finished, thanks.",
+   "stripped": true
+  },
+  {
+   "file": "23-thunderbird-dutch.eml",
+   "kind": "message",
+   "from": "daan@customer.example",
+   "subject": "Re: Retour",
+   "text": "Het pakket is verstuurd.",
+   "stripped": true
+  },
+  {
+   "file": "24-forward-gmail.eml",
+   "kind": "message",
+   "from": "jane@customer.example",
+   "subject": "Fwd: Payment declined",
+   "text": "Can you help with this? It came from our bank.\n\n---------- Forwarded message ---------\nFrom: Bank Notices <notices@bank.example>\nDate: Mon, Oct 12, 2026 at 8:00 AM\nSubject: Payment declined\nTo: <jane@customer.example>\n\nYour payment to Acme was declined.",
+   "forwarded": true
+  },
+  {
+   "file": "25-forward-apple.eml",
+   "kind": "message",
+   "from": "noah@customer.example",
+   "subject": "Fwd: Delivery attempted",
+   "text": "See below.\n\nBegin forwarded message:\n\nFrom: Courier <tracking@courier.example>\nSubject: Delivery attempted\nDate: 12 October 2026 at 08:00:00 BST\nTo: Noah Kim <noah@customer.example>\n\nWe tried to deliver your parcel.",
+   "forwarded": true
+  },
+  {
+   "file": "26-forward-outlook.eml",
+   "kind": "message",
+   "from": "sam@customer.example",
+   "subject": "FW: Order confirmation",
+   "text": "Forwarding the confirmation as requested.\n\n________________________________\nFrom: Acme Store <orders@acme.example>\nSent: Sunday, October 11, 2026 6:00 PM\nTo: Sam Okafor <sam@customer.example>\nSubject: Order confirmation\n\nThank you for your order 3301.",
+   "forwarded": true
+  },
+  {
+   "file": "27-forward-chain.eml",
+   "kind": "message",
+   "from": "tom@customer.example",
+   "subject": "Fwd: Re: Duplicate charge",
+   "text": "Looping you in: see the thread below.\n\n---------- Forwarded message ---------\nFrom: Mei Chen <mei@customer.example>\nDate: Sun, Oct 11, 2026 at 5:00 PM\nSubject: Re: Duplicate charge\nTo: Finance <finance@customer.example>\n\nWe were charged twice.\n\nOn Sun, Oct 11, 2026 at 4:00 PM Finance <finance@customer.example> wrote:\n> Which invoice?",
+   "forwarded": true
+  },
+  {
+   "file": "28-iso-2022-jp.eml",
+   "kind": "message",
+   "from": "hanako@customer.example",
+   "subject": "Re: 注文について",
+   "text": "注文番号は1042です。",
+   "stripped": true
+  },
+  {
+   "file": "29-shift-jis.eml",
+   "kind": "message",
+   "from": "taro@customer.example",
+   "subject": "配送状況の確認",
+   "text": "荷物がまだ届いていません。確認をお願いします。"
+  },
+  {
+   "file": "30-gb2312.eml",
+   "kind": "message",
+   "from": "wei@customer.example",
+   "subject": "回复：退款申请",
+   "text": "我已经收到退款了，谢谢。",
+   "stripped": true
+  },
+  {
+   "file": "31-big5.eml",
+   "kind": "message",
+   "from": "meiling@customer.example",
+   "subject": "帳戶問題",
+   "text": "我無法登入我的帳戶，請協助。"
+  },
+  {
+   "file": "32-euc-kr.eml",
+   "kind": "message",
+   "from": "minjun@customer.example",
+   "subject": "Re: 배송 문의",
+   "text": "네, 확인했습니다. 감사합니다.",
+   "stripped": true
+  },
+  {
+   "file": "33-koi8-r.eml",
+   "kind": "message",
+   "from": "ivan@customer.example",
+   "subject": "Вопрос по счёту",
+   "text": "Здравствуйте! В счёте указана неверная сумма."
+  },
+  {
+   "file": "34-windows-1251-reply.eml",
+   "kind": "message",
+   "from": "olga.s@customer.example",
+   "subject": "Re: Доставка",
+   "text": "Спасибо, посылка пришла.",
+   "stripped": true
+  },
+  {
+   "file": "35-iso-8859-7.eml",
+   "kind": "message",
+   "from": "nikos@customer.example",
+   "subject": "Ερώτηση για παραγγελία",
+   "text": "Πότε θα φτάσει η παραγγελία μου;"
+  },
+  {
+   "file": "36-auto-submitted.eml",
+   "kind": "auto_reply",
+   "from": "grace@customer.example",
+   "subject": "Re: Your request",
+   "text": "I'm on leave until 19 October.",
+   "reason": "An automatic reply."
+  },
+  {
+   "file": "37-x-autoreply.eml",
+   "kind": "auto_reply",
+   "from": "ali@customer.example",
+   "subject": "Re: Your request",
+   "text": "Thanks, we received your email.",
+   "reason": "An automatic reply."
+  },
+  {
+   "file": "38-precedence.eml",
+   "kind": "auto_reply",
+   "from": "desk@customer.example",
+   "subject": "Re: Your request",
+   "text": "Ticket 55120 created.",
+   "reason": "An automatic reply."
+  },
+  {
+   "file": "39-outlook-automatic-reply.eml",
+   "kind": "auto_reply",
+   "from": "sam@customer.example",
+   "subject": "Automatic reply: Account access",
+   "text": "I'm out of the office until Monday.",
+   "reason": "An automatic reply (out of office)."
+  },
+  {
+   "file": "40-abwesenheitsnotiz.eml",
+   "kind": "auto_reply",
+   "from": "anna@customer.example",
+   "subject": "Abwesenheitsnotiz: Rückgabe",
+   "text": "Ich bin bis zum 20. Oktober nicht im Büro.",
+   "reason": "An automatic reply (out of office)."
+  },
+  {
+   "file": "41-dsn-hard.eml",
+   "kind": "bounce",
+   "from": "mailer-daemon@mail.acme.example",
+   "subject": "Delivery Status Notification (Failure)",
+   "bounce": {
+    "hard": true,
+    "recipients": [
+     "gone@customer.example"
+    ]
+   }
+  },
+  {
+   "file": "42-dsn-delayed.eml",
+   "kind": "bounce",
+   "from": "mailer-daemon@mail.acme.example",
+   "subject": "Delivery Status Notification (Delay)",
+   "bounce": {
+    "hard": false,
+    "recipients": [
+     "slow@customer.example"
+    ]
+   }
+  },
+  {
+   "file": "43-exchange-ndr.eml",
+   "kind": "bounce",
+   "from": "postmaster@customer.example",
+   "subject": "Undeliverable: Your order",
+   "bounce": {
+    "hard": true,
+    "recipients": [
+     "former.employee@customer.example"
+    ]
+   }
+  },
+  {
+   "file": "44-qmail-failure.eml",
+   "kind": "bounce",
+   "from": "mailer-daemon@mx.customer.example",
+   "subject": "failure notice",
+   "bounce": {
+    "hard": true,
+    "recipients": [
+     "nobody@customer.example"
+    ]
+   }
+  },
+  {
+   "file": "45-signature-delimiter.eml",
+   "kind": "message",
+   "from": "jane@customer.example",
+   "subject": "Question about plans",
+   "text": "Do you offer a yearly plan?",
+   "stripped": true
+  },
+  {
+   "file": "46-sign-off-kept.eml",
+   "kind": "message",
+   "from": "ravi@customer.example",
+   "subject": "Feature request",
+   "text": "Could you add dark mode to the dashboard?\n\nBest,\nRavi",
+   "stripped": false
+  },
+  {
+   "file": "47-attachments.eml",
+   "kind": "message",
+   "from": "mei@customer.example",
+   "subject": "Billing screenshots",
+   "text": "Here are the invoice and a screenshot.",
+   "attachments": [
+    "invoice-1042.pdf",
+    "screenshot.png"
+   ]
+  },
+  {
+   "file": "48-inline-image.eml",
+   "kind": "message",
+   "from": "leo@customer.example",
+   "subject": "Error on checkout",
+   "text": "See the error below.\n[image: error.png]",
+   "attachments": [
+    "steps.docx"
+   ],
+   "inlineImages": 1
+  },
+  {
+   "file": "49-hostile-html.eml",
+   "kind": "message",
+   "from": "ana@customer.example",
+   "subject": "Account check",
+   "text": "Please check my account.\nclick guide",
+   "verified": false,
+   "remoteImages": 1,
+   "htmlMustNotContain": [
+    "<script",
+    "onload",
+    "javascript:",
+    "<iframe",
+    "<form",
+    "<input",
+    "position",
+    "url(",
+    " src=\"https://tracker"
+   ],
+   "htmlMustContain": [
+    "data-remote-src=\"https://tracker.example/pixel.gif\"",
+    "href=\"https://help.example/guide\"",
+    "color: red"
+   ]
+  },
+  {
+   "file": "50-quoted-printable.eml",
+   "kind": "message",
+   "from": "kwame@customer.example",
+   "subject": "Upgrade quote",
+   "text": "Hello! I'd like to upgrade to the Team plan 🚀 — could you send a quote for twelve seats with annual billing, please? Thanks so much.",
+   "verified": false
+  }
+ ]
+}

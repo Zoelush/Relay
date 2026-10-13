@@ -1,0 +1,34 @@
+Content-Type: multipart/mixed; boundary="===============5458542774118137268=="
+MIME-Version: 1.0
+From: Mei Chen <mei@customer.example>
+To: support@acme.example
+Subject: Billing screenshots
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-47@mail.example.net>
+
+--===============5458542774118137268==
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+SGVyZSBhcmUgdGhlIGludm9pY2UgYW5kIGEgc2NyZWVuc2hvdC4K
+
+--===============5458542774118137268==
+Content-Type: application/pdf
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="invoice-1042.pdf"
+
+JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCnRyYWlsZXI8PC9Sb290IDEg
+MCBSPj4KJSVFT0YK
+
+--===============5458542774118137268==
+Content-Type: image/png
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="screenshot.png"
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgAAACAAFUok9dAAAA
+AElFTkSuQmCC
+
+--===============5458542774118137268==--

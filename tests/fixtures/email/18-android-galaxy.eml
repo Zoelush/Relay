@@ -1,0 +1,16 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Kwame Mensah <kwame@customer.example>
+To: support@acme.example
+Subject: Re: Order 2210
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-18@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+U3RpbGwgd2FpdGluZyBmb3IgdGhlIHRyYWNraW5nIGxpbmsuCgpTZW50IGZyb20gbXkgR2FsYXh5
+CgotLS0tLS0tLSBPcmlnaW5hbCBtZXNzYWdlIC0tLS0tLS0tCkZyb206IEFjbWUgU3VwcG9ydCA8
+c3VwcG9ydEBhY21lLmV4YW1wbGU+CkRhdGU6IDEyLzEwLzIwMjYgMDk6MTUgKEdNVCswMDowMCkK
+VG86IEt3YW1lIE1lbnNhaApTdWJqZWN0OiBPcmRlciAyMjEwCgpZb3VyIG9yZGVyIGhhcyBzaGlw
+cGVkLgo=

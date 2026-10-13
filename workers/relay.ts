@@ -13,6 +13,12 @@ import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
 import { runDelivery } from "../server/channels";
+import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
+const emailEnvironment = (env: Env, storage: EmailEnvironment["storage"]): EmailEnvironment => ({
+  storage,
+  domain: env.RELAY_INBOUND_DOMAIN ?? "",
+  trustedAuthServ: (env.RELAY_EMAIL_AUTHSERV ?? "mx.cloudflare.net").split(",").map((x) => x.trim()),
+});
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -97,6 +103,13 @@ interface Env extends Partial<StorageEnv> {
    * (`wrangler secret put ANTHROPIC_API_KEY`), never in config. Without it the agent can't run.
    */
   ANTHROPIC_API_KEY?: string;
+  /**
+   * Email in (phase 12 E2): the domain brands' inbound addresses are on (Cloudflare Email Routing
+   * sends it to this Worker's `email` handler), and the receivers whose Authentication-Results are
+   * believed (Email Routing's, `mx.cloudflare.net`, unless set). TODO(phase 17): the routing rule.
+   */
+  RELAY_INBOUND_DOMAIN?: string;
+  RELAY_EMAIL_AUTHSERV?: string;
 }
 /** The AI index's model and store, when both bindings exist. */
 const knowledgeIndex = (env: Env): IndexEnvironment | undefined =>
@@ -191,6 +204,7 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     sessionSecret: env.SESSION_SECRET,
     identityMaster: env.IDENTITY_MASTER,
     connectors: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
+    emailDomain: env.RELAY_INBOUND_DOMAIN,
     bridgeSecret: env.BRIDGE_SECRET,
     realtimeUrl: env.PUBLIC_ORIGIN.replace(/^http/, "ws") + "/realtime",
     notify: (workspace, id) =>
@@ -450,6 +464,8 @@ const relayWorker = {
       // Phase 12: a reply delivered on its conversation's channel.
       // TODO(phase 12 E3): provider credentials (email first) in the channel environment.
       "channel.deliver": (job) => runDelivery(runtime.connect, {}, job),
+      // Phase 12 E2: an email received at an inbound address, read into its conversation.
+      "email.receive": (job) => receiveEmailJob(runtime.connect, emailEnvironment(env, runtime.attachments), job),
     };
     if (runtime.attachments)
       handlers["attachment.scan"] = (job) =>
@@ -599,6 +615,18 @@ const relayWorker = {
         message.retry({ delaySeconds: 30 });
       }
     }
+  },
+  /** Phase 12 E2: mail from Cloudflare Email Routing, at a brand's inbound address. */
+  async email(message: ForwardableEmailMessage, env: Env) {
+    if (env.RELAY_ENABLED !== "true" || !env.RELAY_INBOUND_DOMAIN) {
+      message.setReject("This address isn't accepting mail.");
+      return;
+    }
+    const runtime = environment(env);
+    const raw = new Uint8Array(await new Response(message.raw).arrayBuffer());
+    const result = await acceptEmail(runtime.connect, emailEnvironment(env, runtime.attachments), { raw, to: message.to, from: message.from });
+    if (!result.accepted) message.setReject(result.reason);
+    else await runtime.notify?.(message.to.split("+")[0], "");
   },
   async scheduled(
     _controller: ScheduledController,

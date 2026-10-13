@@ -1,0 +1,14 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: =?utf-8?q?L=C3=A9a_Petit?= <lea@customer.example>
+To: support@acme.example
+Subject: =?utf-8?q?Re=3A_R=C3=A9servation?=
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-17@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+UGFyZmFpdCwgbWVyY2kuCgpFbnZvecOpIGRlIG1vbiBpUGhvbmUKCj4gTGUgMTIgb2N0LiAyMDI2
+IMOgIDA5OjE1LCBBY21lIFN1cHBvcnQgPHN1cHBvcnRAYWNtZS5leGFtcGxlPiBhIMOpY3JpdCA6
+Cj4KPiBWb3RyZSByw6lzZXJ2YXRpb24gZXN0IGNvbmZpcm3DqWUuCg==

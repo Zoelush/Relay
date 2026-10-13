@@ -1,0 +1,36 @@
+Content-Type: multipart/alternative;
+ boundary="===============0288708470601316181=="
+MIME-Version: 1.0
+From: Jane Doe <jane@customer.example>
+To: support@acme.example
+Subject: Re: Late order
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-01@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+Authentication-Results: mx.cloudflare.net;
+ dkim=pass header.d=customer.example; spf=pass smtp.mailfrom=customer.example;
+ dmarc=pass header.from=customer.example
+
+--===============0288708470601316181==
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+SXQncyBvcmRlciAxMDQyLCBwbGFjZWQgbGFzdCBUdWVzZGF5LgoKT24gTW9uLCBPY3QgMTIsIDIw
+MjYgYXQgOToxNSBBTSBBY21lIFN1cHBvcnQgPHN1cHBvcnRAYWNtZS5leGFtcGxlPiB3cm90ZToK
+Cj4gVGhhbmtzIGZvciB3cml0aW5nIGluLiBDb3VsZCB5b3Ugc2VuZCB5b3VyIG9yZGVyIG51bWJl
+cj8KPgo+IEJlc3QsCj4gQWNtZSBTdXBwb3J0Cg==
+
+--===============0288708470601316181==
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+PGRpdiBkaXI9Imx0ciI+SXQncyBvcmRlciAxMDQyLCBwbGFjZWQgbGFzdCBUdWVzZGF5LjwvZGl2
+Pjxicj48ZGl2IGNsYXNzPSJnbWFpbF9xdW90ZSI+PGRpdiBkaXI9Imx0ciIgY2xhc3M9ImdtYWls
+X2F0dHIiPk9uIE1vbiwgT2N0IDEyLCAyMDI2IGF0IDk6MTUgQU0gQWNtZSBTdXBwb3J0ICZsdDtz
+dXBwb3J0QGFjbWUuZXhhbXBsZSZndDsgd3JvdGU6PGJyPjwvZGl2PjxibG9ja3F1b3RlIGNsYXNz
+PSJnbWFpbF9xdW90ZSI+VGhhbmtzIGZvciB3cml0aW5nIGluLjwvYmxvY2txdW90ZT48L2Rpdj4=
+
+--===============0288708470601316181==--

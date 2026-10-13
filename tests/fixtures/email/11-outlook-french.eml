@@ -1,0 +1,15 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Hugo Bernard <hugo@customer.example>
+To: support@acme.example
+Subject: RE: Abonnement
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-11@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+T3VpLCBqZSBjb25maXJtZSBsYSByw6lzaWxpYXRpb24uCgpEZSA6IEFjbWUgU3VwcG9ydCA8c3Vw
+cG9ydEBhY21lLmV4YW1wbGU+CkVudm95w6kgOiBsdW5kaSAxMiBvY3RvYnJlIDIwMjYgMDk6MTUK
+w4AgOiBIdWdvIEJlcm5hcmQKT2JqZXQgOiBBYm9ubmVtZW50CgpTb3VoYWl0ZXotdm91cyByw6lz
+aWxpZXIgPwo=

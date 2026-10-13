@@ -1,0 +1,32 @@
+Content-Type: multipart/alternative;
+ boundary="===============6402914275640346267=="
+MIME-Version: 1.0
+From: Olga Ivanova <olga@customer.example>
+To: support@acme.example
+Subject: Re: Shipping address
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-20@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+--===============6402914275640346267==
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+UGxlYXNlIHVzZSBteSBuZXcgYWRkcmVzczogNCBFbG0gUm9hZC4KCk9uIE1vbmRheSwgT2N0b2Jl
+ciAxMiwgMjAyNiwgMDk6MTU6MDAgQU0gR01UKzEsIEFjbWUgU3VwcG9ydCA8c3VwcG9ydEBhY21l
+LmV4YW1wbGU+IHdyb3RlOgoKV2hpY2ggYWRkcmVzcyBzaG91bGQgd2UgdXNlPwo=
+
+--===============6402914275640346267==
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PGRpdiBjbGFzcz0ieWRwMSI+PGRpdj5QbGVhc2UgdXNlIG15IG5ldyBhZGRy
+ZXNzOiA0IEVsbSBSb2FkLjwvZGl2PjwvZGl2PjxkaXYgaWQ9InlhaG9vX3F1b3RlZF8xIiBjbGFz
+cz0ieWFob29fcXVvdGVkIj48ZGl2Pk9uIE1vbmRheSwgT2N0b2JlciAxMiwgMjAyNiwgQWNtZSBT
+dXBwb3J0IHdyb3RlOjwvZGl2PjxkaXY+V2hpY2ggYWRkcmVzcyBzaG91bGQgd2UgdXNlPzwvZGl2
+PjwvZGl2PjwvYm9keT48L2h0bWw+
+
+--===============6402914275640346267==--

@@ -33,8 +33,13 @@ complete, with the Claude evaluation baseline waiting for a key. Monitors (`serv
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
 (conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 12 (`docs/OMNICHANNEL_PLAN.md`):
-E1, the channel contract (`server/channels.ts`, `channels_v1`), is done locally (`docs/OMNICHANNEL_STEP1.md`); next is E2 (email
-in). No code outside an adapter asks which channel a conversation is on: it asks `capabilitiesOf` / the adapter. Every
+E1, the channel contract (`server/channels.ts`, `channels_v1`), and E2, email in (`server/email-in.ts`, `channel_email_v1`), are done
+locally (`docs/OMNICHANNEL_STEP1.md`, `STEP2.md`); next is E3 (email out). Mail arrives only at a brand's inbound address
+(`<workspace>+<token>@<domain>`, `acceptEmail`) and is read by the `email.receive` job; the inbox never renders raw email
+HTML: it's made safe once on arrival (`server/email-html.ts`) and shown in the sandboxed frame (`agent/email-view.tsx`), with
+remote images blocked until asked. A sender is verified only by a DMARC pass in a trusted receiver's Authentication-Results.
+Automatic mail and bounces are never the customer's reply. A change to reading email gets a case in the corpus
+(`scripts/email-corpus.py`, `tests/fixtures/email/expected.json`). No code outside an adapter asks which channel a conversation is on: it asks `capabilitiesOf` / the adapter. Every
 outbound part on a non-messenger channel is a `channel_deliveries` row sent by `channel.deliver`, which checks
 `mayDeliver` (the suppression list) right before sending; never send to a provider any other way. A channel
 address joins an existing contact only when verified. Phase 11 (`docs/WORKFLOWS_PLAN.md`, behind `workflows_v1`):

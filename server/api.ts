@@ -205,6 +205,7 @@ import { simulateWorkflow, simulationConversations } from "./workflow-simulate";
 import { workflowsEnabled } from "./workflow-engine";
 import { pageVisited, receiveWebhook } from "./workflow-triggers";
 import { changeSuppression, readDeliveries, readSuppressions } from "./channels";
+import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
   rebuildIndex,
@@ -290,6 +291,8 @@ export interface ApiEnvironment {
   knowledgeIndex?: IndexEnvironment;
   /** Data connectors (phase 09 D1): RELAY_CONNECTOR_KEY and the fetch policy. */
   connectors?: ConnectorEnvironment;
+  /** Email in (phase 12 E2): the domain brands' inbound addresses are on. */
+  emailDomain?: string;
 }
 export type Session = {
   workspace: string;
@@ -1239,6 +1242,8 @@ export async function handleApi(
             "/v1/agent/workflow-conversations",
             "/v1/agent/suppressions",
             "/v1/agent/deliveries",
+            "/v1/agent/email-message",
+            "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
             "/v1/agent/zoe",
             "/v1/agent/bulk",
@@ -1316,6 +1321,7 @@ export async function handleApi(
               "/v1/agent/workflow-run",
               "/v1/agent/workflow-simulate",
               "/v1/agent/suppression",
+              "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
               "/v1/agent/search/reindex",
@@ -1682,6 +1688,13 @@ export async function handleApi(
           return json(
             await tenant(env.connect, workspace, (db) =>
               changeWorkflow(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
+            ),
+          );
+        if (url.pathname === "/v1/agent/email-settings")
+          // Phase 12 E2: a brand's support address, or a new inbound address.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeEmailSettings(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p, env.emailDomain ?? "inbound.relay.localhost"),
             ),
           );
         if (url.pathname === "/v1/agent/suppression")
@@ -2273,6 +2286,12 @@ export async function handleApi(
             estimateWorkflow(db, workspace, principal, url.searchParams.get("when") ?? ""),
           ),
         );
+      if (url.pathname === "/v1/agent/email-message")
+        // Phase 12 E2: the whole of an email behind a part.
+        return json(await tenant(env.connect, workspace, (db) => readEmailMessage(db, workspace, principal, url.searchParams.get("part") ?? "")));
+      if (url.pathname === "/v1/agent/email-settings")
+        // Phase 12 E2: each brand's inbound address, support address and forwarding.
+        return json(await tenant(env.connect, workspace, (db) => readEmailSettings(db, workspace, principal, env.emailDomain ?? "inbound.relay.localhost")));
       if (url.pathname === "/v1/agent/suppressions")
         // Phase 12 E1: the suppression list (Settings).
         return json(await tenant(env.connect, workspace, (db) => readSuppressions(db, workspace, principal)));

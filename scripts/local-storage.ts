@@ -39,6 +39,7 @@ export function localAttachmentStorage() {
       };
     },
     getQuarantine: async (key) => quarantine.get(key) ?? null,
+    putQuarantine: async (key, bytes, type) => void quarantine.set(key, { bytes, type }),
     scan: async (bytes) =>
       new TextDecoder().decode(bytes).includes(EICAR) ? "infected" : "clean",
     async putClean(key, bytes, type, name) {

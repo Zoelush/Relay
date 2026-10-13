@@ -1,0 +1,31 @@
+Content-Type: multipart/alternative;
+ boundary="===============2563260040100893441=="
+MIME-Version: 1.0
+From: Noah Kim <noah@customer.example>
+To: support@acme.example
+Subject: Re: Warranty
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-15@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+--===============2563260040100893441==
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+VGhlIHNlcmlhbCBudW1iZXIgaXMgQUMtNzczMS4KCj4gT24gMTIgT2N0IDIwMjYsIGF0IDA5OjE1
+LCBBY21lIFN1cHBvcnQgPHN1cHBvcnRAYWNtZS5leGFtcGxlPiB3cm90ZToKPgo+IENvdWxkIHlv
+dSBzZW5kIHRoZSBzZXJpYWwgbnVtYmVyPwo=
+
+--===============2563260040100893441==
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PGRpdj5UaGUgc2VyaWFsIG51bWJlciBpcyBBQy03NzMxLjwvZGl2PjxkaXY+
+PGJyPjxibG9ja3F1b3RlIHR5cGU9ImNpdGUiPjxkaXY+T24gMTIgT2N0IDIwMjYsIGF0IDA5OjE1
+LCBBY21lIFN1cHBvcnQgd3JvdGU6PC9kaXY+PGRpdj5Db3VsZCB5b3Ugc2VuZCB0aGUgc2VyaWFs
+IG51bWJlcj88L2Rpdj48L2Jsb2NrcXVvdGU+PC9kaXY+PC9ib2R5PjwvaHRtbD4=
+
+--===============2563260040100893441==--

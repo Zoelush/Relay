@@ -1,0 +1,13 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Daan de Vries <daan@customer.example>
+To: support@acme.example
+Subject: Re: Retour
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-23@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+SGV0IHBha2tldCBpcyB2ZXJzdHV1cmQuCgpPcCAxMi0xMC0yMDI2IG9tIDA5OjE1IHNjaHJlZWYg
+QWNtZSBTdXBwb3J0Ogo+IFN0dXVyIGhldCBwYWtrZXQgdGVydWcuCg==

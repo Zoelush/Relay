@@ -1,0 +1,30 @@
+Content-Type: multipart/alternative;
+ boundary="===============3047761895740599790=="
+MIME-Version: 1.0
+From: Ines Duarte <ines@customer.example>
+To: support@acme.example
+Subject: Re: Export
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-22@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+--===============3047761895740599790==
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+VGhlIGV4cG9ydCBmaW5pc2hlZCwgdGhhbmtzLgoKT24gMTIvMTAvMjAyNiAwOToxNSwgQWNtZSBT
+dXBwb3J0IHdyb3RlOgo+IExldCB1cyBrbm93IHdoZW4gdGhlIGV4cG9ydCBmaW5pc2hlcy4K
+
+--===============3047761895740599790==
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PHA+VGhlIGV4cG9ydCBmaW5pc2hlZCwgdGhhbmtzLjwvcD48ZGl2IGNsYXNz
+PSJtb3otY2l0ZS1wcmVmaXgiPk9uIDEyLzEwLzIwMjYgMDk6MTUsIEFjbWUgU3VwcG9ydCB3cm90
+ZTo8YnI+PC9kaXY+PGJsb2NrcXVvdGUgdHlwZT0iY2l0ZSI+TGV0IHVzIGtub3cuPC9ibG9ja3F1
+b3RlPjwvYm9keT48L2h0bWw+
+
+--===============3047761895740599790==--

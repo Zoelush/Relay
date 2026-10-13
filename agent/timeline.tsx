@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { channelLabel, DELIVERY_LABELS, type DeliveryStatus } from "../lib/channels";
+import { EmailView } from "./email-view";
 import { LockKeyhole, Paperclip, Sparkles } from "lucide-react";
 import { api } from "./api";
 import { RichText } from "../lib/rich-view";
@@ -103,6 +104,8 @@ export function describePart(p: TimelinePart, dir: Directory): string {
         return `${who} snoozed this until ${when(d.until, d.timezone)}${d.unassignOnWake ? ", unassigning when it wakes" : ""}`;
       if (d.woke) return "Snooze ended; the conversation is open again";
       if (d.to === "closed") return `${who} closed this conversation`;
+      // A conversation's first state is written with no "from" when it starts.
+      if (d.from == null) return "The conversation started";
       return `${who} reopened this conversation`;
     case "assignment_change": {
       const after = (d.after ?? {}) as {
@@ -192,6 +195,11 @@ export function describePart(p: TimelinePart, dir: Directory): string {
         return "AI resolution reversed: handed to the team within the resolution window";
       if (d.event === "human_joined")
         return `${pick(dir.teammates, d.teammateId) || "A teammate"} joined the conversation`;
+      // Phase 12 E2: automatic email (an auto-reply, a bounce), kept for teammates only.
+      if (d.event === "automatic_reply")
+        return d.kind === "bounce"
+          ? `A delivery problem was reported by ${String(d.channel ?? "email")}${d.reason ? `: ${String(d.reason)}` : ""}`
+          : `An automatic reply arrived by ${String(d.channel ?? "email")}${d.subject ? ` (“${String(d.subject)}”)` : ""}`;
       return "Conversation activity";
     default:
       return p.body || "Conversation activity";
@@ -231,6 +239,7 @@ function Message({
   const agentName = useAgentName();
   const specialist = useContext(ReplySpecialists).get(p.id);
   const delivery = useContext(Deliveries).get(p.id);
+  const [full, setFull] = useState(false);
   const workflow = p.kind === "workflow_message" ? `Workflow “${p.data.workflowName ?? "Automation"}”` : null;
   const who = fromCustomer
     ? customer || "Customer"
@@ -280,6 +289,9 @@ function Message({
             <small className="pg-edited">Edited</small>
           )}
         </header>
+        {p.channel === "email" && p.kind === "customer_message" && (p.data.email as { subject?: string } | undefined)?.subject && (
+          <span className="pg-email-subject">{(p.data.email as { subject: string }).subject}</span>
+        )}
         {p.data.deleted ? (
           <p>This part was deleted.</p>
         ) : p.data.doc ? (
@@ -289,6 +301,14 @@ function Message({
           <p className={p.data.aiHandover ? "pg-handover" : undefined}>{p.body}</p>
         )}
         {p.kind === "ai_reply" && <AiReplyDetails p={p} />}
+        {p.channel === "email" && p.kind === "customer_message" && (
+          <>
+            <button type="button" className="pg-email-open" onClick={() => setFull(true)}>
+              Show the full email
+            </button>
+            {full && <EmailView partId={p.id} onClose={() => setFull(false)} />}
+          </>
+        )}
         {delivery && (
           <small className="pg-delivery" data-status={delivery.status} role={delivery.status === "failed" || delivery.status === "suppressed" ? "alert" : undefined}>
             {DELIVERY_LABELS[delivery.status]}

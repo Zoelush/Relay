@@ -1,0 +1,13 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Ana Lima <ana@customer.example>
+To: support@acme.example
+Subject: Re: Your question
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-03@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+VGhhdCB3b3JrcyBmb3IgbWUsIHRoYW5rIHlvdSEKCj4gV291bGQgVGh1cnNkYXkgYXQgMnBtIHN1
+aXQgeW91Pwo+IEFjbWUgU3VwcG9ydAo=

@@ -133,6 +133,7 @@ export async function seedFoundation(
     "ai_actions_v1",
     "workflows_v1",
     "channels_v1",
+    "channel_email_v1",
   ])
     await db.query(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,false) ON CONFLICT DO NOTHING",

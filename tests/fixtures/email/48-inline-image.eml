@@ -1,0 +1,57 @@
+Content-Type: multipart/mixed; boundary="===============6402681938988904232=="
+MIME-Version: 1.0
+From: Leo Rossi <leo@customer.example>
+To: support@acme.example
+Subject: Error on checkout
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-48@mail.example.net>
+
+--===============6402681938988904232==
+Content-Type: multipart/related;
+ boundary="===============7387288763820578633=="
+MIME-Version: 1.0
+
+--===============7387288763820578633==
+Content-Type: multipart/alternative;
+ boundary="===============2890847640833416075=="
+MIME-Version: 1.0
+
+--===============2890847640833416075==
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+U2VlIHRoZSBlcnJvciBiZWxvdy4KW2ltYWdlOiBlcnJvci5wbmddCg==
+
+--===============2890847640833416075==
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+PHA+U2VlIHRoZSBlcnJvciBiZWxvdy48L3A+PGltZyBzcmM9ImNpZDplcnJvci1zaG90QGN1c3Rv
+bWVyLmV4YW1wbGUiIGFsdD0iZXJyb3IiPg==
+
+--===============2890847640833416075==--
+
+--===============7387288763820578633==
+Content-Type: image/png
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+Content-ID: <error-shot@customer.example>
+Content-Disposition: inline; filename="error.png"
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgAAACAAFUok9dAAAA
+AElFTkSuQmCC
+
+--===============7387288763820578633==--
+
+--===============6402681938988904232==
+Content-Type: 
+ application/vnd.openxmlformats-officedocument.wordprocessingml.document
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="steps.docx"
+
+UEsDBCBub3QgcmVhbGx5IGEgZG9jdW1lbnQ=
+
+--===============6402681938988904232==--

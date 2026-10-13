@@ -1,0 +1,15 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: Anna Schmidt <anna@customer.example>
+To: support@acme.example
+Subject: =?utf-8?q?AW=3A_R=C3=BCckgabe?=
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-10@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+Qml0dGUgaG9sZW4gU2llIGVzIGFtIE1vbnRhZyBhYi4KClZvbjogQWNtZSBTdXBwb3J0IDxzdXBw
+b3J0QGFjbWUuZXhhbXBsZT4KR2VzZW5kZXQ6IE1vbnRhZywgMTIuIE9rdG9iZXIgMjAyNiAwOTox
+NQpBbjogQW5uYSBTY2htaWR0CkJldHJlZmY6IFLDvGNrZ2FiZQoKV2FubiBwYXNzdCBkaWUgQWJo
+b2x1bmc/Cg==

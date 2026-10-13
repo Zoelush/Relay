@@ -1,0 +1,14 @@
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+From: =?utf-8?q?Chlo=C3=A9_Martin?= <chloe@customer.example>
+To: support@acme.example
+Subject: Re: Facture
+Date: Mon, 12 Oct 2026 09:41:00 +0100
+Message-ID: <msg-05@mail.example.net>
+In-Reply-To: <relay-reply-1@acme.example>
+References: <relay-reply-1@acme.example>
+
+TWVyY2ksIGMnZXN0IHLDqWdsw6kuCgpMZSBsdW4uIDEyIG9jdC4gMjAyNiDDoCAwOToxNSwgQWNt
+ZSBTdXBwb3J0IDxzdXBwb3J0QGFjbWUuZXhhbXBsZT4gYSDDqWNyaXQgOgoKPiBWb3RyZSBmYWN0
+dXJlIGVzdCBqb2ludGUuCg==
