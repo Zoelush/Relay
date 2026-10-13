@@ -573,7 +573,10 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
             if (
               previous &&
               fresh.some(
-                (p) => p.kind === "teammate_reply" || p.kind === "ai_reply",
+                (p) =>
+                  p.kind === "teammate_reply" ||
+                  p.kind === "ai_reply" ||
+                  p.kind === "workflow_message",
               )
             ) {
               sendParent("newReply");
@@ -1097,6 +1100,8 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
                       "teammate_reply",
                       "ai_reply",
                       "internal_note",
+                      // Phase 11 W3: a workflow's message, from "Automation".
+                      "workflow_message",
                     ].includes(p.kind);
                     if (!message) {
                       const label =
@@ -1171,6 +1176,25 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
                               />
                             )}
                           />
+                        ) : p.kind === "workflow_message" &&
+                          p.data.replyTime !== undefined ? (
+                          // The expected reply time (W3), in the customer's own language.
+                          <p>
+                            {(
+                              p.data.availability as {
+                                open?: boolean;
+                                nextOpenLabel?: string | null;
+                              } | null
+                            )?.open === false
+                              ? `${boot.brand.outOfHours || t.away}${
+                                  (p.data.availability as { nextOpenLabel?: string | null })
+                                    .nextOpenLabel
+                                    ? ` ${t.replyFrom} ${String((p.data.availability as { nextOpenLabel?: string }).nextOpenLabel)}`
+                                    : ""
+                                }`
+                              : replyTime(t, p.data.replyTime as Boot["replyTime"]) ||
+                                p.body}
+                          </p>
                         ) : (
                           <p>{p.body}</p>
                         )}
@@ -1207,7 +1231,8 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
                               ))}
                             </ul>
                           )}
-                        {p.kind === "ai_reply" &&
+                        {(p.kind === "ai_reply" ||
+                          p.kind === "workflow_message") &&
                           p.id === lastPartId &&
                           Array.isArray(p.data.options) &&
                           p.data.options.length > 0 && (

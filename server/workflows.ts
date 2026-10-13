@@ -1,6 +1,8 @@
 import { assert, DomainError, once, type Sql } from "./db";
 import { authorize } from "./policy";
 import { startManual, workflowsEnabled } from "./workflow-engine";
+import { actionsEnabled } from "./connectors";
+import type { Definition as ConnectorDefinition } from "../lib/connector-definition";
 import {
   LATER_TRIGGERS,
   TRIGGERS,
@@ -54,6 +56,27 @@ const ROW = `w.id,w.name,w.trigger,w.priority,w.state,w.draft,w.layout,w.live_ve
   FROM workflows w`;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/** W3: the published connectors a workflow may call (read ones), with what they take and give. */
+async function callable(db: Sql, w: string) {
+  if (!(await actionsEnabled(db, w))) return [];
+  return (
+    await db.query<{ id: string; name: string; definition: ConnectorDefinition }>(
+      `SELECT c.id,c.name,v.definition FROM ai_connectors c
+       JOIN ai_connector_versions v ON v.workspace_id=c.workspace_id AND v.connector_id=c.id AND v.version=c.live_version
+       WHERE c.workspace_id=$1 AND NOT c.archived ORDER BY lower(c.name),c.id`,
+      [w],
+    )
+  ).rows
+    .filter((r) => r.definition.access !== "write")
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      // Context inputs (the customer's email, the conversation's ID) fill themselves.
+      inputs: r.definition.inputs.filter((i) => i.source === "customer").map((i) => ({ name: i.name, label: i.label, required: i.required })),
+      outputs: r.definition.outputs.map((o) => ({ name: o.name, label: o.label })),
+    }));
+}
+
 /** What a definition names that doesn't exist in this workspace: each a problem for publishing. */
 async function references(db: Sql, w: string, def: Definition) {
   const out: string[] = [];
@@ -65,6 +88,7 @@ async function references(db: Sql, w: string, def: Definition) {
   const attributes = await ids("SELECT id FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='conversation' AND archived_at IS NULL");
   const policies = await ids("SELECT id FROM sla_policies WHERE workspace_id=$1");
   const types = await ids("SELECT id FROM ticket_types WHERE workspace_id=$1");
+  let connectors: Awaited<ReturnType<typeof callable>> | undefined;
   const o = def.trigger.options;
   if (o.tagId && !tags.has(o.tagId)) out.push("The trigger's tag doesn't exist (or is archived).");
   if (o.attributeId && !attributes.has(o.attributeId)) out.push("The trigger's attribute doesn't exist.");
@@ -92,7 +116,19 @@ async function references(db: Sql, w: string, def: Definition) {
       if (s.type === "attribute_set" && !attributes.has(v("attributeId"))) out.push(`${where}: its attribute doesn't exist.`);
       if (s.type === "sla_apply" && v("policyId") !== "none" && !policies.has(v("policyId"))) out.push(`${where}: its SLA policy doesn't exist.`);
       if (s.type === "ticket_create" && !types.has(v("typeId"))) out.push(`${where}: its ticket type doesn't exist.`);
+      if (s.type === "collect" && s.options.into === "conversation" && !attributes.has(v("attributeId"))) out.push(`${where}: its attribute doesn't exist.`);
     });
+    if (p.next.type === "connector") {
+      const n = p.next;
+      const where = `Path ${p.id}, its connector`;
+      const c = (connectors ??= await callable(db, w)).find((x) => x.id === n.connectorId);
+      if (!c) out.push(`${where} isn't published, or it changes things (workflows call read connectors only).`);
+      else
+        for (const i of c.inputs) if (i.required && !n.inputs[i.name]) out.push(`${where}: choose where its ${i.label} comes from.`);
+      for (const src of Object.values(n.inputs))
+        if (src.from === "conversation" && !attributes.has(src.attributeId)) out.push(`${where}: an input reads an attribute that doesn't exist.`);
+      for (const a of Object.values(n.save)) if (!attributes.has(a)) out.push(`${where}: it keeps an output in an attribute that doesn't exist.`);
+    }
   }
   return out;
 }
@@ -151,6 +187,7 @@ async function options(db: Sql, w: string) {
     ),
     slaPolicies: await list("SELECT id,name FROM sla_policies WHERE workspace_id=$1 AND NOT archived ORDER BY position,id"),
     ticketTypes: await list("SELECT id,name FROM ticket_types WHERE workspace_id=$1 AND NOT archived ORDER BY lower(name),id"),
+    connectors: await callable(db, w),
   };
 }
 

@@ -541,10 +541,11 @@ async function context(
       body: string;
       seq: string;
     }>(
-      // Public messages only: internal notes and system events never reach the model.
+      // Public messages only: internal notes and system events never reach the model. A
+      // workflow's messages (phase 11 W3) are what the customer was told, so Zoe sees them.
       `SELECT id,kind,body,seq FROM conversation_parts
        WHERE workspace_id=$1 AND conversation_id=$2 AND audience='public'
-         AND kind IN ('customer_message','teammate_reply','ai_reply')
+         AND kind IN ('customer_message','teammate_reply','ai_reply','workflow_message')
          AND NOT COALESCE((data->>'deleted')::boolean,false)
          AND NOT EXISTS(SELECT 1 FROM conversation_parts s WHERE s.workspace_id=conversation_parts.workspace_id AND s.supersedes_id=conversation_parts.id)
        ORDER BY seq`,

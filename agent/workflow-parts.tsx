@@ -2,6 +2,8 @@ import { useId } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import {
   ACTIONS,
+  COLLECT_FORMATS,
+  COLLECT_INTO,
   FIELDS,
   MAX_DEPTH,
   type ActionType,
@@ -26,6 +28,8 @@ export type Options = {
   attributes: (Named & { type: string; options: unknown })[];
   slaPolicies: Named[];
   ticketTypes: Named[];
+  /** W3: published read connectors, with the inputs to give and the outputs to keep. */
+  connectors: (Named & { inputs: { name: string; label: string; required: boolean }[]; outputs: { name: string; label: string }[] })[];
 };
 
 const OPS: Record<Op, string> = {
@@ -170,10 +174,21 @@ export function describeStep(s: Step, o: Options): string {
       return v.teamId ? `Hand to the team ${nameIn(o.teams, v.teamId, "team")}` : "Hand to the team";
     case "wait":
       return `Wait ${seconds(Number(v.seconds) || 0)}`;
+    case "message":
+      return `Send: “${clip(v.text)}”`;
+    case "collect":
+      return `Ask “${clip(v.text)}”, keep the reply in ${
+        v.into === "email" ? "their email" : v.into === "contact" ? `the customer's ${String(v.key || "attribute")}` : `“${nameIn(o.attributes, v.attributeId, "attribute")}”`
+      }`;
     default:
       return ACTIONS[s.type].label;
   }
 }
+
+const clip = (v: unknown) => {
+  const t = String(v ?? "").trim();
+  return t ? (t.length > 50 ? t.slice(0, 49) + "…" : t) : "…";
+};
 
 /** A step's starting options: what it needs, set to the first choice there is. */
 export function newStep(type: ActionType, o: Options): Step {
@@ -191,8 +206,10 @@ export function newStep(type: ActionType, o: Options): Step {
               ? { attributeId: first(o.attributes), value: "" }
               : type === "contact_attribute_set"
                 ? { key: "", value: "" }
-                : type === "note"
+                : type === "note" || type === "message"
                   ? { text: "" }
+                  : type === "collect"
+                    ? { text: "", into: "email", timeoutSeconds: 86_400 }
                   : type === "ticket_create"
                     ? { typeId: first(o.ticketTypes) }
                     : {};
@@ -519,6 +536,38 @@ function StepFields({ step, o, onChange, label }: { step: Step; o: Options; onCh
       );
     case "human_handover":
       return <Pick label={`${label}, team`} value={v.teamId} onChange={(x) => set("teamId", x)} list={o.teams} none="Its current team" />;
+    case "message":
+      return <textarea aria-label={`${label}, message`} rows={3} maxLength={2000} placeholder="What the customer reads" value={String(v.text ?? "")} onChange={(e) => set("text", e.target.value)} />;
+    case "reply_time":
+      return <p className="pg-muted pg-wf-hint">Tells the customer when to expect a reply, or when the team is back, in their language.</p>;
+    case "collect":
+      return (
+        <>
+          <textarea aria-label={`${label}, question`} rows={2} maxLength={2000} placeholder="What's your email?" value={String(v.text ?? "")} onChange={(e) => set("text", e.target.value)} />
+          <select aria-label={`${label}, keep the reply in`} value={String(v.into ?? "email")} onChange={(e) => onChange({ ...step, options: { text: v.text, into: e.target.value, timeoutSeconds: v.timeoutSeconds } })}>
+            {Object.entries(COLLECT_INTO).map(([k, l]) => (
+              <option key={k} value={k}>
+                {l}
+              </option>
+            ))}
+          </select>
+          {v.into === "contact" && <input aria-label={`${label}, attribute name`} placeholder="plan" value={String(v.key ?? "")} onChange={(e) => set("key", e.target.value)} />}
+          {v.into === "conversation" && <Pick label={`${label}, attribute`} value={v.attributeId} onChange={(x) => set("attributeId", x)} list={o.attributes} />}
+          {v.into !== "email" && (
+            <select aria-label={`${label}, kind of reply`} value={String(v.format ?? "text")} onChange={(e) => set("format", e.target.value)}>
+              {Object.entries(COLLECT_FORMATS).map(([k, l]) => (
+                <option key={k} value={k}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          )}
+          <span className="pg-wf-inline">
+            <span className="pg-muted">Wait for it up to</span>
+            <Duration label={`${label}, wait for the reply`} value={Number(v.timeoutSeconds ?? 86_400)} onChange={(x) => set("timeoutSeconds", x)} />
+          </span>
+        </>
+      );
     default:
       return null;
   }

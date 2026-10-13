@@ -1,10 +1,13 @@
 import { DomainError, tenant, type Connect, type Sql } from "./db";
 import { enqueueJob, type Job } from "./jobs";
 import { command, conversation, type Conversation } from "./conversations";
-import { availabilityFor } from "./office-hours";
+import { availabilityFor, expectedReply } from "./office-hours";
 import { detectLanguage } from "./ai-language";
 import { aiEnabled, queueAiReply } from "./ai-agent";
 import { syncSla } from "./sla";
+import { actionsEnabled, pinnedVersion, runConnector, type ConnectorEnvironment } from "./connectors";
+import { facts as aiFacts } from "./ai-escalation";
+import { verificationOf, verified } from "./procedures";
 import {
   MAX_NODES,
   TRIGGERS,
@@ -16,7 +19,9 @@ import {
   type Source,
   type Step,
   type Trigger,
+  type ValueSource,
 } from "../lib/workflow-definition";
+import type { Definition as ConnectorDefinition } from "../lib/connector-definition";
 
 /**
  * The workflow engine (phase 11, step W1; docs/WORKFLOWS_STEP1.md), behind `workflows_v1`.
@@ -114,30 +119,79 @@ export async function workflowEvent(db: Sql, w: string, c: Conversation, part: P
   const events = await triggersOf(db, w, c, part);
   const live = events.length
     ? (
-        await db.query<{ trigger: string }>(
-          "SELECT DISTINCT trigger FROM workflows WHERE workspace_id=$1 AND state='live' AND NOT archived AND trigger=ANY($2::text[])",
+        await db.query<{ trigger: string; definition: Definition }>(
+          `SELECT w.trigger,v.definition FROM workflows w
+           JOIN workflow_versions v ON v.workspace_id=w.workspace_id AND v.workflow_id=w.id AND v.version=w.live_version
+           WHERE w.workspace_id=$1 AND w.state='live' AND NOT w.archived AND w.trigger=ANY($2::text[])`,
           [w, events.map((e) => e.trigger)],
         )
-      ).rows.map((r) => r.trigger)
+      ).rows
     : [];
-  const listened = events.filter((e) => live.includes(e.trigger));
+  const listened = events.filter((e) => live.some((l) => l.trigger === e.trigger));
   const causedBy = typeof part.data?.workflowRun === "string" ? part.data.workflowRun : null;
+  // W3: a customer's answer to a workflow's question belongs to that workflow: it starts no other
+  // customer-facing one, and Zoe doesn't take it (whichever job runs first).
+  const answering =
+    part.kind === "customer_message"
+      ? ((
+          await db.query<{ name: string }>(
+            `SELECT w.name FROM workflow_runs r JOIN workflows w ON w.workspace_id=r.workspace_id AND w.id=r.workflow_id
+             WHERE r.workspace_id=$1 AND r.conversation_id=$2 AND r.status='waiting' AND r.wait->>'kind'='reply' LIMIT 1`,
+            [w, c.id],
+          )
+        ).rows[0]?.name ?? null)
+      : null;
   for (const e of listened)
     await enqueueJob(
       db,
       w,
       "workflow.start",
-      { conversationId: c.id, trigger: e.trigger, options: e.options ?? {}, partId: part.id, source: sourceOf(part), causedBy },
+      {
+        conversationId: c.id,
+        trigger: e.trigger,
+        options: e.options ?? {},
+        partId: part.id,
+        source: sourceOf(part),
+        causedBy,
+        answering,
+        // W3: when a customer-facing workflow may take this, Zoe waits for it (`workflowHolds`).
+        deferAi: live.some((l) => l.trigger === e.trigger && customerFacing(l.definition)),
+      },
       {},
     );
-  // Runs waiting until a condition holds look again (not for a workflow's own change in its run).
+  // Runs waiting until a condition holds, or for Zoe's outcome, look again (not for a workflow's
+  // own change in its run); runs waiting for the customer's answer get it.
   const waiting = (
-    await db.query<{ id: string }>(
-      "SELECT id FROM workflow_runs WHERE workspace_id=$1 AND conversation_id=$2 AND status='waiting' AND wait->>'kind'='condition' AND id<>COALESCE($3,'')",
+    await db.query<{ id: string; kind: string }>(
+      "SELECT id,wait->>'kind' AS kind FROM workflow_runs WHERE workspace_id=$1 AND conversation_id=$2 AND status='waiting' AND id<>COALESCE($3,'')",
       [w, c.id, causedBy],
     )
   ).rows;
-  for (const r of waiting) await enqueueJob(db, w, "workflow.resume", { runId: r.id, check: true }, {});
+  for (const r of waiting)
+    if (r.kind === "condition" || r.kind === "zoe") await enqueueJob(db, w, "workflow.resume", { runId: r.id, check: true }, {});
+    else if (r.kind === "reply" && part.kind === "customer_message")
+      await enqueueJob(db, w, "workflow.resume", { runId: r.id, reply: part.id }, {});
+}
+
+/**
+ * W3: whether a workflow has the customer's message, so Zoe doesn't answer it: one is waiting for
+ * their answer, or a customer-facing workflow may still start for this conversation. Zoe then
+ * answers only if none does (`startWorkflows`), or when a workflow hands to her.
+ */
+export async function workflowHolds(db: Sql, w: string, conversationId: string, partId: string) {
+  void partId;
+  return (
+    (
+      await db.query(
+        `SELECT 1 FROM workflow_runs WHERE workspace_id=$1 AND conversation_id=$2 AND status='waiting' AND wait->>'kind'='reply'
+         UNION ALL
+         SELECT 1 FROM jobs WHERE workspace_id=$1 AND kind='workflow.start' AND state IN ('queued','running')
+           AND payload->>'conversationId'=$2 AND payload->>'deferAi'='true'
+         LIMIT 1`,
+        [w, conversationId],
+      )
+    ).rows.length > 0
+  );
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -190,8 +244,8 @@ export function buildFacts(s: FactSources): Facts {
   };
 }
 
-/** What conditions test, read once per evaluation. */
-async function factsFor(db: Sql, w: string, c: Conversation, run: { source: Source; partId: string | null; timedOut?: boolean }): Promise<Facts> {
+/** What conditions test, read once per evaluation (and by W3's simulation). */
+export async function factsFor(db: Sql, w: string, c: Conversation, run: { source: Source; partId: string | null; timedOut?: boolean }): Promise<Facts> {
   const tags = (await db.query<{ tag_id: string }>("SELECT tag_id FROM conversation_tags WHERE workspace_id=$1 AND conversation_id=$2", [w, c.id])).rows.map(
     (r) => r.tag_id,
   );
@@ -380,7 +434,35 @@ async function finish(db: Sql, w: string, runId: string, status: "completed" | "
  * The `workflow.start` job: the live workflows for a trigger, in priority order, each checked and
  * either started or recorded as skipped; then the started ones run.
  */
-export async function startWorkflows(connect: Connect, job: Job) {
+/** What a run needs from outside: connectors (W3), when this runtime has them. */
+export type WorkflowEnvironment = { connectors?: ConnectorEnvironment };
+
+/** Zoe answers the customer's latest unanswered message, once no workflow holds it. */
+async function answerIfFree(db: Sql, w: string, c: Conversation, jobId: string) {
+  const others = (
+    await db.query(
+      `SELECT 1 FROM jobs WHERE workspace_id=$1 AND kind='workflow.start' AND state IN ('queued','running') AND id<>$3
+         AND payload->>'conversationId'=$2 AND payload->>'deferAi'='true' LIMIT 1`,
+      [w, c.id, jobId],
+    )
+  ).rows.length;
+  const replyWait = (
+    await db.query("SELECT 1 FROM workflow_runs WHERE workspace_id=$1 AND conversation_id=$2 AND status='waiting' AND wait->>'kind'='reply' LIMIT 1", [w, c.id])
+  ).rows.length;
+  if (others || replyWait) return;
+  const last = (
+    await db.query<{ id: string }>(
+      `SELECT p.id FROM conversation_parts p WHERE p.workspace_id=$1 AND p.conversation_id=$2 AND p.kind='customer_message'
+         AND NOT EXISTS(SELECT 1 FROM ai_answers a WHERE a.workspace_id=p.workspace_id AND a.question_part_id=p.id)
+         AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.workspace_id=p.workspace_id AND j.kind='ai.reply' AND j.payload->>'partId'=p.id)
+       ORDER BY p.seq DESC LIMIT 1`,
+      [w, c.id],
+    )
+  ).rows[0];
+  if (last) await queueAiReply(db, w, await conversation(db, w, c.id), last.id);
+}
+
+export async function startWorkflows(connect: Connect, job: Job, env: WorkflowEnvironment = {}) {
   const w = job.workspace_id;
   const p = job.payload as {
     conversationId: string;
@@ -390,6 +472,8 @@ export async function startWorkflows(connect: Connect, job: Job) {
     source: Source;
     causedBy: string | null;
     workflowId?: string;
+    deferAi?: boolean;
+    answering?: string | null;
   };
   const started = await tenant(connect, w, async (db) => {
     if (!(await workflowsEnabled(db, w))) return [];
@@ -416,6 +500,18 @@ export async function startWorkflows(connect: Connect, job: Job) {
         [w, c.id],
       )
     ).rows[0].n;
+    // W3: a customer-facing workflow still talking to the customer here keeps others from starting.
+    const talking =
+      (
+        await db.query<{ name: string; definition: Definition }>(
+          `SELECT w.name,v.definition FROM workflow_runs r JOIN workflows w ON w.workspace_id=r.workspace_id AND w.id=r.workflow_id
+           JOIN workflow_versions v ON v.workspace_id=r.workspace_id AND v.workflow_id=r.workflow_id AND v.version=r.workflow_version
+           WHERE r.workspace_id=$1 AND r.conversation_id=$2 AND r.status IN ('running','waiting')`,
+          [w, c.id],
+        )
+      ).rows.find((r) => customerFacing(r.definition))?.name ??
+      p.answering ??
+      null;
     let ranCustomerFacing: string | null = null;
     let budget = MAX_RUNS_PER_HOUR - recent;
     const out: string[] = [];
@@ -439,6 +535,8 @@ export async function startWorkflows(connect: Connect, job: Job) {
               ? `More than ${MAX_CHAIN} workflows in a row started each other.`
               : facing && ranCustomerFacing
                 ? `“${ranCustomerFacing}” ran first: only the highest-priority customer-facing workflow runs for a trigger.`
+                : facing && talking
+                  ? `“${talking}” is still talking to the customer.`
                 : budget <= 0
                   ? `This conversation already had ${MAX_RUNS_PER_HOUR} workflow runs in the last hour.`
                   : null;
@@ -462,9 +560,11 @@ export async function startWorkflows(connect: Connect, job: Job) {
       budget--;
       out.push(id);
     }
+    // W3: Zoe waited for workflows; if none is talking to the customer now, she answers.
+    if (p.deferAi && !ranCustomerFacing && !talking) await answerIfFree(db, w, c, job.id);
     return out;
   });
-  for (const id of started) await runWorkflow(connect, w, id);
+  for (const id of started) await runWorkflow(connect, w, id, {}, env);
   return { done: true, result: { started: started.length } };
 }
 
@@ -482,18 +582,42 @@ export async function startManual(db: Sql, w: string, workflowId: string, conver
 /* ------------------------------------------------------------------------------------------ */
 /* Running                                                                                     */
 
+/** What a waiting run waits for (`workflow_runs.wait`). */
+type WaitState =
+  | { kind: "duration" }
+  | { kind: "office_hours" }
+  | { kind: "condition"; met: string; timedOut: string }
+  /** W3: the customer's answer to reply buttons, or to a question a step collects. */
+  | { kind: "reply"; mode: "buttons" | "collect"; partId: string; attempt?: number }
+  /** W3: Zoe's outcome, after `since`. */
+  | { kind: "zoe"; since: string };
+type Resume = { timedOut?: boolean; deadline?: string | null; wait?: WaitState | null; reply?: string | null };
+/** W3: a connector call, made between transactions (it's network). */
+type CallPlan = { connectorId: string; connector: string; version: number; values: Record<string, unknown>; path: string };
+
+const norm = (t: string) => t.trim().toLowerCase().replace(/\s+/g, " ");
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** A collected reply in its format, or null when it doesn't fit. */
+function parseReply(text: string, format: unknown): string | number | null {
+  const t = text.trim();
+  if (!t || t.length > 500) return null;
+  if (format === "email") return EMAIL.test(t) ? t.toLowerCase() : null;
+  if (format === "number") return /^-?\d+(\.\d+)?$/.test(t.replace(/,/g, "")) ? Number(t.replace(/,/g, "")) : null;
+  return t;
+}
+
 /** Runs from where it stands until it waits, ends or fails. Each step is one transaction. */
-export async function runWorkflow(
-  connect: Connect,
-  w: string,
-  runId: string,
-  resume: { timedOut?: boolean; deadline?: string | null } = {},
-) {
+export async function runWorkflow(connect: Connect, w: string, runId: string, resume: Resume = {}, env: WorkflowEnvironment = {}) {
   let timedOut = resume.timedOut ?? false;
+  let called: { plan: CallPlan; result: Awaited<ReturnType<typeof runConnector>> } | null = null;
   for (let guard = 0; guard < MAX_NODES + 5; guard++) {
-    let outcome: "continue" | "stop";
+    let outcome: "continue" | "stop" | CallPlan;
+    const resumed = resume.wait ?? null;
+    const reply = resume.reply ?? null;
+    const call = called;
+    called = null;
     try {
-      outcome = await tenant(connect, w, async (db) => {
+      outcome = await tenant(connect, w, async (db): Promise<"continue" | "stop" | CallPlan> => {
         const run = (await db.query<RunRow>(`SELECT ${RUN} WHERE r.workspace_id=$1 AND r.id=$2 FOR UPDATE OF r`, [w, runId])).rows[0];
         if (!run || run.status !== "running") return "stop";
         if (!(await workflowsEnabled(db, w))) {
@@ -517,6 +641,99 @@ export async function runWorkflow(
           return "stop";
         }
         const started = Date.now();
+        const actor = { type: "workflow" as const, workflowId: run.workflow_id, runId: run.id, name: run.name };
+        const say = (key: string, text: string, workflowData?: Record<string, unknown>) =>
+          command(db, w, actor, `wf:${run.id}:${run.nodes}:${key}`, { action: "reply", conversationId: c.id, text, workflowData } as never) as Promise<{ partId: string }>;
+        const go = async (to: string, kind: "goto" | "branch", label: string, inputs: unknown = {}) => {
+          await log(db, w, runId, { path: path.id, kind, label, inputs, result: `to path ${to}`, ms: Date.now() - started });
+          await db.query("UPDATE workflow_runs SET path=$3,step=0,nodes=nodes+1,wait=NULL,version=version+1 WHERE workspace_id=$1 AND id=$2", [w, runId, to]);
+          return "continue" as const;
+        };
+        const wait = async (state: WaitState, until: string | null) => {
+          await db.query("UPDATE workflow_runs SET status='waiting',wait=$3,wait_until=$4,version=version+1 WHERE workspace_id=$1 AND id=$2", [
+            w,
+            runId,
+            JSON.stringify(state),
+            until,
+          ]);
+          return "stop" as const;
+        };
+        const inSeconds = (n: number) => new Date(Date.now() + n * 1000).toISOString();
+
+        // W3: a connector call made between transactions: keep its outputs, then on by result.
+        if (call && path.next.type === "connector") {
+          const n = path.next;
+          const ok = call.result.result === "ok";
+          const saved: Record<string, unknown> = {};
+          if (ok)
+            for (const [output, attributeId] of Object.entries(n.save))
+              if (call.result.outputs[output] !== undefined) {
+                await command(db, w, actor, `wf:${run.id}:${run.nodes}:save:${output}`, {
+                  action: "attribute_set",
+                  conversationId: c.id,
+                  attributeId,
+                  value: call.result.outputs[output],
+                } as never);
+                saved[output] = attributeId;
+              }
+          await log(db, w, runId, {
+            path: path.id,
+            kind: "action",
+            label: `Called ${call.plan.connector}`,
+            inputs: { version: call.plan.version, call: call.result.callId },
+            result: call.result.result,
+            detail: { status: call.result.status, error: call.result.error, saved },
+            ms: call.result.durationMs,
+          });
+          return go(ok ? n.ok : n.failed, "branch", ok ? "The connector worked" : "The connector failed");
+        }
+
+        // W3: the customer's answer to a question a step collects (the step was already counted).
+        if (resumed?.kind === "reply" && resumed.mode === "collect") {
+          const step = path.steps[run.step - 1];
+          const o = step?.options ?? {};
+          if (!reply) {
+            timedOut = true;
+            await log(db, w, runId, { path: path.id, step: run.step - 1, kind: "wait", label: "No reply to collect", result: "timed out" });
+            return "continue";
+          }
+          timedOut = false;
+          const answer = (await db.query<{ body: string }>("SELECT body FROM conversation_parts WHERE workspace_id=$1 AND id=$2", [w, reply])).rows[0]?.body ?? "";
+          const format = o.into === "email" ? "email" : o.format;
+          const value = parseReply(answer, format);
+          if (value === null) {
+            if ((resumed.attempt ?? 1) < 2) {
+              const again = await say(
+                "again",
+                typeof o.retryText === "string" && o.retryText.trim()
+                  ? o.retryText.trim()
+                  : format === "email"
+                    ? "That doesn't look like an email address. Could you check it and send it again?"
+                    : format === "number"
+                      ? "That doesn't look like a number. Could you send it again?"
+                      : "Sorry, I didn't catch that. Could you send it again?",
+              );
+              await log(db, w, runId, { path: path.id, step: run.step - 1, kind: "wait", label: "Asked again", inputs: { reply }, result: "waiting" });
+              return wait({ kind: "reply", mode: "collect", partId: again.partId, attempt: 2 }, inSeconds(Number(o.timeoutSeconds ?? 86_400)));
+            }
+            await log(db, w, runId, { path: path.id, step: run.step - 1, kind: "action", label: "The reply couldn't be used", inputs: { reply }, result: "not kept" });
+            return "continue";
+          }
+          if (o.into === "email") await keepEmail(db, w, c, String(value));
+          else if (o.into === "contact") await setContactAttribute(db, w, run, c, String(o.key), value);
+          else await command(db, w, actor, `wf:${run.id}:${run.nodes}:collect`, { action: "attribute_set", conversationId: c.id, attributeId: o.attributeId, value } as never);
+          await log(db, w, runId, {
+            path: path.id,
+            step: run.step - 1,
+            kind: "action",
+            label: "Kept the reply",
+            inputs: { reply },
+            result: "ok",
+            detail: { into: o.into, ...(o.into === "contact" ? { key: o.key } : o.into === "conversation" ? { attributeId: o.attributeId } : {}) },
+          });
+          return "continue";
+        }
+
         // The path's steps, one per transaction.
         if (run.step < path.steps.length) {
           const step = path.steps[run.step];
@@ -524,7 +741,7 @@ export async function runWorkflow(
           await log(db, w, runId, {
             path: path.id,
             step: run.step,
-            kind: step.type === "wait" || step.type === "wait_office_hours" ? "wait" : "action",
+            kind: step.type === "wait" || step.type === "wait_office_hours" || step.type === "collect" ? "wait" : "action",
             label: result.label,
             inputs: step.options,
             result: result.result,
@@ -544,17 +761,99 @@ export async function runWorkflow(
         }
         // Then its way on.
         const next = path.next;
-        const go = async (to: string, kind: "goto" | "branch", label: string, inputs: unknown = {}) => {
-          await log(db, w, runId, { path: path.id, kind, label, inputs, result: `to path ${to}`, ms: Date.now() - started });
-          await db.query("UPDATE workflow_runs SET path=$3,step=0,nodes=nodes+1,version=version+1 WHERE workspace_id=$1 AND id=$2", [w, runId, to]);
-          return "continue" as const;
-        };
         if (next.type === "end") {
           await log(db, w, runId, { path: path.id, kind: "end", label: "End", result: "completed" });
           await finish(db, w, runId, "completed", `Ended at path ${path.id}.`);
           return "stop";
         }
         if (next.type === "goto") return go(next.path, "goto", `Go to path ${next.path}`);
+
+        // W3: reply buttons. Asked once; the answer (a button, typing, or none) picks the path.
+        if (next.type === "buttons") {
+          if (resumed?.kind === "reply" && resumed.mode === "buttons") {
+            if (!reply) {
+              timedOut = true;
+              return go(next.timedOut, "branch", "No answer to the buttons");
+            }
+            timedOut = false;
+            const answer = (await db.query<{ body: string }>("SELECT body FROM conversation_parts WHERE workspace_id=$1 AND id=$2", [w, reply])).rows[0]?.body ?? "";
+            const chosen = next.buttons.find((b) => norm(b.label) === norm(answer));
+            return chosen
+              ? go(chosen.path, "branch", `They chose “${chosen.label}”`, { answer })
+              : go(next.other, "branch", "They typed instead of choosing", { answer });
+          }
+          const asked = await say("ask", next.text, { options: next.buttons.map((b) => b.label) });
+          await log(db, w, runId, {
+            path: path.id,
+            kind: "wait",
+            label: "Asked with reply buttons",
+            inputs: { buttons: next.buttons.map((b) => b.label) },
+            result: "waiting",
+            ms: Date.now() - started,
+          });
+          return wait({ kind: "reply", mode: "buttons", partId: asked.partId }, inSeconds(next.timeoutSeconds));
+        }
+
+        // W3: Zoe answers, and her outcome picks the path.
+        if (next.type === "zoe") {
+          const row = (await db.query<{ ai_state: string | null }>("SELECT ai_state FROM conversations WHERE workspace_id=$1 AND id=$2", [w, c.id])).rows[0];
+          if (resumed?.kind === "zoe") {
+            const resolved = (
+              await db.query(
+                `SELECT 1 FROM ai_resolutions r WHERE r.workspace_id=$1 AND r.conversation_id=$2 AND r.kind='resolution' AND r.recorded_at>=$3
+                   AND NOT EXISTS(SELECT 1 FROM ai_resolutions x WHERE x.workspace_id=r.workspace_id AND x.resolution_id=r.id)`,
+                [w, c.id, resumed.since],
+              )
+            ).rows.length;
+            if (resolved) return go(next.resolved, "branch", "Zoe resolved it", { aiState: row.ai_state });
+            if (row.ai_state === "escalated" || row.ai_state === "needs_input") return go(next.handedOver, "branch", "Zoe handed it over", { aiState: row.ai_state });
+            if (resume.timedOut) {
+              timedOut = true;
+              return go(next.timedOut, "branch", "No outcome from Zoe in time", { aiState: row.ai_state });
+            }
+            return wait(resumed, resume.deadline ?? inSeconds(next.timeoutSeconds));
+          }
+          if (!(await aiEnabled(db, w))) return go(next.handedOver, "branch", "Zoe is off: handed over");
+          if (row.ai_state === "escalated" || row.ai_state === "needs_input") return go(next.handedOver, "branch", "Already handed over", { aiState: row.ai_state });
+          const handed = await act(db, w, run, c, { id: "zoe", type: "ai_handover", options: {} }, path);
+          await log(db, w, runId, { path: path.id, kind: "wait", label: "Letting Zoe answer", inputs: handed.detail, result: "waiting", ms: Date.now() - started });
+          return wait({ kind: "zoe", since: new Date().toISOString() }, inSeconds(next.timeoutSeconds));
+        }
+
+        // W3: a read connector, for a customer the verification rules allow.
+        if (next.type === "connector") {
+          const fail = (why: string) => go(next.failed, "branch", why);
+          if (!env.connectors) return fail("Connectors aren't available here");
+          if (!(await actionsEnabled(db, w))) return fail("Data connectors are off");
+          const named = (await db.query<{ name: string }>("SELECT name FROM ai_connectors WHERE workspace_id=$1 AND id=$2 AND NOT archived", [w, next.connectorId])).rows[0];
+          if (!named) return fail("Its connector isn't available");
+          const version = await pinnedVersion(db, w, next.connectorId, c.id);
+          const def = version
+            ? (
+                await db.query<{ definition: ConnectorDefinition }>(
+                  "SELECT definition FROM ai_connector_versions WHERE workspace_id=$1 AND connector_id=$2 AND version=$3",
+                  [w, next.connectorId, version],
+                )
+              ).rows[0]?.definition
+            : null;
+          if (!version || !def) return fail(`${named.name} isn't published`);
+          if (def.access === "write") return fail(`${named.name} changes things: workflows call read connectors only`);
+          const f = await factsFor(db, w, c, { source: run.source, partId: run.trigger_part_id });
+          const agentId = (await db.query<{ id: string }>("SELECT id FROM ai_agents WHERE workspace_id=$1 ORDER BY id LIMIT 1", [w])).rows[0]?.id;
+          const v = agentId ? await verificationOf(db, w, agentId) : { rules: [], fallback: "signed_in" as const };
+          const check = verified(
+            v.rules,
+            v.fallback,
+            await aiFacts(db, w, c, { signedIn: f["contact.signed_in"] === true, language: String(f["conversation.language"]) }),
+            "messenger",
+          );
+          if (!check.ok) return fail(`${named.name} needs a signed-in customer${check.rule ? ` (verification rule “${check.rule}”)` : " (the fallback rule)"}`);
+          const values: Record<string, unknown> = {};
+          for (const [name, src] of Object.entries(next.inputs) as [string, ValueSource][])
+            values[name] = src.from === "value" ? src.value : src.from === "contact" ? f.contactAttributes[src.key] : f.attributes[src.attributeId];
+          return { connectorId: next.connectorId, connector: named.name, version, values, path: path.id };
+        }
+
         const facts = await factsFor(db, w, c, { source: run.source, partId: run.trigger_part_id, timedOut });
         if (next.type === "branch") {
           for (const b of next.branches) {
@@ -596,10 +895,75 @@ export async function runWorkflow(
       throw err; // Transient: the job retries the step (idempotent), then dead-letters.
     }
     resume = {};
+    if (typeof outcome === "object") {
+      // The call itself, never inside a transaction. Read connectors only, so a retry is harmless.
+      const plan = outcome;
+      const run = await tenant(
+        connect,
+        w,
+        async (db) =>
+          (await db.query<{ workflow_id: string; conversation_id: string }>("SELECT workflow_id,conversation_id FROM workflow_runs WHERE workspace_id=$1 AND id=$2", [w, runId]))
+            .rows[0],
+      );
+      const result = await runConnector(connect, env.connectors!, w, {
+        connectorId: plan.connectorId,
+        version: plan.version,
+        values: plan.values,
+        source: "workflow",
+        invokedBy: "workflow:" + run.workflow_id,
+        conversationId: run.conversation_id,
+      });
+      called = { plan, result };
+      continue;
+    }
     if (outcome === "stop") break;
   }
   return { status: "done" };
 }
+
+/** W3: a collected email address, added to the customer's addresses (unverified). */
+async function keepEmail(db: Sql, w: string, c: Conversation, email: string) {
+  const contactId = (
+    await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, c.primary_identity_id])
+  ).rows[0]?.contact_id;
+  if (!contactId) throw new DomainError("CONTACT_NOT_FOUND", "This conversation has no customer record.", 404);
+  await db.query("INSERT INTO contact_emails(workspace_id,contact_id,email,verified) VALUES($1,$2,$3,false) ON CONFLICT DO NOTHING", [w, contactId, email]);
+}
+
+/** A customer attribute, set as the workflow (and recorded for teammates, firing its trigger). */
+async function setContactAttribute(db: Sql, w: string, run: RunRow, c: Conversation, keyName: string, value: unknown) {
+  if (!/^[A-Za-z0-9_.-]{1,60}$/.test(keyName)) throw new DomainError("INVALID_ATTRIBUTE", "That customer attribute's name isn't valid.", 400);
+  const contactId = (
+    await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, c.primary_identity_id])
+  ).rows[0]?.contact_id;
+  if (!contactId) throw new DomainError("CONTACT_NOT_FOUND", "This conversation has no customer record.", 404);
+  const v = value === undefined ? null : value;
+  await db.query("UPDATE contacts SET profile=jsonb_set(profile,ARRAY[$3],$4::jsonb,true),version=version+1 WHERE workspace_id=$1 AND id=$2", [
+    w,
+    contactId,
+    keyName,
+    JSON.stringify(v),
+  ]);
+  const { append } = await import("./conversations");
+  await append(
+    db,
+    w,
+    c,
+    { type: "system", id: "workflow:" + run.workflow_id, name: run.name, runId: run.id } as never,
+    "system_event",
+    "",
+    { event: "contact_attribute_change", key: keyName, after: v },
+    "internal",
+  );
+}
+
+/** The expected reply time's words in English (the messenger shows the customer's language). */
+const REPLY_BANDS: Record<string, string> = {
+  few_minutes: "We usually reply in a few minutes.",
+  under_an_hour: "We usually reply in under an hour.",
+  few_hours: "We usually reply in a few hours.",
+  about_a_day: "We usually reply in about a day.",
+};
 
 /** One action, through `command` as the workflow (idempotent per run and step). */
 async function act(
@@ -609,7 +973,7 @@ async function act(
   c: Conversation,
   step: Step,
   path: Path,
-): Promise<{ label: string; result: string; detail?: unknown; wait?: { state: unknown; until: string | null } }> {
+): Promise<{ label: string; result: string; detail?: unknown; wait?: { state: WaitState; until: string | null } }> {
   const o = step.options;
   const actor = { type: "workflow" as const, workflowId: run.workflow_id, runId: run.id, name: run.name };
   const key = `wf:${run.id}:${run.nodes}`;
@@ -669,24 +1033,8 @@ async function act(
     }
     case "contact_attribute_set": {
       const keyName = String(o.key);
-      if (!/^[A-Za-z0-9_.-]{1,60}$/.test(keyName)) throw new DomainError("INVALID_ATTRIBUTE", "That customer attribute's name isn't valid.", 400);
-      const contactId = (
-        await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, c.primary_identity_id])
-      ).rows[0]?.contact_id;
-      if (!contactId) throw new DomainError("CONTACT_NOT_FOUND", "This conversation has no customer record.", 404);
       const value = o.value === undefined ? null : o.value;
-      await db.query("UPDATE contacts SET profile=jsonb_set(profile,ARRAY[$3],$4::jsonb,true),version=version+1 WHERE workspace_id=$1 AND id=$2", [
-        w,
-        contactId,
-        keyName,
-        JSON.stringify(value),
-      ]);
-      const { append } = await import("./conversations");
-      await append(db, w, c, { type: "system", id: "workflow:" + run.workflow_id, name: run.name, runId: run.id } as never, "system_event", "", {
-        event: "contact_attribute_change",
-        key: keyName,
-        after: value,
-      }, "internal");
+      await setContactAttribute(db, w, run, c, keyName, value);
       return { label: "Set a customer attribute", result: "ok", detail: { key: keyName, value } };
     }
     case "ai_handover": {
@@ -715,6 +1063,39 @@ async function act(
       );
       return { label: "Handed to the team", result: "ok", detail: { team: teamId ?? null } };
     }
+    case "message": {
+      const sent = (await cmd({ action: "reply", text: String(o.text) })) as { partId: string };
+      return { label: "Sent a message", result: "ok", detail: { part: sent.partId } };
+    }
+    case "reply_time": {
+      // The customer's messenger says it in their language, from `replyTime` and `availability`.
+      const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id }, "en");
+      const replyTime = await expectedReply(db, w, c.brand_id);
+      const text =
+        !hours || hours.open
+          ? replyTime
+            ? "text" in replyTime
+              ? replyTime.text
+              : (REPLY_BANDS[replyTime.band] ?? "We'll reply as soon as we can.")
+            : "We'll reply as soon as we can."
+          : `We're away right now.${hours.nextOpenLabel ? ` We'll reply from ${hours.nextOpenLabel}.` : ""}`;
+      const sent = (await cmd({
+        action: "reply",
+        text,
+        workflowData: { replyTime, availability: hours ? { open: hours.open, nextOpenLabel: hours.nextOpenLabel ?? null } : null },
+      })) as { partId: string };
+      return { label: "Showed the expected reply time", result: "ok", detail: { part: sent.partId, text } };
+    }
+    case "collect": {
+      const asked = (await cmd({ action: "reply", text: String(o.text) })) as { partId: string };
+      const until = new Date(Date.now() + Number(o.timeoutSeconds ?? 86_400) * 1000).toISOString();
+      return {
+        label: "Asked for a reply to collect",
+        result: "waiting",
+        detail: { part: asked.partId, until },
+        wait: { state: { kind: "reply", mode: "collect", partId: asked.partId, attempt: 1 }, until },
+      };
+    }
     case "wait": {
       const until = new Date(Date.now() + Number(o.seconds) * 1000).toISOString();
       return { label: `Wait ${Math.round(Number(o.seconds) / 60)} minutes`, result: "waiting", detail: { until }, wait: { state: { kind: "duration" }, until } };
@@ -741,25 +1122,32 @@ async function act(
  * The `workflow.resume` job: a waiting run that's due (its time passed), or whose conversation
  * changed while it waits for a condition.
  */
-export async function resumeWorkflow(connect: Connect, job: Job) {
+export async function resumeWorkflow(connect: Connect, job: Job, env: WorkflowEnvironment = {}) {
   const w = job.workspace_id;
-  const p = job.payload as { runId: string; check?: boolean; due?: boolean };
+  const p = job.payload as { runId: string; check?: boolean; due?: boolean; reply?: string };
   const go = await tenant(connect, w, async (db) => {
     const run = (
-      await db.query<{ status: string; wait: { kind: string } | null; due: boolean; wait_until: string | null }>(
+      await db.query<{ status: string; wait: WaitState | null; due: boolean; wait_until: string | null }>(
         "SELECT status,wait,wait_until<=now() AS due,wait_until FROM workflow_runs WHERE workspace_id=$1 AND id=$2 FOR UPDATE",
         [w, p.runId],
       )
     ).rows[0];
     if (!run || !run.wait || (run.status !== "waiting" && !(run.status === "running" && p.due))) return null;
-    // A change re-checks only a condition wait; time waits resume when they're due.
-    if (p.check && run.wait.kind !== "condition") return null;
-    const timedOut = run.wait.kind === "condition" && run.due;
+    // A change re-checks a condition wait or Zoe's outcome; an answer resumes a run waiting for
+    // one; time waits resume when they're due.
+    if (p.check && run.wait.kind !== "condition" && run.wait.kind !== "zoe") return null;
+    if (p.reply && run.wait.kind !== "reply") return null;
+    const timedOut = !p.reply && run.due && (run.wait.kind === "condition" || run.wait.kind === "reply" || run.wait.kind === "zoe");
     await db.query("UPDATE workflow_runs SET status='running',wait=NULL,wait_until=NULL,version=version+1 WHERE workspace_id=$1 AND id=$2", [w, p.runId]);
-    return { timedOut, deadline: run.due ? null : run.wait_until ? new Date(run.wait_until).toISOString() : null };
+    return {
+      timedOut,
+      deadline: run.due ? null : run.wait_until ? new Date(run.wait_until).toISOString() : null,
+      wait: run.wait.kind === "reply" || run.wait.kind === "zoe" ? run.wait : null,
+      reply: p.reply ?? null,
+    };
   });
   if (!go) return { done: true, result: { skipped: true } };
-  await runWorkflow(connect, w, p.runId, { timedOut: go.timedOut, deadline: go.deadline });
+  await runWorkflow(connect, w, p.runId, go, env);
   return { done: true, result: { resumed: true } };
 }
 

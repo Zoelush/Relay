@@ -17,6 +17,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/base.css";
 import {
+  FlaskConical,
   AlertTriangle,
   ArrowLeft,
   History,
@@ -47,6 +48,8 @@ import {
   DefinitionError,
   nextLetter,
   outlets,
+  setOutlet,
+  MAX_BUTTONS,
   problems as graphProblems,
   validate,
   type Definition,
@@ -55,6 +58,7 @@ import {
   type Next,
   type Path,
   type Trigger,
+  type ValueSource,
 } from "../lib/workflow-definition";
 
 /**
@@ -89,6 +93,9 @@ const NEXT_TYPES: { type: Next["type"]; label: string }[] = [
   { type: "goto", label: "Go to a path" },
   { type: "branch", label: "Branch on conditions" },
   { type: "wait_until", label: "Wait until a condition holds" },
+  { type: "buttons", label: "Ask with reply buttons" },
+  { type: "zoe", label: "Let Zoe answer" },
+  { type: "connector", label: "Call a connector" },
 ];
 const STATE_NAMES = { draft: "Draft", live: "Live", paused: "Paused" };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -141,7 +148,7 @@ function useHistory(initial: Draft) {
 /* Cards                                                                                       */
 
 type TriggerData = { label: string; who: string; estimate: string };
-type PathData = { path: Path; start: boolean; steps: string[]; flagged: boolean };
+type PathData = { path: Path; start: boolean; steps: string[]; flagged: boolean; ask: string; visited: boolean };
 
 function TriggerCard({ data, selected }: NodeProps<Node<TriggerData>>) {
   return (
@@ -166,7 +173,12 @@ function PathCard({ data, selected }: NodeProps<Node<PathData>>) {
   const { path } = data;
   const ways = outlets(path);
   return (
-    <div className="pg-wf-card pg-wf-path" data-selected={selected ? "true" : undefined} data-flagged={data.flagged ? "true" : undefined}>
+    <div
+      className="pg-wf-card pg-wf-path"
+      data-selected={selected ? "true" : undefined}
+      data-flagged={data.flagged ? "true" : undefined}
+      data-visited={data.visited ? "true" : undefined}
+    >
       <Handle type="target" position={Position.Left} className="pg-wf-handle" />
       <div className="pg-wf-card-head">
         <span className="pg-wf-letter">{path.id}</span>
@@ -183,6 +195,7 @@ function PathCard({ data, selected }: NodeProps<Node<PathData>>) {
       ) : (
         <p className="pg-wf-card-line pg-muted">No steps yet</p>
       )}
+      {data.ask && <p className="pg-wf-card-ask">{data.ask}</p>}
       <div className="pg-wf-outlets">
         {path.next.type === "end" ? (
           <div className="pg-wf-outlet">
@@ -207,17 +220,7 @@ function PathCard({ data, selected }: NodeProps<Node<PathData>>) {
 const NODE_TYPES = { trigger: TriggerCard, path: PathCard };
 
 /** A path with one way on pointed elsewhere (`""`: disconnected). */
-function connect(p: Path, handle: string, target: string): Path {
-  const n = p.next;
-  if (handle === "next") return { ...p, next: target ? { type: "goto", path: target } : { type: "end" } };
-  if (n.type === "branch" && handle === "else") return { ...p, next: { ...n, else: target } };
-  if (n.type === "branch" && /^b\d+$/.test(handle)) {
-    const i = Number(handle.slice(1));
-    return { ...p, next: { ...n, branches: n.branches.map((b, j) => (j === i ? { ...b, path: target } : b)) } };
-  }
-  if (n.type === "wait_until" && (handle === "met" || handle === "timedOut")) return { ...p, next: { ...n, [handle]: target } };
-  return p;
-}
+const connect = setOutlet;
 
 /* ------------------------------------------------------------------------------------------ */
 /* The builder                                                                                 */
@@ -280,7 +283,10 @@ function Editor({ initial, onBack }: { initial: Detail; onBack: () => void }) {
   const [saved, setSaved] = useState<Draft>(() => fromDetail(initial));
   const dirty = !same(draft, saved);
   const [selected, setSelected] = useState<string>("trigger");
-  const [panel, setPanel] = useState<"edit" | "versions">("edit");
+  const [panel, setPanel] = useState<"edit" | "versions" | "test">("edit");
+  // W3: the paths the last test took, lit on the canvas while the Test panel is open.
+  const [tested, setTested] = useState<string[]>([]);
+  const visited = useMemo(() => new Set(panel === "test" ? tested : []), [panel, tested]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
@@ -397,11 +403,25 @@ function Editor({ initial, onBack }: { initial: Detail; onBack: () => void }) {
         position: place(p.id, { x: 380, y: 0 }),
         measured: measured[p.id],
         selected: selected === p.id,
-        data: { path: p, start: i === 0, steps: p.steps.map((s) => describeStep(s, o)), flagged: flagged.has(p.id) } satisfies PathData,
+        data: {
+          path: p,
+          start: i === 0,
+          steps: p.steps.map((s) => describeStep(s, o)),
+          flagged: flagged.has(p.id),
+          ask:
+            p.next.type === "buttons"
+              ? `Asks “${p.next.text}”`
+              : p.next.type === "zoe"
+                ? "Lets Zoe answer"
+                : p.next.type === "connector"
+                  ? `Calls ${o.connectors.find((x) => x.id === (p.next as { connectorId: string }).connectorId)?.name ?? "a connector"}`
+                  : "",
+          visited: visited.has(p.id),
+        } satisfies PathData,
         ariaLabel: `Path ${p.id}${p.label ? `, ${p.label}` : ""}`,
       })),
     ];
-  }, [draft.layout, def, moving, measured, selected, o, estimateLine, flagged]);
+  }, [draft.layout, def, moving, measured, selected, o, estimateLine, flagged, visited]);
   const edges = useMemo((): Edge[] => {
     const out: Edge[] = def.paths.length
       ? [{ id: "trigger:start", source: "trigger", sourceHandle: "start", target: def.paths[0].id, deletable: false, className: "pg-wf-edge" }]
@@ -561,6 +581,9 @@ function Editor({ initial, onBack }: { initial: Detail; onBack: () => void }) {
           <button type="button" className="pg-wf-icon" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!history.canRedo} onClick={history.redo}>
             <Redo2 size={16} aria-hidden="true" />
           </button>
+          <button type="button" className="pg-zoe-secondary" aria-pressed={panel === "test"} onClick={() => setPanel(panel === "test" ? "edit" : "test")}>
+            <FlaskConical size={14} aria-hidden="true" /> Test
+          </button>
           <button type="button" className="pg-zoe-secondary" aria-pressed={panel === "versions"} onClick={() => setPanel(panel === "versions" ? "edit" : "versions")}>
             <History size={14} aria-hidden="true" /> Versions
           </button>
@@ -718,8 +741,10 @@ function Editor({ initial, onBack }: { initial: Detail; onBack: () => void }) {
             )}
           </div>
         </div>
-        <aside className="pg-wf-panel" aria-label={panel === "versions" ? "Versions" : current ? `Path ${current.id}` : "Trigger"}>
-          {panel === "versions" ? (
+        <aside className="pg-wf-panel" aria-label={panel === "versions" ? "Versions" : panel === "test" ? "Test" : current ? `Path ${current.id}` : "Trigger"}>
+          {panel === "test" ? (
+            <TestPanel def={def} onVisited={setTested} onSelect={focusPath} />
+          ) : panel === "versions" ? (
             <Versions
               detail={detail}
               dirty={dirty}
@@ -894,7 +919,13 @@ function PathPanel({
             ? { type: "goto", path: "" }
             : type === "branch"
               ? { type: "branch", branches: [{ label: "Branch 1", when: { match: "all", items: [] }, path: "" }], else: "" }
-              : { type: "wait_until", when: { match: "all", items: [] }, timeoutSeconds: 86_400, met: "", timedOut: "" },
+              : type === "buttons"
+                ? { type: "buttons", text: "", buttons: [{ label: "Yes", path: "" }, { label: "No", path: "" }], other: "", timeoutSeconds: 86_400, timedOut: "" }
+                : type === "zoe"
+                  ? { type: "zoe", resolved: "", handedOver: "", timeoutSeconds: 86_400, timedOut: "" }
+                  : type === "connector"
+                    ? { type: "connector", connectorId: o.connectors[0]?.id ?? "", inputs: {}, save: {}, ok: "", failed: "" }
+                    : { type: "wait_until", when: { match: "all", items: [] }, timeoutSeconds: 86_400, met: "", timedOut: "" },
     }));
   return (
     <>
@@ -981,6 +1012,28 @@ function PathPanel({
             </div>
           </>
         )}
+        {n.type === "buttons" && <ButtonsEditor n={n} onChange={onChange} target={target} />}
+        {n.type === "zoe" && (
+          <>
+            <p className="pg-muted pg-wf-hint">Zoe answers the customer; her outcome decides the way on. If she&apos;s off, it&apos;s handed over.</p>
+            {(
+              [
+                ["resolved", "Resolved"],
+                ["handedOver", "Handed over"],
+                ["timedOut", "If no outcome"],
+              ] as const
+            ).map(([k, l]) => (
+              <div className="pg-wf-else" key={k}>
+                <strong>{l}</strong> {target(`${l}, go to`, n[k], (v) => onChange((p) => (p.next.type === "zoe" ? { ...p, next: { ...p.next, [k]: v } } : p)), k)}
+              </div>
+            ))}
+            <div className="pg-wf-else">
+              <strong>Wait for her outcome up to</strong>
+              <Duration label="Wait for Zoe's outcome" value={n.timeoutSeconds} onChange={(x) => onChange((p) => (p.next.type === "zoe" ? { ...p, next: { ...p.next, timeoutSeconds: x } } : p), "timeout")} />
+            </div>
+          </>
+        )}
+        {n.type === "connector" && <ConnectorEditor n={n} o={o} onChange={onChange} target={target} />}
       </Section>
       {onRemove && (
         <button type="button" className="pg-zoe-secondary pg-wf-danger" onClick={onRemove}>
@@ -1053,3 +1106,287 @@ function Versions({
   );
 }
 
+
+/* ------------------------------------------------------------------------------------------ */
+/* W3: reply buttons, connectors and the Test panel                                            */
+
+type Target = (label: string, value: string, set: (v: string) => void, handle: string) => ReactNode;
+type PathChange = (fn: (p: Path) => Path, group?: string | null) => void;
+
+function ButtonsEditor({ n, onChange, target }: { n: Extract<Next, { type: "buttons" }>; onChange: PathChange; target: Target }) {
+  const set = (fn: (x: typeof n) => typeof n, group: string | null = null) => onChange((p) => (p.next.type === "buttons" ? { ...p, next: fn(p.next) } : p), group);
+  return (
+    <>
+      <textarea aria-label="Question" rows={2} maxLength={1000} placeholder="What can we help with?" value={n.text} onChange={(e) => set((x) => ({ ...x, text: e.target.value }), "ask")} />
+      <ol className="pg-wf-branches">
+        {n.buttons.map((b, i) => (
+          <li key={i} className="pg-wf-branch">
+            <div className="pg-wf-step-head">
+              <input aria-label={`Button ${i + 1} label`} maxLength={40} value={b.label} onChange={(e) => set((x) => ({ ...x, buttons: x.buttons.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)) }), `button-${i}`)} />
+              <button
+                type="button"
+                className="pg-wf-icon"
+                aria-label={`Remove button ${i + 1}`}
+                title="Remove button"
+                disabled={n.buttons.length === 1}
+                onClick={() => set((x) => ({ ...x, buttons: x.buttons.filter((_, j) => j !== i) }))}
+              >
+                <Trash2 size={14} aria-hidden="true" />
+              </button>
+            </div>
+            {target(`Button ${i + 1} goes to`, b.path, (v) => set((x) => ({ ...x, buttons: x.buttons.map((y, j) => (j === i ? { ...y, path: v } : y)) })), "b" + i)}
+          </li>
+        ))}
+      </ol>
+      {n.buttons.length < MAX_BUTTONS && (
+        <button type="button" className="pg-zoe-secondary" onClick={() => set((x) => ({ ...x, buttons: [...x.buttons, { label: `Option ${x.buttons.length + 1}`, path: "" }] }))}>
+          <Plus size={14} aria-hidden="true" /> Button
+        </button>
+      )}
+      <div className="pg-wf-else">
+        <strong>If they type instead</strong> {target("If they type instead, go to", n.other, (v) => set((x) => ({ ...x, other: v })), "other")}
+      </div>
+      <div className="pg-wf-else">
+        <strong>If they don&apos;t answer within</strong>
+        <Duration label="Wait for an answer" value={n.timeoutSeconds} onChange={(v) => set((x) => ({ ...x, timeoutSeconds: v }), "timeout")} />
+        {target("If they don't answer, go to", n.timedOut, (v) => set((x) => ({ ...x, timedOut: v })), "timedOut")}
+      </div>
+    </>
+  );
+}
+
+function ConnectorEditor({ n, o, onChange, target }: { n: Extract<Next, { type: "connector" }>; o: Options; onChange: PathChange; target: Target }) {
+  const set = (fn: (x: typeof n) => typeof n, group: string | null = null) => onChange((p) => (p.next.type === "connector" ? { ...p, next: fn(p.next) } : p), group);
+  const c = o.connectors.find((x) => x.id === n.connectorId);
+  if (!o.connectors.length)
+    return <p className="pg-muted pg-wf-hint">No published read connector yet. Publish one under Zoe › Actions (data connectors must be on).</p>;
+  const source = (src: ValueSource | undefined) => src?.from ?? "";
+  return (
+    <>
+      <p className="pg-muted pg-wf-hint">Only read connectors, for customers your verification rules allow. Its call is audited like Zoe&apos;s.</p>
+      <select aria-label="Connector" value={n.connectorId} onChange={(e) => set((x) => ({ ...x, connectorId: e.target.value, inputs: {}, save: {} }))}>
+        {!c && <option value={n.connectorId}>{n.connectorId ? "(missing)" : "Choose…"}</option>}
+        {o.connectors.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.name}
+          </option>
+        ))}
+      </select>
+      {c?.inputs.map((i) => {
+        const src = n.inputs[i.name];
+        const put = (v: ValueSource | null) =>
+          set((x) => {
+            const inputs = { ...x.inputs };
+            if (v) inputs[i.name] = v;
+            else delete inputs[i.name];
+            return { ...x, inputs };
+          }, `input-${i.name}`);
+        return (
+          <div className="pg-wf-step" key={i.name}>
+            <strong>
+              {i.label}
+              {i.required ? "" : " (optional)"}
+            </strong>
+            <div className="pg-wf-step-fields">
+              <select
+                aria-label={`${i.label}, from`}
+                value={source(src)}
+                onChange={(e) =>
+                  put(
+                    e.target.value === "value"
+                      ? { from: "value", value: "" }
+                      : e.target.value === "contact"
+                        ? { from: "contact", key: "" }
+                        : e.target.value === "conversation"
+                          ? { from: "conversation", attributeId: o.attributes[0]?.id ?? "" }
+                          : null,
+                  )
+                }
+              >
+                <option value="">Choose…</option>
+                <option value="value">A fixed value</option>
+                <option value="contact">A customer attribute</option>
+                <option value="conversation">A conversation attribute</option>
+              </select>
+              {src?.from === "value" && <input aria-label={`${i.label}, value`} value={src.value} onChange={(e) => put({ from: "value", value: e.target.value })} />}
+              {src?.from === "contact" && <input aria-label={`${i.label}, attribute name`} placeholder="order_number" value={src.key} onChange={(e) => put({ from: "contact", key: e.target.value })} />}
+              {src?.from === "conversation" && (
+                <select aria-label={`${i.label}, attribute`} value={src.attributeId} onChange={(e) => put({ from: "conversation", attributeId: e.target.value })}>
+                  {o.attributes.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {c && c.outputs.length > 0 && (
+        <div className="pg-wf-step">
+          <strong>Keep what it returns</strong>
+          {c.outputs.map((out) => (
+            <div className="pg-wf-else" key={out.name}>
+              <span>{out.label}</span>
+              <select
+                aria-label={`Keep ${out.label} in`}
+                value={n.save[out.name] ?? ""}
+                onChange={(e) =>
+                  set((x) => {
+                    const save = { ...x.save };
+                    if (e.target.value) save[out.name] = e.target.value;
+                    else delete save[out.name];
+                    return { ...x, save };
+                  })
+                }
+              >
+                <option value="">Don&apos;t keep it</option>
+                {o.attributes.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="pg-wf-else">
+        <strong>If it works</strong> {target("If it works, go to", n.ok, (v) => set((x) => ({ ...x, ok: v })), "ok")}
+      </div>
+      <div className="pg-wf-else">
+        <strong>If it fails</strong> {target("If it fails, go to", n.failed, (v) => set((x) => ({ ...x, failed: v })), "failed")}
+      </div>
+    </>
+  );
+}
+
+type Simulation = {
+  trace: {
+    path: string | null;
+    step: number | null;
+    kind: string;
+    label: string;
+    checks?: { field: string; key?: string; op: string; value?: unknown; actual: unknown; result: boolean }[];
+    decision?: { id: string; options: { value: string; label: string }[]; chosen: string };
+  }[];
+  visited: string[];
+  ended: "completed" | "not run" | "limit" | "failed";
+};
+type Candidate = { id: string; title: string; status: string; customer: string | null; createdAt: string };
+const ENDED = { completed: "It would end there.", "not run": "It wouldn't run for this conversation.", limit: "It would stop: too many steps.", failed: "A real run would fail." };
+const shown = (v: unknown) => (v === null || v === undefined || v === "" ? "nothing" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : String(v));
+
+/** A test against a real conversation: the path it would take and every decision, changing nothing. */
+function TestPanel({ def, onVisited, onSelect }: { def: Definition; onVisited: (paths: string[]) => void; onSelect: (id: string) => void }) {
+  const [q, setQ] = useState("");
+  const [list, setList] = useState<Candidate[] | null>(null);
+  const [conversationId, setConversationId] = useState("");
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [result, setResult] = useState<{ sim: Simulation; of: string } | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(
+      () =>
+        void api<{ conversations: Candidate[] }>(`workflow-conversations?q=${encodeURIComponent(q)}`)
+          .then((d) => {
+            setList(d.conversations);
+            setConversationId((id) => id || d.conversations[0]?.id || "");
+          })
+          .catch((e) => setError(errorText(e, "Conversations couldn't be loaded."))),
+      q ? 300 : 0,
+    );
+    return () => clearTimeout(t);
+  }, [q]);
+  const key = JSON.stringify(def);
+  const run = async (picked: Record<string, string>) => {
+    setBusy(true);
+    setError("");
+    try {
+      const sim = await api<Simulation>("workflow-simulate", { definition: def, conversationId, choices: picked });
+      setResult({ sim, of: key });
+      onVisited(sim.visited);
+    } catch (e) {
+      setResult(null);
+      onVisited([]);
+      setError(errorText(e, "The test couldn't run."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title="Test" hint="Runs this draft against a real conversation and shows what it would do. Nothing is changed or sent.">
+      <input type="search" aria-label="Find a conversation" placeholder="Search by customer or title" value={q} onChange={(e) => setQ(e.target.value)} />
+      <select aria-label="Conversation to test with" value={conversationId} onChange={(e) => (setConversationId(e.target.value), setChoices({}))}>
+        {!list?.length && <option value="">{list ? "No conversations" : "Loading…"}</option>}
+        {list?.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.customer ? `${c.customer}: ` : ""}
+            {c.title} ({c.status}, {ago(c.createdAt)})
+          </option>
+        ))}
+      </select>
+      <button type="button" className="pg-primary" disabled={!conversationId || busy} onClick={() => (setChoices({}), void run({}))}>
+        <FlaskConical size={14} aria-hidden="true" /> {busy ? "Testing…" : "Run test"}
+      </button>
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      {result && result.of !== key && <p className="pg-muted pg-wf-hint">The workflow changed since this test: run it again.</p>}
+      {result && (
+        <ol className="pg-wf-trace" aria-label="What it would do">
+          {result.sim.trace.map((t, i) => (
+            <li key={i} data-kind={t.kind}>
+              <div className="pg-wf-trace-line">
+                {t.path ? (
+                  <button type="button" className="pg-wf-letter" title={`Open path ${t.path}`} onClick={() => onSelect(t.path!)}>
+                    {t.path}
+                  </button>
+                ) : (
+                  <span className="pg-wf-letter" aria-hidden="true">
+                    <Zap size={12} />
+                  </span>
+                )}
+                <span>{t.label}</span>
+              </div>
+              {t.checks && t.checks.length > 0 && (
+                <ul className="pg-wf-checks">
+                  {t.checks.map((c, j) => (
+                    <li key={j} data-result={c.result ? "true" : "false"}>
+                      {c.result ? "✓" : "✗"} {c.field}
+                      {c.key ? ` (${c.key})` : ""} {c.op.replace(/_/g, " ")} {c.value !== undefined ? shown(c.value) : ""}: it&apos;s {shown(c.actual)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {t.decision && (
+                <select
+                  aria-label={`Suppose: ${t.label}`}
+                  value={t.decision.chosen}
+                  onChange={(e) => {
+                    const next = { ...choices, [t.decision!.id]: e.target.value };
+                    setChoices(next);
+                    void run(next);
+                  }}
+                >
+                  {t.decision.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      Suppose: {o.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </li>
+          ))}
+          <li data-kind="end">
+            <strong>{ENDED[result.sim.ended]}</strong>
+          </li>
+        </ol>
+      )}
+    </Section>
+  );
+}

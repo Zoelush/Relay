@@ -175,19 +175,41 @@ export const ACTIONS = {
   human_handover: { label: "Hand to the team", needs: [] },
   wait: { label: "Wait", needs: ["seconds"] },
   wait_office_hours: { label: "Wait until office hours", needs: [] },
+  // W3: customer-facing steps. They reach the customer in the conversation's own channel
+  // (the messenger) as Automation, never as a teammate's reply.
+  message: { label: "Send a message", needs: ["text"] },
+  reply_time: { label: "Show the expected reply time", needs: [] },
+  collect: { label: "Collect a reply", needs: ["text", "into"] },
 } as const;
 /**
- * Customer-facing steps arrive in W3 (send a message, ask with buttons, collect a reply, show the
- * expected reply time, connector branches). TODO(phase 13): start an outbound series.
- * TODO(phase 15): notify a Slack channel, send a webhook. TODO(phase 12): send an email.
+ * TODO(phase 13): start an outbound series. TODO(phase 15): notify a Slack channel, send a
+ * webhook. TODO(phase 12): send an email. TODO(phase 01): reply buttons from custom objects.
  */
 export type ActionType = keyof typeof ACTIONS;
+/** Steps that talk to the customer: handing to Zoe counts, since she then answers them. */
+export const CUSTOMER_STEPS: ReadonlySet<ActionType> = new Set(["message", "reply_time", "collect", "ai_handover"]);
+/** Where a collected reply is kept. */
+export const COLLECT_INTO = {
+  email: "The customer's email address",
+  contact: "A customer attribute",
+  conversation: "A conversation attribute",
+} as const;
+export const COLLECT_FORMATS = { text: "Any text", email: "An email address", number: "A number" } as const;
+/** A connector input's value: fixed, or read from the customer or the conversation. */
+export type ValueSource = { from: "value"; value: string } | { from: "contact"; key: string } | { from: "conversation"; attributeId: string };
 export type Step = { id: string; type: ActionType; options: Record<string, unknown> };
 export type Next =
   | { type: "end" }
   | { type: "goto"; path: string }
   | { type: "branch"; branches: { label: string; when: Group; path: string }[]; else: string }
-  | { type: "wait_until"; when: Group; timeoutSeconds: number; met: string; timedOut: string };
+  | { type: "wait_until"; when: Group; timeoutSeconds: number; met: string; timedOut: string }
+  /** W3: a question with reply buttons, each its own path; typing instead, or no answer, too. */
+  | { type: "buttons"; text: string; buttons: { label: string; path: string }[]; other: string; timeoutSeconds: number; timedOut: string }
+  /** W3: Zoe answers; on to a path by her outcome. */
+  | { type: "zoe"; resolved: string; handedOver: string; timeoutSeconds: number; timedOut: string }
+  /** W3: a published read connector, its outputs kept in conversation attributes; on by result. */
+  | { type: "connector"; connectorId: string; inputs: Record<string, ValueSource>; save: Record<string, string>; ok: string; failed: string };
+export const MAX_BUTTONS = 8;
 export type Path = { id: string; label: string; steps: Step[]; next: Next };
 export type Definition = {
   trigger: { type: Trigger; options: { tagId?: string; attributeId?: string; key?: string } };
@@ -206,11 +228,12 @@ export const blankDefinition = (trigger: Trigger = "first_message"): Definition 
   paths: [{ id: "A", label: "Start", steps: [], next: { type: "end" } }],
 });
 
-/** Whether it talks to the customer (then only the top-priority match runs for a trigger). */
+/**
+ * Whether it talks to the customer: then only the top-priority match runs for a trigger, none
+ * starts while another is waiting for the customer's answer, and Zoe waits for it.
+ */
 export function customerFacing(def: Definition) {
-  void def;
-  // W3's customer-facing steps make this true; background actions never do.
-  return false;
+  return def.paths.some((p) => p.next.type === "buttons" || p.next.type === "zoe" || p.steps.some((s) => CUSTOMER_STEPS.has(s.type)));
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -271,9 +294,25 @@ function checkStep(s: unknown, where: string): Step {
   if ((type === "wait" || type === "snooze") && !(Number.isInteger(options.seconds) && (options.seconds as number) >= 60 && (options.seconds as number) <= 30 * 86_400))
     fail(`${where}: ${spec.label} for between a minute and 30 days.`);
   if (type === "note" && (typeof options.text !== "string" || options.text.length > 5000)) fail(`${where}: keep the note to 5,000 characters.`);
+  if ((type === "message" || type === "collect") && (typeof options.text !== "string" || !options.text.trim() || options.text.length > 2000))
+    fail(`${where}: write the message, in up to 2,000 characters.`);
+  if (type === "collect") {
+    if (!(String(options.into) in COLLECT_INTO)) fail(`${where}: choose where to keep the reply.`);
+    if (options.into === "contact" && !/^[A-Za-z0-9_.-]{1,60}$/.test(String(options.key ?? ""))) fail(`${where}: name the customer attribute (letters, digits, . _ -).`);
+    if (options.into === "conversation" && (typeof options.attributeId !== "string" || !options.attributeId)) fail(`${where}: choose the conversation attribute.`);
+    if (options.format !== undefined && !(String(options.format) in COLLECT_FORMATS)) fail(`${where}: choose what kind of reply it is.`);
+    const t = options.timeoutSeconds ?? 86_400;
+    if (!(Number.isInteger(t) && (t as number) >= 60 && (t as number) <= 30 * 86_400)) fail(`${where}: wait for the reply between a minute and 30 days.`);
+  }
   if (type === "priority" && typeof options.value !== "boolean") fail(`${where}: set priority on or off.`);
   return { id: typeof x.id === "string" && x.id ? x.id.slice(0, 40) : crypto.randomUUID(), type: type as ActionType, options };
 }
+
+const timeout = (v: unknown, where: string) => {
+  const t = Number(v);
+  if (!Number.isInteger(t) || t < 60 || t > 30 * 86_400) fail(`${where}: wait at most between a minute and 30 days.`);
+  return t;
+};
 
 /** The definition, in shape (any draft may be saved this way, even an unfinished one). */
 export function validate(raw: unknown): Definition {
@@ -315,6 +354,48 @@ export function validate(raw: unknown): Definition {
       const timeout = Number(n.timeoutSeconds);
       if (!Number.isInteger(timeout) || timeout < 60 || timeout > 30 * 86_400) fail(`${where}: wait at most between a minute and 30 days.`);
       next = { type: "wait_until", when: checkGroup(n.when, 1, count, `${where}, wait`), timeoutSeconds: timeout, met: String(n.met ?? ""), timedOut: String(n.timedOut ?? "") };
+    } else if (n.type === "buttons") {
+      const text = typeof n.text === "string" ? n.text.trim() : "";
+      if (!text || text.length > 1000) fail(`${where}: write the question, in up to 1,000 characters.`);
+      const buttons = Array.isArray(n.buttons) ? (n.buttons as Record<string, unknown>[]) : [];
+      if (!buttons.length || buttons.length > MAX_BUTTONS) fail(`${where}: give between 1 and ${MAX_BUTTONS} reply buttons.`);
+      const labels = buttons.map((b, j) => {
+        const label = typeof b.label === "string" ? b.label.trim() : "";
+        if (!label || label.length > 40) fail(`${where}, button ${j + 1}: label it, in up to 40 characters.`);
+        return label;
+      });
+      if (new Set(labels.map((l) => l.toLowerCase())).size !== labels.length) fail(`${where}: two buttons have the same label.`);
+      next = {
+        type: "buttons",
+        text,
+        buttons: buttons.map((b, j) => ({ label: labels[j], path: String(b.path ?? "") })),
+        other: String(n.other ?? ""),
+        timeoutSeconds: timeout(n.timeoutSeconds, where),
+        timedOut: String(n.timedOut ?? ""),
+      };
+    } else if (n.type === "zoe") {
+      next = {
+        type: "zoe",
+        resolved: String(n.resolved ?? ""),
+        handedOver: String(n.handedOver ?? ""),
+        timeoutSeconds: timeout(n.timeoutSeconds, where),
+        timedOut: String(n.timedOut ?? ""),
+      };
+    } else if (n.type === "connector") {
+      const connectorId = typeof n.connectorId === "string" ? n.connectorId.slice(0, 100) : "";
+      if (!connectorId) fail(`${where}: choose the connector.`);
+      const inputs: Record<string, ValueSource> = {};
+      for (const [k, v] of Object.entries((n.inputs ?? {}) as Record<string, Record<string, unknown>>)) {
+        if (!/^[A-Za-z0-9_]{1,60}$/.test(k)) fail(`${where}: “${k}” isn't an input name.`);
+        if (v?.from === "value" && typeof v.value === "string" && v.value.length <= 500) inputs[k] = { from: "value", value: v.value };
+        else if (v?.from === "contact" && /^[A-Za-z0-9_.-]{1,60}$/.test(String(v.key ?? ""))) inputs[k] = { from: "contact", key: String(v.key) };
+        else if (v?.from === "conversation" && typeof v.attributeId === "string" && v.attributeId) inputs[k] = { from: "conversation", attributeId: v.attributeId.slice(0, 100) };
+        else fail(`${where}: choose where the connector's ${k} comes from.`);
+      }
+      const save: Record<string, string> = {};
+      for (const [k, v] of Object.entries((n.save ?? {}) as Record<string, unknown>))
+        if (typeof v === "string" && v && /^[A-Za-z0-9_]{1,60}$/.test(k)) save[k] = v.slice(0, 100);
+      next = { type: "connector", connectorId, inputs, save, ok: String(n.ok ?? ""), failed: String(n.failed ?? "") };
     } else return fail(`${where}: choose what happens after its steps.`);
     return {
       id,
@@ -341,7 +422,39 @@ export function outlets(p: Path): { id: string; label: string; target: string }[
       { id: "met", label: "When it holds", target: n.met },
       { id: "timedOut", label: "If it times out", target: n.timedOut },
     ];
+  if (n.type === "buttons")
+    return [
+      ...n.buttons.map((b, i) => ({ id: "b" + i, label: b.label, target: b.path })),
+      { id: "other", label: "If they type instead", target: n.other },
+      { id: "timedOut", label: "If they don't answer", target: n.timedOut },
+    ];
+  if (n.type === "zoe")
+    return [
+      { id: "resolved", label: "Resolved", target: n.resolved },
+      { id: "handedOver", label: "Handed over", target: n.handedOver },
+      { id: "timedOut", label: "If no outcome", target: n.timedOut },
+    ];
+  if (n.type === "connector")
+    return [
+      { id: "ok", label: "It worked", target: n.ok },
+      { id: "failed", label: "It failed", target: n.failed },
+    ];
   return [];
+}
+
+/** The path with one way on pointed at `target` ("" disconnects it); "next" on an end goes on. */
+export function setOutlet(p: Path, id: string, target: string): Path {
+  const n = p.next;
+  const button = /^b(\d+)$/.exec(id);
+  if (id === "next") return { ...p, next: target ? { type: "goto", path: target } : { type: "end" } };
+  if (n.type === "branch" && id === "else") return { ...p, next: { ...n, else: target } };
+  if (n.type === "branch" && button) return { ...p, next: { ...n, branches: n.branches.map((b, j) => (j === Number(button[1]) ? { ...b, path: target } : b)) } };
+  if (n.type === "buttons" && button) return { ...p, next: { ...n, buttons: n.buttons.map((b, j) => (j === Number(button[1]) ? { ...b, path: target } : b)) } };
+  if (n.type === "buttons" && (id === "other" || id === "timedOut")) return { ...p, next: { ...n, [id]: target } };
+  if (n.type === "wait_until" && (id === "met" || id === "timedOut")) return { ...p, next: { ...n, [id]: target } };
+  if (n.type === "zoe" && (id === "resolved" || id === "handedOver" || id === "timedOut")) return { ...p, next: { ...n, [id]: target } };
+  if (n.type === "connector" && (id === "ok" || id === "failed")) return { ...p, next: { ...n, [id]: target } };
+  return p;
 }
 const targets = (p: Path) => outlets(p).map((o) => o.target);
 

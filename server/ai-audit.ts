@@ -111,7 +111,7 @@ export async function readAiAudit(db: Sql, w: string, principal: string, convers
       connector: k.name,
       version: k.version,
       access: k.access,
-      by: k.source === "agent" ? "Zoe" : (k.teammate ?? "A teammate"),
+      by: k.source === "agent" ? "Zoe" : k.source === "workflow" ? "A workflow" : (k.teammate ?? "A teammate"),
       method: k.method,
       url: details ? k.url : null,
       inputs: details ? k.inputs : null,

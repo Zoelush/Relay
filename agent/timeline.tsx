@@ -52,6 +52,8 @@ export const MESSAGES = new Set([
   "internal_note",
   "ai_reply",
   "attachment",
+  // Phase 11 W3: a workflow's message to the customer.
+  "workflow_message",
 ]);
 const when = (iso: unknown, timeZone?: unknown) =>
   typeof iso === "string"
@@ -221,11 +223,12 @@ function Message({
   // Zoe (Z1): her name and mark on her replies and handover notes; and (Z3a) the specialist.
   const agentName = useAgentName();
   const specialist = useContext(ReplySpecialists).get(p.id);
+  const workflow = p.kind === "workflow_message" ? `Workflow “${p.data.workflowName ?? "Automation"}”` : null;
   const who = fromCustomer
     ? customer || "Customer"
     : p.author_type === "ai"
       ? agentName
-      : (p.data.authorName ?? "Teammate");
+      : (workflow ?? p.data.authorName ?? "Teammate");
   return (
     <div className={"pg-bubble-row " + (fromCustomer ? "customer" : "team")}>
       {p.author_type === "ai" ? (
@@ -255,7 +258,9 @@ function Message({
                 ? "Internal note · Team only"
               : p.author_type === "contact"
                 ? "Customer"
-                : (p.data.authorName ??
+                : workflow
+                  ? `${workflow} · to the customer`
+                  : (p.data.authorName ??
                   (p.author_type === "ai"
                     ? `${agentName}${specialist ? ` · ${specialist}` : ""} · AI agent`
                     : "Teammate"))}
@@ -273,6 +278,13 @@ function Message({
           <p className={p.data.aiHandover ? "pg-handover" : undefined}>{p.body}</p>
         )}
         {p.kind === "ai_reply" && <AiReplyDetails p={p} />}
+        {p.kind === "workflow_message" && Array.isArray(p.data.options) && p.data.options.length > 0 && (
+          <ul className="pg-wf-sent-buttons" aria-label="Reply buttons">
+            {(p.data.options as string[]).map((o) => (
+              <li key={o}>{o}</li>
+            ))}
+          </ul>
+        )}
         {p.kind === "internal_note" && p.data.aiApproval?.id && <ApprovalCard id={p.data.aiApproval.id} />}
         {p.kind === "attachment" && p.data.attachmentId && (
           <a

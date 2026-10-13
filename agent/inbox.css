@@ -1585,3 +1585,21 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
   .pg-wf-counts { flex-basis:100%; }
   .pg-wf-bar-tools { margin-left:0; }
 }
+/* W3: a workflow message's reply buttons, as the customer saw them. */
+.pg-wf-sent-buttons { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 0; padding:0; list-style:none; }
+.pg-wf-sent-buttons li { padding:3px 10px; border:1px solid var(--pg-accent-border); border-radius:999px; color:var(--pg-accent-strong); font-size:12.5px; }
+/* W3: what a path asks or calls, the paths a test took, and the test's trace. */
+.pg-wf-card-ask { margin:0; padding:6px 12px; border-top:1px dashed var(--pg-border); color:var(--pg-tint-violet); font-size:12.5px; overflow-wrap:anywhere; }
+.pg-wf-card[data-visited="true"] { border-color:var(--pg-info-line); box-shadow:0 0 0 3px var(--pg-info-bg), 0 1px 4px var(--pg-shadow-soft); }
+.pg-wf-trace { list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.pg-wf-trace > li { display:flex; flex-direction:column; gap:4px; padding:6px 8px; border-left:3px solid var(--pg-border-strong); border-radius:4px; background:var(--pg-sunken); font-size:13px; }
+.pg-wf-trace > li[data-kind="message"] { border-left-color:var(--pg-tint-violet); }
+.pg-wf-trace > li[data-kind="wait"] { border-left-color:var(--pg-tint-amber); }
+.pg-wf-trace > li[data-kind="branch"], .pg-wf-trace > li[data-kind="condition"] { border-left-color:var(--pg-info-line); }
+.pg-wf-trace > li[data-kind="stop"] { border-left-color:var(--pg-danger-line); }
+.pg-wf-trace > li[data-kind="end"] { border-left-color:var(--pg-accent); }
+.pg-wf-trace-line { display:flex; align-items:flex-start; gap:8px; }
+.pg-wf-trace-line > span:last-child { flex:1; min-width:0; overflow-wrap:anywhere; }
+button.pg-wf-letter { border:0; cursor:pointer; }
+.pg-wf-checks { margin:0; padding-left:18px; font-size:12px; color:var(--pg-text-2); }
+.pg-wf-checks li[data-result="false"] { color:var(--pg-danger-text); }

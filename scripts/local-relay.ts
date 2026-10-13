@@ -687,6 +687,48 @@ export async function startLocalRelay(
         },
       }),
     );
+  // W3: a draft that talks to the customer (reply buttons), to test against a conversation.
+  if (options.exampleWorkflow && options.workflows !== false)
+    await tenant(db.connect, "demo", (sql) =>
+      changeWorkflow(sql, "demo", "local-owner", "local-seed-workflow-buttons", {
+        action: "create",
+        name: "Example: ask what they need",
+        definition: {
+          trigger: { type: "first_message", options: {} },
+          when: { match: "all", items: [] },
+          paths: [
+            {
+              id: "A",
+              label: "Start",
+              steps: [{ id: "seed-hello", type: "message", options: { text: "Hi! Let's get you to the right place." } }],
+              next: {
+                type: "buttons",
+                text: "What can we help with?",
+                buttons: [
+                  { label: "Billing", path: "B" },
+                  { label: "Something else", path: "C" },
+                ],
+                other: "C",
+                timeoutSeconds: 86_400,
+                timedOut: "C",
+              },
+            },
+            {
+              id: "B",
+              label: "Billing",
+              steps: [
+                { id: "seed-billing-tag", type: "tag_add", options: { tagId: "refund" } },
+                { id: "seed-billing-team", type: "assign", options: { teamId: "billing" } },
+                { id: "seed-reply-time", type: "reply_time", options: {} },
+              ],
+              next: { type: "end" },
+            },
+            { id: "C", label: "Zoe", steps: [], next: { type: "zoe", resolved: "D", handedOver: "D", timeoutSeconds: 86_400, timedOut: "D" } },
+            { id: "D", label: "Done", steps: [], next: { type: "end" } },
+          ],
+        },
+      }),
+    );
   // Two-workspace views seed: the owner's default views plus one shared view each. Fixed
   // idempotency keys make this a no-op on restart; queued rebuilds run in the loop below.
   if (options.inboxViews)
@@ -738,8 +780,9 @@ export async function startLocalRelay(
   handlers["connector.test"] = (job) => runConnectorTest(db.connect, env.connectors!, job);
   handlers["procedure.resume"] = (job) => runProcedureResume(db.connect, env.ai!, job);
   // Phase 11: workflows triggered, and waiting runs resumed.
-  handlers["workflow.start"] = (job) => startWorkflows(db.connect, job);
-  handlers["workflow.resume"] = (job) => resumeWorkflow(db.connect, job);
+  // W3: workflows call read connectors with the same key and fetch policy as Zoe.
+  handlers["workflow.start"] = (job) => startWorkflows(db.connect, job, { connectors: env.connectors });
+  handlers["workflow.resume"] = (job) => resumeWorkflow(db.connect, job, { connectors: env.connectors });
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
