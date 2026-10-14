@@ -52,7 +52,8 @@ import { alertTeammate, type AlertPrefs } from "../../agent/alerts";
 import { SlaBadge } from "../../agent/sla";
 import type { MessagePreview } from "../../server/conversations";
 import { ContextSidebar } from "../../agent/sidebar";
-import { ReplyTarget, useReplyTarget } from "../../agent/reply-target";
+import { EmailCopies, ReplyTarget, splitCopies, useReplyTarget, type Copies } from "../../agent/reply-target";
+import { SideConversationButton } from "../../agent/side-conversations";
 import {
   MacroManager,
   MacroPicker,
@@ -227,6 +228,8 @@ type Pending = {
   mode: "reply" | "note";
   body: string;
   doc: RichDoc;
+  /** Phase 12 E4: copies on an email reply. */
+  email?: { cc: string[]; bcc: string[] };
 };
 
 /**
@@ -247,6 +250,11 @@ export default function PostgresInbox({
   const [parts, setParts] = useState<Part[]>([]);
   // Phase 12 E3: where a reply goes, on a conversation that isn't on the messenger.
   const replyTarget = useReplyTarget(selected, parts.length);
+  // E4: Cc and Bcc on an email reply (read when it's sent; the fields start from the target's).
+  const copies = useRef<Copies>({ cc: "", bcc: "" });
+  const keepCopies = useCallback((c: Copies) => {
+    copies.current = c;
+  }, []);
   const [mode, setMode] = useState<"reply" | "note">("reply");
   // Bumped per draft key when the composer must reload content (restore, conflict, send).
   const [seeds, setSeeds] = useState<Record<string, number>>({});
@@ -1357,6 +1365,9 @@ export default function PostgresInbox({
             mode,
             body,
             doc,
+            ...(mode === "reply" && replyTarget?.copies && (copies.current.cc.trim() || copies.current.bcc.trim())
+              ? { email: { cc: splitCopies(copies.current.cc), bcc: splitCopies(copies.current.bcc) } }
+              : {}),
           };
     const key = draftKey;
     failed.current.set(key, item);
@@ -1377,6 +1388,8 @@ export default function PostgresInbox({
             item.mode === "reply" && snapshot?.profile?.signature
               ? withSignature(item.doc, snapshot.profile.signature)
               : item.doc,
+          // E4: copies on an email reply.
+          ...(item.email ? { email: item.email } : {}),
         },
         item.id,
       );
@@ -2032,14 +2045,13 @@ export default function PostgresInbox({
                       <LockKeyhole size={15} /> Internal note
                     </button>
                     <small>
-                      {mode === "note" ? (
-                        "Only your team can see this"
-                      ) : replyTarget ? (
-                        <ReplyTarget target={replyTarget} />
-                      ) : (
-                        "Visible to the customer"
-                      )}
+                      {mode === "note"
+                        ? "Only your team can see this"
+                        : replyTarget
+                          ? "Visible to the customer, by email"
+                          : "Visible to the customer"}
                     </small>
+                    {selected && <SideConversationButton conversationId={selected} refresh={parts.length} />}
                     {canMacros && (
                       <button
                         type="button"
@@ -2052,6 +2064,13 @@ export default function PostgresInbox({
                       </button>
                     )}
                   </div>
+                  {mode === "reply" && replyTarget && (
+                    // Phase 12 E3/E4: where the reply goes, and (where the channel takes them) copies.
+                    <div className="pg-reply-bar">
+                      <ReplyTarget target={replyTarget} />
+                      {replyTarget.copies && <EmailCopies key={selected + "|" + (replyTarget.cc ?? "")} initialCc={replyTarget.cc ?? ""} onChange={keepCopies} />}
+                    </div>
+                  )}
                   <Suspense
                     fallback={
                       <div className="pg-editor-shell" aria-busy="true">

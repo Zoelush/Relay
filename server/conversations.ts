@@ -125,9 +125,11 @@ export interface Command {
    * Phase 11 W3, honoured only for a workflow's own message (never a client's): its reply
    * buttons, or the expected reply time it shows.
    */
-  workflowData?: { options?: string[]; replyTime?: unknown; availability?: unknown };
+  workflowData?: { options?: string[]; replyTime?: unknown; availability?: unknown; email?: { subject: string } };
   /** Phase 12, honoured only from a channel (`receiveInbound`): what the inbox shows beside it. */
   channelData?: Record<string, unknown>;
+  /** Phase 12 E4: a teammate's copies on a reply (email's Cc and Bcc). */
+  email?: { cc?: unknown; bcc?: unknown };
 }
 export type HelpContext = {
   searched?: string;
@@ -941,6 +943,8 @@ export async function command(
               ...(p.workflowData.replyTime !== undefined
                 ? { replyTime: p.workflowData.replyTime, availability: p.workflowData.availability ?? null }
                 : {}),
+              // Phase 12 E4: a "Send an email" step's subject.
+              ...(p.workflowData.email ? { email: { subject: String(p.workflowData.email.subject).slice(0, 200) } } : {}),
             }
           : {};
       // Phase 12: the customer's message moves the conversation to its channel (replies go
@@ -951,6 +955,7 @@ export async function command(
         await db.query("UPDATE conversations SET current_channel=$3 WHERE workspace_id=$1 AND id=$2", [w, c.id, arrived]);
         c.current_channel = arrived;
       }
+      let copies: { cc: string[]; bcc: string[] } | null = null;
       if (kind !== "internal_note" && actor.type !== "contact") {
         const caps = capabilitiesOf(c.current_channel);
         assert(
@@ -959,6 +964,16 @@ export async function command(
           `This conversation's channel takes messages of up to ${caps.maxLength.toLocaleString("en")} characters.`,
           400,
         );
+        // Phase 12 E4: a teammate's reply can copy others in, where the channel can (email's Cc and Bcc).
+        const e = (p.email ?? null) as { cc?: unknown; bcc?: unknown } | null;
+        if (actor.type === "teammate" && e && (e.cc || e.bcc)) {
+          assert(caps.copies, "COPIES_UNSUPPORTED", "This conversation's channel can't copy anyone in.", 400);
+          const { copiesOf } = await import("./email-out");
+          const cc = copiesOf(e.cc ?? []);
+          const bcc = copiesOf(e.bcc ?? []);
+          assert(cc && bcc, "INVALID_COPIES", "Copy in up to ten email addresses each in Cc and Bcc.", 400);
+          if (cc.length || bcc.length) copies = { cc, bcc };
+        }
       }
       const part = await append(
         db,
@@ -973,6 +988,7 @@ export async function command(
             : {}),
           ...(content.doc ? { doc: content.doc } : {}),
           ...extra,
+          ...(copies ? { email: copies } : {}),
           ...(arrived && actor.type === "contact" && actor.channel && p.channelData ? p.channelData : {}),
         },
         p.action === "note" ? "internal" : "public",

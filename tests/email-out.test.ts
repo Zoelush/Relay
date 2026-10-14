@@ -99,8 +99,13 @@ test("only the delivery job sends email: the provider is called in one place, be
   const files = (dir: string): string[] =>
     readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : /\.tsx?$/.test(f) ? [join(dir, f)] : []));
   const code = ["server", "workers", "scripts", "lib", "agent", "app", "components"].flatMap((d) => files(d)).map((f) => [f, readFileSync(f, "utf8")] as const);
-  // The provider's send: called only by the email adapter's `send`.
+  // The provider's send: called only by the email adapter's `send` and (E4) the incident alert
+  // job, which checks the suppression list itself before it.
   assert.deepEqual(code.filter(([, s]) => /\.sendRaw\(/.test(s)).map(([f]) => f), ["server/email-out.ts"]);
+  const out = readFileSync("server/email-out.ts", "utf8");
+  assert.equal(out.match(/\.sendRaw\(/g)?.length, 2);
+  const alert = out.slice(out.indexOf("export async function sendAlert"));
+  assert.ok(alert.indexOf('mayDeliver(db, w, "email", a.address') < alert.indexOf(".sendRaw("));
   // The adapter's send: wired into the adapter, never called directly.
   assert.deepEqual(code.filter(([, s]) => /\bsendEmail\b/.test(s)).map(([f]) => f).sort(), ["server/email-in.ts", "server/email-out.ts"]);
   assert.doesNotMatch(readFileSync("server/email-in.ts", "utf8"), /sendEmail\(/);
@@ -238,7 +243,7 @@ test("email out: replies threaded from the right address, reply addresses, domai
     assert.equal((await acceptEmail(db.connect, emailIn, { raw: mail({ id: "x@y", from: "z@y.example", subject: "Hi", text: "Hi" }), to: `a+r-nosuchtoken0000000@${DOMAIN}`, from: "" })).accepted, false);
 
     // The composer says where a reply goes; another workspace can't ask.
-    assert.deepEqual((await agent(`reply-target?conversation=${c1}`)).body.target, { channel: "email", address: "robin@customer.example", subject: "Re: Damaged order" });
+    assert.deepEqual((await agent(`reply-target?conversation=${c1}`)).body.target, { channel: "email", address: "robin@customer.example", copies: true, subject: "Re: Damaged order" });
     assert.equal((await agent(`reply-target?conversation=${c1}`, undefined, "owner-b", "b")).status, 404);
 
     // The brand's own domain: saved, checked (records missing), published, checked again: proven.

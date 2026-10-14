@@ -9,6 +9,8 @@ export type OutgoingFile = { name: string; mime: string; bytes: Uint8Array };
 export type OutgoingEmail = {
   from: Mailbox;
   to: Mailbox;
+  /** E4: copied in (shown to everyone). Blind copies are never written into the message. */
+  cc?: Mailbox[];
   replyTo?: Mailbox;
   subject: string;
   messageId: string;
@@ -88,6 +90,7 @@ export function buildEmail(m: OutgoingEmail): Uint8Array {
   const lines: string[] = [
     header("From", mailbox(m.from)),
     header("To", mailbox(m.to)),
+    ...(m.cc?.length ? [header("Cc", m.cc.map(mailbox).join(",\r\n "))] : []),
     ...(m.replyTo ? [header("Reply-To", mailbox(m.replyTo))] : []),
     header("Subject", encodeWord(m.subject || "(no subject)")),
     header("Date", (m.date ?? new Date()).toUTCString().replace("GMT", "+0000")),

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api } from "./api";
 import type { SideMenuState } from "./shell";
-import { Card, Frame, message, type Page } from "./settings-ui";
+import { Card, Field, Frame, message, type Page } from "./settings-ui";
 import { ago } from "./zoe-labels";
 import {
   SENSITIVITY,
@@ -29,7 +29,7 @@ type Monitor = {
   status: "normal" | "tripped" | "low_volume" | "off";
   incidentId: string | null;
 };
-type MonitorsData = { lastCheckedAt: string | null; monitors: Monitor[] };
+type MonitorsData = { lastCheckedAt: string | null; monitors: Monitor[]; alerts: { email: boolean; addresses: string[] } };
 
 const STATUS_NAMES: Record<Monitor["status"], [string, string]> = {
   normal: ["Normal", "green"],
@@ -100,9 +100,46 @@ export function MonitorsPage({
               <MonitorRow key={m.metric + m.version} m={m} busy={busy} onSave={save} onIncidents={onIncidents} />
             ))}
           </ul>
+          {data.alerts.email && (
+            <AlertAddresses
+              key={data.alerts.addresses.join(",")}
+              addresses={data.alerts.addresses}
+              onSave={async (addresses) => {
+                setError("");
+                setStatus("");
+                try {
+                  setData(await api<MonitorsData>("zoe-monitors", { action: "alerts", addresses }));
+                  setStatus(addresses.length ? "Incidents will be emailed too." : "Incidents are shown in the app only.");
+                } catch (e) {
+                  setError(message(e, "The addresses could not be saved."));
+                }
+              }}
+            />
+          )}
         </>
       )}
     </Frame>
+  );
+}
+
+/** Phase 12 E4: where incidents are emailed, besides the app's notifications (up to five addresses). */
+function AlertAddresses({ addresses, onSave }: { addresses: string[]; onSave: (addresses: string[]) => Promise<void> }) {
+  const [value, setValue] = useState(addresses.join(", "));
+  return (
+    <Card title="Email alerts" description="Each new incident is emailed to these addresses as well as shown here. Up to five; leave empty for the app only.">
+      <form
+        className="pg-settings-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void onSave(value.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean));
+        }}
+      >
+        <Field label="Email incidents to">{(id) => <input id={id} value={value} placeholder="ops@yourcompany.com" onChange={(e) => setValue(e.target.value)} />}</Field>
+        <button type="submit" className="pg-zoe-secondary">
+          Save addresses
+        </button>
+      </form>
+    </Card>
   );
 }
 

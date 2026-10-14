@@ -2,7 +2,7 @@ import { tenant, type Connect, type Sql } from "./db";
 import { enqueueJob, type Job } from "./jobs";
 import { resolveContact } from "./people";
 import type { AttachmentStorage } from "./attachments";
-import type { ChannelEnvironment, Outbound, SendResult } from "./channels";
+import { mayDeliver, type ChannelEnvironment, type Outbound, type SendResult } from "./channels";
 import { buildEmail, type Mailbox } from "./email-mime";
 import { EmailRejected, type DnsResolver, type EmailSender } from "./email-providers";
 import { composeAway, composeReply, type Said } from "./email-compose";
@@ -174,7 +174,18 @@ type Prepared = {
   text: string;
   attachment: { key: string; name: string; mime: string } | null;
   auto: boolean;
+  /** E4: copied in (Cc, shown) and blind-copied (Bcc), each past the same gate. */
+  cc: string[];
+  bcc: string[];
 };
+const ADDRESS = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
+/** Copies, normalised: at most ten, each a real address, none twice. */
+export function copiesOf(raw: unknown) {
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,;\s]+/) : [];
+  const out = [...new Set(list.map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
+  if (out.some((a) => !ADDRESS.test(a) || a.length > 254)) return null;
+  return out.length <= 10 ? out : null;
+}
 const reSubject = (s: string) => (/^(re|aw|sv|antw|r)\s*:/i.test(s.trim()) ? s.trim() : `Re: ${s.trim()}`);
 async function authorName(db: Sql, w: string, type: string, id: string, brand: string) {
   if (type === "teammate") {
@@ -231,9 +242,58 @@ export async function prepareEmail(db: Sql, w: string, out: Outbound, env: Chann
     return { defer: new Date(next) };
   }
   await db.query("UPDATE channel_deliveries SET domain=$3 WHERE workspace_id=$1 AND id=$2", [w, out.deliveryId, domain]);
+  const messageId = `${out.deliveryId}@${domain}`;
+  const part = (
+    await db.query<{ seq: string; kind: string; author_type: string; author_id: string; body: string; data: Record<string, unknown> }>(
+      "SELECT seq,kind,author_type,author_id,body,data FROM conversation_parts WHERE workspace_id=$1 AND id=$2",
+      [w, out.partId],
+    )
+  ).rows[0];
+  const name = await authorName(db, w, part.author_type, part.author_id, c.brand);
+  // E4: copies pass the same gate as the main address; a suppressed one is left out.
+  const past = async (list: string[]) => {
+    const ok: string[] = [];
+    for (const a of list) if (a !== out.address && (await mayDeliver(db, w, "email", a, null)).ok) ok.push(a);
+    return ok;
+  };
+
+  // E4: a side conversation's message, to its participants, with its own reply address and thread.
+  if (out.purpose === "side") {
+    const s = (
+      await db.query<{ id: string; subject: string; participants: string[]; token: string }>(
+        `SELECT s.id,s.subject,s.participants,s.token FROM side_messages m JOIN side_conversations s ON s.workspace_id=m.workspace_id AND s.id=m.side_id
+         WHERE m.workspace_id=$1 AND m.part_id=$2`,
+        [w, out.partId],
+      )
+    ).rows[0];
+    if (!s) return { refuse: "That side conversation isn't available." };
+    await db.query("UPDATE side_messages SET message_id=$3 WHERE workspace_id=$1 AND part_id=$2", [w, out.partId, messageId]);
+    const thread = (
+      await db.query<{ message_id: string | null; direction: string; part_id: string }>(
+        "SELECT message_id,direction,part_id FROM side_messages WHERE workspace_id=$1 AND side_id=$2 ORDER BY created_at",
+        [w, s.id],
+      )
+    ).rows;
+    const words = composeReply({ brand: c.brand, said: { author: name, body: String(part.data.text ?? "") }, quote: null });
+    return {
+      data: {
+        from: { address: fromAddress, name },
+        replyTo: { address: `${w}+s-${s.token}@${e.inboundDomain}`, name: c.brand },
+        subject: thread.length > 1 ? reSubject(s.subject) : s.subject,
+        messageId,
+        inReplyTo: thread.filter((m) => m.direction === "in" && m.message_id).at(-1)?.message_id ?? null,
+        references: thread.filter((m) => m.message_id && m.part_id !== out.partId).map((m) => m.message_id!).slice(-10),
+        html: words.html,
+        text: words.text,
+        attachment: null,
+        auto: false,
+        cc: await past(s.participants),
+        bcc: [],
+      },
+    };
+  }
 
   const token = await replyToken(db, w, out.conversationId, c.brand_id);
-  const messageId = `${out.deliveryId}@${domain}`;
   const firstSubject = (
     await db.query<{ subject: string }>("SELECT subject FROM email_messages WHERE workspace_id=$1 AND conversation_id=$2 AND kind='message' ORDER BY created_at LIMIT 1", [
       w,
@@ -260,13 +320,6 @@ export async function prepareEmail(db: Sql, w: string, out: Outbound, env: Chann
   for (const key of [`mid:${messageId}`, `reply:${token}`])
     await db.query("INSERT INTO channel_threads(workspace_id,channel,thread_key,conversation_id) VALUES($1,'email',$2,$3) ON CONFLICT DO NOTHING", [w, key, out.conversationId]);
 
-  const part = (
-    await db.query<{ seq: string; kind: string; author_type: string; author_id: string; body: string; data: Record<string, unknown> }>(
-      "SELECT seq,kind,author_type,author_id,body,data FROM conversation_parts WHERE workspace_id=$1 AND id=$2",
-      [w, out.partId],
-    )
-  ).rows[0];
-  const name = await authorName(db, w, part.author_type, part.author_id, c.brand);
   let words: { html: string; text: string };
   let subject: string;
   let attachment: Prepared["attachment"] = null;
@@ -310,8 +363,12 @@ export async function prepareEmail(db: Sql, w: string, out: Outbound, env: Chann
       ? { name: last.from_name || last.from_address, at: new Date(last.sent_at ?? last.created_at).toUTCString().replace(" GMT", " UTC"), text: last.text }
       : null;
     words = composeReply({ brand: c.brand, said: { author: name, doc: part.data.doc, body: attachment ? `[A file: ${attachment.name}]` : out.text }, quote });
-    subject = firstSubject ? reSubject(firstSubject) : c.title ? reSubject(c.title) : `Your conversation with ${c.brand}`;
+    // E4: a workflow's "Send an email" step names its own subject.
+    const own = (part.data.email as { subject?: string } | undefined)?.subject;
+    subject = part.kind === "workflow_message" && own ? own : firstSubject ? reSubject(firstSubject) : c.title ? reSubject(c.title) : `Your conversation with ${c.brand}`;
   }
+  // E4: a teammate's copies (Cc and Bcc), as the reply was written.
+  const copies = (out.purpose === "reply" && part.author_type === "teammate" ? part.data.email : undefined) as { cc?: string[]; bcc?: string[] } | undefined;
   return {
     data: {
       from: { address: fromAddress, name },
@@ -324,6 +381,8 @@ export async function prepareEmail(db: Sql, w: string, out: Outbound, env: Chann
       text: words.text,
       attachment,
       auto: out.purpose === "away",
+      cc: await past(copies?.cc ?? []),
+      bcc: await past(copies?.bcc ?? []),
     },
   };
 }
@@ -343,6 +402,7 @@ export async function sendEmail(out: Outbound, env: ChannelEnvironment): Promise
   const raw = buildEmail({
     from: p.from,
     to: { address: out.address },
+    cc: p.cc.map((address) => ({ address })),
     replyTo: p.replyTo,
     subject: p.subject,
     messageId: p.messageId,
@@ -355,7 +415,14 @@ export async function sendEmail(out: Outbound, env: ChannelEnvironment): Promise
     headers: p.auto ? { "Auto-Submitted": "auto-generated", "X-Auto-Response-Suppress": "All" } : {},
   });
   try {
-    const sent = await e.sender.sendRaw({ from: p.from.address, to: out.address, raw, tags: { relay_workspace: out.workspaceId, relay_delivery: out.deliveryId } });
+    const sent = await e.sender.sendRaw({
+      from: p.from.address,
+      to: out.address,
+      cc: p.cc,
+      bcc: p.bcc,
+      raw,
+      tags: { relay_workspace: out.workspaceId, relay_delivery: out.deliveryId },
+    });
     return { status: "sent", providerId: sent.providerId };
   } catch (err) {
     if (err instanceof EmailRejected) return { status: "failed", error: err.message, permanent: true };
@@ -363,7 +430,11 @@ export async function sendEmail(out: Outbound, env: ChannelEnvironment): Promise
   }
 }
 
-/** What the composer shows on an email conversation: the subject replies go out with. */
+/**
+ * What the composer shows on an email conversation: the subject replies go out with, and (E4) who
+ * the customer's last email copied in (its Cc, never its To, which is the brand's own address),
+ * to copy them again, leaving out the brand's addresses and Relay's.
+ */
 export async function emailReplyDetails(db: Sql, w: string, conversationId: string): Promise<Record<string, string>> {
   const first = (
     await db.query<{ subject: string }>("SELECT subject FROM email_messages WHERE workspace_id=$1 AND conversation_id=$2 AND kind='message' ORDER BY created_at LIMIT 1", [
@@ -371,7 +442,18 @@ export async function emailReplyDetails(db: Sql, w: string, conversationId: stri
       conversationId,
     ])
   ).rows[0]?.subject;
-  return first ? { subject: reSubject(first) } : {};
+  const last = (
+    await db.query<{ from_address: string; to_addresses: string[]; cc_addresses: string[]; support_address: string | null }>(
+      `SELECT m.from_address,m.to_addresses,m.cc_addresses,s.support_address FROM email_messages m
+       JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
+       LEFT JOIN email_settings s ON s.workspace_id=c.workspace_id AND s.brand_id=c.brand_id
+       WHERE m.workspace_id=$1 AND m.conversation_id=$2 AND m.kind='message' ORDER BY m.created_at DESC LIMIT 1`,
+      [w, conversationId],
+    )
+  ).rows[0];
+  const ours = (a: string) => a === last?.support_address?.toLowerCase() || a.startsWith(`${w}+`) || a === last?.from_address;
+  const cc = last ? (copiesOf(last.cc_addresses) ?? []).filter((a) => !ours(a)) : [];
+  return { ...(first ? { subject: reSubject(first) } : {}), ...(cc.length ? { cc: cc.join(", ") } : {}) };
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -423,7 +505,7 @@ export async function checkAwayEmails(connect: Connect, w: string, at = new Date
   });
 }
 /** The customer's email: their contact's (a verified one first), else the one given in the conversation. */
-async function customerEmail(db: Sql, w: string, identityId: string, given: string | null) {
+export async function customerEmail(db: Sql, w: string, identityId: string, given: string | null) {
   const mapped = (await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, identityId])).rows[0];
   const contactId = mapped ? await resolveContact(db, w, mapped.contact_id) : null;
   const known = contactId
@@ -528,4 +610,74 @@ export async function readSending(db: Sql, w: string, brandId: string, env: { se
       : null,
     away: { enabled: s.away_enabled, content: s.away_content, minutes: s.away_minutes },
   };
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Zoe's incident alerts (E4)                                                                  */
+
+/**
+ * The `email.alert` job: one incident, to one address the managers set, from Relay's own address.
+ * It passes the same suppression list as every send (an address that bounced or complained is
+ * sent nothing), and is the only other place the provider is called.
+ */
+export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job: Job) {
+  const w = job.workspace_id;
+  const { alertId } = job.payload as { alertId: string };
+  const ready = await tenant(connect, w, async (db) => {
+    const a = (
+      await db.query<{ id: string; address: string; status: string; metric: string; baseline: number; latest_value: number; opened_at: string; incident_status: string }>(
+        `SELECT a.id,a.address,a.status,i.metric,i.baseline,i.latest_value,i.opened_at,i.status AS incident_status FROM email_alerts a
+         JOIN ai_incidents i ON i.workspace_id=a.workspace_id AND i.id=a.incident_id WHERE a.workspace_id=$1 AND a.id=$2 FOR UPDATE OF a`,
+        [w, alertId],
+      )
+    ).rows[0];
+    if (!a || a.status !== "queued") return null;
+    const set = (status: string, error = "", providerId: string | null = null) =>
+      db.query("UPDATE email_alerts SET status=$3,error=$4,provider_id=$5,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, a.id, status, error, providerId]);
+    if (!(await emailOn(db, w))) {
+      await set("failed", "Email was turned off.");
+      return null;
+    }
+    const gate = await mayDeliver(db, w, "email", a.address, null);
+    if (!gate.ok) {
+      await set(gate.status === "suppressed" ? "suppressed" : "failed", gate.reason);
+      return null;
+    }
+    if (!env.sender) {
+      await set("failed", "Email sending isn't set up for Relay yet.");
+      return null;
+    }
+    return a;
+  });
+  if (!ready) return { done: true, result: { sent: false } };
+  const { monitorOf, changeSentence } = await import("../lib/zoe-monitors");
+  const name = monitorOf(ready.metric)?.name ?? ready.metric;
+  const change = changeSentence(ready.metric, ready.baseline, ready.latest_value);
+  const words = composeReply({
+    brand: "Relay",
+    said: { author: "Relay", body: `Zoe's “${name}” monitor opened an incident on ${new Date(ready.opened_at).toUTCString().replace(" GMT", " UTC")}.\n\n${change}\n\nOpen Zoe › Incidents in Relay to see her answers and acknowledge it.` },
+    quote: null,
+    footer: "You get this because your Relay workspace sends Zoe's incident alerts to this address. Her managers can change that in Zoe › Monitors.",
+  });
+  const from = { address: `no-reply@${env.sendingDomain}`, name: "Relay" };
+  const raw = buildEmail({
+    from,
+    to: { address: ready.address },
+    subject: `Zoe incident: ${name}`,
+    messageId: `alert-${ready.id}@${env.sendingDomain}`,
+    text: words.text,
+    html: words.html,
+    headers: { "Auto-Submitted": "auto-generated", "X-Auto-Response-Suppress": "All" },
+  });
+  try {
+    const sent = await env.sender!.sendRaw({ from: from.address, to: ready.address, raw, tags: { relay_workspace: w, relay_alert: ready.id } });
+    await tenant(connect, w, (db) => db.query("UPDATE email_alerts SET status='sent',provider_id=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, ready.id, sent.providerId]));
+    return { done: true, result: { sent: true } };
+  } catch (err) {
+    if (err instanceof EmailRejected) {
+      await tenant(connect, w, (db) => db.query("UPDATE email_alerts SET status='failed',error=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, ready.id, err.message]));
+      return { done: true, result: { sent: false } };
+    }
+    throw err;
+  }
 }

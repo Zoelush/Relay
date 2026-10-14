@@ -1681,3 +1681,16 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-email-daily { display:flex; align-items:flex-end; gap:2px; height:48px; border-bottom:1px solid var(--pg-border); }
 .pg-email-daily span { flex:1; max-width:14px; background:var(--pg-tint-blue-bg); position:relative; display:flex; flex-direction:column; justify-content:flex-end; }
 .pg-email-daily i { display:block; background:var(--pg-danger-line); }
+
+/* Phase 12 E4: email in the inbox. Recipients on a message, Cc/Bcc on a reply, side conversations. */
+.pg-email-recipients { display:block; color:var(--pg-muted); font-size:11px; margin:-2px 0 4px; word-break:break-word; }
+.pg-email-copies { display:flex; flex-wrap:wrap; gap:8px; padding:4px 0; font-size:12px; color:var(--pg-muted); }
+.pg-email-copies label { display:flex; align-items:center; gap:6px; flex:1 1 220px; }
+.pg-email-copies input { flex:1; min-width:0; }
+.pg-side-dialog { display:flex; flex-direction:column; gap:8px; max-width:560px; }
+.pg-side-dialog label { display:flex; flex-direction:column; gap:4px; font-size:13px; }
+.pg-side-reply { display:flex; flex-direction:column; gap:6px; margin-top:6px; }
+.pg-side-reply textarea { width:100%; }
+.pg-reply-bar { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; padding:2px 0 4px; font-size:11px; color:var(--pg-muted); }
+.pg-reply-bar .pg-email-copies { flex-basis:100%; }
+.pg-side-button { white-space:nowrap; }

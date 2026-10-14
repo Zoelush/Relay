@@ -19,6 +19,8 @@ export type Capabilities = {
   receipts: "none" | "delivered" | "read";
   /** What a customer's address is on it, for the suppression list and identities. */
   address: "session" | "email" | "phone" | "account";
+  /** E4: a reply can copy others in (Cc and Bcc). */
+  copies?: boolean;
 };
 
 /** Channels Relay has, by id. TODO(phase 12 E5–E9): WhatsApp, SMS, Instagram, Facebook, Slack, Discord, voice. */
@@ -29,9 +31,11 @@ export const CHANNEL_LABELS: Record<string, string> = {
 export const channelLabel = (id: string) => CHANNEL_LABELS[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 
 /** Delivery states, in the order they progress. */
-export const DELIVERY_STATES = ["queued", "sent", "delivered", "read", "failed", "suppressed"] as const;
+export const DELIVERY_STATES = ["held", "queued", "sent", "delivered", "read", "failed", "suppressed"] as const;
 export type DeliveryStatus = (typeof DELIVERY_STATES)[number];
 export const DELIVERY_LABELS: Record<DeliveryStatus, string> = {
+  // E4: Zoe's draft on email, waiting for a teammate to send or discard it.
+  held: "Waiting for a teammate's approval",
   queued: "Sending",
   sent: "Sent",
   delivered: "Delivered",

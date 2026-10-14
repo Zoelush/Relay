@@ -44,8 +44,8 @@ const quoted = (text: string) =>
     .join("\n");
 
 /** A reply on an email conversation, with the customer's last message quoted below. */
-export function composeReply(m: { brand: string; said: Said; quote: Quote }) {
-  const footer = `Reply to this email to answer ${m.brand}.`;
+export function composeReply(m: { brand: string; said: Said; quote: Quote; footer?: string }) {
+  const footer = m.footer ?? `Reply to this email to answer ${m.brand}.`;
   const html = page(
     <>
       {said(m.said)}

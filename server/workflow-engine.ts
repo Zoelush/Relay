@@ -80,7 +80,9 @@ async function triggersOf(db: Sql, w: string, c: Conversation, part: PartLike): 
           [w, c.id, part.id],
         )
       ).rows.length;
-      return earlier ? [{ trigger: "customer_message" }] : [{ trigger: "first_message" }, { trigger: "customer_message" }];
+      // Phase 12 E4: an email from the customer (its subject is kept with it) also fires "A customer emails".
+      const emailed: Event[] = d.email && typeof d.email === "object" ? [{ trigger: "email_received" }] : [];
+      return earlier ? [{ trigger: "customer_message" }, ...emailed] : [{ trigger: "first_message" }, { trigger: "customer_message" }, ...emailed];
     }
     case "teammate_reply":
       return [{ trigger: "teammate_reply" }];
@@ -1173,6 +1175,19 @@ async function act(
     case "message": {
       const sent = (await cmd({ action: "reply", text: String(o.text) })) as { partId: string };
       return { label: "Sent a message", result: "ok", detail: { part: sent.partId } };
+    }
+    case "email": {
+      // Phase 12 E4: to the customer's email address, through the delivery job and its gate. On an
+      // email conversation the message is its reply; elsewhere it's emailed as well as shown.
+      const { customerEmail } = await import("./email-out");
+      const address = await customerEmail(db, w, c.primary_identity_id, typeof c.email === "string" ? c.email : null);
+      if (!address) return { label: "Send an email", result: "skipped", detail: { reason: "The customer has no email address." } };
+      const sent = (await cmd({ action: "reply", text: String(o.text), workflowData: { email: { subject: String(o.subject) } } })) as { partId: string };
+      if ((c.current_channel ?? "messenger") !== "email") {
+        const { queueDeliveryTo } = await import("./channels");
+        await queueDeliveryTo(db, w, c.id, sent.partId, "email", c.primary_identity_id, address, "reply");
+      }
+      return { label: "Sent an email", result: "ok", detail: { part: sent.partId, to: address } };
     }
     case "reply_time": {
       // The customer's messenger says it in their language, from `replyTime` and `availability`.

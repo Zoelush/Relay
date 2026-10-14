@@ -9,7 +9,7 @@ import { channelLabel } from "../lib/channels";
  * Re: Damaged order") instead of "Visible to the customer". Read again as parts arrive, since
  * the customer's next message can move the conversation.
  */
-type Target = { channel: string; address: string | null; subject?: string } | null;
+type Target = { channel: string; address: string | null; subject?: string; copies?: boolean; cc?: string } | null;
 export function useReplyTarget(conversationId: string, refresh: number) {
   const [target, setTarget] = useState<{ id: string; target: Target }>({ id: "", target: null });
   useEffect(() => {
@@ -35,3 +35,40 @@ export function ReplyTarget({ target }: { target: NonNullable<Target> }) {
     </span>
   );
 }
+
+/**
+ * E4: Cc and Bcc on a reply, where the channel takes copies (email). Cc starts as who the
+ * customer's last email copied in (reply all); the composer reads the values when it sends.
+ */
+export type Copies = { cc: string; bcc: string };
+export function EmailCopies({ initialCc, onChange }: { initialCc: string; onChange: (c: Copies) => void }) {
+  const [open, setOpen] = useState(!!initialCc);
+  const [cc, setCc] = useState(initialCc);
+  const [bcc, setBcc] = useState("");
+  // What a send reads starts as the suggestion, for this conversation.
+  useEffect(() => {
+    onChange({ cc: initialCc, bcc: "" });
+  }, [initialCc, onChange]);
+  const change = (next: Copies) => {
+    onChange(next);
+    setCc(next.cc);
+    setBcc(next.bcc);
+  };
+  if (!open)
+    return (
+      <button type="button" className="pg-email-open" onClick={() => setOpen(true)}>
+        Cc / Bcc
+      </button>
+    );
+  return (
+    <div className="pg-email-copies">
+      <label>
+        Cc <input value={cc} placeholder="name@example.com, …" onChange={(e) => change({ cc: e.target.value, bcc })} />
+      </label>
+      <label>
+        Bcc <input value={bcc} placeholder="name@example.com, …" onChange={(e) => change({ cc, bcc: e.target.value })} />
+      </label>
+    </div>
+  );
+}
+export const splitCopies = (v: string) => v.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);

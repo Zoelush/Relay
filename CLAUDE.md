@@ -33,10 +33,14 @@ complete, with the Claude evaluation baseline waiting for a key. Monitors (`serv
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
 (conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 12 (`docs/OMNICHANNEL_PLAN.md`):
-E1, the channel contract (`server/channels.ts`, `channels_v1`), E2, email in (`server/email-in.ts`, `channel_email_v1`), and E3, email
-out (`server/email-out.ts`), are done locally (`docs/OMNICHANNEL_STEP1.md` to `STEP3.md`); next is E4 (email in the inbox). Email is
-sent only by the email adapter's `send`, called only by `runDelivery` after `mayDeliver`; the provider's `sendRaw` is called in one
-place, and `tests/email-out.test.ts` fails on any other. Headers are written only by `server/email-mime.ts`. A brand sends from its
+E1, the channel contract (`server/channels.ts`, `channels_v1`), E2, email in (`server/email-in.ts`, `channel_email_v1`), E3, email
+out (`server/email-out.ts`), and E4, email in the inbox, are done locally (`docs/OMNICHANNEL_STEP1.md` to `STEP4.md`): email is
+complete; next are the other channels (E5 to E9). Side conversations (`server/email-side.ts`) are internal parts of their
+conversation and never reach the customer; Zoe's replies on email are held deliveries until a teammate sends them (when the
+setting asks), and she never answers unverified senders or list mail (`aiAnswers`, decided by the adapter). Email is
+sent only by the email adapter's `send`, called only by `runDelivery` after `mayDeliver`; the provider's `sendRaw` is called only
+by that `send` and the incident alert job (`sendAlert`), which checks `mayDeliver` itself, and `tests/email-out.test.ts` fails on
+any other. Headers are written only by `server/email-mime.ts`. A brand sends from its
 domain only when Relay's ownership record (this workspace's token) and DKIM are found; SES reports are believed only after
 their SNS signature checks out, and find their workspace by the tags Relay set. Away emails read public parts only. Mail arrives only at a brand's inbound address
 (`<workspace>+<token>@<domain>`, `acceptEmail`) and is read by the `email.receive` job; the inbox never renders raw email

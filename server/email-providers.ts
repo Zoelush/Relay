@@ -6,7 +6,8 @@ import { AwsClient } from "aws4fetch";
  * relay use stand-ins (`scripts/local-email.ts`); nothing here is called but through the email
  * adapter (`server/email-out.ts`) and the domain check.
  */
-export type RawEmail = { from: string; to: string; raw: Uint8Array; tags: Record<string, string> };
+/** E4: `cc` and `bcc` are delivered to as well; only `cc` is written in the message's headers. */
+export type RawEmail = { from: string; to: string; cc?: string[]; bcc?: string[]; raw: Uint8Array; tags: Record<string, string> };
 export interface EmailSender {
   /** Sends a built message. Throws `EmailRejected` when retrying can't help; any other error is retried. */
   sendRaw(m: RawEmail): Promise<{ providerId: string }>;
@@ -36,7 +37,7 @@ export function sesSender(options: { region: string; accessKeyId: string; secret
       for (let i = 0; i < m.raw.length; i += 0x8000) s += String.fromCharCode(...m.raw.subarray(i, i + 0x8000));
       const r = await call("POST", "/outbound-emails", {
         FromEmailAddress: m.from,
-        Destination: { ToAddresses: [m.to] },
+        Destination: { ToAddresses: [m.to], ...(m.cc?.length ? { CcAddresses: m.cc } : {}), ...(m.bcc?.length ? { BccAddresses: m.bcc } : {}) },
         Content: { Raw: { Data: btoa(s) } },
         EmailTags: Object.entries(m.tags).map(([Name, Value]) => ({ Name, Value })),
         ...(options.configurationSet ? { ConfigurationSetName: options.configurationSet } : {}),

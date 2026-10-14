@@ -93,4 +93,12 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Away emails are a delivery of the latest unread reply,** with purpose `away`, so they pass the same gate. Content is off by default, and internal notes are never read for them.
     - **Reports find their workspace by the message's tags,** set when sending and signed (with the rest) by SNS.
 
-Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3).
+13. **E4 decisions** (14 October 2026):
+    - **Zoe's approval is a delivery state:** her reply is written as usual, and on email its delivery is held until a teammate sends or discards it. The gate is unchanged, and every path she writes from (answers, handovers, procedures) is covered. Discarding hands the conversation to the team.
+    - **Zoe never answers unverified senders or list mail on email,** whatever the setting: the adapter decides (`aiAnswers`).
+    - **Side conversations are internal parts of the conversation,** not conversations of their own, so they inherit its assignment and history and can't reach the customer. Their emails are deliveries through the same gate. No contact is made for the third party, and their files aren't kept.
+    - **Reply all offers the customer's Cc,** not its To (that's the brand's own address, forwarded).
+    - **"Send an email" is customer-facing** and goes to the customer's email address on any channel. On the messenger it's shown in the conversation as well.
+    - **Incident alerts go to addresses the managers set:** teammates have no email in Relay (sign-in is the platform's). Alerts are sent from Relay's no-reply address, past the suppression list.
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4). Email (E1 to E4) is complete.
