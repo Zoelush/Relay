@@ -44,13 +44,19 @@ export type Inbound = {
   automatic?: boolean;
 };
 export type Outbound = {
+  workspaceId: string;
   deliveryId: string;
   conversationId: string;
+  partId: string;
+  /** A reply on its channel, or (email, E3) an away email for a messenger conversation. */
+  purpose: "reply" | "away";
   address: string;
   text: string;
   /** Reply buttons, which an adapter without buttons writes out. */
   options?: string[];
   data: Record<string, unknown>;
+  /** What the adapter's `prepare` read from the database, inside the gate's transaction. */
+  prepared?: Record<string, unknown>;
 };
 export type SendResult =
   | { status: "sent" | "delivered"; providerId?: string }
@@ -69,6 +75,14 @@ export type ChannelAdapter = {
   send?(out: Outbound, env: ChannelEnvironment): Promise<SendResult>;
   /** The channel's own rule on sending now (a closed window), or null. */
   refuses?(db: Sql, w: string, conversationId: string): Promise<string | null>;
+  /**
+   * Inside the gate's transaction, after `mayDeliver`: what sending needs from the database
+   * (`out.prepared`), a later time to try (a rate limit), or why it can't go. `send` runs after,
+   * outside any transaction.
+   */
+  prepare?(db: Sql, w: string, out: Outbound, env: ChannelEnvironment): Promise<{ data: Record<string, unknown> } | { defer: Date } | { refuse: string }>;
+  /** What the composer says about a reply on this channel (email: its subject). */
+  replyDetails?(db: Sql, w: string, conversationId: string): Promise<Record<string, string>>;
 };
 /** What adapters need from the runtime: provider credentials, by channel. */
 export type ChannelEnvironment = { providers?: Record<string, unknown> };
@@ -296,13 +310,25 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
   const { deliveryId } = job.payload as { deliveryId: string };
   const ready = await tenant(connect, w, async (db) => {
     const d = (
-      await db.query<{ id: string; status: string; channel: string; address: string; conversation_id: string; part_id: string; body: string; data: Record<string, unknown> }>(
-        `SELECT d.id,d.status,d.channel,d.address,d.conversation_id,d.part_id,p.body,p.data FROM channel_deliveries d
+      await db.query<{
+        id: string;
+        status: string;
+        channel: string;
+        address: string;
+        conversation_id: string;
+        part_id: string;
+        purpose: "reply" | "away";
+        not_before: string | null;
+        body: string;
+        data: Record<string, unknown>;
+      }>(
+        `SELECT d.id,d.status,d.channel,d.address,d.conversation_id,d.part_id,d.purpose,d.not_before,p.body,p.data FROM channel_deliveries d
          JOIN conversation_parts p ON p.workspace_id=d.workspace_id AND p.id=d.part_id WHERE d.workspace_id=$1 AND d.id=$2 FOR UPDATE OF d`,
         [w, deliveryId],
       )
     ).rows[0];
-    if (!d || d.status !== "queued") return null;
+    // Not yet (a rate limit): the sweep queues it again when its time comes.
+    if (!d || d.status !== "queued" || d.not_before) return null;
     if (!(await channelsEnabled(db, w))) {
       await setStatus(db, w, d.id, "failed", "Channels were turned off.");
       return null;
@@ -312,29 +338,43 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
       await setStatus(db, w, d.id, gate.status, gate.reason);
       return null;
     }
+    const a = adapterOf(d.channel);
+    // A channel that can receive but not send: said once, not retried.
+    if (!a.send) {
+      await setStatus(db, w, d.id, "failed", `Replies can't be sent by ${a.id} yet.`);
+      return null;
+    }
+    const out: Outbound = {
+      workspaceId: w,
+      deliveryId: d.id,
+      conversationId: d.conversation_id,
+      partId: d.part_id,
+      purpose: d.purpose,
+      address: d.address,
+      text: d.body,
+      options: Array.isArray(d.data.options) ? (d.data.options as string[]) : undefined,
+      data: d.data,
+    };
+    if (a.prepare) {
+      const p = await a.prepare(db, w, out, env);
+      if ("defer" in p) {
+        await db.query("UPDATE channel_deliveries SET not_before=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, d.id, p.defer.toISOString()]);
+        return null;
+      }
+      if ("refuse" in p) {
+        await setStatus(db, w, d.id, "failed", p.refuse);
+        return null;
+      }
+      out.prepared = p.data;
+    }
     await db.query("UPDATE channel_deliveries SET attempts=attempts+1,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, d.id]);
-    return d;
+    return { a, out };
   });
   if (!ready) return { done: true, result: { sent: false } };
-  const a = adapterOf(ready.channel);
-  // A channel that can receive but not yet send (email, until E3): said once, not retried.
-  if (!a.send) {
-    await tenant(connect, w, (db) => setStatus(db, w, deliveryId, "failed", `Replies can't be sent by ${a.id} yet.`));
-    return { done: true, result: { sent: false } };
-  }
+  const { a, out } = ready;
   let result: SendResult;
   try {
-    result = await a.send(
-      {
-        deliveryId: ready.id,
-        conversationId: ready.conversation_id,
-        address: ready.address,
-        text: ready.body,
-        options: Array.isArray(ready.data.options) ? (ready.data.options as string[]) : undefined,
-        data: ready.data,
-      },
-      env,
-    );
+    result = await a.send!(out, env);
   } catch (e) {
     // Retried by the job; on its last attempt, the delivery is marked as not delivered.
     if (job.attempts >= DELIVERY_ATTEMPTS)
@@ -344,10 +384,41 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
   await tenant(connect, w, async (db) => {
     if (result.status === "failed") {
       await setStatus(db, w, deliveryId, "failed", result.error);
-      if (result.suppress) await suppress(db, w, ready.channel, ready.address, result.suppress, `delivery:${deliveryId}`);
+      if (result.suppress) await suppress(db, w, a.id, out.address, result.suppress, `delivery:${deliveryId}`);
     } else await setStatus(db, w, deliveryId, result.status, "", result.providerId);
   });
   return { done: true, result: { sent: result.status !== "failed" } };
+}
+
+/** The sweep: deliveries that waited for a rate limit, queued again once their minute comes. */
+export async function releaseDeferred(connect: Connect, w: string) {
+  await tenant(connect, w, async (db) => {
+    const due = (
+      await db.query<{ id: string }>(
+        "UPDATE channel_deliveries SET not_before=NULL,updated_at=now() WHERE workspace_id=$1 AND status='queued' AND not_before<=now() RETURNING id",
+        [w],
+      )
+    ).rows;
+    for (const d of due) await enqueueJob(db, w, "channel.deliver", { deliveryId: d.id }, {});
+  });
+}
+
+/** What the composer shows: where a reply on this conversation goes (null on the messenger). */
+export async function readReplyTarget(db: Sql, w: string, principal: string, conversationId: string) {
+  await authorize(db, w, principal, "conversations.read");
+  const c = (await db.query<{ current_channel: string | null }>("SELECT current_channel FROM conversations WHERE workspace_id=$1 AND id=$2", [w, conversationId])).rows[0];
+  assert(c, "CONVERSATION_NOT_FOUND", "Conversation unavailable.", 404);
+  const channel = c.current_channel ?? "messenger";
+  if (channel === "messenger") return { target: null };
+  const to = (
+    await db.query<{ address: string }>(
+      `SELECT x.address FROM conversation_parts p JOIN identity_addresses x ON x.workspace_id=p.workspace_id AND x.identity_id=p.author_id AND x.channel=$3
+       WHERE p.workspace_id=$1 AND p.conversation_id=$2 AND p.kind='customer_message' AND p.channel=$3 ORDER BY p.seq DESC LIMIT 1`,
+      [w, conversationId, channel],
+    )
+  ).rows[0];
+  const a = adapterOf(channel);
+  return { target: { channel, address: to?.address ?? null, ...(a.replyDetails ? await a.replyDetails(db, w, conversationId) : {}) } };
 }
 
 async function setStatus(db: Sql, w: string, id: string, status: DeliveryStatus, error = "", providerId?: string) {

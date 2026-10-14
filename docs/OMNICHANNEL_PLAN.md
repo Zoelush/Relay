@@ -79,4 +79,18 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Forwarding is confirmed by a forwarded message** that names the support address (To, Cc or Delivered-To). Gmail's confirmation email is shown in Settings, not opened as a conversation.
     - **Until E3, the email adapter has no `send`.** A reply on an email conversation fails at once with a reason, rather than retrying.
 
-Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2).
+12. **E3 decisions** (14 October 2026):
+    - **SES, as recommended** (decision 3), behind a port (`EmailSender`), so Postmark can follow.
+    - **A brand sends from its support address's domain** once proven, and from Relay's address for the brand until then. Proven means:
+      - Relay's own ownership TXT (this workspace's token, so one workspace's DNS never lets another send as the domain)
+      - the provider's DKIM
+      - the provider's own check
+
+      SPF (on a `bounce.` subdomain, with SES's MAIL FROM) and DMARC are checked and advised.
+    - **Each conversation's reply address is a random token, kept in the database,** not a signature over its id. It's as unguessable, needs no key to manage, and the address stays short (a local part has 64 characters at most).
+    - **Adapters can `prepare`** inside the gate's transaction (threading, the sender, the rate limit), so `send` stays outside any transaction and nothing reaches the provider but through the job.
+    - **The rate limit defers, it doesn't fail:** a delivery over it waits for the next minute (`not_before`), and the sweep queues it again.
+    - **Away emails are a delivery of the latest unread reply,** with purpose `away`, so they pass the same gate. Content is off by default, and internal notes are never read for them.
+    - **Reports find their workspace by the message's tags,** set when sending and signed (with the rest) by SNS.
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3).

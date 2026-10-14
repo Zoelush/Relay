@@ -4,6 +4,7 @@ import { authorize } from "./policy";
 import { channelsEnabled, enabledChannels, receiveInbound, registerChannel, suppress, type ChannelAdapter } from "./channels";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { MAX_EMAIL_BYTES, readEmail, threadKeys } from "./email-read";
+import { emailReplyDetails, ensureDomain, prepareEmail, queueDomainCheck, readReputation, readSending, sendEmail } from "./email-out";
 
 /**
  * Email in (phase 12, step E2; docs/OMNICHANNEL_STEP2.md), behind `channels_v1` and
@@ -19,18 +20,22 @@ import { MAX_EMAIL_BYTES, readEmail, threadKeys } from "./email-read";
  *    Auto-replies go only to teammates; a bounce's hard failures go on the suppression list; a Gmail
  *    forwarding confirmation is kept for the manager setting forwarding up.
  *
- * Zoe doesn't answer email yet (E4), and replies are sent by E3.
+ * Replies are sent by E3 (`server/email-out.ts`: `prepare` and `send`, only through the delivery
+ * job). Zoe doesn't answer email yet (E4).
  */
 const NORMAL = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
 export const emailChannel: ChannelAdapter = {
   id: "email",
   flag: "channel_email_v1",
-  // TODO(phase 12 E3): `send`, through the sending provider. TODO(phase 12 E4): Zoe on email.
+  // TODO(phase 12 E4): Zoe on email.
   capabilities: { richText: true, attachments: true, buttons: false, maxLength: 100_000, windowHours: null, ai: false, receipts: "delivered", address: "email" },
   address: (raw) => {
     const a = raw.trim().toLowerCase().replace(/^mailto:/, "");
     return NORMAL.test(a) && a.length <= 254 ? a : null;
   },
+  prepare: prepareEmail,
+  send: sendEmail,
+  replyDetails: emailReplyDetails,
 };
 registerChannel(emailChannel);
 
@@ -62,14 +67,18 @@ export async function acceptEmail(connect: Connect, env: EmailEnvironment, mail:
   if (at < 0 || domain !== env.domain.toLowerCase() || plus < 1) return { accepted: false as const, reason: "No such address." };
   const w = local.slice(0, plus);
   const token = local.slice(plus + 1);
-  if (!/^[a-z0-9_-]{1,100}$/.test(w) || !/^[a-z0-9]{4,40}$/.test(token)) return { accepted: false as const, reason: "No such address." };
+  // A brand's inbound address, or (E3) a conversation's reply address, `r-<token>`.
+  const reply = /^r-([a-z0-9]{16,40})$/.exec(token)?.[1];
+  if (!/^[a-z0-9_-]{1,100}$/.test(w) || (!reply && !/^[a-z0-9]{4,40}$/.test(token))) return { accepted: false as const, reason: "No such address." };
   if (mail.raw.length > MAX_EMAIL_BYTES) return { accepted: false as const, reason: "The message is larger than 25 MB." };
   if (!env.storage?.putQuarantine) throw new DomainError("STORAGE_UNAVAILABLE", "Email storage isn't configured.", 503);
   const storage = env.storage;
   try {
     return await tenant(connect, w, async (db) => {
       if (!(await emailEnabled(db, w))) return { accepted: false as const, reason: "No such address." };
-      const brand = (await db.query<{ brand_id: string }>("SELECT brand_id FROM email_settings WHERE workspace_id=$1 AND token=$2", [w, token])).rows[0];
+      const brand = reply
+        ? (await db.query<{ brand_id: string }>("SELECT brand_id FROM email_reply_addresses WHERE workspace_id=$1 AND token=$2", [w, reply])).rows[0]
+        : (await db.query<{ brand_id: string }>("SELECT brand_id FROM email_settings WHERE workspace_id=$1 AND token=$2", [w, token])).rows[0];
       if (!brand) return { accepted: false as const, reason: "No such address." };
       const id = crypto.randomUUID();
       const key = `${encodeURIComponent(w)}/email/${id}.eml`;
@@ -98,7 +107,7 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
     w,
     async (db) =>
       (
-        await db.query<{ id: string; brand_id: string; raw_key: string; status: string }>("SELECT id,brand_id,raw_key,status FROM email_inbound WHERE workspace_id=$1 AND id=$2", [
+        await db.query<{ id: string; brand_id: string; raw_key: string; status: string; envelope_to: string }>("SELECT id,brand_id,raw_key,status,envelope_to FROM email_inbound WHERE workspace_id=$1 AND id=$2", [
           w,
           inboundId,
         ])
@@ -170,6 +179,9 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
         return;
       }
       const keys = await threadKeys(m);
+      // Mail to a conversation's reply address joins it first, whatever its headers say.
+      const reply = /^[^+@]+\+r-([a-z0-9]{16,40})@/i.exec(inbound.envelope_to)?.[1]?.toLowerCase();
+      if (reply) keys.threadKeys.unshift(`reply:${reply}`);
       const r = await receiveInbound(db, w, emailChannel, {
         externalId: m.messageId ? `mid:${m.messageId}` : `inbound:${inboundId}`,
         address: m.from.address,
@@ -285,7 +297,7 @@ export async function readEmailMessage(db: Sql, w: string, principal: string, pa
 }
 
 /** Settings › Email: each brand's inbound address, its support address and forwarding. */
-export async function readEmailSettings(db: Sql, w: string, principal: string, domain: string) {
+export async function readEmailSettings(db: Sql, w: string, principal: string, domain: string, sending: EmailSending = { sendingDomain: domain, region: "eu-west-2" }) {
   await authorize(db, w, principal, "workspace.manage");
   assert(await emailEnabled(db, w), "EMAIL_DISABLED", "Email is not enabled for this workspace.", 404);
   // Every brand has an address from the start.
@@ -306,15 +318,21 @@ export async function readEmailSettings(db: Sql, w: string, principal: string, d
       [w],
     )
   ).rows;
-  return {
-    brands: rows.map((r) => ({
+  const brands = [];
+  for (const r of rows)
+    brands.push({
       brandId: r.brand_id,
       name: r.name,
       address: inboundAddress(w, r.token, domain),
       supportAddress: r.support_address,
       forwardingVerifiedAt: r.forwarding_verified_at ? new Date(r.forwarding_verified_at).toISOString() : null,
       confirmation: r.confirmation,
-    })),
+      // E3: where its replies go from, its domain's records, and its away emails.
+      sending: await readSending(db, w, r.brand_id, sending),
+    });
+  return {
+    brands,
+    reputation: await readReputation(db, w, sending.sendingDomain),
     recent: recent.map((r) => ({
       brandId: r.brand_id,
       status: r.status,
@@ -326,8 +344,15 @@ export async function readEmailSettings(db: Sql, w: string, principal: string, d
   };
 }
 
-/** Save a brand's support address (forwarding is confirmed again), or give it a new inbound address. */
-export async function changeEmailSettings(db: Sql, w: string, principal: string, key: string, p: Record<string, unknown>, domain: string) {
+/** Where Relay's own mail is (E3): the domain brands send from until theirs is proven, and the provider's region. */
+export type EmailSending = { sendingDomain: string; region: string };
+
+/**
+ * Save a brand's support address (forwarding is confirmed again, and its domain is checked to
+ * send from), give it a new inbound address, check its domain again, set its sending rate, or
+ * change its away emails.
+ */
+export async function changeEmailSettings(db: Sql, w: string, principal: string, key: string, p: Record<string, unknown>, domain: string, sending?: EmailSending) {
   const t = await authorize(db, w, principal, "workspace.manage");
   assert(await emailEnabled(db, w), "EMAIL_DISABLED", "Email is not enabled for this workspace.", 404);
   return once(db, w, "email-settings:" + principal, key, p, async () => {
@@ -338,12 +363,46 @@ export async function changeEmailSettings(db: Sql, w: string, principal: string,
       const raw = typeof p.supportAddress === "string" ? p.supportAddress.trim() : "";
       const address = raw ? emailChannel.address(raw) : null;
       assert(!raw || address, "INVALID_ADDRESS", "That isn't an email address.", 400);
-      assert(!address?.endsWith("@" + domain.toLowerCase()), "INVALID_ADDRESS", "Use your own support address, not Relay's.", 400);
+      assert(
+        !address?.endsWith("@" + domain.toLowerCase()) && !(sending && address?.endsWith("@" + sending.sendingDomain.toLowerCase())),
+        "INVALID_ADDRESS",
+        "Use your own support address, not Relay's.",
+        400,
+      );
       await db.query(
         `UPDATE email_settings SET support_address=$3,forwarding_verified_at=CASE WHEN support_address IS DISTINCT FROM $3 THEN NULL ELSE forwarding_verified_at END,
            confirmation=CASE WHEN support_address IS DISTINCT FROM $3 THEN NULL ELSE confirmation END,updated_by=$4,updated_at=now() WHERE workspace_id=$1 AND brand_id=$2`,
         [w, brandId, address, t.id],
       );
+      // E3: its domain, when Relay can send as it, is checked to send from.
+      const own = await ensureDomain(db, w, address);
+      if (own) await queueDomainCheck(db, w, own);
+    } else if (p.action === "check_domain") {
+      const support = (await db.query<{ support_address: string | null }>("SELECT support_address FROM email_settings WHERE workspace_id=$1 AND brand_id=$2", [w, brandId])).rows[0]
+        ?.support_address;
+      const own = await ensureDomain(db, w, support ?? null);
+      assert(own, "NO_DOMAIN", "Save a support address on your own domain first.", 400);
+      await queueDomainCheck(db, w, own);
+    } else if (p.action === "rate") {
+      const support = (await db.query<{ support_address: string | null }>("SELECT support_address FROM email_settings WHERE workspace_id=$1 AND brand_id=$2", [w, brandId])).rows[0]
+        ?.support_address;
+      const perMinute = Number(p.perMinute);
+      assert(Number.isInteger(perMinute) && perMinute >= 1 && perMinute <= 10000, "INVALID_RATE", "The rate is a whole number from 1 to 10,000 a minute.", 400);
+      const own = support?.split("@")[1]?.toLowerCase() ?? "";
+      const changed = await db.query("UPDATE email_domains SET rate_per_minute=$3 WHERE workspace_id=$1 AND domain=$2 RETURNING domain", [w, own, perMinute]);
+      assert(changed.rows.length, "NO_DOMAIN", "Only your own domain's rate can change; Relay's address has its own.", 400);
+    } else if (p.action === "away") {
+      const minutes = Number(p.minutes);
+      assert(typeof p.enabled === "boolean" && typeof p.content === "boolean", "INVALID_EMAIL_SETTINGS", "Say whether away emails are on, and whether they include the replies.", 400);
+      assert(Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440, "INVALID_EMAIL_SETTINGS", "Wait between 1 minute and 24 hours.", 400);
+      await db.query("UPDATE email_settings SET away_enabled=$3,away_content=$4,away_minutes=$5,updated_by=$6,updated_at=now() WHERE workspace_id=$1 AND brand_id=$2", [
+        w,
+        brandId,
+        p.enabled,
+        p.content,
+        minutes,
+        t.id,
+      ]);
     } else if (p.action === "new_address") {
       // The old address stops working at once (mail to it is refused).
       await db.query("UPDATE email_settings SET token=$3,forwarding_verified_at=NULL,updated_by=$4,updated_at=now() WHERE workspace_id=$1 AND brand_id=$2", [
@@ -353,6 +412,6 @@ export async function changeEmailSettings(db: Sql, w: string, principal: string,
         t.id,
       ]);
     } else throw new DomainError("INVALID_EMAIL_SETTINGS", "Unknown change.", 400);
-    return readEmailSettings(db, w, principal, domain);
+    return readEmailSettings(db, w, principal, domain, sending);
   });
 }

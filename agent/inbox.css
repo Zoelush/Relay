@@ -1662,3 +1662,22 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-email-files { margin:0; padding-left:18px; font-size:13px; }
 .pg-email-subject { display:block; margin-bottom:4px; font-size:12px; color:var(--pg-text-2); font-weight:600; }
 .pg-email-open { margin-top:4px; padding:0; border:0; background:none; color:var(--pg-accent); font-size:12px; text-decoration:underline; cursor:pointer; }
+
+/* Phase 12 E3: email out. Where a reply goes (the composer), and Settings › Email's sending. */
+.pg-reply-target { display:inline-flex; align-items:center; gap:4px; }
+.pg-email-sending { border-top:1px solid var(--pg-border-subtle); margin-top:12px; padding-top:8px; display:flex; flex-direction:column; gap:8px; }
+.pg-email-sending h3, .pg-email-reputation h3 { margin:0; font-size:13px; }
+.pg-email-records { border-collapse:collapse; width:100%; font-size:12px; }
+.pg-email-records th, .pg-email-records td { border-bottom:1px solid var(--pg-border-subtle); padding:4px 6px; text-align:left; vertical-align:top; }
+.pg-email-records code { word-break:break-all; }
+.pg-email-records-wrap { overflow-x:auto; max-width:100%; }
+.pg-email-record-status[data-status="ok"] { color:var(--pg-tint-green); }
+.pg-email-record-status[data-status="missing"], .pg-email-record-status[data-status="wrong"] { color:var(--pg-danger-text); }
+.pg-email-status { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; background:var(--pg-neutral-bg); color:var(--pg-neutral-text); }
+.pg-email-status[data-status="verified"], .pg-email-status[data-standing="healthy"] { background:var(--pg-tint-green-bg); color:var(--pg-tint-green); }
+.pg-email-status[data-status="pending"], .pg-email-status[data-standing="at_risk"] { background:var(--pg-tint-amber-bg); color:var(--pg-warn-text); }
+.pg-email-status[data-status="failed"], .pg-email-status[data-standing="poor"] { background:var(--pg-danger-bg); color:var(--pg-danger-text); }
+.pg-email-reputation { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+.pg-email-daily { display:flex; align-items:flex-end; gap:2px; height:48px; border-bottom:1px solid var(--pg-border); }
+.pg-email-daily span { flex:1; max-width:14px; background:var(--pg-tint-blue-bg); position:relative; display:flex; flex-direction:column; justify-content:flex-end; }
+.pg-email-daily i { display:block; background:var(--pg-danger-line); }
