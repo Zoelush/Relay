@@ -60,6 +60,9 @@ import { localEmailProvider, localSns } from "./local-email";
 import { LOCAL_WHATSAPP, localWhatsApp } from "./local-whatsapp";
 import { checkWhatsAppNumberJob, receiveWhatsAppJob, receiveWhatsAppWebhook, submitTemplateJob, syncTemplatesJob, type WhatsAppEnvironment } from "../server/whatsapp";
 import { seal } from "../server/connectors";
+import { LOCAL_TWILIO, localSms } from "./local-sms";
+import { checkSmsAccountJob, connectSmsNumberJob, receiveSmsJob, receiveSmsWebhook, type SmsEnvironment } from "../server/sms";
+import { callingCode } from "../lib/sms";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
 export const LOCAL_EMAIL_DOMAIN = "inbound.relay.localhost";
@@ -164,6 +167,10 @@ export async function startLocalRelay(
     whatsappFlag?: boolean;
     /** Development seed (phase 12 E5): the demo brand's WhatsApp number, connected, and an approved template. */
     exampleWhatsApp?: boolean;
+    /** SMS (phase 12 E6), likewise on unless turned off. */
+    smsFlag?: boolean;
+    /** Development seed (phase 12 E6): the demo's Twilio account and the default brand's UK number, connected. */
+    exampleSms?: boolean;
     /** Development seed (phase 12 E2): two example emails in the demo workspace. */
     exampleEmail?: boolean;
     /** Development seed (phase 11 W2): a draft workflow to open in the builder. */
@@ -278,6 +285,9 @@ export async function startLocalRelay(
   const whatsapp = localWhatsApp();
   env.whatsapp = { api: whatsapp.api };
   const whatsappEnv: WhatsAppEnvironment = { api: whatsapp.api, key: keys.connector, storage: env.attachments };
+  // SMS (phase 12 E6): Twilio's stand-in; its calls are signed and checked as Twilio's are.
+  const sms = localSms();
+  const smsEnv: SmsEnvironment = { api: sms.api, key: keys.connector, storage: env.attachments, hookOrigin: apiOrigin };
   const emailOut: EmailOutEnvironment = {
     sender: email.sender,
     dns: email.dns,
@@ -623,6 +633,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channel_whatsapp_v1'",
         [w, options.whatsappFlag !== false],
       );
+      // SMS (phase 12, E6).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channel_sms_v1'",
+        [w, options.smsFlag !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -852,7 +867,24 @@ export async function startLocalRelay(
   handlers["workflow.timed"] = (job) => runTimedWorkflows(db.connect, job);
   // Phase 12: replies delivered on their conversation's channel.
   const unregister = (options.channels ?? []).map(registerChannel);
-  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut, whatsapp: whatsappEnv } }, job);
+  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut, whatsapp: whatsappEnv, sms: smsEnv } }, job);
+  handlers["sms.receive"] = (job) => receiveSmsJob(db.connect, smsEnv, job);
+  handlers["sms.check"] = (job) => checkSmsAccountJob(db.connect, smsEnv, job);
+  handlers["sms.number"] = (job) => connectSmsNumberJob(db.connect, smsEnv, job);
+  // Development seed (phase 12 E6): the demo's Twilio account (the stand-in's credentials) and the
+  // default brand's UK number, connected.
+  if (options.exampleSms && options.smsFlag !== false && options.channelsFlag !== false)
+    await tenant(db.connect, "demo", async (q) => {
+      if ((await q.query("SELECT 1 FROM sms_accounts WHERE workspace_id='demo'")).rows.length) return;
+      await q.query(
+        "INSERT INTO sms_accounts(workspace_id,account_sid,token_sealed,token_hint,friendly_name,status,created_by,checked_at) VALUES('demo',$1,$2,$3,'Relay Demo','connected','owner',now())",
+        [LOCAL_TWILIO.sid, await seal(keys.connector, "demo", "sms:account", "token", LOCAL_TWILIO.token), LOCAL_TWILIO.token.slice(-4)],
+      );
+      await q.query(
+        "INSERT INTO sms_numbers(workspace_id,id,brand_id,phone,calling_code,number_sid,is_default,status,created_by) VALUES('demo','demo-sms','default',$1,$2,'PN447700900100',true,'connected','owner')",
+        [LOCAL_TWILIO.numbers[0], callingCode(LOCAL_TWILIO.numbers[0])],
+      );
+    });
   handlers["whatsapp.receive"] = (job) => receiveWhatsAppJob(db.connect, whatsappEnv, job);
   handlers["whatsapp.check"] = (job) => checkWhatsAppNumberJob(db.connect, whatsappEnv, job);
   handlers["whatsapp.template"] = (job) => submitTemplateJob(db.connect, whatsappEnv, job);
@@ -1166,6 +1198,17 @@ export async function startLocalRelay(
       if (result.status === 200) void publish("demo", "");
       return Response.json(result.body, { status: result.status });
     }
+    // Phase 12 E6: a customer's text to the demo's UK number, as Twilio would post it:
+    // {from: "+447700900456", text}.
+    if (new URL(req.url).pathname === "/dev/sms" && req.method === "POST") {
+      const r = (await req.json()) as { from?: string; text?: string };
+      if (!/^\+\d{8,15}$/.test(String(r.from ?? "")) || typeof r.text !== "string") return Response.json({ error: "from (+digits) and text" }, { status: 400 });
+      const url = `${apiOrigin}/v1/hooks/sms/demo/message`;
+      const call = await sms.signed(url, sms.text({ from: r.from!, to: LOCAL_TWILIO.numbers[0], body: r.text }));
+      const result = await receiveSmsWebhook(db.connect, keys.connector, "demo", "message", url, new URLSearchParams(call.body), call.signature);
+      if (result.status === 200) void publish("demo", "");
+      return new Response(null, { status: result.status === 200 ? 202 : result.status });
+    }
     // Phase 12 E3: what the stand-in provider was given to send (newest first), read back.
     if (new URL(req.url).pathname === "/dev/outbox" && req.method === "GET")
       return Response.json({ sent: await Promise.all([...email.outbox].reverse().slice(0, 50).map((m) => email.read(m))) });
@@ -1351,6 +1394,8 @@ export async function startLocalRelay(
     sns,
     /** WhatsApp's stand-in (phase 12 E5): what was sent, media, templates, and signed webhook calls. */
     whatsapp,
+    /** SMS's stand-in (phase 12 E6): texts sent, numbers configured, media, and signed webhook calls. */
+    sms,
     clients,
     disconnect(conversationId: string) {
       for (const [socket, client] of sockets)
@@ -1404,6 +1449,7 @@ if (
     longTimeline: true,
     exampleEmail: true,
     exampleWhatsApp: true,
+    exampleSms: true,
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),

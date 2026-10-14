@@ -1701,3 +1701,7 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-template-picker label { display:flex; align-items:center; gap:6px; }
 .pg-template-picker input, .pg-template-picker select { flex:1; min-width:0; }
 .pg-template-preview { margin:0; padding:6px 8px; border-radius:6px; background:var(--pg-sunken); white-space:pre-wrap; }
+
+/* Phase 12 E6: a text's segments and cost in the composer. */
+.pg-sms-meter { color:var(--pg-muted); }
+.pg-sms-meter[data-over="true"] { color:var(--pg-danger-text); font-weight:600; }

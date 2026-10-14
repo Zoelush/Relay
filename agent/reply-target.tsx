@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Mail } from "lucide-react";
 import { api } from "./api";
 import { channelLabel } from "../lib/channels";
+import { segmentsOf } from "../lib/sms";
 
 /**
  * Where a reply goes (phase 12, step E3; docs/OMNICHANNEL_STEP3.md): on a conversation whose
@@ -19,6 +20,10 @@ type Target = {
   /** E5: a session window (WhatsApp's 24 hours), and the templates that may go once it's closed. */
   window?: { open: boolean; closesAt: string | null };
   templates?: WaTemplate[];
+  /** E6: the number a text goes from, its segment limit, and what a segment costs to the customer's country. */
+  from?: string | null;
+  maxSegments?: number;
+  price?: { perSegment: number; currency: string; estimated: boolean } | null;
 } | null;
 export function useReplyTarget(conversationId: string, refresh: number) {
   const [target, setTarget] = useState<{ id: string; target: Target }>({ id: "", target: null });
@@ -42,6 +47,7 @@ export function ReplyTarget({ target }: { target: NonNullable<Target> }) {
       <span className="pg-reply-target" aria-label="Where this reply goes">
         {target.channel === "email" && <Mail size={13} aria-hidden="true" />}
         {how}
+        {target.from ? ` from ${target.from}` : ""}
         {target.address ? ` to ${target.address}` : ""}
         {target.subject ? ` · ${target.subject}` : ""}
         {target.window?.open && closes ? ` · window open until ${closes.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
@@ -175,3 +181,20 @@ export function EmailCopies({ initialCc, onChange }: { initialCc: string; onChan
   );
 }
 export const splitCopies = (v: string) => v.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+
+/**
+ * E6: a text's segments as it's written (GSM-7 or Unicode), and roughly what it costs. Over the
+ * limit, it says so: the server refuses it too.
+ */
+export function SmsMeter({ text, max, price }: { text: string; max: number; price?: { perSegment: number; currency: string; estimated: boolean } | null }) {
+  const s = segmentsOf(text);
+  const cost = price && s.segments ? s.segments * price.perSegment : null;
+  return (
+    <span className="pg-sms-meter" data-over={s.segments > max ? "true" : undefined} aria-label="Text length">
+      {s.segments === 1 ? "1 segment" : `${s.segments} segments`} ({s.units}/{s.perSegment * Math.max(1, s.segments)}
+      {s.encoding === "UCS-2" ? ", Unicode" : ""})
+      {cost !== null ? ` · ${price!.estimated ? "about " : ""}${cost.toFixed(cost < 0.1 ? 4 : 2)} ${price!.currency}` : ""}
+      {s.segments > max ? ` · too long: ${max} at most` : ""}
+    </span>
+  );
+}

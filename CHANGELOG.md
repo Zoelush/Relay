@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: SMS (phase 12, E6)
+
+- **Connect your Twilio account and numbers.** A reply goes from the brand's number in the customer's country.
+- **Customers' texts become conversations,** with pictures scanned. Replies are texted, with delivery receipts.
+- **The composer counts segments as you type** (GSM-7 or Unicode) and estimates the cost. Texts over 10 segments are refused.
+- **STOP** (and local equivalents) **opts a number out for good** until it texts START. HELP gets the brand's reply.
+- **Consent:** a number is texted only when it texted first or its consent was recorded.
+- **Behind `channel_sms_v1`,** off by default.
+- **Migration:** 0067, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP6.md`.
+
 ## Unreleased: WhatsApp Business (phase 12, E5)
 
 - **Connect a brand's WhatsApp Business number** with your own Meta app. Credentials are stored encrypted, and Meta's webhook is checked by its signature.
