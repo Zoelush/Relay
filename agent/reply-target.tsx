@@ -9,7 +9,17 @@ import { channelLabel } from "../lib/channels";
  * Re: Damaged order") instead of "Visible to the customer". Read again as parts arrive, since
  * the customer's next message can move the conversation.
  */
-type Target = { channel: string; address: string | null; subject?: string; copies?: boolean; cc?: string } | null;
+type WaTemplate = { id: string; name: string; language: string; body: string; params: number };
+type Target = {
+  channel: string;
+  address: string | null;
+  subject?: string;
+  copies?: boolean;
+  cc?: string;
+  /** E5: a session window (WhatsApp's 24 hours), and the templates that may go once it's closed. */
+  window?: { open: boolean; closesAt: string | null };
+  templates?: WaTemplate[];
+} | null;
 export function useReplyTarget(conversationId: string, refresh: number) {
   const [target, setTarget] = useState<{ id: string; target: Target }>({ id: "", target: null });
   useEffect(() => {
@@ -26,13 +36,106 @@ export function useReplyTarget(conversationId: string, refresh: number) {
 }
 export function ReplyTarget({ target }: { target: NonNullable<Target> }) {
   const how = target.channel === "email" ? "Emailed" : `Sent by ${channelLabel(target.channel)}`;
+  const closes = target.window?.closesAt ? new Date(target.window.closesAt) : null;
   return (
-    <span className="pg-reply-target" aria-label="Where this reply goes">
-      {target.channel === "email" && <Mail size={13} aria-hidden="true" />}
-      {how}
-      {target.address ? ` to ${target.address}` : ""}
-      {target.subject ? ` · ${target.subject}` : ""}
-    </span>
+    <>
+      <span className="pg-reply-target" aria-label="Where this reply goes">
+        {target.channel === "email" && <Mail size={13} aria-hidden="true" />}
+        {how}
+        {target.address ? ` to ${target.address}` : ""}
+        {target.subject ? ` · ${target.subject}` : ""}
+        {target.window?.open && closes ? ` · window open until ${closes.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+      </span>
+      {/* E5: once the window has closed, only a template may go. */}
+      {target.window && !target.window.open && (
+        <strong className="pg-window-closed" role="status">
+          The 24-hour window has closed: send an approved template.
+        </strong>
+      )}
+    </>
+  );
+}
+
+/** E5: a template as the reply: chosen, its values filled in, previewed, sent. */
+export function TemplatePicker({ conversationId, templates, onSent }: { conversationId: string; templates: WaTemplate[]; onSent: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [id, setId] = useState(templates[0]?.id ?? "");
+  const [params, setParams] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const t = templates.find((x) => x.id === id) ?? templates[0];
+  if (!t) return null;
+  if (!open)
+    return (
+      <button type="button" className="pg-email-open" onClick={() => setOpen(true)}>
+        Send a template
+      </button>
+    );
+  const preview = t.body.replace(/\{\{(\d+)\}\}/g, (_, i) => params[Number(i) - 1] || `{{${i}}}`);
+  return (
+    <div className="pg-template-picker" role="group" aria-label="Send a template">
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      <label>
+        Template{" "}
+        <select
+          value={t.id}
+          onChange={(e) => {
+            setId(e.target.value);
+            setParams([]);
+          }}
+        >
+          {templates.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.name} ({x.language})
+            </option>
+          ))}
+        </select>
+      </label>
+      {[...Array(t.params)].map((_, i) => (
+        <label key={t.id + i}>
+          {`{{${i + 1}}}`}{" "}
+          <input
+            value={params[i] ?? ""}
+            onChange={(e) => {
+              const next = [...params];
+              next[i] = e.target.value;
+              setParams(next);
+            }}
+          />
+        </label>
+      ))}
+      <p className="pg-template-preview">{preview}</p>
+      <span className="pg-wf-inline">
+        <button
+          type="button"
+          className="pg-primary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              await api("command", { action: "reply", conversationId, template: { id: t.id, params: [...Array(t.params)].map((_, i) => params[i] ?? "") } });
+              setOpen(false);
+              setParams([]);
+              onSent();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "The template couldn't be sent.");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Send template
+        </button>
+        <button type="button" className="pg-zoe-secondary" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </span>
+    </div>
   );
 }
 

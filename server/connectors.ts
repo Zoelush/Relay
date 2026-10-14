@@ -90,6 +90,10 @@ export async function seal(master: string, w: string, connectorId: string, name:
   );
   return b64(iv) + "." + b64(new Uint8Array(data));
 }
+/** Decrypted (phase 12 E5 seals WhatsApp's credentials the same way, as `unseal`). */
+export async function unseal(master: string, w: string, connectorId: string, name: string, sealed: string) {
+  return open(master, w, connectorId, name, sealed);
+}
 async function open(master: string, w: string, connectorId: string, name: string, sealed: string) {
   const [iv, data] = sealed.split(".");
   return new TextDecoder().decode(

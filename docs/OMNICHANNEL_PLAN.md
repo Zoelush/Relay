@@ -101,4 +101,12 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **"Send an email" is customer-facing** and goes to the customer's email address on any channel. On the messenger it's shown in the conversation as well.
     - **Incident alerts go to addresses the managers set:** teammates have no email in Relay (sign-in is the platform's). Alerts are sent from Relay's no-reply address, past the suppression list.
 
-Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4). Email (E1 to E4) is complete.
+14. **E5 decisions** (14 October 2026):
+    - **Each workspace connects its own Meta app** (Meta direct, decision 4): its number's ids, a system user's token and the app secret, sealed with the connector key. Embedded signup through Relay's own app (Tech Provider) waits for hosting.
+    - **The webhook is per workspace** (`/v1/hooks/whatsapp/<workspace>`), so no lookup crosses workspaces. Every call is signed with the workspace's app secret, and kept only if the signature checks out.
+    - **The window is the adapter's `refuses`,** given the part: a template passes when nothing else does. A teammate's free reply outside it is refused when it's written, not when it would be sent.
+    - **A template needs an opt-in.** Writing to the business counts; STOP is a suppression (an opt-out, lifted only by START).
+    - **Threading is by number, within 7 days** (the fallback key), since WhatsApp has no threads of its own.
+    - **Zoe may answer on WhatsApp,** inside the window: Meta verifies the number.
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5). Email (E1 to E4) is complete.

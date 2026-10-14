@@ -1,5 +1,5 @@
 import { workflowEvent, workflowHolds } from "./workflow-engine";
-import { capabilitiesOf, queueDelivery } from "./channels";
+import { adapterOf, capabilitiesOf, queueDelivery } from "./channels";
 import { resolveWake } from "./snooze";
 import {
   assertClosable,
@@ -130,6 +130,8 @@ export interface Command {
   channelData?: Record<string, unknown>;
   /** Phase 12 E4: a teammate's copies on a reply (email's Cc and Bcc). */
   email?: { cc?: unknown; bcc?: unknown };
+  /** Phase 12 E5: a channel's template as the reply (WhatsApp's, the only thing outside its window). */
+  template?: { id?: unknown; params?: unknown };
 }
 export type HelpContext = {
   searched?: string;
@@ -877,7 +879,14 @@ export async function command(
         "This ticket has no customer to reply to. Add an internal note instead.",
         409,
       );
-      const content = messageContent(p, actor);
+      // Phase 12 E5: a teammate's template reply: its text and data come from the channel's adapter.
+      let templated: { text: string; data: Record<string, unknown> } | null = null;
+      if (p.template && p.action === "reply" && actor.type === "teammate") {
+        const a = adapterOf(c.current_channel);
+        assert(a.templateReply, "TEMPLATES_UNSUPPORTED", "This conversation's channel has no templates.", 400);
+        templated = await a.templateReply!(db, w, c.id, p.template);
+      }
+      const content = templated ? { text: templated.text } : messageContent(p, actor);
       const mentioned = await prepareMentions(
         db,
         w,
@@ -964,6 +973,9 @@ export async function command(
           `This conversation's channel takes messages of up to ${caps.maxLength.toLocaleString("en")} characters.`,
           400,
         );
+        // Phase 12 E5: the channel's own rule on sending now (WhatsApp's closed window), said at once.
+        const refusal = await adapterOf(c.current_channel).refuses?.(db, w, c.id, { kind, data: templated?.data ?? {} });
+        assert(!refusal, "CHANNEL_REFUSES", refusal ?? "", 409);
         // Phase 12 E4: a teammate's reply can copy others in, where the channel can (email's Cc and Bcc).
         const e = (p.email ?? null) as { cc?: unknown; bcc?: unknown } | null;
         if (actor.type === "teammate" && e && (e.cc || e.bcc)) {
@@ -989,6 +1001,7 @@ export async function command(
           ...(content.doc ? { doc: content.doc } : {}),
           ...extra,
           ...(copies ? { email: copies } : {}),
+          ...(templated ? templated.data : {}),
           ...(arrived && actor.type === "contact" && actor.channel && p.channelData ? p.channelData : {}),
         },
         p.action === "note" ? "internal" : "public",

@@ -16,6 +16,10 @@ import { releaseDeferred, runDelivery } from "../server/channels";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 import { checkAwayEmails, checkDomainJob, scheduleDomainChecks, sendAlert, type EmailOutEnvironment } from "../server/email-out";
 import { dohResolver, sesSender } from "../server/email-providers";
+import { checkWhatsAppNumberJob, receiveWhatsAppJob, submitTemplateJob, syncTemplatesJob, type WhatsAppEnvironment } from "../server/whatsapp";
+import { graphApi } from "../server/whatsapp-api";
+/** WhatsApp (phase 12 E5): Meta's Cloud API; credentials are each workspace's, sealed with RELAY_CONNECTOR_KEY. */
+const whatsappEnvironment = (env: Env, storage: WhatsAppEnvironment["storage"]): WhatsAppEnvironment => ({ api: graphApi(), key: env.RELAY_CONNECTOR_KEY, storage });
 const emailEnvironment = (env: Env, storage: EmailEnvironment["storage"]): EmailEnvironment => ({
   storage,
   domain: env.RELAY_INBOUND_DOMAIN ?? "",
@@ -236,6 +240,7 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     emailDomain: env.RELAY_INBOUND_DOMAIN,
     emailSending: { sendingDomain: env.RELAY_SENDING_DOMAIN ?? env.RELAY_INBOUND_DOMAIN ?? "", region: env.RELAY_SES_REGION ?? "eu-west-2" },
     sesReports: env.RELAY_SES_TOPIC_ARN ? { topicArn: env.RELAY_SES_TOPIC_ARN } : undefined,
+    whatsapp: { api: graphApi() },
     bridgeSecret: env.BRIDGE_SECRET,
     realtimeUrl: env.PUBLIC_ORIGIN.replace(/^http/, "ws") + "/realtime",
     notify: (workspace, id) =>
@@ -493,7 +498,13 @@ const relayWorker = {
       // W4: schedules, unanswered customers and SLAs about to breach.
       "workflow.timed": (job) => runTimedWorkflows(runtime.connect, job),
       // Phase 12: a reply delivered on its conversation's channel (E3: email through SES).
-      "channel.deliver": (job) => runDelivery(runtime.connect, { providers: { email: emailOutEnvironment(env, runtime.attachments) } }, job),
+      "channel.deliver": (job) =>
+        runDelivery(runtime.connect, { providers: { email: emailOutEnvironment(env, runtime.attachments), whatsapp: whatsappEnvironment(env, runtime.attachments) } }, job),
+      // Phase 12 E5: WhatsApp's webhook calls read, numbers checked, templates submitted and synced.
+      "whatsapp.receive": (job) => receiveWhatsAppJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
+      "whatsapp.check": (job) => checkWhatsAppNumberJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
+      "whatsapp.template": (job) => submitTemplateJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
+      "whatsapp.sync": (job) => syncTemplatesJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
       // Phase 12 E3: a sending domain's records and the provider's identity, checked.
       "email.domain.check": (job) => checkDomainJob(runtime.connect, emailOutEnvironment(env, runtime.attachments), job),
       // Phase 12 E4: Zoe's incident alerts by email.
