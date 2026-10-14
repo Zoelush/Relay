@@ -177,6 +177,8 @@ export function describeStep(s: Step, o: Options): string {
       return `Wait ${seconds(Number(v.seconds) || 0)}`;
     case "message":
       return `Send: “${clip(v.text)}”`;
+    case "email":
+      return `Email: “${clip(v.subject)}”`;
     case "collect":
       return `Ask “${clip(v.text)}”, keep the reply in ${
         v.into === "email" ? "their email" : v.into === "contact" ? `the customer's ${String(v.key || "attribute")}` : `“${nameIn(o.attributes, v.attributeId, "attribute")}”`
@@ -209,6 +211,8 @@ export function newStep(type: ActionType, o: Options): Step {
                 ? { key: "", value: "" }
                 : type === "note" || type === "message"
                   ? { text: "" }
+                  : type === "email"
+                    ? { subject: "", text: "" }
                   : type === "collect"
                     ? { text: "", into: "email", timeoutSeconds: 86_400 }
                   : type === "ticket_create"
@@ -541,6 +545,14 @@ function StepFields({ step, o, onChange, label }: { step: Step; o: Options; onCh
       return <textarea aria-label={`${label}, message`} rows={3} maxLength={2000} placeholder="What the customer reads" value={String(v.text ?? "")} onChange={(e) => set("text", e.target.value)} />;
     case "reply_time":
       return <p className="pg-muted pg-wf-hint">Tells the customer when to expect a reply, or when the team is back, in their language.</p>;
+    case "email":
+      return (
+        <>
+          <input aria-label={`${label}, subject`} maxLength={200} placeholder="Subject" value={String(v.subject ?? "")} onChange={(e) => set("subject", e.target.value)} />
+          <textarea aria-label={`${label}, email`} rows={4} maxLength={5000} placeholder="What the customer reads" value={String(v.text ?? "")} onChange={(e) => set("text", e.target.value)} />
+          <p className="pg-muted pg-wf-hint">Sent to the customer&apos;s email address, whatever channel the conversation is on. Skipped when they haven&apos;t given one.</p>
+        </>
+      );
     case "collect":
       return (
         <>

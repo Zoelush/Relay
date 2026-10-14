@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: email in the inbox (phase 12, E4)
+
+- **Each email shows who it was to and copied to.**
+- **Cc and Bcc on replies,** with the customer's Cc offered again (reply all). Every copy passes the suppression list.
+- **Side conversations:** email a supplier or another team from a conversation. Their answers come back into its timeline, for the team only.
+- **Workflows:** a new trigger, "A customer emails", and a new step, "Send an email".
+- **Zoe on email:** off by default, drafting replies a teammate sends or discards, or answering. She never answers unverified senders or list mail.
+- **Zoe's incident alerts by email,** to up to five addresses.
+- **Behind `channel_email_v1`,** off by default. With this, email (E1 to E4) is complete.
+- **Migration:** 0065, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP4.md`.
+
 ## Unreleased: email out (phase 12, E3)
 
 - **Replies on email conversations are emailed,** in the customer's thread: plain text and HTML, their last message quoted, files attached. The composer says where each reply goes.

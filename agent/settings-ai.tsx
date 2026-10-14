@@ -74,8 +74,12 @@ export type Settings = {
     /** B2b: privacy, both off by default. */
     redactPersonalData: boolean;
     memory: boolean;
+    /** Phase 12 E4: on email, off, drafts a teammate approves, or answers. */
+    emailMode: "off" | "approve" | "answer";
     version: string;
   };
+  /** Whether email is on for the workspace (the email choice shows only then). */
+  email: boolean;
   teams: Choice[];
   choices: { brands: Choice[]; tags: Choice[]; attributes: Choice[] };
   rules: Rule[];
@@ -124,6 +128,7 @@ const formOf = (s: Settings): Form => ({
   otherLanguages: s.agent.otherLanguages,
   redactPersonalData: s.agent.redactPersonalData,
   memory: s.agent.memory,
+  emailMode: s.agent.emailMode,
   rules: s.rules,
   topics: s.topics,
   guidance: s.guidance,
@@ -337,6 +342,35 @@ export function AnsweringCard({ form, set }: Omit<Section, "data">) {
           ))}
         </fieldset>
       </Card>
+  );
+}
+
+/**
+ * Phase 12 E4: Zoe on email. Off by default; with drafts, each answer waits in the conversation for
+ * a teammate to send or discard it. She never answers a sender whose domain didn't confirm them
+ * (DMARC), or list mail.
+ */
+export function EmailCard({ form, set }: Omit<Section, "data">) {
+  return (
+    <Card title="Email" description="Whether Zoe answers customers who email. She never answers a sender their domain didn't confirm (DMARC), or newsletters and list mail.">
+      <div role="radiogroup" aria-label="Zoe on email">
+        {(
+          [
+            ["off", "Don't answer email", "Email goes to the team."],
+            ["approve", "Draft replies for a teammate to approve", "Each answer waits in the conversation until a teammate sends or discards it."],
+            ["answer", "Answer email", "Her answers are sent as soon as she writes them, as in the messenger."],
+          ] as const
+        ).map(([v, label, help]) => (
+          <label key={v} className="pg-settings-toggle">
+            <input type="radio" name="email-mode" checked={form.emailMode === v} onChange={() => set({ emailMode: v })} />
+            <span>
+              <strong>{label}</strong>
+              <small className="pg-muted">{help}</small>
+            </span>
+          </label>
+        ))}
+      </div>
+    </Card>
   );
 }
 

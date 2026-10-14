@@ -1,5 +1,6 @@
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
+import { enqueueJob } from "./jobs";
 import { aiEnabled, agentRow } from "./ai-agent";
 import { zoeAccess } from "./zoe";
 import {
@@ -18,8 +19,9 @@ import {
  * over the last 24 hours with the 7 days before (`checkMonitors`). A sharp change the bad way, with
  * enough answers on both sides, opens an incident (one open per monitor) and notifies her managers
  * in the app. Two normal checks in a row resolve it; so does switching its monitor off, or a
- * teammate. All of it is computed here; the pages only show it.
- * TODO(phase 12): incident alerts by email.
+ * teammate. All of it is computed here; the pages only show it. Phase 12 E4: with email on, an
+ * incident is also emailed to the addresses her managers set (`email.alert`, through the
+ * suppression list).
  */
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -209,8 +211,8 @@ async function nearbyChanges(db: Sql, w: string, agentId: string, now: number) {
   return rows.map((r) => ({ kind: r.kind, label: r.label, at: new Date(r.at).toISOString() }));
 }
 
-/** Notifies everyone who manages Zoe, once per incident. */
-async function notify(db: Sql, w: string, incidentId: string, excerpt: string) {
+/** Notifies everyone who manages Zoe, once per incident; and (E4) emails the alert addresses. */
+export async function notify(db: Sql, w: string, incidentId: string, excerpt: string) {
   await db.query(
     `INSERT INTO notifications(workspace_id,id,teammate_id,kind,incident_id,excerpt)
      SELECT $1,gen_random_uuid()::text,t.id,'zoe_incident',$2,$3 FROM teammates t
@@ -218,6 +220,21 @@ async function notify(db: Sql, w: string, incidentId: string, excerpt: string) {
      WHERE t.workspace_id=$1
      ON CONFLICT DO NOTHING`,
     [w, incidentId, excerpt.slice(0, 140)],
+  );
+  if (!(await emailOn(db, w))) return;
+  const addresses = (await db.query<{ incident_emails: string[] }>("SELECT incident_emails FROM ai_agents WHERE workspace_id=$1 AND id='default'", [w])).rows[0]?.incident_emails ?? [];
+  for (const address of addresses) {
+    const added = await db.query(
+      "INSERT INTO email_alerts(workspace_id,id,incident_id,address) VALUES($1,$2,$3,$4) ON CONFLICT (workspace_id,incident_id,address) DO NOTHING RETURNING id",
+      [w, crypto.randomUUID(), incidentId, address],
+    );
+    if (added.rows.length) await enqueueJob(db, w, "email.alert", { alertId: added.rows[0].id }, {});
+  }
+}
+async function emailOn(db: Sql, w: string) {
+  return (
+    (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM workspace_features WHERE workspace_id=$1 AND enabled AND name IN ('channels_v1','channel_email_v1')", [w]))
+      .rows[0].n === 2
   );
 }
 
@@ -383,6 +400,11 @@ export async function readMonitors(db: Sql, w: string, principal: string) {
   ).rows[0].hour;
   const now = Date.now();
   return {
+    // E4: where incidents are emailed (when email is on).
+    alerts: {
+      email: await emailOn(db, w),
+      addresses: (await db.query<{ incident_emails: string[] }>("SELECT incident_emails FROM ai_agents WHERE workspace_id=$1 AND id=$2", [w, agent.id])).rows[0]?.incident_emails ?? [],
+    },
     lastCheckedAt: iso(last),
     monitors: (await measure(db, w, now)).map((x) => {
       const s = set.get(x.metric)!;
@@ -472,6 +494,16 @@ export async function changeMonitors(
            WHERE workspace_id=$1 AND metric=$2 AND status<>'resolved'`,
           [w, metric, teammate.id],
         );
+      return readMonitors(db, w, principal);
+    }
+    if (p.action === "alerts") {
+      // E4: up to five addresses incidents are emailed to (none: in the app only).
+      const raw = Array.isArray(p.addresses) ? p.addresses : [];
+      const addresses = [...new Set(raw.map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
+      if (addresses.length > 5 || addresses.some((a) => !/^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/.test(a) || a.length > 254))
+        invalid("Email incident alerts to up to five email addresses.");
+      if (!(await emailOn(db, w)) && addresses.length) invalid("Email is not enabled for this workspace.");
+      await db.query("UPDATE ai_agents SET incident_emails=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, agent.id, addresses]);
       return readMonitors(db, w, principal);
     }
     if (p.action === "acknowledge" || p.action === "resolve") {

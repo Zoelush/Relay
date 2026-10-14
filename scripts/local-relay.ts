@@ -55,7 +55,7 @@ import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/wo
 import { changeWorkflow } from "../server/workflows";
 import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
 import { registerChannel, releaseDeferred, runDelivery, type ChannelAdapter } from "../server/channels";
-import { checkAwayEmails, checkDomainJob, domainRecords, ensureDomain, queueDomainCheck, scheduleDomainChecks, type EmailOutEnvironment } from "../server/email-out";
+import { checkAwayEmails, checkDomainJob, domainRecords, ensureDomain, queueDomainCheck, scheduleDomainChecks, sendAlert, type EmailOutEnvironment } from "../server/email-out";
 import { localEmailProvider, localSns } from "./local-email";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -838,6 +838,7 @@ export async function startLocalRelay(
   const unregister = (options.channels ?? []).map(registerChannel);
   handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut } }, job);
   handlers["email.domain.check"] = (job) => checkDomainJob(db.connect, emailOut, job);
+  handlers["email.alert"] = (job) => sendAlert(db.connect, emailOut, job);
   // Phase 12 E2: emails received at inbound addresses, read into their conversations.
   handlers["email.receive"] = (job) => receiveEmailJob(db.connect, emailEnv, job);
   // Development seed (phase 12 E2): a Gmail reply with its quote, and one with attachments, sent to

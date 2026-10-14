@@ -14,7 +14,7 @@ import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/wo
 import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
 import { releaseDeferred, runDelivery } from "../server/channels";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
-import { checkAwayEmails, checkDomainJob, scheduleDomainChecks, type EmailOutEnvironment } from "../server/email-out";
+import { checkAwayEmails, checkDomainJob, scheduleDomainChecks, sendAlert, type EmailOutEnvironment } from "../server/email-out";
 import { dohResolver, sesSender } from "../server/email-providers";
 const emailEnvironment = (env: Env, storage: EmailEnvironment["storage"]): EmailEnvironment => ({
   storage,
@@ -496,6 +496,8 @@ const relayWorker = {
       "channel.deliver": (job) => runDelivery(runtime.connect, { providers: { email: emailOutEnvironment(env, runtime.attachments) } }, job),
       // Phase 12 E3: a sending domain's records and the provider's identity, checked.
       "email.domain.check": (job) => checkDomainJob(runtime.connect, emailOutEnvironment(env, runtime.attachments), job),
+      // Phase 12 E4: Zoe's incident alerts by email.
+      "email.alert": (job) => sendAlert(runtime.connect, emailOutEnvironment(env, runtime.attachments), job),
       // Phase 12 E2: an email received at an inbound address, read into its conversation.
       "email.receive": (job) => receiveEmailJob(runtime.connect, emailEnvironment(env, runtime.attachments), job),
     };

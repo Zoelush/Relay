@@ -30,6 +30,12 @@ export const TRIGGERS = {
     customer: true,
     firedBy: "Every customer message, the first included.",
   },
+  // Phase 12 E4: email.
+  email_received: {
+    label: "A customer emails",
+    customer: true,
+    firedBy: "Every email from a customer, starting a conversation or in one. Automatic replies and bounces don't fire it.",
+  },
   teammate_reply: {
     label: "A teammate replies",
     customer: false,
@@ -130,11 +136,10 @@ export const TRIGGERS = {
 export type Trigger = keyof typeof TRIGGERS;
 /**
  * Triggers phase 11 asks for that need later phases; a workflow can't use them yet.
- * TODO(phase 12): inbound email. TODO(phase 13): segment entry or exit, and a page visit starting a
- * conversation (proactive messages). TODO(phase 14): event received.
+ * TODO(phase 13): segment entry or exit, and a page visit starting a conversation (proactive
+ * messages). TODO(phase 14): event received.
  */
 export const LATER_TRIGGERS: Record<string, string> = {
-  email_received: "phase 12",
   segment_changed: "phase 13",
   event_received: "phase 14",
 };
@@ -209,14 +214,16 @@ export const ACTIONS = {
   message: { label: "Send a message", needs: ["text"] },
   reply_time: { label: "Show the expected reply time", needs: [] },
   collect: { label: "Collect a reply", needs: ["text", "into"] },
+  // Phase 12 E4: an email to the customer's address, whatever channel the conversation is on.
+  email: { label: "Send an email", needs: ["subject", "text"] },
 } as const;
 /**
  * TODO(phase 13): start an outbound series. TODO(phase 15): notify a Slack channel, send a
- * webhook. TODO(phase 12): send an email. TODO(phase 01): reply buttons from custom objects.
+ * webhook. TODO(phase 01): reply buttons from custom objects.
  */
 export type ActionType = keyof typeof ACTIONS;
 /** Steps that talk to the customer: handing to Zoe counts, since she then answers them. */
-export const CUSTOMER_STEPS: ReadonlySet<ActionType> = new Set(["message", "reply_time", "collect", "ai_handover"]);
+export const CUSTOMER_STEPS: ReadonlySet<ActionType> = new Set(["message", "reply_time", "collect", "ai_handover", "email"]);
 /** Where a collected reply is kept. */
 export const COLLECT_INTO = {
   email: "The customer's email address",
@@ -342,6 +349,11 @@ function checkStep(s: unknown, where: string): Step {
   if (type === "note" && (typeof options.text !== "string" || options.text.length > 5000)) fail(`${where}: keep the note to 5,000 characters.`);
   if ((type === "message" || type === "collect") && (typeof options.text !== "string" || !options.text.trim() || options.text.length > 2000))
     fail(`${where}: write the message, in up to 2,000 characters.`);
+  if (type === "email") {
+    if (typeof options.subject !== "string" || !options.subject.trim() || options.subject.length > 200 || /[\r\n]/.test(options.subject))
+      fail(`${where}: give the email a subject, on one line of up to 200 characters.`);
+    if (typeof options.text !== "string" || !options.text.trim() || options.text.length > 5000) fail(`${where}: write the email, in up to 5,000 characters.`);
+  }
   if (type === "collect") {
     if (!(String(options.into) in COLLECT_INTO)) fail(`${where}: choose where to keep the reply.`);
     if (options.into === "contact" && !/^[A-Za-z0-9_.-]{1,60}$/.test(String(options.key ?? ""))) fail(`${where}: name the customer attribute (letters, digits, . _ -).`);

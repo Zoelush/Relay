@@ -204,7 +204,8 @@ import { estimateWorkflow } from "./workflow-estimate";
 import { simulateWorkflow, simulationConversations } from "./workflow-simulate";
 import { workflowsEnabled } from "./workflow-engine";
 import { pageVisited, receiveWebhook } from "./workflow-triggers";
-import { changeSuppression, readDeliveries, readReplyTarget, readSuppressions } from "./channels";
+import { changeSuppression, decideHeld, readDeliveries, readReplyTarget, readSuppressions } from "./channels";
+import { changeSideConversation, readSideConversations } from "./email-side";
 import { receiveSesNotification, type SnsEnvironment } from "./email-sns";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
@@ -1256,6 +1257,7 @@ export async function handleApi(
             "/v1/agent/suppressions",
             "/v1/agent/deliveries",
             "/v1/agent/reply-target",
+            "/v1/agent/side-conversations",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1335,6 +1337,8 @@ export async function handleApi(
               "/v1/agent/workflow-run",
               "/v1/agent/workflow-simulate",
               "/v1/agent/suppression",
+              "/v1/agent/delivery",
+              "/v1/agent/side-conversation",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1717,6 +1721,14 @@ export async function handleApi(
             await tenant(env.connect, workspace, (db) =>
               changeSuppression(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p),
             ),
+          );
+        if (url.pathname === "/v1/agent/delivery")
+          // Phase 12 E4: Zoe's held draft on email, sent or discarded by a teammate.
+          return json(await tenant(env.connect, workspace, (db) => decideHeld(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/side-conversation")
+          // Phase 12 E4: a side conversation started, or replied in.
+          return json(
+            await tenant(env.connect, workspace, (db) => changeSideConversation(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)),
           );
         if (url.pathname === "/v1/agent/workflow-simulate")
           // Phase 11 W3: a workflow run against a real conversation, read-only (it changes nothing).
@@ -2313,6 +2325,11 @@ export async function handleApi(
         // Phase 12 E1: how a conversation's replies were delivered on its channel.
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
+        );
+      if (url.pathname === "/v1/agent/side-conversations")
+        // Phase 12 E4: a conversation's side conversations.
+        return json(
+          await tenant(env.connect, workspace, (db) => readSideConversations(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
       if (url.pathname === "/v1/agent/reply-target")
         // Phase 12 E3: where a reply on this conversation goes (the composer says so).

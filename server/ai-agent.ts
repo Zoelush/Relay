@@ -1,4 +1,11 @@
 import { channels } from "./channels";
+
+/** Whether Zoe may answer on the conversation's channel, and (E4) this message on it. */
+async function channelLetsZoe(db: Sql, w: string, c: Conversation, partId: string) {
+  const a = channels().find((x) => x.id === (c.current_channel ?? c.channel ?? "messenger"));
+  if (!a?.capabilities.ai) return false;
+  return a.aiAnswers ? a.aiAnswers(db, w, c.id, partId) : true;
+}
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { authorize, can } from "./policy";
 import { afterChange } from "./routing";
@@ -120,7 +127,9 @@ import type { ConnectorEnvironment } from "./connectors";
  * Step B2 (docs/AI_STEP9.md): guards in code check every reply a model writes before it can reach
  * a customer (`server/ai-guard.ts`); personal data can be redacted before anything is sent to a
  * model provider, every call is recorded, and a signed-in customer's earlier conversations can be
- * remembered (`server/ai-privacy.ts`). TODO(phase 12): spam and phishing filtering on email.
+ * remembered (`server/ai-privacy.ts`). On email (phase 12 E4) she answers only DMARC-verified
+ * senders, never bulk or list mail, and only as the workspace's email setting allows (drafts held
+ * for a teammate, or answers). TODO(phase 12): content-based spam and phishing filtering on email.
  * TODO(phase 09): the actions a specialist may call.
  */
 export type AiEnvironment = {
@@ -439,9 +448,10 @@ async function agentOf(db: Sql, w: string) {
       other_languages: "brand_language" | "hand_over";
       redact_personal_data: boolean;
       memory: boolean;
+      email_mode: "off" | "approve" | "answer";
     }>(
       `SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,never_handle,escalation_guidance,resolution_window_hours,version::text AS version,
-         tone,answer_length,formality,answer_guidance,guidance_version,languages,other_languages,redact_personal_data,memory FROM ai_agents WHERE workspace_id=$1 AND id=$2`,
+         tone,answer_length,formality,answer_guidance,guidance_version,languages,other_languages,redact_personal_data,memory,email_mode FROM ai_agents WHERE workspace_id=$1 AND id=$2`,
       [w, DEFAULT_AGENT],
     )
   ).rows[0];
@@ -470,8 +480,8 @@ export async function queueAiReply(
   c: Conversation,
   partId: string,
 ) {
-  // Phase 12: only on a channel that lets Zoe answer (its adapter says so).
-  if (!channels().find((a) => a.id === (c.current_channel ?? c.channel ?? "messenger"))?.capabilities.ai) return null;
+  // Phase 12: only on a channel that lets Zoe answer, and (E4) this message on it (its adapter says so).
+  if (!(await channelLetsZoe(db, w, c, partId))) return null;
   if (c.visibility === "internal") return null;
   if (!(await aiEnabled(db, w))) return null;
   const agent = await agentOf(db, w);
@@ -502,6 +512,7 @@ type Context = {
 /** Why the agent won't answer this message now, if it won't. */
 async function skipReason(db: Sql, w: string, c: Conversation, partId: string) {
   if (!(await aiEnabled(db, w))) return "The AI agent is off.";
+  if (!(await channelLetsZoe(db, w, c, partId))) return "Zoe doesn't answer this message on its channel.";
   const agent = await agentOf(db, w);
   if (!agent.enabled) return "The AI agent is off.";
   if (await teammateInvolved(db, w, c))
@@ -1978,8 +1989,14 @@ export async function readAiSettings(db: Sql, w: string, principal: string) {
       // B2b: privacy, both off by default.
       redactPersonalData: a.redact_personal_data,
       memory: a.memory,
+      // Phase 12 E4: on email, off (the default), drafts a teammate approves, or answers.
+      emailMode: a.email_mode,
       version: a.version,
     },
+    // Whether email is on for the workspace (the email choice shows only then).
+    email: (
+      await db.query("SELECT count(*)::int AS n FROM workspace_features WHERE workspace_id=$1 AND enabled AND name IN ('channels_v1','channel_email_v1')", [w])
+    ).rows[0].n === 2,
     teams,
   };
 }
@@ -2042,6 +2059,9 @@ export async function saveAiSettings(
   const redact =
     p.redactPersonalData === undefined ? current.agent.redactPersonalData : p.redactPersonalData === true;
   const memory = p.memory === undefined ? current.agent.memory : p.memory === true;
+  // Phase 12 E4: Zoe on email; left as it is when not sent.
+  const emailMode = p.emailMode === undefined ? current.agent.emailMode : String(p.emailMode);
+  if (!["off", "approve", "answer"].includes(emailMode)) invalid("Choose what Zoe does with email: nothing, drafts for approval, or answers.");
   // A2b: rules, never-handle topics and guidance; left as they are when not sent.
   const rules =
     p.rules === undefined ? current.rules : await validRules(db, w, p.rules);
@@ -2051,7 +2071,7 @@ export async function saveAiSettings(
   await db.query(
     `UPDATE ai_agents SET enabled=$3,handover_team_id=$4,answer_hours=$5,out_of_hours=$6,failed_limit=$7,escalate_on_sentiment=$8,
      never_handle=$9,escalation_guidance=$10,resolution_window_hours=$11,confidence_threshold=$12,languages=$13,other_languages=$14,
-     redact_personal_data=$15,memory=$16,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+     redact_personal_data=$15,memory=$16,email_mode=$17,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
     [
       w,
       DEFAULT_AGENT,
@@ -2069,6 +2089,7 @@ export async function saveAiSettings(
       otherLanguages,
       redact,
       memory,
+      emailMode,
     ],
   );
   await saveRules(db, w, DEFAULT_AGENT, rules);

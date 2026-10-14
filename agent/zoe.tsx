@@ -27,6 +27,7 @@ import { ZoeMark, type Hue } from "./colour";
 import { ImageField } from "./messenger-assets";
 import {
   AnsweringCard,
+  EmailCard,
   GuidanceCard,
   HandoverCards,
   LanguagesCard,
@@ -807,6 +808,7 @@ function SettingsPage({ menu, page, setAgent, agent }: PageProps & { page: Page 
       {ai.form && ai.data && (
         <>
           <AnsweringCard form={ai.form} set={ai.set} />
+          {ai.data.email && <EmailCard form={ai.form} set={ai.set} />}
           <LanguagesCard form={ai.form} set={ai.set} />
           <PrivacyCard form={ai.form} set={ai.set} />
           {identities.map((i) => (

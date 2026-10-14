@@ -281,6 +281,8 @@ async function stepEffect(
     }
     case "message":
       return did(`Would send: “${String(o.text)}”`, "message");
+    case "email":
+      return did(`Would email the customer: “${String(o.subject)}”`, "message");
     case "reply_time": {
       const hours = await availabilityFor(db, w, { brandId: c.brand_id, teamId: c.team_id, channel: c.current_channel ?? null }, "en");
       const r = await expectedReply(db, w, c.brand_id);

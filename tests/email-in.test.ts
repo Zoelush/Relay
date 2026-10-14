@@ -114,7 +114,12 @@ test("email in: accepted only at a brand's address, read into threaded conversat
     assert.deepEqual({ status: first.status, kind: first.kind }, { status: "read", kind: "message" });
     const c1 = first.conversation_id!;
     const [part] = await sql("a", "SELECT body,channel,data FROM conversation_parts WHERE id=$1", [first.part_id]);
-    assert.deepEqual(part, { body: "It's order 1042, placed last Tuesday.", channel: "email", data: { email: { subject: "Re: Late order" } } });
+    // E4: who it was to and copied to, and that it isn't list mail, beside the subject.
+    assert.deepEqual(part, {
+      body: "It's order 1042, placed last Tuesday.",
+      channel: "email",
+      data: { email: { subject: "Re: Late order", to: ["support@acme.example"], cc: [], bulk: false } },
+    });
     assert.equal((await sql("a", "SELECT channel,current_channel FROM conversations WHERE id=$1", [c1]))[0].current_channel, "email");
     const view = (await agent(`email-message?part=${first.part_id}`)).body;
     assert.equal(view.subject, "Re: Late order");

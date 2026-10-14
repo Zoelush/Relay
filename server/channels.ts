@@ -48,8 +48,8 @@ export type Outbound = {
   deliveryId: string;
   conversationId: string;
   partId: string;
-  /** A reply on its channel, or (email, E3) an away email for a messenger conversation. */
-  purpose: "reply" | "away";
+  /** A reply on its channel, (email, E3) an away email for a messenger conversation, or (E4) a side conversation's message. */
+  purpose: "reply" | "away" | "side";
   address: string;
   text: string;
   /** Reply buttons, which an adapter without buttons writes out. */
@@ -83,6 +83,10 @@ export type ChannelAdapter = {
   prepare?(db: Sql, w: string, out: Outbound, env: ChannelEnvironment): Promise<{ data: Record<string, unknown> } | { defer: Date } | { refuse: string }>;
   /** What the composer says about a reply on this channel (email: its subject). */
   replyDetails?(db: Sql, w: string, conversationId: string): Promise<Record<string, string>>;
+  /** E4: whether Zoe answers this customer message (her capability says she may on the channel at all). */
+  aiAnswers?(db: Sql, w: string, conversationId: string, partId: string): Promise<boolean>;
+  /** E4: whether Zoe's replies wait for a teammate's approval before they're sent. */
+  holdsAi?(db: Sql, w: string): Promise<boolean>;
 };
 /** What adapters need from the runtime: provider credentials, by channel. */
 export type ChannelEnvironment = { providers?: Record<string, unknown> };
@@ -280,12 +284,64 @@ export async function queueDelivery(
     )
   ).rows[0];
   if (!to) return;
+  // E4: Zoe's reply waits for a teammate when the channel holds them (her drafts on email).
+  const a = adapterOf(channel);
+  const held = part.kind === "ai_reply" && a.holdsAi ? await a.holdsAi(db, w) : false;
+  await queueDeliveryTo(db, w, c.id, part.id, channel, to.identity_id, to.address, "reply", held);
+}
+
+/** A delivery of a part to an address, and its job (none while it's held for approval). */
+export async function queueDeliveryTo(
+  db: Sql,
+  w: string,
+  conversationId: string,
+  partId: string,
+  channel: string,
+  identityId: string,
+  address: string,
+  purpose: Outbound["purpose"],
+  held = false,
+) {
   const id = crypto.randomUUID();
-  await db.query(
-    "INSERT INTO channel_deliveries(workspace_id,id,part_id,conversation_id,channel,identity_id,address) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
-    [w, id, part.id, c.id, channel, to.identity_id, to.address],
+  const added = await db.query(
+    `INSERT INTO channel_deliveries(workspace_id,id,part_id,conversation_id,channel,identity_id,address,purpose,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT DO NOTHING RETURNING id`,
+    [w, id, partId, conversationId, channel, identityId, address, purpose, held ? "held" : "queued"],
   );
-  await enqueueJob(db, w, "channel.deliver", { deliveryId: id }, {});
+  if (added.rows.length && !held) await enqueueJob(db, w, "channel.deliver", { deliveryId: id }, {});
+  return added.rows.length ? id : null;
+}
+
+/**
+ * E4: a held delivery (Zoe's draft on email), sent or discarded by a teammate who may reply. A
+ * discarded draft hands the conversation to the team: Zoe stops answering it.
+ */
+export async function decideHeld(db: Sql, w: string, principal: string, key: string, p: Record<string, unknown>) {
+  const t = await authorize(db, w, principal, "conversations.reply");
+  return once(db, w, "delivery:" + principal, key, p, async () => {
+    const d = (
+      await db.query<{ id: string; status: string; conversation_id: string }>(
+        "SELECT id,status,conversation_id FROM channel_deliveries WHERE workspace_id=$1 AND id=$2 FOR UPDATE",
+        [w, String(p.deliveryId ?? "")],
+      )
+    ).rows[0];
+    assert(d, "DELIVERY_NOT_FOUND", "That reply isn't available.", 404);
+    assert(d.status === "held", "DELIVERY_DECIDED", "That draft was already sent or discarded.", 409);
+    if (p.action === "approve") {
+      await db.query("UPDATE channel_deliveries SET status='queued',decided_by=$3,decided_at=now(),updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, d.id, t.id]);
+      await enqueueJob(db, w, "channel.deliver", { deliveryId: d.id }, {});
+    } else if (p.action === "discard") {
+      const name = (await db.query<{ name: string }>("SELECT name FROM teammates WHERE workspace_id=$1 AND id=$2", [w, t.id])).rows[0]?.name ?? "A teammate";
+      await db.query("UPDATE channel_deliveries SET status='failed',error=$3,decided_by=$4,decided_at=now(),updated_at=now() WHERE workspace_id=$1 AND id=$2", [
+        w,
+        d.id,
+        `Discarded by ${name}: not sent.`,
+        t.id,
+      ]);
+      await db.query("UPDATE conversations SET ai_state='escalated' WHERE workspace_id=$1 AND id=$2 AND (ai_state IS NULL OR ai_state<>'escalated')", [w, d.conversation_id]);
+    } else throw new DomainError("INVALID_DELIVERY_ACTION", "Send or discard it.", 400);
+    return { deliveryId: d.id, conversationId: d.conversation_id };
+  });
 }
 
 /**
@@ -317,7 +373,7 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
         address: string;
         conversation_id: string;
         part_id: string;
-        purpose: "reply" | "away";
+        purpose: Outbound["purpose"];
         not_before: string | null;
         body: string;
         data: Record<string, unknown>;
@@ -418,7 +474,9 @@ export async function readReplyTarget(db: Sql, w: string, principal: string, con
     )
   ).rows[0];
   const a = adapterOf(channel);
-  return { target: { channel, address: to?.address ?? null, ...(a.replyDetails ? await a.replyDetails(db, w, conversationId) : {}) } };
+  return {
+    target: { channel, address: to?.address ?? null, copies: a.capabilities.copies === true, ...(a.replyDetails ? await a.replyDetails(db, w, conversationId) : {}) },
+  };
 }
 
 async function setStatus(db: Sql, w: string, id: string, status: DeliveryStatus, error = "", providerId?: string) {
@@ -464,12 +522,22 @@ export async function readDeliveries(db: Sql, w: string, principal: string, conv
     404,
   );
   const rows = (
-    await db.query<{ part_id: string; channel: string; status: DeliveryStatus; error: string; updated_at: string }>(
-      "SELECT part_id,channel,status,error,updated_at FROM channel_deliveries WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at",
+    await db.query<{ id: string; part_id: string; channel: string; purpose: string; status: DeliveryStatus; error: string; updated_at: string }>(
+      "SELECT id,part_id,channel,purpose,status,error,updated_at FROM channel_deliveries WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at",
       [w, conversationId],
     )
   ).rows;
-  return { deliveries: rows.map((r) => ({ partId: r.part_id, channel: r.channel, status: r.status, error: r.error, updatedAt: new Date(r.updated_at).toISOString() })) };
+  return {
+    deliveries: rows.map((r) => ({
+      id: r.id,
+      partId: r.part_id,
+      channel: r.channel,
+      purpose: r.purpose,
+      status: r.status,
+      error: r.error,
+      updatedAt: new Date(r.updated_at).toISOString(),
+    })),
+  };
 }
 
 /* ------------------------------------------------------------------------------------------ */

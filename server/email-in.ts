@@ -4,6 +4,7 @@ import { authorize } from "./policy";
 import { channelsEnabled, enabledChannels, receiveInbound, registerChannel, suppress, type ChannelAdapter } from "./channels";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { MAX_EMAIL_BYTES, readEmail, threadKeys } from "./email-read";
+import { receiveSideMail, sideFor } from "./email-side";
 import { emailReplyDetails, ensureDomain, prepareEmail, queueDomainCheck, readReputation, readSending, sendEmail } from "./email-out";
 
 /**
@@ -27,8 +28,8 @@ const NORMAL = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
 export const emailChannel: ChannelAdapter = {
   id: "email",
   flag: "channel_email_v1",
-  // TODO(phase 12 E4): Zoe on email.
-  capabilities: { richText: true, attachments: true, buttons: false, maxLength: 100_000, windowHours: null, ai: false, receipts: "delivered", address: "email" },
+  // E4: Zoe may answer email (as the workspace's setting allows), and replies can copy others in.
+  capabilities: { richText: true, attachments: true, buttons: false, maxLength: 100_000, windowHours: null, ai: true, receipts: "delivered", address: "email", copies: true },
   address: (raw) => {
     const a = raw.trim().toLowerCase().replace(/^mailto:/, "");
     return NORMAL.test(a) && a.length <= 254 ? a : null;
@@ -36,7 +37,30 @@ export const emailChannel: ChannelAdapter = {
   prepare: prepareEmail,
   send: sendEmail,
   replyDetails: emailReplyDetails,
+  aiAnswers: zoeAnswersEmail,
+  holdsAi: async (db, w) => (await emailMode(db, w)) === "approve",
 };
+
+/** Zoe on email (E4): off, drafts held for a teammate, or answers. */
+async function emailMode(db: Sql, w: string) {
+  return (await db.query<{ email_mode: string }>("SELECT email_mode FROM ai_agents WHERE workspace_id=$1 AND id='default'", [w])).rows[0]?.email_mode ?? "off";
+}
+/**
+ * Whether Zoe answers an email: her email setting isn't off, the sender is verified (DMARC: a
+ * forged sender gets no answer from her), and it isn't bulk or list mail.
+ */
+async function zoeAnswersEmail(db: Sql, w: string, conversationId: string, partId: string) {
+  if ((await emailMode(db, w)) === "off") return false;
+  const part = (
+    await db.query<{ data: { email?: { bulk?: boolean } }; verified: boolean | null }>(
+      `SELECT p.data,x.verified FROM conversation_parts p
+       LEFT JOIN identity_addresses x ON x.workspace_id=p.workspace_id AND x.identity_id=p.author_id AND x.channel='email'
+       WHERE p.workspace_id=$1 AND p.conversation_id=$2 AND p.id=$3`,
+      [w, conversationId, partId],
+    )
+  ).rows[0];
+  return !!part && part.verified === true && part.data.email?.bulk !== true;
+}
 registerChannel(emailChannel);
 
 export type EmailEnvironment = {
@@ -67,9 +91,11 @@ export async function acceptEmail(connect: Connect, env: EmailEnvironment, mail:
   if (at < 0 || domain !== env.domain.toLowerCase() || plus < 1) return { accepted: false as const, reason: "No such address." };
   const w = local.slice(0, plus);
   const token = local.slice(plus + 1);
-  // A brand's inbound address, or (E3) a conversation's reply address, `r-<token>`.
+  // A brand's inbound address, (E3) a conversation's reply address, `r-<token>`, or (E4) a side
+  // conversation's, `s-<token>`.
   const reply = /^r-([a-z0-9]{16,40})$/.exec(token)?.[1];
-  if (!/^[a-z0-9_-]{1,100}$/.test(w) || (!reply && !/^[a-z0-9]{4,40}$/.test(token))) return { accepted: false as const, reason: "No such address." };
+  const side = /^s-([a-z0-9]{16,40})$/.exec(token)?.[1];
+  if (!/^[a-z0-9_-]{1,100}$/.test(w) || (!reply && !side && !/^[a-z0-9]{4,40}$/.test(token))) return { accepted: false as const, reason: "No such address." };
   if (mail.raw.length > MAX_EMAIL_BYTES) return { accepted: false as const, reason: "The message is larger than 25 MB." };
   if (!env.storage?.putQuarantine) throw new DomainError("STORAGE_UNAVAILABLE", "Email storage isn't configured.", 503);
   const storage = env.storage;
@@ -78,7 +104,14 @@ export async function acceptEmail(connect: Connect, env: EmailEnvironment, mail:
       if (!(await emailEnabled(db, w))) return { accepted: false as const, reason: "No such address." };
       const brand = reply
         ? (await db.query<{ brand_id: string }>("SELECT brand_id FROM email_reply_addresses WHERE workspace_id=$1 AND token=$2", [w, reply])).rows[0]
-        : (await db.query<{ brand_id: string }>("SELECT brand_id FROM email_settings WHERE workspace_id=$1 AND token=$2", [w, token])).rows[0];
+        : side
+          ? (
+              await db.query<{ brand_id: string }>(
+                "SELECT c.brand_id FROM side_conversations s JOIN conversations c ON c.workspace_id=s.workspace_id AND c.id=s.conversation_id WHERE s.workspace_id=$1 AND s.token=$2",
+                [w, side],
+              )
+            ).rows[0]
+          : (await db.query<{ brand_id: string }>("SELECT brand_id FROM email_settings WHERE workspace_id=$1 AND token=$2", [w, token])).rows[0];
       if (!brand) return { accepted: false as const, reason: "No such address." };
       const id = crypto.randomUUID();
       const key = `${encodeURIComponent(w)}/email/${id}.eml`;
@@ -122,9 +155,13 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
     return { done: true, result: { failed: true } };
   }
   const m = await readEmail(raw.bytes, { trustedAuthServ: env.trustedAuthServ });
+  // E4: an answer in a side conversation (its reply address, or a reply to one of its messages).
+  const sideId = await tenant(connect, w, (db) => sideFor(db, w, inbound.envelope_to, [...m.inReplyTo, ...m.references]));
   // Attachments kept go to quarantine first (keys by attachment id); scanning publishes them.
+  // A side conversation's files aren't kept: they'd be the customer's attachments otherwise.
   const kept: { id: string; key: string; name: string; mime: string; size: number }[] = [];
   const listed = m.attachments.map((a) => {
+    if (sideId) return { name: a.filename, mime: a.mimeType, size: a.size, kept: false, reason: "Files in side conversations aren't kept." };
     const keep = KEPT.has(a.mimeType) && a.size > 0 && a.size <= MAX_ATTACHMENT_BYTES;
     if (keep) kept.push({ id: crypto.randomUUID(), key: "", name: a.filename.slice(0, 200).replace(/[\x00-\x1f]/g, "") || "attachment", mime: a.mimeType, size: a.size });
     return {
@@ -182,7 +219,13 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
       // Mail to a conversation's reply address joins it first, whatever its headers say.
       const reply = /^[^+@]+\+r-([a-z0-9]{16,40})@/i.exec(inbound.envelope_to)?.[1]?.toLowerCase();
       if (reply) keys.threadKeys.unshift(`reply:${reply}`);
-      const r = await receiveInbound(db, w, emailChannel, {
+      const r = sideId
+        ? {
+            ...(await receiveSideMail(db, w, sideId, { from: m.from, subject: m.subject, text: m.text || m.subject || "(no text)", messageId: m.messageId, kind: m.kind })),
+            duplicate: false,
+            identityId: null,
+          }
+        : await receiveInbound(db, w, emailChannel, {
         externalId: m.messageId ? `mid:${m.messageId}` : `inbound:${inboundId}`,
         address: m.from.address,
         verified: m.verified,
@@ -192,7 +235,11 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
         ownKeys: keys.ownKeys,
         fallback: keys.fallback && m.kind === "message" ? { key: keys.fallback, days: FALLBACK_DAYS } : null,
         brandId: inbound.brand_id,
-        data: { email: { subject: m.subject }, ...(m.kind !== "message" ? { kind: m.kind, reason: m.reason, subject: m.subject } : {}) },
+        // E4: who it was to and copied to (shown on the message), and whether it's list mail (Zoe leaves that).
+        data: {
+          email: { subject: m.subject, to: m.to.slice(0, 20), cc: m.cc.slice(0, 20), bulk: !!(m.headers["list-id"] || m.headers["list-unsubscribe"]) },
+          ...(m.kind !== "message" ? { kind: m.kind, reason: m.reason, subject: m.subject } : {}),
+        },
         automatic: m.kind !== "message",
       });
       if (r.partId && !("duplicate" in r && r.duplicate)) {

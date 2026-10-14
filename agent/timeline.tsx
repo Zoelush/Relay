@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { channelLabel, DELIVERY_LABELS, type DeliveryStatus } from "../lib/channels";
 import { EmailView } from "./email-view";
+import { SideReply } from "./side-conversations";
 import { LockKeyhole, Paperclip, Sparkles } from "lucide-react";
 import { api } from "./api";
 import { RichText } from "../lib/rich-view";
@@ -51,9 +52,23 @@ export type Directory = {
 const EMPTY = new Map<string, string>();
 const ReplySpecialists = createContext<Map<string, string>>(EMPTY);
 /** Phase 12 E1: how each reply was delivered on its channel, by part id. */
-type Delivery = { status: DeliveryStatus; error: string };
+type Delivery = { id: string; status: DeliveryStatus; error: string };
 const NO_DELIVERIES = new Map<string, Delivery>();
 const Deliveries = createContext<Map<string, Delivery>>(NO_DELIVERIES);
+/** E4: read the deliveries again (after a held draft is sent or discarded). */
+const ReloadDeliveries = createContext<() => void>(() => {});
+/** E4: a side conversation's message, shown as a message (team only), not folded into events. */
+const isSide = (p: { kind: string; data: Record<string, unknown> }) => p.kind === "system_event" && p.data.event === "side_conversation";
+type Copies = { to?: string[]; cc?: string[]; bcc?: string[]; subject?: string };
+/** E4: who an email was to and copied to, on one line. */
+function recipients(e: Copies, withTo: boolean) {
+  const line = [
+    ...(withTo && e.to?.length ? [`To ${e.to.join(", ")}`] : []),
+    ...(e.cc?.length ? [`Cc ${e.cc.join(", ")}`] : []),
+    ...(e.bcc?.length ? [`Bcc ${e.bcc.join(", ")}`] : []),
+  ];
+  return line.join(" · ");
+}
 export const MESSAGES = new Set([
   "customer_message",
   "teammate_reply",
@@ -196,6 +211,11 @@ export function describePart(p: TimelinePart, dir: Directory): string {
       if (d.event === "human_joined")
         return `${pick(dir.teammates, d.teammateId) || "A teammate"} joined the conversation`;
       // Phase 12 E2: automatic email (an auto-reply, a bounce), kept for teammates only.
+      // E4: a side conversation's message (shown as a message; this is its one-line form).
+      if (d.event === "side_conversation")
+        return d.direction === "in"
+          ? `Side conversation: an email from ${String((d.from as { address?: string } | undefined)?.address ?? "someone")}`
+          : `Side conversation: ${who} emailed ${Array.isArray(d.to) ? d.to.join(", ") : "someone"}`;
       if (d.event === "automatic_reply")
         return d.kind === "bounce"
           ? `A delivery problem was reported by ${String(d.channel ?? "email")}${d.reason ? `: ${String(d.reason)}` : ""}`
@@ -239,13 +259,30 @@ function Message({
   const agentName = useAgentName();
   const specialist = useContext(ReplySpecialists).get(p.id);
   const delivery = useContext(Deliveries).get(p.id);
+  const reloadDeliveries = useContext(ReloadDeliveries);
   const [full, setFull] = useState(false);
+  const [deciding, setDeciding] = useState("");
+  // E4: a side conversation's message: from the team (out) or the other side (in).
+  const side = isSide(p) ? (p.data as { sideId: string; direction: "out" | "in"; subject?: string; to?: string[]; from?: { address: string; name: string }; text?: string; automatic?: string }) : null;
+  const email = (p.data.email ?? null) as Copies | null;
+  async function decide(action: "approve" | "discard") {
+    if (!delivery) return;
+    setDeciding(action);
+    try {
+      await api("delivery", { action, deliveryId: delivery.id });
+    } finally {
+      setDeciding("");
+      reloadDeliveries();
+    }
+  }
   const workflow = p.kind === "workflow_message" ? `Workflow “${p.data.workflowName ?? "Automation"}”` : null;
   const who = fromCustomer
     ? customer || "Customer"
     : p.author_type === "ai"
       ? agentName
-      : (workflow ?? p.data.authorName ?? "Teammate");
+      : side?.direction === "in"
+        ? side.from?.name || side.from?.address || "Email"
+        : (workflow ?? p.data.authorName ?? "Teammate");
   return (
     <div className={"pg-bubble-row " + (fromCustomer ? "customer" : "team")}>
       {p.author_type === "ai" ? (
@@ -269,7 +306,11 @@ function Message({
         <header>
           {internal && <LockKeyhole size={13} />}
           <strong>
-            {p.data.aiHandover
+            {side
+              ? side.direction === "in"
+                ? `Side conversation · from ${side.from?.name ? `${side.from.name} <${side.from.address}>` : (side.from?.address ?? "email")} · Team only`
+                : `Side conversation · ${p.data.authorName ?? "Teammate"} to ${(side.to ?? []).join(", ")} · Team only`
+              : p.data.aiHandover
               ? `Handover summary from ${agentName} · Team only`
               : internal
                 ? "Internal note · Team only"
@@ -289,8 +330,11 @@ function Message({
             <small className="pg-edited">Edited</small>
           )}
         </header>
-        {p.channel === "email" && p.kind === "customer_message" && (p.data.email as { subject?: string } | undefined)?.subject && (
-          <span className="pg-email-subject">{(p.data.email as { subject: string }).subject}</span>
+        {side?.subject && <span className="pg-email-subject">{side.subject}</span>}
+        {p.channel === "email" && p.kind === "customer_message" && email?.subject && <span className="pg-email-subject">{email.subject}</span>}
+        {/* E4: who an email was to and copied to (the customer's), or who a reply copied in. */}
+        {email && (p.kind === "customer_message" ? recipients(email, true) : recipients(email, false)) && (
+          <small className="pg-email-recipients">{p.kind === "customer_message" ? recipients(email, true) : recipients(email, false)}</small>
         )}
         {p.data.deleted ? (
           <p>This part was deleted.</p>
@@ -301,7 +345,9 @@ function Message({
           <p className={p.data.aiHandover ? "pg-handover" : undefined}>{p.body}</p>
         )}
         {p.kind === "ai_reply" && <AiReplyDetails p={p} />}
-        {p.channel === "email" && p.kind === "customer_message" && (
+        {side?.automatic && <small className="pg-muted">An automatic reply ({side.automatic.replace("_", " ")}).</small>}
+        {side && <SideReply sideId={side.sideId} />}
+        {p.channel === "email" && (p.kind === "customer_message" || side?.direction === "in") && (
           <>
             <button type="button" className="pg-email-open" onClick={() => setFull(true)}>
               Show the full email
@@ -314,6 +360,17 @@ function Message({
             {DELIVERY_LABELS[delivery.status]}
             {delivery.status === "failed" && delivery.error ? `: ${delivery.error}` : ""}
           </small>
+        )}
+        {delivery?.status === "held" && (
+          // E4: Zoe's draft on email: a teammate sends it as it is, or discards it and replies themselves.
+          <span className="pg-wf-inline" aria-label="Zoe's draft">
+            <button type="button" className="pg-primary" disabled={!!deciding} onClick={() => void decide("approve")}>
+              Send it
+            </button>
+            <button type="button" className="pg-zoe-secondary" disabled={!!deciding} onClick={() => void decide("discard")}>
+              Discard
+            </button>
+          </span>
         )}
         {p.kind === "workflow_message" && Array.isArray(p.data.options) && p.data.options.length > 0 && (
           <ul className="pg-wf-sent-buttons" aria-label="Reply buttons">
@@ -690,28 +747,35 @@ export function Timeline({
   // when the conversation has such a part, and again as parts arrive.
   const onChannel = parts.some((p) => p.channel && p.channel !== "messenger");
   const [deliveries, setDeliveries] = useState<Map<string, Delivery>>(NO_DELIVERIES);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     if (!onChannel || !conversationId) return;
     let live = true;
-    api<{ deliveries: { partId: string; status: DeliveryStatus; error: string }[] }>("deliveries?conversation=" + encodeURIComponent(conversationId))
-      .then((r) => live && setDeliveries(new Map(r.deliveries.map((d) => [d.partId, { status: d.status, error: d.error }]))))
+    api<{ deliveries: { id: string; partId: string; purpose: string; status: DeliveryStatus; error: string }[] }>("deliveries?conversation=" + encodeURIComponent(conversationId))
+      .then(
+        (r) =>
+          live &&
+          // An away email isn't the messenger reply's own delivery (E3): left out here.
+          setDeliveries(new Map(r.deliveries.filter((d) => d.purpose !== "away").map((d) => [d.partId, { id: d.id, status: d.status, error: d.error }]))),
+      )
       .catch(() => {});
     return () => {
       live = false;
     };
-  }, [onChannel, conversationId, parts.length]);
+  }, [onChannel, conversationId, parts.length, reload]);
   const superseded = new Set(parts.map((p) => p.supersedes_id).filter(Boolean));
   const visible = parts.filter((p) => !superseded.has(p.id));
   const groups: (TimelinePart | TimelinePart[])[] = [];
   for (const p of visible) {
     const last = groups.at(-1);
-    if (MESSAGES.has(p.kind)) groups.push(p);
+    if (MESSAGES.has(p.kind) || isSide(p)) groups.push(p);
     else if (Array.isArray(last)) last.push(p);
     else groups.push([p]);
   }
   return (
     <ReplySpecialists.Provider value={aiSpecialist ? bySpecialist : EMPTY}>
       <Deliveries.Provider value={onChannel ? deliveries : NO_DELIVERIES}>
+      <ReloadDeliveries.Provider value={() => setReload((n) => n + 1)}>
       {groups.map((g) =>
         Array.isArray(g) ? (
           <EventRun key={g[0].id} parts={g} dir={dir} />
@@ -724,6 +788,7 @@ export function Timeline({
           />
         ),
       )}
+      </ReloadDeliveries.Provider>
       </Deliveries.Provider>
     </ReplySpecialists.Provider>
   );
