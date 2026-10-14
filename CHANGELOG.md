@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased: email out (phase 12, E3)
+
+- **Replies on email conversations are emailed,** in the customer's thread: plain text and HTML, their last message quoted, files attached. The composer says where each reply goes.
+- **Each conversation has its own reply address,** so a customer's answer always finds it.
+- **Brands send from their own domain** once its records are in place: Relay's ownership record and DKIM required, SPF and DMARC advised. Settings › Email shows each record's status. Until then, replies go from Relay's address for the brand.
+- **Away emails:** messenger customers who don't read a reply get an email of it, with a switch for whether it includes the replies.
+- **Deliverability:**
+  - deliveries, bounces and complaints come from SES, through signed SNS notifications
+  - hard bounces and complaints go on the suppression list
+  - each sending domain has a rate limit
+  - a reputation card shows bounce and complaint rates against the providers' levels
+- **Acceptance:** a suppressed address is never sent to, tested through every path that sends: a teammate's reply, a workflow, Zoe, a file and an away email.
+- **Behind `channel_email_v1`,** off by default.
+- **Migration:** 0064, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP3.md`.
+
 ## Unreleased: email in (phase 12, E2)
 
 - **Each brand gets an inbound address.** The brand's own support address forwards to it, and Settings › Email shows when forwarding is working (and Gmail's confirmation, to finish setting it up).

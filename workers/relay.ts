@@ -12,13 +12,30 @@ import { runConnectorTest } from "../server/connectors";
 import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
-import { runDelivery } from "../server/channels";
+import { releaseDeferred, runDelivery } from "../server/channels";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
+import { checkAwayEmails, checkDomainJob, scheduleDomainChecks, type EmailOutEnvironment } from "../server/email-out";
+import { dohResolver, sesSender } from "../server/email-providers";
 const emailEnvironment = (env: Env, storage: EmailEnvironment["storage"]): EmailEnvironment => ({
   storage,
   domain: env.RELAY_INBOUND_DOMAIN ?? "",
   trustedAuthServ: (env.RELAY_EMAIL_AUTHSERV ?? "mx.cloudflare.net").split(",").map((x) => x.trim()),
 });
+/** Email out (phase 12 E3): SES when its credentials are set; without them, email replies fail with a reason. */
+const emailOutEnvironment = (env: Env, storage: EmailOutEnvironment["storage"]): EmailOutEnvironment => {
+  const region = env.RELAY_SES_REGION ?? "eu-west-2";
+  return {
+    sender:
+      env.RELAY_SES_ACCESS_KEY_ID && env.RELAY_SES_SECRET_ACCESS_KEY
+        ? sesSender({ region, accessKeyId: env.RELAY_SES_ACCESS_KEY_ID, secretAccessKey: env.RELAY_SES_SECRET_ACCESS_KEY, configurationSet: env.RELAY_SES_CONFIGURATION_SET })
+        : undefined,
+    dns: dohResolver(),
+    storage,
+    inboundDomain: env.RELAY_INBOUND_DOMAIN ?? "",
+    sendingDomain: env.RELAY_SENDING_DOMAIN ?? env.RELAY_INBOUND_DOMAIN ?? "",
+    region,
+  };
+};
 import { purgeModelCalls } from "../server/ai-privacy";
 import { runSync, scheduleDueSyncs } from "../server/knowledge-sync";
 import {
@@ -110,6 +127,18 @@ interface Env extends Partial<StorageEnv> {
    */
   RELAY_INBOUND_DOMAIN?: string;
   RELAY_EMAIL_AUTHSERV?: string;
+  /**
+   * Email out (phase 12 E3): Amazon SES. The keys are secrets (`wrangler secret put`); the
+   * configuration set publishes deliveries, bounces and complaints to the SNS topic, whose
+   * subscription is `/v1/hooks/ses`. Brands send from Relay's own domain (the inbound one, unless
+   * set) until theirs is proven.
+   */
+  RELAY_SES_REGION?: string;
+  RELAY_SES_ACCESS_KEY_ID?: string;
+  RELAY_SES_SECRET_ACCESS_KEY?: string;
+  RELAY_SES_CONFIGURATION_SET?: string;
+  RELAY_SES_TOPIC_ARN?: string;
+  RELAY_SENDING_DOMAIN?: string;
 }
 /** The AI index's model and store, when both bindings exist. */
 const knowledgeIndex = (env: Env): IndexEnvironment | undefined =>
@@ -205,6 +234,8 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     identityMaster: env.IDENTITY_MASTER,
     connectors: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
     emailDomain: env.RELAY_INBOUND_DOMAIN,
+    emailSending: { sendingDomain: env.RELAY_SENDING_DOMAIN ?? env.RELAY_INBOUND_DOMAIN ?? "", region: env.RELAY_SES_REGION ?? "eu-west-2" },
+    sesReports: env.RELAY_SES_TOPIC_ARN ? { topicArn: env.RELAY_SES_TOPIC_ARN } : undefined,
     bridgeSecret: env.BRIDGE_SECRET,
     realtimeUrl: env.PUBLIC_ORIGIN.replace(/^http/, "ws") + "/realtime",
     notify: (workspace, id) =>
@@ -461,9 +492,10 @@ const relayWorker = {
       "workflow.resume": (job) => resumeWorkflow(runtime.connect, job, { connectors: runtime.connectors }),
       // W4: schedules, unanswered customers and SLAs about to breach.
       "workflow.timed": (job) => runTimedWorkflows(runtime.connect, job),
-      // Phase 12: a reply delivered on its conversation's channel.
-      // TODO(phase 12 E3): provider credentials (email first) in the channel environment.
-      "channel.deliver": (job) => runDelivery(runtime.connect, {}, job),
+      // Phase 12: a reply delivered on its conversation's channel (E3: email through SES).
+      "channel.deliver": (job) => runDelivery(runtime.connect, { providers: { email: emailOutEnvironment(env, runtime.attachments) } }, job),
+      // Phase 12 E3: a sending domain's records and the provider's identity, checked.
+      "email.domain.check": (job) => checkDomainJob(runtime.connect, emailOutEnvironment(env, runtime.attachments), job),
       // Phase 12 E2: an email received at an inbound address, read into its conversation.
       "email.receive": (job) => receiveEmailJob(runtime.connect, emailEnvironment(env, runtime.attachments), job),
     };
@@ -555,6 +587,11 @@ const relayWorker = {
           await resumeDueWorkflows(runtime.connect, work.workspace);
           // Time triggers (phase 11 W4), checked once a minute.
           await checkTimedWorkflows(runtime.connect, work.workspace);
+          // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
+          // and sending domains due a check.
+          await releaseDeferred(runtime.connect, work.workspace);
+          await checkAwayEmails(runtime.connect, work.workspace);
+          await scheduleDomainChecks(runtime.connect, work.workspace);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(

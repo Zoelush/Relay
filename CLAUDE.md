@@ -33,8 +33,12 @@ complete, with the Claude evaluation baseline waiting for a key. Monitors (`serv
 `zoe_monitors_v1`) are checked hourly by the sweep (`checkMonitors`); what trips one is
 `tripped()` in `lib/zoe-monitors.ts`, shared with the pages. A notification is either a mention
 (conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 12 (`docs/OMNICHANNEL_PLAN.md`):
-E1, the channel contract (`server/channels.ts`, `channels_v1`), and E2, email in (`server/email-in.ts`, `channel_email_v1`), are done
-locally (`docs/OMNICHANNEL_STEP1.md`, `STEP2.md`); next is E3 (email out). Mail arrives only at a brand's inbound address
+E1, the channel contract (`server/channels.ts`, `channels_v1`), E2, email in (`server/email-in.ts`, `channel_email_v1`), and E3, email
+out (`server/email-out.ts`), are done locally (`docs/OMNICHANNEL_STEP1.md` to `STEP3.md`); next is E4 (email in the inbox). Email is
+sent only by the email adapter's `send`, called only by `runDelivery` after `mayDeliver`; the provider's `sendRaw` is called in one
+place, and `tests/email-out.test.ts` fails on any other. Headers are written only by `server/email-mime.ts`. A brand sends from its
+domain only when Relay's ownership record (this workspace's token) and DKIM are found; SES reports are believed only after
+their SNS signature checks out, and find their workspace by the tags Relay set. Away emails read public parts only. Mail arrives only at a brand's inbound address
 (`<workspace>+<token>@<domain>`, `acceptEmail`) and is read by the `email.receive` job; the inbox never renders raw email
 HTML: it's made safe once on arrival (`server/email-html.ts`) and shown in the sandboxed frame (`agent/email-view.tsx`), with
 remote images blocked until asked. A sender is verified only by a DMARC pass in a trusted receiver's Authentication-Results.

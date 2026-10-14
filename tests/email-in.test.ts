@@ -186,10 +186,11 @@ test("email in: accepted only at a brand's address, read into threaded conversat
     await agent("email-settings", { action: "new_address", brandId: "default" });
     assert.equal((await send(await fixture("02-gmail-wrapped-header.eml"))).accepted, false, "the old address is refused");
 
-    // A teammate's reply on an email conversation is queued, but email can't send until E3: said once.
+    // A teammate's reply on an email conversation is queued; with no sending provider (E3's), it
+    // fails at once with the reason, not retried.
     await tenant(db.connect, "a", (q) => command(q, "a", { type: "teammate", principal: "owner-a" }, crypto.randomUUID(), { action: "reply", conversationId: c1, text: "We're on it." }));
     await drain();
-    assert.deepEqual(await sql("a", "SELECT status,error FROM channel_deliveries"), [{ status: "failed", error: "Replies can't be sent by email yet." }]);
+    assert.deepEqual(await sql("a", "SELECT status,error FROM channel_deliveries"), [{ status: "failed", error: "Email sending isn't set up for Relay yet." }]);
 
     // The rollback: the flag goes off (mail refused), unread mail fails; conversations stay.
     await sql("a", "UPDATE email_settings SET token='again' WHERE brand_id='default'");

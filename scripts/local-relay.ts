@@ -54,11 +54,16 @@ import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import { changeWorkflow } from "../server/workflows";
 import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-triggers";
-import { registerChannel, runDelivery, type ChannelAdapter } from "../server/channels";
+import { registerChannel, releaseDeferred, runDelivery, type ChannelAdapter } from "../server/channels";
+import { checkAwayEmails, checkDomainJob, domainRecords, ensureDomain, queueDomainCheck, scheduleDomainChecks, type EmailOutEnvironment } from "../server/email-out";
+import { localEmailProvider, localSns } from "./local-email";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
 export const LOCAL_EMAIL_DOMAIN = "inbound.relay.localhost";
 export const LOCAL_AUTHSERV = "relay.localhost";
+/** Relay's own sending domain locally (phase 12 E3): the same as the inbound one. */
+export const LOCAL_SENDING_DOMAIN = LOCAL_EMAIL_DOMAIN;
+export const LOCAL_SES_REGION = "eu-west-2";
 import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
@@ -254,8 +259,22 @@ export async function startLocalRelay(
     // Data connectors (phase 09 D1): a local key; calls go only where the policy allows.
     connectors: { key: keys.connector, ...options.connectors },
     emailDomain: LOCAL_EMAIL_DOMAIN,
+    emailSending: { sendingDomain: LOCAL_SENDING_DOMAIN, region: LOCAL_SES_REGION },
   };
   const emailEnv: EmailEnvironment = { storage: env.attachments, domain: LOCAL_EMAIL_DOMAIN, trustedAuthServ: [LOCAL_AUTHSERV] };
+  // Email out (phase 12 E3): stand-in providers; nothing leaves the machine. SNS reports are
+  // signed by a local key and checked by the real route.
+  const email = localEmailProvider();
+  const sns = await localSns();
+  env.sesReports = sns.environment;
+  const emailOut: EmailOutEnvironment = {
+    sender: email.sender,
+    dns: email.dns,
+    storage: env.attachments,
+    inboundDomain: LOCAL_EMAIL_DOMAIN,
+    sendingDomain: LOCAL_SENDING_DOMAIN,
+    region: LOCAL_SES_REGION,
+  };
   // The AI agent (phase 08): offline stand-ins locally, unless a test passes its own.
   env.ai = {
     model: options.ai?.model ?? standInAnswerModel(),
@@ -817,7 +836,8 @@ export async function startLocalRelay(
   handlers["workflow.timed"] = (job) => runTimedWorkflows(db.connect, job);
   // Phase 12: replies delivered on their conversation's channel.
   const unregister = (options.channels ?? []).map(registerChannel);
-  handlers["channel.deliver"] = (job) => runDelivery(db.connect, {}, job);
+  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut } }, job);
+  handlers["email.domain.check"] = (job) => checkDomainJob(db.connect, emailOut, job);
   // Phase 12 E2: emails received at inbound addresses, read into their conversations.
   handlers["email.receive"] = (job) => receiveEmailJob(db.connect, emailEnv, job);
   // Development seed (phase 12 E2): a Gmail reply with its quote, and one with attachments, sent to
@@ -830,6 +850,20 @@ export async function startLocalRelay(
       );
       if (!seen) await acceptEmail(db.connect, emailEnv, { raw, to: `demo+support@${LOCAL_EMAIL_DOMAIN}`, from: "seed:" + file });
     }
+  // Development seed (phase 12 E3): the demo brand's support address is help@acme.example, and
+  // its records are in the stand-in DNS (kept in memory, so published at every start), so replies
+  // go from it once the first check runs.
+  if (options.exampleEmail && options.emailFlag !== false && options.channelsFlag !== false)
+    await tenant(db.connect, "demo", async (q) => {
+      await q.query("UPDATE email_settings SET support_address='help@acme.example' WHERE workspace_id='demo' AND brand_id='default' AND support_address IS NULL");
+      const support = (await q.query<{ support_address: string | null }>("SELECT support_address FROM email_settings WHERE workspace_id='demo' AND brand_id='default'")).rows[0]
+        ?.support_address;
+      const domain = await ensureDomain(q, "demo", support ?? null);
+      if (domain !== "acme.example") return;
+      const d = (await q.query<{ ownership_token: string; status: string }>("SELECT ownership_token,status FROM email_domains WHERE workspace_id='demo' AND domain=$1", [domain])).rows[0];
+      email.publishAll(domainRecords(domain, d.ownership_token, (await email.sender.identity(domain)).dkimTokens, LOCAL_SES_REGION));
+      if (d.status !== "verified") await queueDomainCheck(q, "demo", domain);
+    });
   const lastSyncCheck = new Map<string, number>();
   const lastPurge = new Map<string, number>();
   let maintenance: Promise<void> | undefined,
@@ -898,6 +932,11 @@ export async function startLocalRelay(
         await resumeDueWorkflows(db.connect, w);
         // Time triggers (phase 11 W4), checked once a minute.
         await checkTimedWorkflows(db.connect, w);
+        // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
+        // and sending domains due a check.
+        await releaseDeferred(db.connect, w);
+        await checkAwayEmails(db.connect, w);
+        await scheduleDomainChecks(db.connect, w);
         // Websites due a sync (phase 07, C1b), checked once a minute.
         if (Date.now() - (lastSyncCheck.get(w) ?? 0) > 60_000) {
           lastSyncCheck.set(w, Date.now());
@@ -1072,6 +1111,16 @@ export async function startLocalRelay(
       if (result.accepted) void publish(String(req.headers.get("x-envelope-to")).split("+")[0], "");
       return Response.json(result, { status: result.accepted ? 202 : 550 });
     }
+    // Phase 12 E3: what the stand-in provider was given to send (newest first), read back.
+    if (new URL(req.url).pathname === "/dev/outbox" && req.method === "GET")
+      return Response.json({ sent: await Promise.all([...email.outbox].reverse().slice(0, 50).map((m) => email.read(m))) });
+    // A DNS record, as a domain's owner would add it: {name, type, value}.
+    if (new URL(req.url).pathname === "/dev/dns" && req.method === "POST") {
+      const r = (await req.json()) as { name?: string; type?: string; value?: string };
+      if (!r.name || !["TXT", "CNAME", "MX"].includes(String(r.type)) || typeof r.value !== "string") return Response.json({ error: "name, type and value" }, { status: 400 });
+      email.publish(r.name, r.type as "TXT", r.value);
+      return Response.json({ published: true });
+    }
     const { value: response, timing } = await db.measure(() =>
       new URL(req.url).pathname.startsWith("/v1/")
         ? handleApi(req, env)
@@ -1242,6 +1291,9 @@ export async function startLocalRelay(
     agent,
     apiOrigin,
     hostOrigin,
+    /** Email out's stand-ins (phase 12 E3): the outbox and DNS, and SNS's signing. */
+    email,
+    sns,
     clients,
     disconnect(conversationId: string) {
       for (const [socket, client] of sockets)

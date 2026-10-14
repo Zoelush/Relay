@@ -47,6 +47,7 @@ const routes = {
     "workflow-conversations",
     "suppressions",
     "deliveries",
+    "reply-target",
     "email-message",
     "email-settings",
     "zoe",

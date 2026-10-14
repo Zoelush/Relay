@@ -204,7 +204,8 @@ import { estimateWorkflow } from "./workflow-estimate";
 import { simulateWorkflow, simulationConversations } from "./workflow-simulate";
 import { workflowsEnabled } from "./workflow-engine";
 import { pageVisited, receiveWebhook } from "./workflow-triggers";
-import { changeSuppression, readDeliveries, readSuppressions } from "./channels";
+import { changeSuppression, readDeliveries, readReplyTarget, readSuppressions } from "./channels";
+import { receiveSesNotification, type SnsEnvironment } from "./email-sns";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -293,6 +294,10 @@ export interface ApiEnvironment {
   connectors?: ConnectorEnvironment;
   /** Email in (phase 12 E2): the domain brands' inbound addresses are on. */
   emailDomain?: string;
+  /** Email out (phase 12 E3): Relay's own sending domain and the provider's region. */
+  emailSending?: { sendingDomain: string; region: string };
+  /** Email out (phase 12 E3): SES's reports through SNS (its topic; tests pass their certificate). */
+  sesReports?: SnsEnvironment;
 }
 export type Session = {
   workspace: string;
@@ -989,6 +994,14 @@ export async function handleApi(
         throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
       });
     }
+    // Phase 12 E3: SES's deliveries, bounces and complaints, through SNS (signed; no session).
+    if (url.pathname === "/v1/hooks/ses" && req.method === "POST") {
+      if (!env.sesReports?.topicArn) throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
+      // SNS posts JSON as text/plain; messages are at most 256 KB.
+      const p = await readBody(req, 300_000);
+      const r = await receiveSesNotification(env.connect, env.sesReports, p);
+      return json(r.body, r.status);
+    }
     // Phase 11 W4: another system calls a workflow's webhook (its secret as a bearer token).
     const hook = /^\/v1\/hooks\/([A-Za-z0-9_-]{1,100})\/workflows\/([0-9a-f-]{36})$/.exec(url.pathname);
     if (hook && req.method === "POST") {
@@ -1242,6 +1255,7 @@ export async function handleApi(
             "/v1/agent/workflow-conversations",
             "/v1/agent/suppressions",
             "/v1/agent/deliveries",
+            "/v1/agent/reply-target",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1694,7 +1708,7 @@ export async function handleApi(
           // Phase 12 E2: a brand's support address, or a new inbound address.
           return json(
             await tenant(env.connect, workspace, (db) =>
-              changeEmailSettings(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p, env.emailDomain ?? "inbound.relay.localhost"),
+              changeEmailSettings(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p, env.emailDomain ?? "inbound.relay.localhost", env.emailSending),
             ),
           );
         if (url.pathname === "/v1/agent/suppression")
@@ -2291,7 +2305,7 @@ export async function handleApi(
         return json(await tenant(env.connect, workspace, (db) => readEmailMessage(db, workspace, principal, url.searchParams.get("part") ?? "")));
       if (url.pathname === "/v1/agent/email-settings")
         // Phase 12 E2: each brand's inbound address, support address and forwarding.
-        return json(await tenant(env.connect, workspace, (db) => readEmailSettings(db, workspace, principal, env.emailDomain ?? "inbound.relay.localhost")));
+        return json(await tenant(env.connect, workspace, (db) => readEmailSettings(db, workspace, principal, env.emailDomain ?? "inbound.relay.localhost", env.emailSending)));
       if (url.pathname === "/v1/agent/suppressions")
         // Phase 12 E1: the suppression list (Settings).
         return json(await tenant(env.connect, workspace, (db) => readSuppressions(db, workspace, principal)));
@@ -2299,6 +2313,11 @@ export async function handleApi(
         // Phase 12 E1: how a conversation's replies were delivered on its channel.
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
+        );
+      if (url.pathname === "/v1/agent/reply-target")
+        // Phase 12 E3: where a reply on this conversation goes (the composer says so).
+        return json(
+          await tenant(env.connect, workspace, (db) => readReplyTarget(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
       if (url.pathname === "/v1/agent/workflow-conversations")
         // Phase 11 W3: conversations to simulate a workflow against (?q=).

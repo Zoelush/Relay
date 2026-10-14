@@ -52,6 +52,7 @@ import { alertTeammate, type AlertPrefs } from "../../agent/alerts";
 import { SlaBadge } from "../../agent/sla";
 import type { MessagePreview } from "../../server/conversations";
 import { ContextSidebar } from "../../agent/sidebar";
+import { ReplyTarget, useReplyTarget } from "../../agent/reply-target";
 import {
   MacroManager,
   MacroPicker,
@@ -244,6 +245,8 @@ export default function PostgresInbox({
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [selected, setSelected] = useState("");
   const [parts, setParts] = useState<Part[]>([]);
+  // Phase 12 E3: where a reply goes, on a conversation that isn't on the messenger.
+  const replyTarget = useReplyTarget(selected, parts.length);
   const [mode, setMode] = useState<"reply" | "note">("reply");
   // Bumped per draft key when the composer must reload content (restore, conflict, send).
   const [seeds, setSeeds] = useState<Record<string, number>>({});
@@ -2029,9 +2032,13 @@ export default function PostgresInbox({
                       <LockKeyhole size={15} /> Internal note
                     </button>
                     <small>
-                      {mode === "note"
-                        ? "Only your team can see this"
-                        : "Visible to the customer"}
+                      {mode === "note" ? (
+                        "Only your team can see this"
+                      ) : replyTarget ? (
+                        <ReplyTarget target={replyTarget} />
+                      ) : (
+                        "Visible to the customer"
+                      )}
                     </small>
                     {canMacros && (
                       <button
