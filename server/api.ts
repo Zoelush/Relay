@@ -209,6 +209,7 @@ import { changeSideConversation, readSideConversations } from "./email-side";
 import { receiveSesNotification, type SnsEnvironment } from "./email-sns";
 import { changeWhatsApp, readWhatsApp, receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "./whatsapp";
 import type { WhatsAppApi } from "./whatsapp-api";
+import { changeSms, EMPTY_TWIML, readSms, receiveSmsWebhook } from "./sms";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -1013,6 +1014,19 @@ export async function handleApi(
       const r = await receiveWhatsAppWebhook(env.connect, env.connectors?.key, waHook[1], raw, req.headers.get("x-hub-signature-256") ?? "");
       return json(r.body, r.status);
     }
+    // Phase 12 E6: Twilio's webhook, per workspace: a text, or a sent text's status (signed).
+    const smsHook = /^\/v1\/hooks\/sms\/([A-Za-z0-9_-]{1,100})\/(message|status)$/.exec(url.pathname);
+    if (smsHook && req.method === "POST") {
+      if (Number(req.headers.get("content-length") ?? 0) > 100_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const raw = await req.text();
+      if (raw.length > 100_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const kind = smsHook[2] as "message" | "status";
+      const r = await receiveSmsWebhook(env.connect, env.connectors?.key, smsHook[1], kind, req.url, new URLSearchParams(raw), req.headers.get("x-twilio-signature") ?? "");
+      // Twilio is answered with empty TwiML: replies go out through the delivery job, never here.
+      return r.status === 200 && kind === "message"
+        ? new Response(EMPTY_TWIML, { status: 200, headers: { "content-type": "text/xml" } })
+        : new Response(null, { status: r.status === 200 ? 204 : r.status });
+    }
     // Phase 12 E3: SES's deliveries, bounces and complaints, through SNS (signed; no session).
     if (url.pathname === "/v1/hooks/ses" && req.method === "POST") {
       if (!env.sesReports?.topicArn) throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
@@ -1277,6 +1291,7 @@ export async function handleApi(
             "/v1/agent/reply-target",
             "/v1/agent/side-conversations",
             "/v1/agent/whatsapp-settings",
+            "/v1/agent/sms-settings",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1359,6 +1374,7 @@ export async function handleApi(
               "/v1/agent/delivery",
               "/v1/agent/side-conversation",
               "/v1/agent/whatsapp-settings",
+              "/v1/agent/sms-settings",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1745,6 +1761,11 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/delivery")
           // Phase 12 E4: Zoe's held draft on email, sent or discarded by a teammate.
           return json(await tenant(env.connect, workspace, (db) => decideHeld(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/sms-settings")
+          // Phase 12 E6: the Twilio account, numbers, prices, the HELP reply, consent.
+          return json(
+            await tenant(env.connect, workspace, (db) => changeSms(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p, url.origin, env.connectors?.key)),
+          );
         if (url.pathname === "/v1/agent/whatsapp-settings")
           // Phase 12 E5: a WhatsApp number connected, checked or disconnected; templates; opt-ins.
           return json(
@@ -2353,6 +2374,9 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
+      if (url.pathname === "/v1/agent/sms-settings")
+        // Phase 12 E6: the workspace's Twilio account, numbers, prices and consents.
+        return json(await tenant(env.connect, workspace, (db) => readSms(db, workspace, principal, url.origin)));
       if (url.pathname === "/v1/agent/whatsapp-settings")
         // Phase 12 E5: the workspace's WhatsApp numbers, templates and opt-ins.
         return json(await tenant(env.connect, workspace, (db) => readWhatsApp(db, workspace, principal, url.origin)));

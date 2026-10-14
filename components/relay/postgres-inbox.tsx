@@ -52,7 +52,7 @@ import { alertTeammate, type AlertPrefs } from "../../agent/alerts";
 import { SlaBadge } from "../../agent/sla";
 import type { MessagePreview } from "../../server/conversations";
 import { ContextSidebar } from "../../agent/sidebar";
-import { EmailCopies, ReplyTarget, splitCopies, TemplatePicker, useReplyTarget, type Copies } from "../../agent/reply-target";
+import { EmailCopies, ReplyTarget, SmsMeter, splitCopies, TemplatePicker, useReplyTarget, type Copies } from "../../agent/reply-target";
 import { SideConversationButton } from "../../agent/side-conversations";
 import {
   MacroManager,
@@ -2069,6 +2069,9 @@ export default function PostgresInbox({
                     <div className="pg-reply-bar">
                       <ReplyTarget target={replyTarget} />
                       {replyTarget.copies && <EmailCopies key={selected + "|" + (replyTarget.cc ?? "")} initialCc={replyTarget.cc ?? ""} onChange={keepCopies} />}
+                      {replyTarget.maxSegments !== undefined && (
+                        <SmsMeter text={draft?.doc ? plainText(draft.doc) : ""} max={replyTarget.maxSegments} price={replyTarget.price} />
+                      )}
                       {replyTarget.templates && replyTarget.templates.length > 0 && (
                         <TemplatePicker key={selected} conversationId={selected} templates={replyTarget.templates} onSent={() => {}} />
                       )}

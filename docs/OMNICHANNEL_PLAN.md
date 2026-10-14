@@ -109,4 +109,12 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Threading is by number, within 7 days** (the fallback key), since WhatsApp has no threads of its own.
     - **Zoe may answer on WhatsApp,** inside the window: Meta verifies the number.
 
-Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5). Email (E1 to E4) is complete.
+15. **E6 decisions** (14 October 2026):
+    - **Twilio with each workspace's own account** (decision 4). Its auth token is sealed, and it also checks Twilio's calls (`X-Twilio-Signature`).
+    - **"Numbers per country" is a choice of sender:** a reply goes from the brand's number with the customer's calling code, else its default. Numbers are bought in Twilio and added here; buying them from Relay waits.
+    - **An opt-out is a suppression record kept for good.** START lifts it (recorded, not erased), as US carriers expect. A teammate's reply to an opted-out number, or one without consent, is refused when it's written.
+    - **Consent:** texting in, a teammate's record (with where), or START.
+    - **Segments are counted in one place** (`lib/sms.ts`), for the composer's meter and the server's 10-segment limit. The cost is an estimate from per-country prices, never a bill.
+    - **No files and no Zoe on SMS:** MMS isn't sent (a link is), and anyone can claim a number while every segment costs.
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5), `docs/OMNICHANNEL_STEP6.md` (E6). Email (E1 to E4) is complete.

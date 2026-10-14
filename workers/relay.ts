@@ -18,6 +18,10 @@ import { checkAwayEmails, checkDomainJob, scheduleDomainChecks, sendAlert, type 
 import { dohResolver, sesSender } from "../server/email-providers";
 import { checkWhatsAppNumberJob, receiveWhatsAppJob, submitTemplateJob, syncTemplatesJob, type WhatsAppEnvironment } from "../server/whatsapp";
 import { graphApi } from "../server/whatsapp-api";
+import { checkSmsAccountJob, connectSmsNumberJob, receiveSmsJob, type SmsEnvironment } from "../server/sms";
+import { twilioApi } from "../server/sms-api";
+/** SMS (phase 12 E6): Twilio, with each workspace's account (sealed with RELAY_CONNECTOR_KEY); status callbacks to the public origin. */
+const smsEnvironment = (env: Env, storage: SmsEnvironment["storage"]): SmsEnvironment => ({ api: twilioApi(), key: env.RELAY_CONNECTOR_KEY, storage, hookOrigin: env.PUBLIC_ORIGIN });
 /** WhatsApp (phase 12 E5): Meta's Cloud API; credentials are each workspace's, sealed with RELAY_CONNECTOR_KEY. */
 const whatsappEnvironment = (env: Env, storage: WhatsAppEnvironment["storage"]): WhatsAppEnvironment => ({ api: graphApi(), key: env.RELAY_CONNECTOR_KEY, storage });
 const emailEnvironment = (env: Env, storage: EmailEnvironment["storage"]): EmailEnvironment => ({
@@ -499,7 +503,21 @@ const relayWorker = {
       "workflow.timed": (job) => runTimedWorkflows(runtime.connect, job),
       // Phase 12: a reply delivered on its conversation's channel (E3: email through SES).
       "channel.deliver": (job) =>
-        runDelivery(runtime.connect, { providers: { email: emailOutEnvironment(env, runtime.attachments), whatsapp: whatsappEnvironment(env, runtime.attachments) } }, job),
+        runDelivery(
+          runtime.connect,
+          {
+            providers: {
+              email: emailOutEnvironment(env, runtime.attachments),
+              whatsapp: whatsappEnvironment(env, runtime.attachments),
+              sms: smsEnvironment(env, runtime.attachments),
+            },
+          },
+          job,
+        ),
+      // Phase 12 E6: Twilio's calls read, the account checked, numbers pointed at Relay.
+      "sms.receive": (job) => receiveSmsJob(runtime.connect, smsEnvironment(env, runtime.attachments), job),
+      "sms.check": (job) => checkSmsAccountJob(runtime.connect, smsEnvironment(env, runtime.attachments), job),
+      "sms.number": (job) => connectSmsNumberJob(runtime.connect, smsEnvironment(env, runtime.attachments), job),
       // Phase 12 E5: WhatsApp's webhook calls read, numbers checked, templates submitted and synced.
       "whatsapp.receive": (job) => receiveWhatsAppJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
       "whatsapp.check": (job) => checkWhatsAppNumberJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),

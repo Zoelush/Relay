@@ -29,6 +29,7 @@ import {
   Workflow,
   Ban,
   Mail,
+  Smartphone,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -49,6 +50,7 @@ import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
 import { SuppressionsPage } from "./settings-suppressions";
 import { EmailPage } from "./settings-email";
 import { WhatsAppPage } from "./settings-whatsapp";
+import { SmsPage } from "./settings-sms";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -203,6 +205,14 @@ const PAGES: Page[] = [
     label: "WhatsApp",
     description: "Connect a WhatsApp Business number, its message templates, and opt-ins.",
     icon: MessageCircle,
+    group: "Channels",
+  },
+  {
+    // Phase 12 E6: the Twilio account, numbers per country, prices and consent.
+    id: "sms",
+    label: "SMS",
+    description: "Connect Twilio, the numbers you text from, what a text costs, and consent.",
+    icon: Smartphone,
     group: "Channels",
   },
   {
@@ -474,6 +484,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "sms" ? (
+            <SmsPage menu={menu} page={current} />
           ) : current.id === "whatsapp" ? (
             <WhatsAppPage menu={menu} page={current} />
           ) : current.id === "email" ? (
