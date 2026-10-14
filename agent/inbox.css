@@ -1694,3 +1694,10 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-reply-bar { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; padding:2px 0 4px; font-size:11px; color:var(--pg-muted); }
 .pg-reply-bar .pg-email-copies { flex-basis:100%; }
 .pg-side-button { white-space:nowrap; }
+
+/* Phase 12 E5: WhatsApp's window and templates in the composer. */
+.pg-window-closed { color:var(--pg-warn-text); font-weight:600; }
+.pg-template-picker { flex-basis:100%; display:flex; flex-direction:column; gap:6px; padding:6px 0; color:var(--pg-text); font-size:12px; }
+.pg-template-picker label { display:flex; align-items:center; gap:6px; }
+.pg-template-picker input, .pg-template-picker select { flex:1; min-width:0; }
+.pg-template-preview { margin:0; padding:6px 8px; border-radius:6px; background:var(--pg-sunken); white-space:pre-wrap; }

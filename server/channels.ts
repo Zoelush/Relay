@@ -73,8 +73,11 @@ export type ChannelAdapter = {
   receive?(payload: unknown): Promise<Inbound | null>;
   /** Sends; a thrown error is retried by the job, then dead-lettered. */
   send?(out: Outbound, env: ChannelEnvironment): Promise<SendResult>;
-  /** The channel's own rule on sending now (a closed window), or null. */
-  refuses?(db: Sql, w: string, conversationId: string): Promise<string | null>;
+  /**
+   * The channel's own rule on sending now (a closed window), or null. E5: given the part, so a
+   * template can go when nothing else may.
+   */
+  refuses?(db: Sql, w: string, conversationId: string, part?: { kind: string; data: Record<string, unknown> }): Promise<string | null>;
   /**
    * Inside the gate's transaction, after `mayDeliver`: what sending needs from the database
    * (`out.prepared`), a later time to try (a rate limit), or why it can't go. `send` runs after,
@@ -82,7 +85,9 @@ export type ChannelAdapter = {
    */
   prepare?(db: Sql, w: string, out: Outbound, env: ChannelEnvironment): Promise<{ data: Record<string, unknown> } | { defer: Date } | { refuse: string }>;
   /** What the composer says about a reply on this channel (email: its subject). */
-  replyDetails?(db: Sql, w: string, conversationId: string): Promise<Record<string, string>>;
+  replyDetails?(db: Sql, w: string, conversationId: string): Promise<Record<string, unknown>>;
+  /** E5: a template reply (WhatsApp's): its text and part data, or a refusal (thrown). */
+  templateReply?(db: Sql, w: string, conversationId: string, template: { id?: unknown; params?: unknown }): Promise<{ text: string; data: Record<string, unknown> }>;
   /** E4: whether Zoe answers this customer message (her capability says she may on the channel at all). */
   aiAnswers?(db: Sql, w: string, conversationId: string, partId: string): Promise<boolean>;
   /** E4: whether Zoe's replies wait for a teammate's approval before they're sent. */
@@ -348,12 +353,12 @@ export async function decideHeld(db: Sql, w: string, principal: string, key: str
  * The single gate every send passes: nothing goes to a suppressed address, or when the channel's
  * own rules refuse (a closed window). TODO(phase 13): subscription types and consent.
  */
-export async function mayDeliver(db: Sql, w: string, channel: string, address: string, conversationId: string | null) {
+export async function mayDeliver(db: Sql, w: string, channel: string, address: string, conversationId: string | null, part?: { kind: string; data: Record<string, unknown> }) {
   const blocked = (
     await db.query<{ reason: string }>("SELECT reason FROM suppressions WHERE workspace_id=$1 AND channel=$2 AND address=$3 AND lifted_at IS NULL", [w, channel, address])
   ).rows[0];
   if (blocked) return { ok: false as const, status: "suppressed" as const, reason: `The address is suppressed (${blocked.reason.replace("_", " ")}).` };
-  const refused = conversationId ? await adapterOf(channel).refuses?.(db, w, conversationId) : null;
+  const refused = conversationId ? await adapterOf(channel).refuses?.(db, w, conversationId, part) : null;
   if (refused) return { ok: false as const, status: "failed" as const, reason: refused };
   return { ok: true as const };
 }
@@ -375,10 +380,11 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
         part_id: string;
         purpose: Outbound["purpose"];
         not_before: string | null;
+        kind: string;
         body: string;
         data: Record<string, unknown>;
       }>(
-        `SELECT d.id,d.status,d.channel,d.address,d.conversation_id,d.part_id,d.purpose,d.not_before,p.body,p.data FROM channel_deliveries d
+        `SELECT d.id,d.status,d.channel,d.address,d.conversation_id,d.part_id,d.purpose,d.not_before,p.kind,p.body,p.data FROM channel_deliveries d
          JOIN conversation_parts p ON p.workspace_id=d.workspace_id AND p.id=d.part_id WHERE d.workspace_id=$1 AND d.id=$2 FOR UPDATE OF d`,
         [w, deliveryId],
       )
@@ -389,7 +395,7 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
       await setStatus(db, w, d.id, "failed", "Channels were turned off.");
       return null;
     }
-    const gate = await mayDeliver(db, w, d.channel, d.address, d.conversation_id);
+    const gate = await mayDeliver(db, w, d.channel, d.address, d.conversation_id, { kind: d.kind, data: d.data });
     if (!gate.ok) {
       await setStatus(db, w, d.id, gate.status, gate.reason);
       return null;

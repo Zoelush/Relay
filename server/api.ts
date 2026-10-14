@@ -207,6 +207,8 @@ import { pageVisited, receiveWebhook } from "./workflow-triggers";
 import { changeSuppression, decideHeld, readDeliveries, readReplyTarget, readSuppressions } from "./channels";
 import { changeSideConversation, readSideConversations } from "./email-side";
 import { receiveSesNotification, type SnsEnvironment } from "./email-sns";
+import { changeWhatsApp, readWhatsApp, receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "./whatsapp";
+import type { WhatsAppApi } from "./whatsapp-api";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -299,6 +301,8 @@ export interface ApiEnvironment {
   emailSending?: { sendingDomain: string; region: string };
   /** Email out (phase 12 E3): SES's reports through SNS (its topic; tests pass their certificate). */
   sesReports?: SnsEnvironment;
+  /** WhatsApp (phase 12 E5): Meta's Cloud API (its credentials are sealed with the connector key). */
+  whatsapp?: { api: WhatsAppApi };
 }
 export type Session = {
   workspace: string;
@@ -995,6 +999,20 @@ export async function handleApi(
         throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
       });
     }
+    // Phase 12 E5: Meta's WhatsApp webhook, per workspace: its set-up check, and signed calls.
+    const waHook = /^\/v1\/hooks\/whatsapp\/([A-Za-z0-9_-]{1,100})$/.exec(url.pathname);
+    if (waHook && req.method === "GET") {
+      const r = await verifyWhatsAppWebhook(env.connect, waHook[1], url.searchParams);
+      return new Response(r.body, { status: r.status, headers: { "content-type": "text/plain" } });
+    }
+    if (waHook && req.method === "POST") {
+      // The signature covers the exact bytes, so the body is read as text (at most 1 MB).
+      if (Number(req.headers.get("content-length") ?? 0) > 1_000_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const raw = await req.text();
+      if (raw.length > 1_000_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const r = await receiveWhatsAppWebhook(env.connect, env.connectors?.key, waHook[1], raw, req.headers.get("x-hub-signature-256") ?? "");
+      return json(r.body, r.status);
+    }
     // Phase 12 E3: SES's deliveries, bounces and complaints, through SNS (signed; no session).
     if (url.pathname === "/v1/hooks/ses" && req.method === "POST") {
       if (!env.sesReports?.topicArn) throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
@@ -1258,6 +1276,7 @@ export async function handleApi(
             "/v1/agent/deliveries",
             "/v1/agent/reply-target",
             "/v1/agent/side-conversations",
+            "/v1/agent/whatsapp-settings",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1339,6 +1358,7 @@ export async function handleApi(
               "/v1/agent/suppression",
               "/v1/agent/delivery",
               "/v1/agent/side-conversation",
+              "/v1/agent/whatsapp-settings",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1725,6 +1745,13 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/delivery")
           // Phase 12 E4: Zoe's held draft on email, sent or discarded by a teammate.
           return json(await tenant(env.connect, workspace, (db) => decideHeld(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/whatsapp-settings")
+          // Phase 12 E5: a WhatsApp number connected, checked or disconnected; templates; opt-ins.
+          return json(
+            await tenant(env.connect, workspace, (db) =>
+              changeWhatsApp(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p, url.origin, env.connectors?.key),
+            ),
+          );
         if (url.pathname === "/v1/agent/side-conversation")
           // Phase 12 E4: a side conversation started, or replied in.
           return json(
@@ -2326,6 +2353,9 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
+      if (url.pathname === "/v1/agent/whatsapp-settings")
+        // Phase 12 E5: the workspace's WhatsApp numbers, templates and opt-ins.
+        return json(await tenant(env.connect, workspace, (db) => readWhatsApp(db, workspace, principal, url.origin)));
       if (url.pathname === "/v1/agent/side-conversations")
         // Phase 12 E4: a conversation's side conversations.
         return json(

@@ -23,10 +23,11 @@ export type Capabilities = {
   copies?: boolean;
 };
 
-/** Channels Relay has, by id. TODO(phase 12 E5–E9): WhatsApp, SMS, Instagram, Facebook, Slack, Discord, voice. */
+/** Channels Relay has, by id. TODO(phase 12 E6–E9): SMS, Instagram, Facebook, Slack, Discord, voice. */
 export const CHANNEL_LABELS: Record<string, string> = {
   messenger: "Messenger",
   email: "Email",
+  whatsapp: "WhatsApp",
 };
 export const channelLabel = (id: string) => CHANNEL_LABELS[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 

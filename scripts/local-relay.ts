@@ -57,6 +57,9 @@ import { checkTimedWorkflows, runTimedWorkflows } from "../server/workflow-trigg
 import { registerChannel, releaseDeferred, runDelivery, type ChannelAdapter } from "../server/channels";
 import { checkAwayEmails, checkDomainJob, domainRecords, ensureDomain, queueDomainCheck, scheduleDomainChecks, sendAlert, type EmailOutEnvironment } from "../server/email-out";
 import { localEmailProvider, localSns } from "./local-email";
+import { LOCAL_WHATSAPP, localWhatsApp } from "./local-whatsapp";
+import { checkWhatsAppNumberJob, receiveWhatsAppJob, receiveWhatsAppWebhook, submitTemplateJob, syncTemplatesJob, type WhatsAppEnvironment } from "../server/whatsapp";
+import { seal } from "../server/connectors";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
 export const LOCAL_EMAIL_DOMAIN = "inbound.relay.localhost";
@@ -157,6 +160,10 @@ export async function startLocalRelay(
     channelsFlag?: boolean;
     /** Email in (phase 12 E2), likewise on unless turned off. */
     emailFlag?: boolean;
+    /** WhatsApp (phase 12 E5), likewise on unless turned off. */
+    whatsappFlag?: boolean;
+    /** Development seed (phase 12 E5): the demo brand's WhatsApp number, connected, and an approved template. */
+    exampleWhatsApp?: boolean;
     /** Development seed (phase 12 E2): two example emails in the demo workspace. */
     exampleEmail?: boolean;
     /** Development seed (phase 11 W2): a draft workflow to open in the builder. */
@@ -267,6 +274,10 @@ export async function startLocalRelay(
   const email = localEmailProvider();
   const sns = await localSns();
   env.sesReports = sns.environment;
+  // WhatsApp (phase 12 E5): Meta's stand-in; webhook calls are signed and checked as Meta's are.
+  const whatsapp = localWhatsApp();
+  env.whatsapp = { api: whatsapp.api };
+  const whatsappEnv: WhatsAppEnvironment = { api: whatsapp.api, key: keys.connector, storage: env.attachments };
   const emailOut: EmailOutEnvironment = {
     sender: email.sender,
     dns: email.dns,
@@ -607,6 +618,11 @@ export async function startLocalRelay(
         "INSERT INTO email_settings(workspace_id,brand_id,token) VALUES($1,'default',$2) ON CONFLICT DO NOTHING",
         [w, "support"],
       );
+      // WhatsApp (phase 12, E5).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channel_whatsapp_v1'",
+        [w, options.whatsappFlag !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -836,7 +852,35 @@ export async function startLocalRelay(
   handlers["workflow.timed"] = (job) => runTimedWorkflows(db.connect, job);
   // Phase 12: replies delivered on their conversation's channel.
   const unregister = (options.channels ?? []).map(registerChannel);
-  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut } }, job);
+  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut, whatsapp: whatsappEnv } }, job);
+  handlers["whatsapp.receive"] = (job) => receiveWhatsAppJob(db.connect, whatsappEnv, job);
+  handlers["whatsapp.check"] = (job) => checkWhatsAppNumberJob(db.connect, whatsappEnv, job);
+  handlers["whatsapp.template"] = (job) => submitTemplateJob(db.connect, whatsappEnv, job);
+  handlers["whatsapp.sync"] = (job) => syncTemplatesJob(db.connect, whatsappEnv, job);
+  // Development seed (phase 12 E5): the demo brand's number, connected with the stand-in's
+  // credentials, and an approved template to send once the 24-hour window has closed.
+  if (options.exampleWhatsApp && options.whatsappFlag !== false && options.channelsFlag !== false)
+    await tenant(db.connect, "demo", async (q) => {
+      if ((await q.query("SELECT 1 FROM whatsapp_numbers WHERE workspace_id='demo'")).rows.length) return;
+      const id = "demo-whatsapp";
+      await q.query(
+        `INSERT INTO whatsapp_numbers(workspace_id,id,brand_id,phone_number_id,waba_id,display_number,verified_name,quality,status,token_sealed,token_hint,app_secret_sealed,verify_token,created_by,checked_at)
+         VALUES('demo',$1,'default',$2,$3,'+44 7700 900123','Relay Demo','GREEN','connected',$4,$5,$6,'local-verify-token','owner',now())`,
+        [
+          id,
+          LOCAL_WHATSAPP.phoneNumberId,
+          LOCAL_WHATSAPP.wabaId,
+          await seal(keys.connector, "demo", `whatsapp:${id}`, "token", LOCAL_WHATSAPP.token),
+          LOCAL_WHATSAPP.token.slice(-4),
+          await seal(keys.connector, "demo", `whatsapp:${id}`, "app_secret", LOCAL_WHATSAPP.appSecret),
+        ],
+      );
+      await q.query(
+        `INSERT INTO whatsapp_templates(workspace_id,id,number_id,name,language,category,body,examples,params,status,provider_id,created_by)
+         VALUES('demo','demo-template',$1,'order_update','en','utility','Hi {{1}}, your order {{2}} has shipped. Reply here if you need anything.','["Ada","#4411"]',2,'approved','tpl-demo','owner')`,
+        [id],
+      );
+    });
   handlers["email.domain.check"] = (job) => checkDomainJob(db.connect, emailOut, job);
   handlers["email.alert"] = (job) => sendAlert(db.connect, emailOut, job);
   // Phase 12 E2: emails received at inbound addresses, read into their conversations.
@@ -1112,6 +1156,16 @@ export async function startLocalRelay(
       if (result.accepted) void publish(String(req.headers.get("x-envelope-to")).split("+")[0], "");
       return Response.json(result, { status: result.accepted ? 202 : 550 });
     }
+    // Phase 12 E5: a customer's WhatsApp message to the demo's number, as Meta would post it:
+    // {from: "447700900456", name, text}.
+    if (new URL(req.url).pathname === "/dev/whatsapp" && req.method === "POST") {
+      const r = (await req.json()) as { from?: string; name?: string; text?: string };
+      if (!/^\d{8,15}$/.test(String(r.from ?? "")) || typeof r.text !== "string") return Response.json({ error: "from (digits) and text" }, { status: 400 });
+      const call = await whatsapp.signed(whatsapp.message({ from: r.from!, name: r.name, message: { type: "text", text: { body: r.text } } }));
+      const result = await receiveWhatsAppWebhook(db.connect, keys.connector, "demo", call.body, call.signature);
+      if (result.status === 200) void publish("demo", "");
+      return Response.json(result.body, { status: result.status });
+    }
     // Phase 12 E3: what the stand-in provider was given to send (newest first), read back.
     if (new URL(req.url).pathname === "/dev/outbox" && req.method === "GET")
       return Response.json({ sent: await Promise.all([...email.outbox].reverse().slice(0, 50).map((m) => email.read(m))) });
@@ -1295,6 +1349,8 @@ export async function startLocalRelay(
     /** Email out's stand-ins (phase 12 E3): the outbox and DNS, and SNS's signing. */
     email,
     sns,
+    /** WhatsApp's stand-in (phase 12 E5): what was sent, media, templates, and signed webhook calls. */
+    whatsapp,
     clients,
     disconnect(conversationId: string) {
       for (const [socket, client] of sockets)
@@ -1347,6 +1403,7 @@ if (
     inboxViews: process.env.RELAY_LOCAL_INBOX_VIEWS !== "false",
     longTimeline: true,
     exampleEmail: true,
+    exampleWhatsApp: true,
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),

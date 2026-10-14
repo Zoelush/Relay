@@ -48,6 +48,7 @@ import { MacroManager, type MacroList } from "./macros";
 import { OfficeHoursPage, SlasPage, TeamsPage } from "./settings-helpdesk";
 import { SuppressionsPage } from "./settings-suppressions";
 import { EmailPage } from "./settings-email";
+import { WhatsAppPage } from "./settings-whatsapp";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -194,6 +195,14 @@ const PAGES: Page[] = [
     label: "Email",
     description: "Inbound addresses, forwarding from your support address, and the latest mail.",
     icon: Mail,
+    group: "Channels",
+  },
+  {
+    // Phase 12 E5: WhatsApp numbers, templates and opt-ins.
+    id: "whatsapp",
+    label: "WhatsApp",
+    description: "Connect a WhatsApp Business number, its message templates, and opt-ins.",
+    icon: MessageCircle,
     group: "Channels",
   },
   {
@@ -465,6 +474,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "whatsapp" ? (
+            <WhatsAppPage menu={menu} page={current} />
           ) : current.id === "email" ? (
             <EmailPage menu={menu} page={current} />
           ) : current.id === "suppressions" ? (

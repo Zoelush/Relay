@@ -35,7 +35,10 @@ complete, with the Claude evaluation baseline waiting for a key. Monitors (`serv
 (conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 12 (`docs/OMNICHANNEL_PLAN.md`):
 E1, the channel contract (`server/channels.ts`, `channels_v1`), E2, email in (`server/email-in.ts`, `channel_email_v1`), E3, email
 out (`server/email-out.ts`), and E4, email in the inbox, are done locally (`docs/OMNICHANNEL_STEP1.md` to `STEP4.md`): email is
-complete; next are the other channels (E5 to E9). Side conversations (`server/email-side.ts`) are internal parts of their
+complete. E5, WhatsApp (`server/whatsapp.ts`, `channel_whatsapp_v1`), is done locally (`docs/OMNICHANNEL_STEP5.md`); next is E6
+(SMS). WhatsApp's 24-hour window is its adapter's `refuses` (given the part: only an approved template, to an opted-in
+number, passes once it's closed); its webhook is per workspace and kept only when signed with the workspace's app secret;
+its credentials are sealed with the connector key and never returned. Side conversations (`server/email-side.ts`) are internal parts of their
 conversation and never reach the customer; Zoe's replies on email are held deliveries until a teammate sends them (when the
 setting asks), and she never answers unverified senders or list mail (`aiAnswers`, decided by the adapter). Email is
 sent only by the email adapter's `send`, called only by `runDelivery` after `mayDeliver`; the provider's `sendRaw` is called only

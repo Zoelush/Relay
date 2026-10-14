@@ -106,6 +106,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
     if (await flag(db, w, "channels_v1")) {
       // Phase 12 E2: email's inbound addresses and forwarding.
       if (await flag(db, w, "channel_email_v1")) pages.push("email");
+      // Phase 12 E5: WhatsApp's numbers, templates and opt-ins.
+      if (await flag(db, w, "channel_whatsapp_v1")) pages.push("whatsapp");
       pages.push("suppressions");
     }
   }

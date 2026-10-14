@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: WhatsApp Business (phase 12, E5)
+
+- **Connect a brand's WhatsApp Business number** with your own Meta app. Credentials are stored encrypted, and Meta's webhook is checked by its signature.
+- **Customers' WhatsApp messages become conversations:** text, button replies and files (scanned). Replies go back as text, reply buttons or files, with sent, delivered and read receipts.
+- **The 24-hour window:** after it closes, the composer says so and offers your approved templates. Nothing else can be sent.
+- **Message templates:** written in Settings, submitted for Meta's review, with their status kept up to date.
+- **Opt-ins:** recorded when a customer writes, or by a teammate. STOP suppresses the number until the customer sends START.
+- **Behind `channel_whatsapp_v1`,** off by default.
+- **Migration:** 0066, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP5.md`.
+
 ## Unreleased: email in the inbox (phase 12, E4)
 
 - **Each email shows who it was to and copied to.**
