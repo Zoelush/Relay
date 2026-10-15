@@ -112,6 +112,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
       if (await flag(db, w, "channel_sms_v1")) pages.push("sms");
       // Phase 12 E7: a Facebook Page and its Instagram account (either channel on).
       if ((await flag(db, w, "channel_facebook_v1")) || (await flag(db, w, "channel_instagram_v1"))) pages.push("meta");
+      // Phase 12 E8: Slack and Discord (either channel on).
+      if ((await flag(db, w, "channel_slack_v1")) || (await flag(db, w, "channel_discord_v1"))) pages.push("community");
       pages.push("suppressions");
     }
   }

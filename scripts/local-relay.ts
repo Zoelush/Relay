@@ -65,6 +65,8 @@ import { checkSmsAccountJob, connectSmsNumberJob, receiveSmsJob, receiveSmsWebho
 import { callingCode } from "../lib/sms";
 import { LOCAL_META, localMeta } from "./local-meta";
 import { checkMetaPageJob, receiveMetaJob, receiveMetaWebhook, type MetaEnvironment } from "../server/meta-messaging";
+import { LOCAL_DISCORD, LOCAL_SLACK, localCommunity } from "./local-community";
+import { checkCommunityJob, ingestDiscordMessage, receiveCommunityJob, receiveSlackWebhook, type CommunityEnvironment } from "../server/community";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
 export const LOCAL_EMAIL_DOMAIN = "inbound.relay.localhost";
@@ -177,6 +179,10 @@ export async function startLocalRelay(
     metaFlag?: boolean;
     /** Development seed (phase 12 E7): the default brand's Facebook Page and its Instagram account, connected. */
     exampleMeta?: boolean;
+    /** Slack and Discord (phase 12 E8), likewise on unless turned off. */
+    communityFlag?: boolean;
+    /** Development seed (phase 12 E8): a Slack workspace and a Discord server, connected for the default brand. */
+    exampleCommunity?: boolean;
     /** Development seed (phase 12 E2): two example emails in the demo workspace. */
     exampleEmail?: boolean;
     /** Development seed (phase 11 W2): a draft workflow to open in the builder. */
@@ -297,6 +303,9 @@ export async function startLocalRelay(
   // Instagram and Facebook Messenger (phase 12 E7): Meta's stand-in; calls signed and checked as Meta's are.
   const meta = localMeta();
   const metaEnv: MetaEnvironment = { api: meta.api, key: keys.connector, storage: env.attachments };
+  // Slack and Discord (phase 12 E8): stand-ins; Slack's calls signed and checked as Slack's are.
+  const community = localCommunity();
+  const communityEnv: CommunityEnvironment = { slack: community.slack, discord: community.discord, key: keys.connector, storage: env.attachments };
   const emailOut: EmailOutEnvironment = {
     sender: email.sender,
     dns: email.dns,
@@ -652,6 +661,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_facebook_v1','channel_instagram_v1')",
         [w, options.metaFlag !== false],
       );
+      // Slack and Discord (phase 12, E8).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_slack_v1','channel_discord_v1')",
+        [w, options.communityFlag !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -881,7 +895,32 @@ export async function startLocalRelay(
   handlers["workflow.timed"] = (job) => runTimedWorkflows(db.connect, job);
   // Phase 12: replies delivered on their conversation's channel.
   const unregister = (options.channels ?? []).map(registerChannel);
-  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut, whatsapp: whatsappEnv, sms: smsEnv, meta: metaEnv } }, job);
+  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut, whatsapp: whatsappEnv, sms: smsEnv, meta: metaEnv, community: communityEnv } }, job);
+  handlers["community.receive"] = (job) => receiveCommunityJob(db.connect, communityEnv, job);
+  // Discord's gateway runs only deployed (a Durable Object); locally, messages come by /dev/discord.
+  handlers["community.check"] = (job) => checkCommunityJob(db.connect, communityEnv, job);
+  // Development seed (phase 12 E8): a Slack workspace and a Discord server for the default brand.
+  if (options.exampleCommunity && options.communityFlag !== false && options.channelsFlag !== false)
+    await tenant(db.connect, "demo", async (q) => {
+      if ((await q.query("SELECT 1 FROM community_connections WHERE workspace_id='demo'")).rows.length) return;
+      await q.query(
+        `INSERT INTO community_connections(workspace_id,id,platform,brand_id,external_id,name,bot_user_id,token_sealed,token_hint,secret_sealed,status,created_by,checked_at)
+         VALUES('demo','demo-slack','slack','default',$1,$2,$3,$4,$5,$6,'connected','owner',now())`,
+        [
+          LOCAL_SLACK.teamId,
+          LOCAL_SLACK.team,
+          LOCAL_SLACK.botUserId,
+          await seal(keys.connector, "demo", "community:demo-slack", "token", LOCAL_SLACK.token),
+          LOCAL_SLACK.token.slice(-4),
+          await seal(keys.connector, "demo", "community:demo-slack", "secret", LOCAL_SLACK.signingSecret),
+        ],
+      );
+      await q.query(
+        `INSERT INTO community_connections(workspace_id,id,platform,brand_id,external_id,name,bot_user_id,token_sealed,token_hint,status,gateway_state,created_by,checked_at)
+         VALUES('demo','demo-discord','discord','default',$1,$2,$1,$3,$4,'connected','local: messages by /dev/discord','owner',now())`,
+        [LOCAL_DISCORD.botId, LOCAL_DISCORD.username, await seal(keys.connector, "demo", "community:demo-discord", "token", LOCAL_DISCORD.token), LOCAL_DISCORD.token.slice(-4)],
+      );
+    });
   handlers["meta.receive"] = (job) => receiveMetaJob(db.connect, metaEnv, job);
   handlers["meta.check"] = (job) => checkMetaPageJob(db.connect, metaEnv, job);
   // Development seed (phase 12 E7): the default brand's Page and its Instagram account, connected.
@@ -1232,6 +1271,28 @@ export async function startLocalRelay(
       if (result.status === 200) void publish("demo", "");
       return Response.json(result.body, { status: result.status });
     }
+    // Phase 12 E8: a person's Slack message in the demo's community, signed as Slack signs it:
+    // {channel: "C0…", user: "U0…", name, text, thread_ts?}.
+    if (new URL(req.url).pathname === "/dev/slack" && req.method === "POST") {
+      const r = (await req.json()) as { channel?: string; user?: string; name?: string; text?: string; thread_ts?: string };
+      if (!/^[CDG][A-Z0-9]{2,20}$/.test(String(r.channel)) || !/^[UW][A-Z0-9]{2,20}$/.test(String(r.user)) || typeof r.text !== "string")
+        return Response.json({ error: "channel (C…), user (U…) and text" }, { status: 400 });
+      if (r.name) community.people.set(r.user!, r.name);
+      const call = await community.slackSigned(community.slackMessage({ channel: r.channel!, user: r.user!, text: r.text, thread_ts: r.thread_ts }));
+      const result = await receiveSlackWebhook(db.connect, keys.connector, "demo", call.body, call.timestamp, call.signature);
+      if (result.status === 200) void publish("demo", "");
+      return Response.json(result.body, { status: result.status });
+    }
+    // Phase 12 E8: a Discord message in the demo's server, as the gateway would hand it over:
+    // {channel: "<id>", author: "<id>", username, content, replyTo?}.
+    if (new URL(req.url).pathname === "/dev/discord" && req.method === "POST") {
+      const r = (await req.json()) as { channel?: string; author?: string; username?: string; content?: string; replyTo?: string };
+      if (!/^\d{15,25}$/.test(String(r.channel)) || !/^\d{15,25}$/.test(String(r.author)) || typeof r.content !== "string")
+        return Response.json({ error: "channel and author (ids) and content" }, { status: 400 });
+      const result = await ingestDiscordMessage(db.connect, "demo", "demo-discord", community.discordMessage({ channel: r.channel!, author: r.author!, username: r.username, content: r.content, replyTo: r.replyTo }));
+      if (result.kept) void publish("demo", "");
+      return Response.json(result, { status: result.kept ? 202 : 200 });
+    }
     // Phase 12 E7: a person's message to the demo's Page or Instagram account, as Meta would post it:
     // {platform: "facebook" | "instagram", from: "<their id>", name, text}.
     if (new URL(req.url).pathname === "/dev/meta" && req.method === "POST") {
@@ -1444,6 +1505,8 @@ export async function startLocalRelay(
     sms,
     /** Meta's messaging stand-in (phase 12 E7): messages sent, people, CDN files, and signed webhook calls. */
     meta,
+    /** Slack's and Discord's stand-ins (phase 12 E8): messages sent, people, files, and Slack's signed calls. */
+    community,
     clients,
     disconnect(conversationId: string) {
       for (const [socket, client] of sockets)
@@ -1499,6 +1562,7 @@ if (
     exampleWhatsApp: true,
     exampleSms: true,
     exampleMeta: true,
+    exampleCommunity: true,
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),
