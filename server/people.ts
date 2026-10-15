@@ -141,6 +141,7 @@ export async function seedFoundation(
     "channel_slack_v1",
     "channel_discord_v1",
     "channel_voice_v1",
+    "segments_v1",
   ])
     await db.query(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,false) ON CONFLICT DO NOTHING",
@@ -219,6 +220,41 @@ export async function getIdentity(
   );
   return { identityId, contactId };
 }
+/**
+ * Phase 13 O1: what a merged contact declined still holds for the one it joined (its opt-outs, and
+ * unsubscribing from everything), recorded as changes. Its opt-ins don't carry: they need the
+ * survivor's own consent. A reversed merge leaves them, which errs on the side of not sending.
+ */
+async function carryOptOuts(db: Sql, workspace: string, loser: string, survivor: string) {
+  const declined = (
+    await db.query<{ subscription_type_id: string }>(
+      `SELECT l.subscription_type_id FROM contact_subscriptions l WHERE l.workspace_id=$1 AND l.contact_id=$2 AND l.state='opted_out'
+       AND NOT EXISTS (SELECT 1 FROM contact_subscriptions s WHERE s.workspace_id=$1 AND s.contact_id=$3 AND s.subscription_type_id=l.subscription_type_id AND s.state='opted_out')`,
+      [workspace, loser, survivor],
+    )
+  ).rows;
+  for (const d of declined) {
+    await db.query(
+      `INSERT INTO contact_subscriptions(workspace_id,contact_id,subscription_type_id,state) VALUES($1,$2,$3,'opted_out')
+       ON CONFLICT (workspace_id,contact_id,subscription_type_id) DO UPDATE SET state='opted_out',changed_at=now()`,
+      [workspace, survivor, d.subscription_type_id],
+    );
+    await db.query(
+      "INSERT INTO contact_subscription_changes(workspace_id,id,contact_id,subscription_type_id,state,source,actor) VALUES($1,$2,$3,$4,'opted_out','merge',$5)",
+      [workspace, crypto.randomUUID(), survivor, d.subscription_type_id, loser],
+    );
+  }
+  const all = await db.query(
+    "UPDATE contacts SET global_unsubscribe=true WHERE workspace_id=$1 AND id=$2 AND NOT global_unsubscribe AND EXISTS (SELECT 1 FROM contacts WHERE workspace_id=$1 AND id=$3 AND global_unsubscribe) RETURNING id",
+    [workspace, survivor, loser],
+  );
+  if (all.rows.length)
+    await db.query(
+      "INSERT INTO contact_subscription_changes(workspace_id,id,contact_id,subscription_type_id,state,source,actor) VALUES($1,$2,$3,NULL,'opted_out','merge',$4)",
+      [workspace, crypto.randomUUID(), survivor, loser],
+    );
+}
+
 export async function mergeVisitorIdentity(
   db: Sql,
   workspace: string,
@@ -274,6 +310,7 @@ export async function mergeVisitorIdentity(
     "UPDATE contacts SET profile=$3,version=version+1 WHERE workspace_id=$1 AND id=$2",
     [workspace, survivor, JSON.stringify(after)],
   );
+  await carryOptOuts(db, workspace, loser, survivor);
   const id = crypto.randomUUID();
   await db.query(
     "INSERT INTO contact_merges(workspace_id,id,loser_id,survivor_id,changes) VALUES($1,$2,$3,$4,$5)",

@@ -30,6 +30,7 @@ import {
   Zap,
   Sparkles,
   Workflow,
+  Contact,
   Settings as SettingsIcon,
 } from "lucide-react";
 import "../../agent/inbox.css";
@@ -138,6 +139,8 @@ type Snapshot = Directory & {
     zoe?: boolean;
     /** The Workflows area (phase 11 W2): managers, while workflows are on. */
     workflows?: boolean;
+    /** The People area (phase 13 O1): who may see people's details, while segments are on. */
+    people?: boolean;
   };
   /** Zoe's name in this workspace, while the AI agent is on (Z1). */
   ai?: { name: string; enabled: boolean } | null;
@@ -168,6 +171,16 @@ const Workflows = lazy(() =>
 const workflowsFromHash = () => {
   if (typeof window === "undefined") return null;
   const m = /^#workflows(?:\/([A-Za-z0-9-]+(?:\/[A-Za-z0-9-]+)?))?$/.exec(window.location.hash);
+  return m ? (m[1] ?? "") : null;
+};
+/** People (phase 13 O1): contacts and segments, loaded on their own. */
+const People = lazy(() =>
+  import("../../agent/people").then((m) => ({ default: m.People })),
+);
+/** The People area from the address: `#people` ("") or `#people/<segment>`; null elsewhere. */
+const peopleFromHash = () => {
+  if (typeof window === "undefined") return null;
+  const m = /^#people(?:\/([A-Za-z0-9-]+))?$/.exec(window.location.hash);
   return m ? (m[1] ?? "") : null;
 };
 /** A page of Zoe's from the address (`#zoe/<page>`), or null when not in her area. */
@@ -313,7 +326,7 @@ export default function PostgresInbox({
   /** The section on screen. The inbox stays mounted underneath Knowledge, keeping its place. */
   // The section on screen; Settings has an address per page (`#settings/<page>`).
   const [area, setAreaState] = useState<
-    "inbox" | "knowledge" | "settings" | "zoe" | "workflows"
+    "inbox" | "knowledge" | "settings" | "zoe" | "workflows" | "people"
   >(() =>
     settingsFromHash()
       ? "settings"
@@ -321,8 +334,12 @@ export default function PostgresInbox({
         ? "zoe"
         : workflowsFromHash() !== null
           ? "workflows"
-          : "inbox",
+          : peopleFromHash() !== null
+            ? "people"
+            : "inbox",
   );
+  // The segment shown in People (`#people/<segment>`), "all-users" by default.
+  const [peopleSegment, setPeopleSegment] = useState(() => peopleFromHash() || "all-users");
   // The workflow open in the builder (`#workflows/<id>`), or null for the list.
   const [workflowOpen, setWorkflowOpen] = useState<string | null>(
     () => workflowsFromHash() || null,
@@ -336,13 +353,14 @@ export default function PostgresInbox({
   >("content");
   const setArea = useCallback(
     (
-      next: "inbox" | "knowledge" | "settings" | "zoe" | "workflows",
+      next: "inbox" | "knowledge" | "settings" | "zoe" | "workflows" | "people",
       page = "home",
     ) => {
       setAreaState(next);
       if (next === "settings") setSettingsPage(page);
       if (next === "zoe") setZoePage(page === "home" ? "overview" : page);
       if (next === "workflows") setWorkflowOpen(page === "home" ? null : page);
+      if (next === "people") setPeopleSegment(page === "home" ? "all-users" : page);
       const hash =
         next === "settings"
           ? "#settings" + (page === "home" ? "" : "/" + page)
@@ -350,7 +368,9 @@ export default function PostgresInbox({
             ? "#zoe" + (page === "home" || page === "overview" ? "" : "/" + page)
             : next === "workflows"
               ? "#workflows" + (page === "home" ? "" : "/" + page)
-              : "";
+              : next === "people"
+                ? "#people" + (page === "home" ? "" : "/" + page)
+                : "";
       if (window.location.hash !== hash)
         history.replaceState(
           null,
@@ -392,6 +412,7 @@ export default function PostgresInbox({
       const page = settingsFromHash();
       const zoe = zoeFromHash();
       const workflow = workflowsFromHash();
+      const people = peopleFromHash();
       if (page) {
         setAreaState("settings");
         setSettingsPage(page);
@@ -401,9 +422,12 @@ export default function PostgresInbox({
       } else if (workflow !== null) {
         setAreaState("workflows");
         setWorkflowOpen(workflow || null);
+      } else if (people !== null) {
+        setAreaState("people");
+        setPeopleSegment(people || "all-users");
       } else if (window.location.hash === "")
         setAreaState((a) =>
-          a === "settings" || a === "zoe" || a === "workflows" ? "inbox" : a,
+          a === "settings" || a === "zoe" || a === "workflows" || a === "people" ? "inbox" : a,
         );
     };
     window.addEventListener("hashchange", onHash);
@@ -1489,8 +1513,20 @@ export default function PostgresInbox({
                 },
               ]
             : []),
-          // TODO(phase 13): Outbound. TODO(phase 14): Reports. TODO(phase 01): Contacts (the people model has no screen yet).
-          // Each joins the strip when its area exists.
+          // People (phase 13 O1): contacts and segments, as Intercom's Contacts.
+          ...(snapshot?.capabilities.people
+            ? [
+                {
+                  id: "people",
+                  label: "People",
+                  icon: <Contact size={19} />,
+                  hue: "teal",
+                  current: area === "people",
+                  onClick: () => setArea("people", peopleSegment),
+                },
+              ]
+            : []),
+          // TODO(phase 13): Outbound. TODO(phase 14): Reports. Each joins the strip when its area exists.
         ]}
         tools={[
           {
@@ -1603,6 +1639,13 @@ export default function PostgresInbox({
           />
         </Suspense>
       )}
+      {area === "people" && snapshot?.capabilities.people && (
+        <Suspense
+          fallback={<section className="pg-workspace" aria-busy="true" />}
+        >
+          <People segment={peopleSegment} onSegment={(id) => setArea("people", id)} />
+        </Suspense>
+      )}
       {area === "settings" && snapshot?.capabilities.settings && (
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}
@@ -1670,7 +1713,8 @@ export default function PostgresInbox({
           (area === "knowledge" && !!snapshot?.capabilities.knowledge) ||
           (area === "settings" && !!snapshot?.capabilities.settings) ||
           (area === "zoe" && !!snapshot?.capabilities.zoe) ||
-          (area === "workflows" && !!snapshot?.capabilities.workflows)
+          (area === "workflows" && !!snapshot?.capabilities.workflows) ||
+          (area === "people" && !!snapshot?.capabilities.people)
         }
       >
         {error && (

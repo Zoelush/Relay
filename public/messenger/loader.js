@@ -403,6 +403,11 @@
     if (name === "open" || name === "showSpace") return open(value);
     if (name === "close") return close();
     if (name === "update") return context();
+    // Phase 13 O1: what a signed-in user did (`Relay("track", {name, metadata})`), kept once.
+    if (name === "track") {
+      if (!boot) throw new Error("Relay isn't started yet: boot it first.");
+      return api("events", { name: value && value.name, metadata: value && value.metadata }, boot.token);
+    }
     if (name === "setUser") return initialize({ ...config, user: value });
     if (name === "enableNotifications") {
       if (!("Notification" in window)) return false;

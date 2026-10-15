@@ -309,12 +309,14 @@ export async function queueDeliveryTo(
   address: string,
   purpose: Outbound["purpose"],
   held = false,
+  /** Phase 13: an outbound message of this subscription type (checked by the gate). */
+  subscriptionTypeId: string | null = null,
 ) {
   const id = crypto.randomUUID();
   const added = await db.query(
-    `INSERT INTO channel_deliveries(workspace_id,id,part_id,conversation_id,channel,identity_id,address,purpose,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `INSERT INTO channel_deliveries(workspace_id,id,part_id,conversation_id,channel,identity_id,address,purpose,status,subscription_type_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT DO NOTHING RETURNING id`,
-    [w, id, partId, conversationId, channel, identityId, address, purpose, held ? "held" : "queued"],
+    [w, id, partId, conversationId, channel, identityId, address, purpose, held ? "held" : "queued", subscriptionTypeId],
   );
   if (added.rows.length && !held) await enqueueJob(db, w, "channel.deliver", { deliveryId: id }, {});
   return added.rows.length ? id : null;
@@ -353,17 +355,41 @@ export async function decideHeld(db: Sql, w: string, principal: string, key: str
 }
 
 /**
- * The single gate every send passes: nothing goes to a suppressed address, or when the channel's
- * own rules refuse (a closed window). TODO(phase 13): subscription types and consent.
+ * The single gate every send passes: nothing goes to a suppressed address, to a contact who said no
+ * to the message's subscription type (phase 13: an outbound message has one; a reply in their own
+ * conversation doesn't), or when the channel's own rules refuse (a closed window).
  */
-export async function mayDeliver(db: Sql, w: string, channel: string, address: string, conversationId: string | null, part?: OutboundPart) {
+export async function mayDeliver(
+  db: Sql,
+  w: string,
+  channel: string,
+  address: string,
+  conversationId: string | null,
+  part?: OutboundPart,
+  subscription?: { typeId: string; identityId: string },
+) {
   const blocked = (
     await db.query<{ reason: string }>("SELECT reason FROM suppressions WHERE workspace_id=$1 AND channel=$2 AND address=$3 AND lifted_at IS NULL", [w, channel, address])
   ).rows[0];
   if (blocked) return { ok: false as const, status: "suppressed" as const, reason: `The address is suppressed (${blocked.reason.replace("_", " ")}).` };
+  if (subscription) {
+    const said = await subscribed(db, w, subscription.identityId, subscription.typeId);
+    if (!said.ok) return { ok: false as const, status: "suppressed" as const, reason: said.reason };
+  }
   const refused = conversationId ? await adapterOf(channel).refuses?.(db, w, conversationId, part) : null;
   if (refused) return { ok: false as const, status: "failed" as const, reason: refused };
   return { ok: true as const };
+}
+
+/** Phase 13: whether the identity's contact gets messages of this subscription type (no bypass). */
+async function subscribed(db: Sql, w: string, identityId: string, typeId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const { resolveContact } = await import("./people");
+  const { effectiveSubscriptions } = await import("./subscriptions");
+  const mapping = (await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, identityId])).rows[0];
+  const type = (await db.query<{ name: string }>("SELECT name FROM subscription_types WHERE workspace_id=$1 AND id=$2", [w, typeId])).rows[0];
+  if (!mapping || !type) return { ok: false, reason: "Not sent: its subscription or recipient isn't known." };
+  const state = (await effectiveSubscriptions(db, w, await resolveContact(db, w, mapping.contact_id), [typeId]))[typeId];
+  return state === "opted_in" ? { ok: true } : { ok: false, reason: `Not subscribed to ${type.name}.` };
 }
 
 export const DELIVERY_ATTEMPTS = 5;
@@ -383,12 +409,14 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
         part_id: string;
         purpose: Outbound["purpose"];
         not_before: string | null;
+        identity_id: string;
+        subscription_type_id: string | null;
         kind: string;
         author_type: string;
         body: string;
         data: Record<string, unknown>;
       }>(
-        `SELECT d.id,d.status,d.channel,d.address,d.conversation_id,d.part_id,d.purpose,d.not_before,p.kind,p.author_type,p.body,p.data FROM channel_deliveries d
+        `SELECT d.id,d.status,d.channel,d.address,d.conversation_id,d.part_id,d.purpose,d.not_before,d.identity_id,d.subscription_type_id,p.kind,p.author_type,p.body,p.data FROM channel_deliveries d
          JOIN conversation_parts p ON p.workspace_id=d.workspace_id AND p.id=d.part_id WHERE d.workspace_id=$1 AND d.id=$2 FOR UPDATE OF d`,
         [w, deliveryId],
       )
@@ -399,7 +427,15 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
       await setStatus(db, w, d.id, "failed", "Channels were turned off.");
       return null;
     }
-    const gate = await mayDeliver(db, w, d.channel, d.address, d.conversation_id, { kind: d.kind, data: d.data, author: d.author_type });
+    const gate = await mayDeliver(
+      db,
+      w,
+      d.channel,
+      d.address,
+      d.conversation_id,
+      { kind: d.kind, data: d.data, author: d.author_type },
+      d.subscription_type_id ? { typeId: d.subscription_type_id, identityId: d.identity_id } : undefined,
+    );
     if (!gate.ok) {
       await setStatus(db, w, d.id, gate.status, gate.reason);
       return null;

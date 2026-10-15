@@ -1706,3 +1706,23 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 /* Phase 12 E6: a text's segments and cost in the composer. */
 .pg-sms-meter { color:var(--pg-muted); }
 .pg-sms-meter[data-over="true"] { color:var(--pg-danger-text); font-weight:600; }
+
+/* People (phase 13 O1): rules above the list, a person beside it. */
+.pg-people-body { gap:14px; }
+.pg-people-rules { display:flex; flex-direction:column; gap:10px; padding:14px 16px; border:1px solid var(--pg-border); border-radius:12px; background:var(--pg-surface); }
+.pg-people-rule-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.pg-people-rule-list > li { display:flex; align-items:center; gap:8px; }
+.pg-people-rule { display:flex; flex-wrap:wrap; align-items:center; gap:8px; flex:1; min-width:0; }
+.pg-people-rule input[type="number"] { width:84px; }
+.pg-people-split { display:flex; gap:14px; align-items:flex-start; min-width:0; }
+.pg-people-table { flex:1; min-width:0; }
+.pg-people-table th, .pg-people-table td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--pg-border-subtle); overflow-wrap:anywhere; }
+.pg-people-table tr[aria-selected="true"] { background:var(--pg-selected); }
+.pg-people-person { flex:none; width:320px; max-width:100%; display:flex; flex-direction:column; gap:10px; padding:14px 16px; border:1px solid var(--pg-border); border-radius:12px; background:var(--pg-surface); }
+.pg-people-person header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.pg-people-person h3, .pg-people-person h4 { margin:0; font-size:14px; }
+.pg-people-facts { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0; font-size:13px; }
+.pg-people-facts dt { color:var(--pg-muted); }
+.pg-people-facts dd { margin:0; overflow-wrap:anywhere; }
+.pg-people-fact { display:contents; }
+@media (max-width: 900px) { .pg-people-split { flex-direction:column; } .pg-people-person { width:auto; } }

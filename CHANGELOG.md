@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: Events, subscriptions and segments (phase 13, O1)
+
+- **People:** a new area listing contacts by segment, with live counts as you build rules. The rules cover type, email, dates, attributes, events and subscriptions. Rules can be saved as segments; All users, All leads, Active and New are built in.
+- **Events:** what people do, sent from the messenger (`Relay("track")`, signed-in users) or your server (`POST /v1/events`, signed with your identity key), each kept once. Managers can describe and archive them in Settings › Events.
+- **Subscription types:** opt-in or opt-out, per channel, in Settings › Subscriptions. Each person has a preference page reached from a signed link.
+- **Opted-out people get nothing of that type:** the delivery gate refuses it, with no bypass.
+- **Behind `segments_v1`,** off by default.
+- **Migration:** 0071, with rollback.
+- **Details:** `docs/OUTBOUND_STEP1.md`.
+
 ## Unreleased: Voice (phase 12, E9)
 
 - **Take calls on your Twilio numbers,** or buy a number from Settings (only once you confirm). Each call is a conversation.

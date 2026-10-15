@@ -38,7 +38,13 @@ out (`server/email-out.ts`), and E4, email in the inbox, are done locally (`docs
 complete. E5, WhatsApp (`server/whatsapp.ts`, `channel_whatsapp_v1`), and E6, SMS (`server/sms.ts`, `channel_sms_v1`), and E7,
 Instagram and Facebook Messenger (`server/meta-messaging.ts`), are done locally (`docs/OMNICHANNEL_STEP5.md` to `STEP7.md`);
 E8, Slack and Discord (`server/community.ts`), is done locally (`docs/OMNICHANNEL_STEP8.md`), and E9, voice (`server/voice.ts`,
-`channel_voice_v1`), is done locally (`docs/OMNICHANNEL_STEP9.md`): phase 12's plan is complete. A call is steered only by
+`channel_voice_v1`), is done locally (`docs/OMNICHANNEL_STEP9.md`): phase 12's plan is complete. Phase 13 (`docs/OUTBOUND_PLAN.md`): O1,
+events, subscription types and segments (`segments_v1`), is done locally (`docs/OUTBOUND_STEP1.md`); the scope after O1 is the
+user's to decide, then O2 (the engine). A segment rule has one meaning: `lib/segments.ts` (`matches`) and its SQL
+(`compileSegment`, `server/segments.ts`) must agree, and `tests/segments.test.ts`'s corpus holds them to it; a new rule gets both
+and corpus cases. What a contact gets is only `effectiveSubscriptions` (`server/subscriptions.ts`), checked again by `mayDeliver`
+for any delivery with a subscription type; there is no bypass. Events are kept only from a signed-in messenger user or a JWT
+signed with the workspace's identity key (audience `relay-events`), once per sender's id. A call is steered only by
 Twilio's signed steps (`voiceHook`); recording is allowed by the caller's calling code (none, announced, or press 1), and Zoe
 and transcripts only ever hear a recorded call. Zoe on a call answers through her own `ai.reply` pipeline (each utterance is the
 caller's message); never give a call its own model path. Recordings and transcripts are internal; a call is never answered in
