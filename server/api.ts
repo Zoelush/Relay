@@ -213,6 +213,9 @@ import { changeSms, EMPTY_TWIML, readSms, receiveSmsWebhook } from "./sms";
 import { changeMeta, readMeta, receiveMetaWebhook, verifyMetaWebhook } from "./meta-messaging";
 import { changeCommunity, readCommunity, receiveSlackWebhook } from "./community";
 import { changeVoice, readVoice, voiceHook, type VoiceEnvironment } from "./voice";
+import { apiEvents, changeEvents, messengerEvent, readEvents } from "./events";
+import { changePeople, readPeople, segmentsOn } from "./segments";
+import { changeSubscriptionTypes, preferencePage, readSubscriptionTypes } from "./subscriptions";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -1019,6 +1022,12 @@ export async function handleApi(
       const r = await receiveWhatsAppWebhook(env.connect, env.connectors?.key, waHook[1], raw, req.headers.get("x-hub-signature-256") ?? "");
       return json(r.body, r.status);
     }
+    // Phase 13 O1: events from the customer's server, signed with the workspace's identity key.
+    if (url.pathname === "/v1/events" && req.method === "POST")
+      return json(await apiEvents(env.connect, env.identityMaster, req.headers.get("authorization") ?? "", await readBody(req, 256_000)));
+    // Phase 13 O1: a contact's subscriptions, from the signed link in what they're sent.
+    const preferences = /^\/v1\/preferences\/([A-Za-z0-9_.-]{10,600})$/.exec(url.pathname);
+    if (preferences && (req.method === "GET" || req.method === "POST")) return preferencePage(env.connect, env.sessionSecret, preferences[1], req);
     // Phase 12 E9: a call's steps, per workspace (Twilio's signature), each answered with TwiML.
     const voice = /^\/v1\/hooks\/voice\/([A-Za-z0-9_-]{1,100})\/([a-z_]{1,20})$/.exec(url.pathname);
     if (voice && req.method === "POST") {
@@ -1346,6 +1355,9 @@ export async function handleApi(
             "/v1/agent/meta-settings",
             "/v1/agent/community-settings",
             "/v1/agent/voice-settings",
+            "/v1/agent/people",
+            "/v1/agent/events-settings",
+            "/v1/agent/subscription-settings",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1432,6 +1444,9 @@ export async function handleApi(
               "/v1/agent/meta-settings",
               "/v1/agent/community-settings",
               "/v1/agent/voice-settings",
+              "/v1/agent/people",
+              "/v1/agent/events-settings",
+              "/v1/agent/subscription-settings",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1818,6 +1833,15 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/delivery")
           // Phase 12 E4: Zoe's held draft on email, sent or discarded by a teammate.
           return json(await tenant(env.connect, workspace, (db) => decideHeld(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/people")
+          // Phase 13 O1: a segment's or draft rules' people, one person, saving or archiving a segment.
+          return json(await tenant(env.connect, workspace, (db) => changePeople(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/events-settings")
+          // Phase 13 O1: an event described, archived or tracked again.
+          return json(await tenant(env.connect, workspace, (db) => changeEvents(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/subscription-settings")
+          // Phase 13 O1: a subscription type created, renamed or archived.
+          return json(await tenant(env.connect, workspace, (db) => changeSubscriptionTypes(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
         if (url.pathname === "/v1/agent/voice-settings")
           // Phase 12 E9: calls: settings, numbers taking calls, buying a number, teammates' phones.
           return json(await tenant(env.connect, workspace, (db) => changeVoice(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p, url.origin)));
@@ -2444,6 +2468,15 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
+      if (url.pathname === "/v1/agent/people")
+        // Phase 13 O1: segments with their counts, and what rules can name.
+        return json(await tenant(env.connect, workspace, (db) => readPeople(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/events-settings")
+        // Phase 13 O1: the events tracked, and the limit.
+        return json(await tenant(env.connect, workspace, (db) => readEvents(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/subscription-settings")
+        // Phase 13 O1: subscription types and how many chose each way.
+        return json(await tenant(env.connect, workspace, (db) => readSubscriptionTypes(db, workspace, principal)));
       if (url.pathname === "/v1/agent/voice-settings")
         // Phase 12 E9: the workspace's call settings, numbers, teammates' phones and recent calls.
         return json(await tenant(env.connect, workspace, (db) => readVoice(db, workspace, principal)));
@@ -2958,6 +2991,10 @@ export async function handleApi(
               workflows:
                 (await workflowsEnabled(db, workspace)) &&
                 (await can(db, workspace, principal, "workspace.manage")),
+              // Phase 13 O1: the People area, for who may see people's details while segments are on.
+              people:
+                (await segmentsOn(db, workspace)) &&
+                (await can(db, workspace, principal, "contacts.personal_data")),
             },
             // Zoe's name, for her replies and views in the inbox (null while the agent is off).
             ai: (await aiEnabled(db, workspace))
@@ -3291,6 +3328,9 @@ export async function handleApi(
         await env.notify?.(s.workspace, "");
         return json(result);
       }
+      if (url.pathname === "/v1/messenger/events")
+        // Phase 13 O1: `Relay("track")`, for a signed-in user.
+        return json(await tenant(env.connect, s.workspace, (db) => messengerEvent(db, s.workspace, s, key, p)));
       if (url.pathname === "/v1/messenger/context")
         return json(
           await tenant(env.connect, s.workspace, (db) =>

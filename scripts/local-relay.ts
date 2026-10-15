@@ -69,6 +69,8 @@ import { LOCAL_DISCORD, LOCAL_SLACK, localCommunity } from "./local-community";
 import { checkCommunityJob, ingestDiscordMessage, receiveCommunityJob, receiveSlackWebhook, type CommunityEnvironment } from "../server/community";
 import { buyNumberJob, configureVoiceNumberJob, readRecordingJob, searchNumbersJob, startRecordingJob, type VoiceEnvironment } from "../server/voice";
 import type { TranscriptionPort } from "../server/voice-transcribe";
+import { checkEvent, recordEvent } from "../server/events";
+import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
 export const LOCAL_EMAIL_DOMAIN = "inbound.relay.localhost";
@@ -187,6 +189,10 @@ export async function startLocalRelay(
     exampleCommunity?: boolean;
     /** Voice (phase 12 E9), likewise on unless turned off. */
     voiceFlag?: boolean;
+    /** Events, subscriptions and segments (phase 13 O1), on unless turned off. */
+    segmentsFlag?: boolean;
+    /** Development seed (phase 13 O1): people with attributes and events, subscription types, a segment. */
+    examplePeople?: boolean;
     /** Development seed (phase 12 E9): the demo's UK number takes calls, Zoe answers, the owner's phone is rung. */
     exampleVoice?: boolean;
     /** Transcription for calls (phase 12 E9): tests pass their own; a stand-in otherwise. */
@@ -677,6 +683,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_facebook_v1','channel_instagram_v1')",
         [w, options.metaFlag !== false],
       );
+      // Events, subscriptions and segments (phase 13, O1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='segments_v1'",
+        [w, options.segmentsFlag !== false],
+      );
       // Voice (phase 12, E9).
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channel_voice_v1'",
@@ -991,6 +1002,43 @@ export async function startLocalRelay(
       await q.query("UPDATE sms_numbers SET voice=true WHERE workspace_id='demo' AND id='demo-sms'");
       await q.query("INSERT INTO voice_settings(workspace_id,zoe) VALUES('demo',true) ON CONFLICT DO NOTHING");
       await q.query("INSERT INTO voice_agents(workspace_id,teammate_id,phone) VALUES('demo','owner','+447700900999') ON CONFLICT DO NOTHING");
+    });
+  // Development seed (phase 13 O1): three people (a user who upgraded, a user who didn't, a lead),
+  // with attributes and events; two subscription types; a saved segment ("Pro users").
+  if (options.examplePeople && options.segmentsFlag !== false)
+    await tenant(db.connect, "demo", async (q) => {
+      if ((await q.query("SELECT 1 FROM subscription_types WHERE workspace_id='demo'")).rows.length) return;
+      const day = 86_400_000;
+      const people = [
+        { id: "ada-demo", name: "Ada Lovelace", email: "ada@example.com", profile: { plan: "pro", seats: 12 }, signedUp: 3, seen: 0, events: [["upgraded plan", 2], ["exported report", 1], ["exported report", 5]] },
+        { id: "grace-demo", name: "Grace Hopper", email: "grace@example.com", profile: { plan: "free", seats: 1 }, signedUp: 40, seen: 12, events: [["exported report", 20]] },
+      ] as const;
+      for (const p of people) {
+        const { contactId } = await getIdentity(q, "demo", "user", p.id, { name: p.name, email: p.email });
+        await q.query("UPDATE contacts SET profile=$2,signed_up_at=$3,last_seen_at=$4 WHERE workspace_id='demo' AND id=$1", [
+          contactId,
+          JSON.stringify(p.profile),
+          new Date(Date.now() - p.signedUp * day).toISOString(),
+          new Date(Date.now() - p.seen * day).toISOString(),
+        ]);
+        for (const [i, [name, ago]] of p.events.entries())
+          await q.query("INSERT INTO contact_events(workspace_id,id,contact_id,name,metadata,source,dedupe_key,occurred_at) VALUES('demo',$1,$2,$3,'{}','api',$4,$5)", [
+            crypto.randomUUID(),
+            contactId,
+            name,
+            `seed:${p.id}:${i}`,
+            new Date(Date.now() - ago * day).toISOString(),
+          ]);
+      }
+      await getIdentity(q, "demo", "anonymous", "lead-demo", { name: "Linus Lead", email: "linus@example.com" });
+      await q.query(
+        `INSERT INTO event_definitions(workspace_id,name,description,count,first_seen_at,last_seen_at)
+         SELECT 'demo',name,'',count(*),min(occurred_at),max(occurred_at) FROM contact_events WHERE workspace_id='demo' GROUP BY name ON CONFLICT DO NOTHING`,
+      );
+      await q.query("INSERT INTO subscription_types(workspace_id,id,name,description,consent,channel,created_by) VALUES('demo','product-updates','Product updates','New features, once a month','opt_out','email','owner'),('demo','offers-sms','Offers by SMS','Discounts and offers','opt_in','sms','owner')");
+      await q.query("INSERT INTO segments(workspace_id,id,name,definition,created_by,updated_by) VALUES('demo','pro-users','Pro users',$1,'owner','owner')", [
+        JSON.stringify({ match: "all", rules: [{ field: "role", op: "is", value: "user" }, { field: "attribute", key: "plan", op: "is", value: "pro" }] }),
+      ]);
     });
   handlers["whatsapp.receive"] = (job) => receiveWhatsAppJob(db.connect, whatsappEnv, job);
   handlers["whatsapp.check"] = (job) => checkWhatsAppNumberJob(db.connect, whatsappEnv, job);
@@ -1350,6 +1398,24 @@ export async function startLocalRelay(
       if (result.status === 200) void publish("demo", "");
       return new Response(null, { status: result.status === 200 ? 202 : result.status });
     }
+    // Phase 13 O1: an event for a demo user ({userId, name, metadata}), as your server would send
+    // it (without the signing), and a person's preference page by their contact id.
+    if (new URL(req.url).pathname === "/dev/event" && req.method === "POST") {
+      const r = (await req.json()) as { userId?: string; name?: string; metadata?: unknown };
+      if (typeof r.userId !== "string" || !r.userId) return Response.json({ error: "userId, name and metadata" }, { status: 400 });
+      try {
+        const result = await tenant(db.connect, "demo", async (q) => {
+          const { contactId } = await getIdentity(q, "demo", "user", r.userId!);
+          return recordEvent(q, "demo", contactId, checkEvent({ name: r.name, metadata: r.metadata }), "api", `dev:${crypto.randomUUID()}`);
+        });
+        return Response.json({ result });
+      } catch (e) {
+        return Response.json({ error: e instanceof Error ? e.message : "Not kept." }, { status: 400 });
+      }
+    }
+    const devPreferences = /^\/dev\/preferences\/([A-Za-z0-9-]{1,100})$/.exec(new URL(req.url).pathname);
+    if (devPreferences && req.method === "GET")
+      return Response.redirect(`${apiOrigin}/v1/preferences/${await preferenceToken(keys.session, "demo", devPreferences[1])}`, 302);
     // Phase 12 E3: what the stand-in provider was given to send (newest first), read back.
     if (new URL(req.url).pathname === "/dev/outbox" && req.method === "GET")
       return Response.json({ sent: await Promise.all([...email.outbox].reverse().slice(0, 50).map((m) => email.read(m))) });
@@ -1598,6 +1664,7 @@ if (
     exampleMeta: true,
     exampleCommunity: true,
     exampleVoice: true,
+    examplePeople: true,
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),

@@ -33,6 +33,8 @@ import {
   AtSign,
   Hash,
   Phone,
+  Activity,
+  BellOff,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -57,6 +59,7 @@ import { SmsPage } from "./settings-sms";
 import { MetaPage } from "./settings-meta";
 import { CommunityPage } from "./settings-community";
 import { VoicePage } from "./settings-voice";
+import { EventsPage, SubscriptionsPage } from "./settings-outbound";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -246,6 +249,22 @@ const PAGES: Page[] = [
     group: "Channels",
   },
   {
+    // Phase 13 O1: the kinds of message people choose to get.
+    id: "subscriptions",
+    label: "Subscriptions",
+    description: "Opt-in and opt-out types every outbound message declares, and who chose what.",
+    icon: BellOff,
+    group: "Outbound",
+  },
+  {
+    // Phase 13 O1: what people do, sent by the messenger or your server.
+    id: "events",
+    label: "Events",
+    description: "What people do in your product, for segments and outbound.",
+    icon: Activity,
+    group: "Outbound",
+  },
+  {
     // Phase 12 E1: addresses nothing is sent to, on any channel.
     id: "suppressions",
     label: "Suppression list",
@@ -328,6 +347,7 @@ const GROUPS = [
   "Workspace",
   "Helpdesk",
   "Channels",
+  "Outbound",
   "Inbox",
   "Knowledge & AI",
 ];
@@ -338,6 +358,7 @@ const GROUP_HUES: Record<string, Hue> = {
   Workspace: "violet",
   Helpdesk: "blue",
   Channels: "teal",
+  Outbound: "green",
   Inbox: "amber",
   "Knowledge & AI": "rose",
 };
@@ -514,6 +535,10 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "events" ? (
+            <EventsPage menu={menu} page={current} />
+          ) : current.id === "subscriptions" ? (
+            <SubscriptionsPage menu={menu} page={current} />
           ) : current.id === "voice" ? (
             <VoicePage menu={menu} page={current} />
           ) : current.id === "community" ? (

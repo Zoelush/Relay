@@ -123,6 +123,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if (await flag(db, w, "agent_inbox_views_v1")) pages.push("views");
   // Workflows (phase 11 W2) have their own area; Settings links to it for those who manage them.
   if (manage && (await flag(db, w, "workflows_v1"))) pages.push("workflows");
+  // Phase 13 O1: the events tracked, and subscription types.
+  if (manage && (await flag(db, w, "segments_v1"))) pages.push("events", "subscriptions");
   // The AI agent (phase 08 A2a): its handover choices, for workspace managers.
   if (manage && (await flag(db, w, "ai_agent_v1"))) pages.push("ai-agent");
   if (manageKnowledge) {
