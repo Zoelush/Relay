@@ -30,6 +30,7 @@ import {
   Ban,
   Mail,
   Smartphone,
+  AtSign,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -51,6 +52,7 @@ import { SuppressionsPage } from "./settings-suppressions";
 import { EmailPage } from "./settings-email";
 import { WhatsAppPage } from "./settings-whatsapp";
 import { SmsPage } from "./settings-sms";
+import { MetaPage } from "./settings-meta";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -213,6 +215,14 @@ const PAGES: Page[] = [
     label: "SMS",
     description: "Connect Twilio, the numbers you text from, what a text costs, and consent.",
     icon: Smartphone,
+    group: "Channels",
+  },
+  {
+    // Phase 12 E7: a Facebook Page's Messenger and its linked Instagram account.
+    id: "meta",
+    label: "Instagram & Facebook",
+    description: "Connect a Facebook Page and its Instagram account to answer their messages.",
+    icon: AtSign,
     group: "Channels",
   },
   {
@@ -484,6 +494,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "meta" ? (
+            <MetaPage menu={menu} page={current} />
           ) : current.id === "sms" ? (
             <SmsPage menu={menu} page={current} />
           ) : current.id === "whatsapp" ? (

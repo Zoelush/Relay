@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: Instagram and Facebook Messenger (phase 12, E7)
+
+- **Connect a brand's Facebook Page and its Instagram account** with your own Meta app. Credentials are stored encrypted, and Meta's webhook is checked by its signature.
+- **Messenger and Instagram messages become conversations:** text, files (scanned), and story replies and mentions with the story's link. Replies go back as text, quick replies or files, with delivered and read receipts.
+- **Meta's windows:** anything within 24 hours; a teammate's reply up to 7 days (tagged as human support); after that, nothing until the person writes again. The composer says which applies.
+- **Behind `channel_facebook_v1` and `channel_instagram_v1`,** off by default.
+- **Migration:** 0068, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP7.md`.
+
 ## Unreleased: SMS (phase 12, E6)
 
 - **Connect your Twilio account and numbers.** A reply goes from the brand's number in the customer's country.

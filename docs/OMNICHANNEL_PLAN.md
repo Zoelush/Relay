@@ -117,4 +117,11 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Segments are counted in one place** (`lib/sms.ts`), for the composer's meter and the server's 10-segment limit. The cost is an estimate from per-country prices, never a bill.
     - **No files and no Zoe on SMS:** MMS isn't sent (a link is), and anyone can claim a number while every segment costs.
 
-Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5), `docs/OMNICHANNEL_STEP6.md` (E6). Email (E1 to E4) is complete.
+16. **E7 decisions** (15 October 2026):
+    - **Two channels, one connection:** a brand's Facebook Page (Messenger) and the Instagram business account linked to it, each channel with its own flag. They share a per-workspace signed webhook and the Page's token.
+    - **The windows are the adapter's `refuses`, told who wrote the part.** In 24 hours anything goes. Up to 7 days, only a teammate's reply, tagged `HUMAN_AGENT`. After that, nothing.
+    - **Attachments go out by a short-lived signed link,** never a public one, and come in only from Meta's CDN.
+    - **Page-scoped ids are verified but join no other contact.** That fixes E1's identity query for accounts.
+    - **Zoe may answer within 24 hours** (Meta verifies the account).
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5), `docs/OMNICHANNEL_STEP6.md` (E6), `docs/OMNICHANNEL_STEP7.md` (E7). Email (E1 to E4) is complete.

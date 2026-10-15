@@ -63,6 +63,8 @@ import { seal } from "../server/connectors";
 import { LOCAL_TWILIO, localSms } from "./local-sms";
 import { checkSmsAccountJob, connectSmsNumberJob, receiveSmsJob, receiveSmsWebhook, type SmsEnvironment } from "../server/sms";
 import { callingCode } from "../lib/sms";
+import { LOCAL_META, localMeta } from "./local-meta";
+import { checkMetaPageJob, receiveMetaJob, receiveMetaWebhook, type MetaEnvironment } from "../server/meta-messaging";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
 export const LOCAL_EMAIL_DOMAIN = "inbound.relay.localhost";
@@ -171,6 +173,10 @@ export async function startLocalRelay(
     smsFlag?: boolean;
     /** Development seed (phase 12 E6): the demo's Twilio account and the default brand's UK number, connected. */
     exampleSms?: boolean;
+    /** Instagram and Facebook Messenger (phase 12 E7), likewise on unless turned off. */
+    metaFlag?: boolean;
+    /** Development seed (phase 12 E7): the default brand's Facebook Page and its Instagram account, connected. */
+    exampleMeta?: boolean;
     /** Development seed (phase 12 E2): two example emails in the demo workspace. */
     exampleEmail?: boolean;
     /** Development seed (phase 11 W2): a draft workflow to open in the builder. */
@@ -288,6 +294,9 @@ export async function startLocalRelay(
   // SMS (phase 12 E6): Twilio's stand-in; its calls are signed and checked as Twilio's are.
   const sms = localSms();
   const smsEnv: SmsEnvironment = { api: sms.api, key: keys.connector, storage: env.attachments, hookOrigin: apiOrigin };
+  // Instagram and Facebook Messenger (phase 12 E7): Meta's stand-in; calls signed and checked as Meta's are.
+  const meta = localMeta();
+  const metaEnv: MetaEnvironment = { api: meta.api, key: keys.connector, storage: env.attachments };
   const emailOut: EmailOutEnvironment = {
     sender: email.sender,
     dns: email.dns,
@@ -638,6 +647,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channel_sms_v1'",
         [w, options.smsFlag !== false],
       );
+      // Instagram and Facebook Messenger (phase 12, E7).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_facebook_v1','channel_instagram_v1')",
+        [w, options.metaFlag !== false],
+      );
       await seedKnowledge(sql, w);
       await seedKnowledgeFile(
         sql,
@@ -867,7 +881,27 @@ export async function startLocalRelay(
   handlers["workflow.timed"] = (job) => runTimedWorkflows(db.connect, job);
   // Phase 12: replies delivered on their conversation's channel.
   const unregister = (options.channels ?? []).map(registerChannel);
-  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut, whatsapp: whatsappEnv, sms: smsEnv } }, job);
+  handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut, whatsapp: whatsappEnv, sms: smsEnv, meta: metaEnv } }, job);
+  handlers["meta.receive"] = (job) => receiveMetaJob(db.connect, metaEnv, job);
+  handlers["meta.check"] = (job) => checkMetaPageJob(db.connect, metaEnv, job);
+  // Development seed (phase 12 E7): the default brand's Page and its Instagram account, connected.
+  if (options.exampleMeta && options.metaFlag !== false && options.channelsFlag !== false)
+    await tenant(db.connect, "demo", async (q) => {
+      if ((await q.query("SELECT 1 FROM meta_pages WHERE workspace_id='demo'")).rows.length) return;
+      const id = "demo-meta";
+      await q.query(
+        `INSERT INTO meta_pages(workspace_id,id,brand_id,page_id,page_name,ig_account_id,ig_username,token_sealed,token_hint,app_secret_sealed,verify_token,status,created_by,checked_at)
+         VALUES('demo',$1,'default',$2,'Relay Demo',$3,'relay.demo',$4,$5,$6,'local-meta-verify-token','connected','owner',now())`,
+        [
+          id,
+          LOCAL_META.pageId,
+          LOCAL_META.igAccountId,
+          await seal(keys.connector, "demo", `meta:${id}`, "token", LOCAL_META.token),
+          LOCAL_META.token.slice(-4),
+          await seal(keys.connector, "demo", `meta:${id}`, "app_secret", LOCAL_META.appSecret),
+        ],
+      );
+    });
   handlers["sms.receive"] = (job) => receiveSmsJob(db.connect, smsEnv, job);
   handlers["sms.check"] = (job) => checkSmsAccountJob(db.connect, smsEnv, job);
   handlers["sms.number"] = (job) => connectSmsNumberJob(db.connect, smsEnv, job);
@@ -1198,6 +1232,18 @@ export async function startLocalRelay(
       if (result.status === 200) void publish("demo", "");
       return Response.json(result.body, { status: result.status });
     }
+    // Phase 12 E7: a person's message to the demo's Page or Instagram account, as Meta would post it:
+    // {platform: "facebook" | "instagram", from: "<their id>", name, text}.
+    if (new URL(req.url).pathname === "/dev/meta" && req.method === "POST") {
+      const r = (await req.json()) as { platform?: string; from?: string; name?: string; text?: string };
+      if (!["facebook", "instagram"].includes(String(r.platform)) || !/^\d{5,30}$/.test(String(r.from ?? "")) || typeof r.text !== "string")
+        return Response.json({ error: "platform, from (digits) and text" }, { status: 400 });
+      if (r.name) meta.people.set(r.from!, r.name);
+      const call = await meta.signed(meta.message(r.platform as "facebook", r.from!, { text: r.text }));
+      const result = await receiveMetaWebhook(db.connect, keys.connector, "demo", call.body, call.signature);
+      if (result.status === 200) void publish("demo", "");
+      return Response.json(result.body, { status: result.status });
+    }
     // Phase 12 E6: a customer's text to the demo's UK number, as Twilio would post it:
     // {from: "+447700900456", text}.
     if (new URL(req.url).pathname === "/dev/sms" && req.method === "POST") {
@@ -1396,6 +1442,8 @@ export async function startLocalRelay(
     whatsapp,
     /** SMS's stand-in (phase 12 E6): texts sent, numbers configured, media, and signed webhook calls. */
     sms,
+    /** Meta's messaging stand-in (phase 12 E7): messages sent, people, CDN files, and signed webhook calls. */
+    meta,
     clients,
     disconnect(conversationId: string) {
       for (const [socket, client] of sockets)
@@ -1450,6 +1498,7 @@ if (
     exampleEmail: true,
     exampleWhatsApp: true,
     exampleSms: true,
+    exampleMeta: true,
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),

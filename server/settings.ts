@@ -110,6 +110,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
       if (await flag(db, w, "channel_whatsapp_v1")) pages.push("whatsapp");
       // Phase 12 E6: SMS's account, numbers, prices and consent.
       if (await flag(db, w, "channel_sms_v1")) pages.push("sms");
+      // Phase 12 E7: a Facebook Page and its Instagram account (either channel on).
+      if ((await flag(db, w, "channel_facebook_v1")) || (await flag(db, w, "channel_instagram_v1"))) pages.push("meta");
       pages.push("suppressions");
     }
   }
