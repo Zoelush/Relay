@@ -20,6 +20,10 @@ import { checkWhatsAppNumberJob, receiveWhatsAppJob, submitTemplateJob, syncTemp
 import { graphApi } from "../server/whatsapp-api";
 import { checkSmsAccountJob, connectSmsNumberJob, receiveSmsJob, type SmsEnvironment } from "../server/sms";
 import { twilioApi } from "../server/sms-api";
+import { checkMetaPageJob, receiveMetaJob, type MetaEnvironment } from "../server/meta-messaging";
+import { graphMessaging } from "../server/meta-api";
+/** Instagram and Facebook Messenger (phase 12 E7): the Graph API, with each workspace's Page token (sealed). */
+const metaEnvironment = (env: Env, storage: MetaEnvironment["storage"]): MetaEnvironment => ({ api: graphMessaging(), key: env.RELAY_CONNECTOR_KEY, storage });
 /** SMS (phase 12 E6): Twilio, with each workspace's account (sealed with RELAY_CONNECTOR_KEY); status callbacks to the public origin. */
 const smsEnvironment = (env: Env, storage: SmsEnvironment["storage"]): SmsEnvironment => ({ api: twilioApi(), key: env.RELAY_CONNECTOR_KEY, storage, hookOrigin: env.PUBLIC_ORIGIN });
 /** WhatsApp (phase 12 E5): Meta's Cloud API; credentials are each workspace's, sealed with RELAY_CONNECTOR_KEY. */
@@ -510,6 +514,7 @@ const relayWorker = {
               email: emailOutEnvironment(env, runtime.attachments),
               whatsapp: whatsappEnvironment(env, runtime.attachments),
               sms: smsEnvironment(env, runtime.attachments),
+              meta: metaEnvironment(env, runtime.attachments),
             },
           },
           job,
@@ -518,6 +523,9 @@ const relayWorker = {
       "sms.receive": (job) => receiveSmsJob(runtime.connect, smsEnvironment(env, runtime.attachments), job),
       "sms.check": (job) => checkSmsAccountJob(runtime.connect, smsEnvironment(env, runtime.attachments), job),
       "sms.number": (job) => connectSmsNumberJob(runtime.connect, smsEnvironment(env, runtime.attachments), job),
+      // Phase 12 E7: Meta's Messenger and Instagram calls read, Pages checked.
+      "meta.receive": (job) => receiveMetaJob(runtime.connect, metaEnvironment(env, runtime.attachments), job),
+      "meta.check": (job) => checkMetaPageJob(runtime.connect, metaEnvironment(env, runtime.attachments), job),
       // Phase 12 E5: WhatsApp's webhook calls read, numbers checked, templates submitted and synced.
       "whatsapp.receive": (job) => receiveWhatsAppJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
       "whatsapp.check": (job) => checkWhatsAppNumberJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),

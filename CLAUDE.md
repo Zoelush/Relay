@@ -35,8 +35,11 @@ complete, with the Claude evaluation baseline waiting for a key. Monitors (`serv
 (conversation, part, author) or a `zoe_incident` (incident only). Phase 10 (agent copilot) is skipped for now. Phase 12 (`docs/OMNICHANNEL_PLAN.md`):
 E1, the channel contract (`server/channels.ts`, `channels_v1`), E2, email in (`server/email-in.ts`, `channel_email_v1`), E3, email
 out (`server/email-out.ts`), and E4, email in the inbox, are done locally (`docs/OMNICHANNEL_STEP1.md` to `STEP4.md`): email is
-complete. E5, WhatsApp (`server/whatsapp.ts`, `channel_whatsapp_v1`), and E6, SMS (`server/sms.ts`, `channel_sms_v1`), are done locally
-(`docs/OMNICHANNEL_STEP5.md`, `STEP6.md`); next is E7 (Instagram and Facebook). SMS segments are counted only by `lib/sms.ts`
+complete. E5, WhatsApp (`server/whatsapp.ts`, `channel_whatsapp_v1`), and E6, SMS (`server/sms.ts`, `channel_sms_v1`), and E7,
+Instagram and Facebook Messenger (`server/meta-messaging.ts`), are done locally (`docs/OMNICHANNEL_STEP5.md` to `STEP7.md`);
+next is E8 (Slack and Discord). Meta's windows are the adapters' `refuses`, told the part's author (a teammate may reply,
+tagged HUMAN_AGENT, up to 7 days; automation only within 24 hours); inbound attachments come only from Meta's CDN, and
+files go out by short-lived signed links. SMS segments are counted only by `lib/sms.ts`
 (the composer and the 10-segment limit share it); an SMS opt-out is a suppression kept for good (START lifts it, recorded);
 a teammate's text to an opted-out or unconsented number is refused when written; Twilio's calls are kept only when signed with
 the account's token. WhatsApp's 24-hour window is its adapter's `refuses` (given the part: only an approved template, to an opted-in

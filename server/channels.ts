@@ -58,6 +58,8 @@ export type Outbound = {
   /** What the adapter's `prepare` read from the database, inside the gate's transaction. */
   prepared?: Record<string, unknown>;
 };
+/** What a channel's rules see of a part: its kind, data and (E7) who wrote it (`teammate`, `ai`, `system`). */
+export type OutboundPart = { kind: string; data: Record<string, unknown>; author?: string };
 export type SendResult =
   | { status: "sent" | "delivered"; providerId?: string }
   /** A failure retrying won't fix (an invalid address); a thrown error is retried. */
@@ -75,9 +77,9 @@ export type ChannelAdapter = {
   send?(out: Outbound, env: ChannelEnvironment): Promise<SendResult>;
   /**
    * The channel's own rule on sending now (a closed window), or null. E5: given the part, so a
-   * template can go when nothing else may.
+   * template can go when nothing else may; E7: and who wrote it (a teammate may reply for longer).
    */
-  refuses?(db: Sql, w: string, conversationId: string, part?: { kind: string; data: Record<string, unknown> }): Promise<string | null>;
+  refuses?(db: Sql, w: string, conversationId: string, part?: OutboundPart): Promise<string | null>;
   /**
    * Inside the gate's transaction, after `mayDeliver`: what sending needs from the database
    * (`out.prepared`), a later time to try (a rate limit), or why it can't go. `send` runs after,
@@ -161,14 +163,15 @@ export async function channelIdentity(db: Sql, w: string, a: ChannelAdapter, raw
   }
   const email = a.capabilities.address === "email";
   const phone = a.capabilities.address === "phone";
-  const known = verified
+  // A verified email or phone joins the contact that has it verified; an account (E7: a Page-scoped
+  // id) is the platform's alone, so it joins no one.
+  const known =
+    verified && (email || phone)
     ? (
         await db.query<{ contact_id: string }>(
           email
             ? "SELECT contact_id FROM contact_emails WHERE workspace_id=$1 AND lower(email)=$2 AND verified ORDER BY contact_id LIMIT 1"
-            : phone
-              ? "SELECT contact_id FROM contact_phones WHERE workspace_id=$1 AND phone=$2 AND verified ORDER BY contact_id LIMIT 1"
-              : "SELECT NULL::text AS contact_id WHERE false",
+            : "SELECT contact_id FROM contact_phones WHERE workspace_id=$1 AND phone=$2 AND verified ORDER BY contact_id LIMIT 1",
           [w, address],
         )
       ).rows[0]?.contact_id
@@ -353,7 +356,7 @@ export async function decideHeld(db: Sql, w: string, principal: string, key: str
  * The single gate every send passes: nothing goes to a suppressed address, or when the channel's
  * own rules refuse (a closed window). TODO(phase 13): subscription types and consent.
  */
-export async function mayDeliver(db: Sql, w: string, channel: string, address: string, conversationId: string | null, part?: { kind: string; data: Record<string, unknown> }) {
+export async function mayDeliver(db: Sql, w: string, channel: string, address: string, conversationId: string | null, part?: OutboundPart) {
   const blocked = (
     await db.query<{ reason: string }>("SELECT reason FROM suppressions WHERE workspace_id=$1 AND channel=$2 AND address=$3 AND lifted_at IS NULL", [w, channel, address])
   ).rows[0];
@@ -381,10 +384,11 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
         purpose: Outbound["purpose"];
         not_before: string | null;
         kind: string;
+        author_type: string;
         body: string;
         data: Record<string, unknown>;
       }>(
-        `SELECT d.id,d.status,d.channel,d.address,d.conversation_id,d.part_id,d.purpose,d.not_before,p.kind,p.body,p.data FROM channel_deliveries d
+        `SELECT d.id,d.status,d.channel,d.address,d.conversation_id,d.part_id,d.purpose,d.not_before,p.kind,p.author_type,p.body,p.data FROM channel_deliveries d
          JOIN conversation_parts p ON p.workspace_id=d.workspace_id AND p.id=d.part_id WHERE d.workspace_id=$1 AND d.id=$2 FOR UPDATE OF d`,
         [w, deliveryId],
       )
@@ -395,7 +399,7 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
       await setStatus(db, w, d.id, "failed", "Channels were turned off.");
       return null;
     }
-    const gate = await mayDeliver(db, w, d.channel, d.address, d.conversation_id, { kind: d.kind, data: d.data });
+    const gate = await mayDeliver(db, w, d.channel, d.address, d.conversation_id, { kind: d.kind, data: d.data, author: d.author_type });
     if (!gate.ok) {
       await setStatus(db, w, d.id, gate.status, gate.reason);
       return null;

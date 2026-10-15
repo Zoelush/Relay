@@ -19,6 +19,8 @@ type Target = {
   cc?: string;
   /** E5: a session window (WhatsApp's 24 hours), and the templates that may go once it's closed. */
   window?: { open: boolean; closesAt: string | null };
+  /** E7: what the channel says about its closed window (Messenger's and Instagram's differ from WhatsApp's). */
+  windowNote?: string | null;
   templates?: WaTemplate[];
   /** E6: the number a text goes from, its segment limit, and what a segment costs to the customer's country. */
   from?: string | null;
@@ -52,10 +54,10 @@ export function ReplyTarget({ target }: { target: NonNullable<Target> }) {
         {target.subject ? ` · ${target.subject}` : ""}
         {target.window?.open && closes ? ` · window open until ${closes.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
       </span>
-      {/* E5: once the window has closed, only a template may go. */}
+      {/* E5: once the window has closed, only a template may go; E7: the channel's own note. */}
       {target.window && !target.window.open && (
         <strong className="pg-window-closed" role="status">
-          The 24-hour window has closed: send an approved template.
+          {target.windowNote ?? "The 24-hour window has closed: send an approved template."}
         </strong>
       )}
     </>

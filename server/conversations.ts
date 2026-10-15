@@ -974,7 +974,7 @@ export async function command(
           400,
         );
         // Phase 12 E5: the channel's own rule on sending now (WhatsApp's closed window), said at once.
-        const refusal = await adapterOf(c.current_channel).refuses?.(db, w, c.id, { kind, data: templated?.data ?? {} });
+        const refusal = await adapterOf(c.current_channel).refuses?.(db, w, c.id, { kind, data: templated?.data ?? {}, author: actor.type === "teammate" ? "teammate" : "system" });
         assert(!refusal, "CHANNEL_REFUSES", refusal ?? "", 409);
         // Phase 12 E4: a teammate's reply can copy others in, where the channel can (email's Cc and Bcc).
         const e = (p.email ?? null) as { cc?: unknown; bcc?: unknown } | null;
