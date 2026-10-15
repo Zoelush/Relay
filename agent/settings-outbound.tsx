@@ -19,8 +19,8 @@ type Subscriptions = {
 const CHANNELS: Record<string, string> = { email: "Email", sms: "SMS", whatsapp: "WhatsApp", in_app: "In-app" };
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-/** Load a page's data, and change it (a notice when done, the error when not). */
-function usePage<T>(path: string, failure: string) {
+/** Load a page's data, and change it (a notice when done, the error when not), by `postPath` if it differs. */
+function usePage<T>(path: string, failure: string, postPath = path) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -38,7 +38,7 @@ function usePage<T>(path: string, failure: string) {
     setError("");
     setNotice("");
     try {
-      setData(await api<T>(path, body));
+      setData(await api<T>(postPath, body));
       setNotice(done);
       return true;
     } catch (e) {
@@ -231,5 +231,49 @@ function TypeRow({ t, onChange }: { t: Subscriptions["types"][number]; onChange:
         </>
       )}
     </li>
+  );
+}
+
+/**
+ * Settings › Outbound (phase 13, step O2; docs/OUTBOUND_STEP2.md), behind `outbound_v1`: the
+ * limits every message is held to: at most so many messages to a person in so many days, across
+ * all outbound, and quiet hours in their timezone (this one when theirs isn't known).
+ */
+type OutboundSettings = { settings: { capCount: number; capDays: number; quietStart: string; quietEnd: string; timezone: string } };
+export function OutboundPage({ menu, page }: { menu: MenuState; page: Page }) {
+  const { data, change, banners } = usePage<OutboundSettings>("outbound", "Outbound couldn't be loaded.", "outbound-settings");
+  return (
+    <Frame menu={menu} page={page}>
+      {banners}
+      {data && <OutboundLimits key={JSON.stringify(data.settings)} s={data.settings} onChange={change} />}
+    </Frame>
+  );
+}
+function OutboundLimits({ s, onChange }: { s: OutboundSettings["settings"]; onChange: (b: Record<string, unknown>, done: string) => Promise<boolean> }) {
+  const [count, setCount] = useState(String(s.capCount));
+  const [days, setDays] = useState(String(s.capDays));
+  const [start, setStart] = useState(s.quietStart);
+  const [end, setEnd] = useState(s.quietEnd);
+  const [timezone, setTimezone] = useState(s.timezone);
+  return (
+    <Card title="Limits" description="Every outbound message is held to these, whatever its own settings: nobody gets more than the cap, and messages that respect quiet hours wait until they're over.">
+      <form
+        className="pg-settings-row"
+        aria-label="Outbound limits"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void onChange({ capCount: Number(count), capDays: Number(days), quietStart: start, quietEnd: end, timezone }, "Limits saved.");
+        }}
+      >
+        <Field label="At most (messages)">{(id) => <input id={id} type="number" min={1} max={50} value={count} onChange={(e) => setCount(e.target.value)} />}</Field>
+        <Field label="In (days)">{(id) => <input id={id} type="number" min={1} max={30} value={days} onChange={(e) => setDays(e.target.value)} />}</Field>
+        <Field label="Quiet from">{(id) => <input id={id} type="time" value={start} onChange={(e) => setStart(e.target.value)} />}</Field>
+        <Field label="Quiet until">{(id) => <input id={id} type="time" value={end} onChange={(e) => setEnd(e.target.value)} />}</Field>
+        <Field label="Timezone when theirs isn't known">{(id) => <input id={id} placeholder="Europe/London" value={timezone} onChange={(e) => setTimezone(e.target.value)} />}</Field>
+        <button type="submit" className="pg-primary">
+          Save
+        </button>
+      </form>
+    </Card>
   );
 }

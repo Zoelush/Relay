@@ -25,6 +25,7 @@ import { graphMessaging } from "../server/meta-api";
 import { checkCommunityJob, discordConnections, receiveCommunityJob, type CommunityEnvironment } from "../server/community";
 import { discordRestApi, slackWebApi } from "../server/community-api";
 import { DiscordGatewayObject } from "./discord-gateway";
+import { launchJob, outboundSweep } from "../server/outbound";
 import { buyNumberJob, configureVoiceNumberJob, readRecordingJob, searchNumbersJob, startRecordingJob, type VoiceEnvironment } from "../server/voice";
 import { workersAiTranscriber, type WorkersAiSpeech } from "../server/voice-transcribe";
 /** Voice (phase 12 E9): Twilio (the SMS account) and Workers AI's Whisper for transcripts. */
@@ -567,6 +568,8 @@ const relayWorker = {
       "voice.number": (job) => configureVoiceNumberJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
       "voice.search": (job) => searchNumbersJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
       "voice.buy": (job) => buyNumberJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
+      // Phase 13 O2: a fixed audience (a one-off, or an occurrence) entered, in batches.
+      "outbound.launch": (job) => launchJob(runtime.connect, job),
       // Phase 12 E5: WhatsApp's webhook calls read, numbers checked, templates submitted and synced.
       "whatsapp.receive": (job) => receiveWhatsAppJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
       "whatsapp.check": (job) => checkWhatsAppNumberJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
@@ -667,6 +670,8 @@ const relayWorker = {
           await resumeDueWorkflows(runtime.connect, work.workspace);
           // Time triggers (phase 11 W4), checked once a minute.
           await checkTimedWorkflows(runtime.connect, work.workspace);
+          // Outbound (phase 13 O2): one-offs that started, and recurring messages' occurrences.
+          await outboundSweep(runtime.connect, work.workspace);
           // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
           // and sending domains due a check.
           await releaseDeferred(runtime.connect, work.workspace);

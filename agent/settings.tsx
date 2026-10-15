@@ -59,7 +59,7 @@ import { SmsPage } from "./settings-sms";
 import { MetaPage } from "./settings-meta";
 import { CommunityPage } from "./settings-community";
 import { VoicePage } from "./settings-voice";
-import { EventsPage, SubscriptionsPage } from "./settings-outbound";
+import { EventsPage, OutboundPage, SubscriptionsPage } from "./settings-outbound";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -247,6 +247,14 @@ const PAGES: Page[] = [
     description: "Take calls on your numbers: recording consent, Zoe on the phone, transfers and voicemail.",
     icon: Phone,
     group: "Channels",
+  },
+  {
+    // Phase 13 O2: the limits every outbound message is held to.
+    id: "outbound",
+    label: "Limits",
+    description: "How many messages anyone gets, across all outbound, and quiet hours.",
+    icon: Timer,
+    group: "Outbound",
   },
   {
     // Phase 13 O1: the kinds of message people choose to get.
@@ -535,6 +543,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "outbound" ? (
+            <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (
             <EventsPage menu={menu} page={current} />
           ) : current.id === "subscriptions" ? (

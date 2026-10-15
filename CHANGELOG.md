@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: Outbound engine and in-app chat messages (phase 13, O2)
+
+- **In-app chat messages:** a chat from a teammate opens the messenger when the right person visits. Their reply continues into the inbox.
+- **Who gets it:** a segment and rules, plus page, device, language and open-conversation rules checked on the page.
+- **When:** once (a fixed audience), ongoing (whoever matches), after an event (with a delay), or daily or weekly. Each person gets it once, once a period, or every time (with a cap).
+- **Limits that always hold:** a cap per person across all outbound (3 in 7 days by default, in Settings › Outbound › Limits), each message's own cap, quiet hours in their timezone, and their subscription choices, with no bypass. Tested with ten messages matching at once on real PostgreSQL.
+- **Measuring:** a ledger per person (sent, seen, replied), versions that never change under people already in a message, scheduled edits, and a goal against a held-out control group, reported honestly.
+- **API only for now;** the Outbound area comes next.
+- **Behind `outbound_v1`,** off by default.
+- **Migration:** 0072, with rollback.
+- **Details:** `docs/OUTBOUND_STEP2.md`.
+
 ## Unreleased: Events, subscriptions and segments (phase 13, O1)
 
 - **People:** a new area listing contacts by segment, with live counts as you build rules. The rules cover type, email, dates, attributes, events and subscriptions. Rules can be saved as segments; All users, All leads, Active and New are built in.

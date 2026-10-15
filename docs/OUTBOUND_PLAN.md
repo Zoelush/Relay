@@ -1,6 +1,6 @@
 # Phase 13: Outbound and proactive messaging (plan)
 
-Brief: `docs/BUILD_PHASES.md` phase 13. It needs phases 01, 03 and 11. Drafted on 15 October 2026. O1 was approved that day ("go ahead with O1 and also look at intercom on the live account"), with the recommendations below. The scope after O1 (all of O1 to O9, or a cut) is still to be decided.
+Brief: `docs/BUILD_PHASES.md` phase 13. It needs phases 01, 03 and 11. Drafted on 15 October 2026. O1 was approved that day ("go ahead with O1 and also look at intercom on the live account"), with the recommendations below. On 15 October the scope was set to the brief's cut, O1 to O3 ("go ahead with O2", after the cut was offered as the default); O4 to O9 wait for customers to ask.
 
 The brief's order is the plan's order: the shared engine first, then message types one at a time. Every message type goes through the same audience, caps, subscriptions, ledger and goals, so the acceptance criteria (opted-out contacts receive nothing; caps hold under a burst) are properties of the engine, not of each type.
 
@@ -77,4 +77,12 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **People sees the details `contacts.personal_data` allows** (agents included, as in Intercom). Events and subscription types are for managers.
     - **Seen in Intercom** (read-only, nothing changed): its predefined segments (All users, All leads, Active, New), events with a tracked limit and archiving, and subscription types with consent and channel, which Relay matches. The Outbound list and a banner's summary (versions, rules, frequency and scheduling) are noted in `docs/OUTBOUND_STEP1.md` for O2.
 
-Handoffs: `docs/OUTBOUND_STEP1.md` (O1).
+12. **O2 decisions** (16 October 2026):
+    - **Scope:** O1 to O3 (the brief's cut), unless asked for more.
+    - **In-app messages are delivered when the messenger asks** (`/v1/messenger/due`, after boot and on each page change), at most one chat a page view. The subscription check for in-app is in `admit`, right before delivering; channel messages (from O4) are also checked by `mayDeliver`.
+    - **An outbound chat is a conversation created closed,** from its sender, so it's nobody's work until they reply. Its first reply is exempt from "no replies once closed".
+    - **The holdout is decided when a person first qualifies:** at a snapshot or event for fixed audiences, at the visit for ongoing ones. It needs a goal, and a re-entry of once or once a period.
+    - **Goals are events.** Attribute-change goals wait for attribute history (phase 01).
+    - **The lift is said only with 100 people in each group,** with its 95% interval. Full A/B testing (O5) is out of the current scope.
+
+Handoffs: `docs/OUTBOUND_STEP1.md` (O1), `docs/OUTBOUND_STEP2.md` (O2).

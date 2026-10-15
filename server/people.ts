@@ -142,6 +142,7 @@ export async function seedFoundation(
     "channel_discord_v1",
     "channel_voice_v1",
     "segments_v1",
+    "outbound_v1",
   ])
     await db.query(
       "INSERT INTO workspace_features(workspace_id,name,enabled) VALUES($1,$2,false) ON CONFLICT DO NOTHING",

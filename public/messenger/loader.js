@@ -3,6 +3,8 @@
   "use strict";
   const pending = window.Relay?.q || [];
   let config, boot, host, root, button, badge, frame, channel, socket, custom;
+  // Phase 13 O2: an outbound chat to open once the frame is ready.
+  let pendingConversation;
   let generation = 0,
     opened = false,
     retry = 0,
@@ -257,9 +259,20 @@
       const requested = openRequested;
       openRequested = undefined;
       open(requested);
-    }
+    } else due(epoch);
+  }
+  // Phase 13 O2: what outbound has for this person on this page. A chat opens the messenger on it.
+  function due(epoch) {
+    if (!boot) return;
+    api("due", { pageUrl: location.href }, boot.token)
+      .then((r) => {
+        const chat = r && r.outbound && r.outbound[0];
+        if (chat && epoch === generation) open({ conversation: chat.conversationId });
+      })
+      .catch(fail);
   }
   function open(space) {
+    if (space && typeof space === "object" && space.conversation && !frame) pendingConversation = space.conversation;
     if (!boot || !root || !button) {
       openRequested = space || true;
       return;
@@ -288,7 +301,10 @@
     opened = true;
     button.setAttribute("aria-expanded", "true");
     frame.focus();
-    post("open", { space: typeof space === "string" ? space : undefined });
+    post("open", {
+      space: typeof space === "string" ? space : undefined,
+      conversation: space && typeof space === "object" ? space.conversation : undefined,
+    });
     emit("open", {});
   }
   function close() {
@@ -342,8 +358,10 @@
     )
       return;
     const data = event.data;
-    if (data.type === "ready")
-      post("initialize", { boot, api: config.api, open: opened });
+    if (data.type === "ready") {
+      post("initialize", { boot, api: config.api, open: opened, conversation: pendingConversation });
+      pendingConversation = undefined;
+    }
     if (data.type === "close") close();
     if (data.type === "error") fail(data);
     if (data.type === "sound") sound = data.enabled;
@@ -385,8 +403,10 @@
     }
     clearTimeout(navigationTimer);
     navigationTimer = setTimeout(() => {
-      if (boot)
+      if (boot) {
         api("context", { pageUrl: location.href }, boot.token).catch(fail);
+        if (!opened) due(generation);
+      }
     }, 100);
   }
   for (const name of ["pushState", "replaceState"]) {
