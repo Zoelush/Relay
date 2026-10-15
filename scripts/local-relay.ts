@@ -67,6 +67,8 @@ import { LOCAL_META, localMeta } from "./local-meta";
 import { checkMetaPageJob, receiveMetaJob, receiveMetaWebhook, type MetaEnvironment } from "../server/meta-messaging";
 import { LOCAL_DISCORD, LOCAL_SLACK, localCommunity } from "./local-community";
 import { checkCommunityJob, ingestDiscordMessage, receiveCommunityJob, receiveSlackWebhook, type CommunityEnvironment } from "../server/community";
+import { buyNumberJob, configureVoiceNumberJob, readRecordingJob, searchNumbersJob, startRecordingJob, type VoiceEnvironment } from "../server/voice";
+import type { TranscriptionPort } from "../server/voice-transcribe";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
 export const LOCAL_EMAIL_DOMAIN = "inbound.relay.localhost";
@@ -183,6 +185,12 @@ export async function startLocalRelay(
     communityFlag?: boolean;
     /** Development seed (phase 12 E8): a Slack workspace and a Discord server, connected for the default brand. */
     exampleCommunity?: boolean;
+    /** Voice (phase 12 E9), likewise on unless turned off. */
+    voiceFlag?: boolean;
+    /** Development seed (phase 12 E9): the demo's UK number takes calls, Zoe answers, the owner's phone is rung. */
+    exampleVoice?: boolean;
+    /** Transcription for calls (phase 12 E9): tests pass their own; a stand-in otherwise. */
+    transcriber?: TranscriptionPort;
     /** Development seed (phase 12 E2): two example emails in the demo workspace. */
     exampleEmail?: boolean;
     /** Development seed (phase 11 W2): a draft workflow to open in the builder. */
@@ -306,6 +314,14 @@ export async function startLocalRelay(
   // Slack and Discord (phase 12 E8): stand-ins; Slack's calls signed and checked as Slack's are.
   const community = localCommunity();
   const communityEnv: CommunityEnvironment = { slack: community.slack, discord: community.discord, key: keys.connector, storage: env.attachments };
+  // Voice (phase 12 E9): Twilio's stand-in (SMS's), and a transcriber that says it's a stand-in.
+  const transcriber: TranscriptionPort = options.transcriber ?? {
+    async transcribe(audio) {
+      return { text: `(Stand-in transcript of ${audio.length} bytes.)`, segments: [{ start: 0, end: 1, text: `(Stand-in transcript of ${audio.length} bytes.)` }] };
+    },
+  };
+  const voiceEnv: VoiceEnvironment = { api: sms.api, key: keys.connector, storage: env.attachments, transcriber };
+  env.voice = { api: sms.api };
   const emailOut: EmailOutEnvironment = {
     sender: email.sender,
     dns: email.dns,
@@ -661,6 +677,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_facebook_v1','channel_instagram_v1')",
         [w, options.metaFlag !== false],
       );
+      // Voice (phase 12, E9).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='channel_voice_v1'",
+        [w, options.voiceFlag !== false],
+      );
       // Slack and Discord (phase 12, E8).
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_slack_v1','channel_discord_v1')",
@@ -897,6 +918,11 @@ export async function startLocalRelay(
   const unregister = (options.channels ?? []).map(registerChannel);
   handlers["channel.deliver"] = (job) => runDelivery(db.connect, { providers: { email: emailOut, whatsapp: whatsappEnv, sms: smsEnv, meta: metaEnv, community: communityEnv } }, job);
   handlers["community.receive"] = (job) => receiveCommunityJob(db.connect, communityEnv, job);
+  handlers["voice.record"] = (job) => startRecordingJob(db.connect, voiceEnv, job);
+  handlers["voice.recording"] = (job) => readRecordingJob(db.connect, voiceEnv, job);
+  handlers["voice.number"] = (job) => configureVoiceNumberJob(db.connect, voiceEnv, job);
+  handlers["voice.search"] = (job) => searchNumbersJob(db.connect, voiceEnv, job);
+  handlers["voice.buy"] = (job) => buyNumberJob(db.connect, voiceEnv, job);
   // Discord's gateway runs only deployed (a Durable Object); locally, messages come by /dev/discord.
   handlers["community.check"] = (job) => checkCommunityJob(db.connect, communityEnv, job);
   // Development seed (phase 12 E8): a Slack workspace and a Discord server for the default brand.
@@ -957,6 +983,14 @@ export async function startLocalRelay(
         "INSERT INTO sms_numbers(workspace_id,id,brand_id,phone,calling_code,number_sid,is_default,status,created_by) VALUES('demo','demo-sms','default',$1,$2,'PN447700900100',true,'connected','owner')",
         [LOCAL_TWILIO.numbers[0], callingCode(LOCAL_TWILIO.numbers[0])],
       );
+    });
+  // Development seed (phase 12 E9): the demo's UK number (E6's seed) takes calls; Zoe answers with
+  // consent asked; the owner's phone is rung for a transfer.
+  if (options.exampleVoice && options.exampleSms && options.voiceFlag !== false && options.channelsFlag !== false)
+    await tenant(db.connect, "demo", async (q) => {
+      await q.query("UPDATE sms_numbers SET voice=true WHERE workspace_id='demo' AND id='demo-sms'");
+      await q.query("INSERT INTO voice_settings(workspace_id,zoe) VALUES('demo',true) ON CONFLICT DO NOTHING");
+      await q.query("INSERT INTO voice_agents(workspace_id,teammate_id,phone) VALUES('demo','owner','+447700900999') ON CONFLICT DO NOTHING");
     });
   handlers["whatsapp.receive"] = (job) => receiveWhatsAppJob(db.connect, whatsappEnv, job);
   handlers["whatsapp.check"] = (job) => checkWhatsAppNumberJob(db.connect, whatsappEnv, job);
@@ -1563,6 +1597,7 @@ if (
     exampleSms: true,
     exampleMeta: true,
     exampleCommunity: true,
+    exampleVoice: true,
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),

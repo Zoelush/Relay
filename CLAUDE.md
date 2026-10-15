@@ -37,7 +37,12 @@ E1, the channel contract (`server/channels.ts`, `channels_v1`), E2, email in (`s
 out (`server/email-out.ts`), and E4, email in the inbox, are done locally (`docs/OMNICHANNEL_STEP1.md` to `STEP4.md`): email is
 complete. E5, WhatsApp (`server/whatsapp.ts`, `channel_whatsapp_v1`), and E6, SMS (`server/sms.ts`, `channel_sms_v1`), and E7,
 Instagram and Facebook Messenger (`server/meta-messaging.ts`), are done locally (`docs/OMNICHANNEL_STEP5.md` to `STEP7.md`);
-E8, Slack and Discord (`server/community.ts`), is done locally (`docs/OMNICHANNEL_STEP8.md`); next is E9 (voice). Slack events are
+E8, Slack and Discord (`server/community.ts`), is done locally (`docs/OMNICHANNEL_STEP8.md`), and E9, voice (`server/voice.ts`,
+`channel_voice_v1`), is done locally (`docs/OMNICHANNEL_STEP9.md`): phase 12's plan is complete. A call is steered only by
+Twilio's signed steps (`voiceHook`); recording is allowed by the caller's calling code (none, announced, or press 1), and Zoe
+and transcripts only ever hear a recorded call. Zoe on a call answers through her own `ai.reply` pipeline (each utterance is the
+caller's message); never give a call its own model path. Recordings and transcripts are internal; a call is never answered in
+writing (the adapter's `refuses`). Slack events are
 taken only when signed, within 5 minutes, once per event id, for a connected Slack workspace's own team; Discord's gateway
 protocol is `DiscordGatewaySession` (tested apart from any socket) and runs in the `DiscordGateway` Durable Object. Meta's windows are the adapters' `refuses`, told the part's author (a teammate may reply,
 tagged HUMAN_AGENT, up to 7 days; automation only within 24 hours); inbound attachments come only from Meta's CDN, and

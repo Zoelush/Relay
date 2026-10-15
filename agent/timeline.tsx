@@ -102,6 +102,10 @@ export const activeTags = (dir: Pick<Directory, "tags">) =>
 export const tagLabel = (t: Directory["tags"][number]) =>
   t.archived ? `${t.name} (archived)` : t.name;
 
+const CALL_ENDS: Record<string, string> = { completed: "ended", busy: "not answered (busy)", no_answer: "not answered", failed: "failed", canceled: "hung up before it was answered" };
+/** Seconds as m:ss, for a call's length and its transcript's lines. */
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
 export function describePart(p: TimelinePart, dir: Directory): string {
   const d = p.data;
   const who =
@@ -161,6 +165,13 @@ export function describePart(p: TimelinePart, dir: Directory): string {
     case "channel_handover":
       return `Conversation moved to ${String(d.channel ?? "another channel")}`;
     case "system_event":
+      // Phase 12 E9: a call's end, its transfer, and its transcript's lines (team only).
+      if (d.event === "call_ended")
+        return `Call ${CALL_ENDS[String(d.status)] ?? "ended"}${typeof d.duration === "number" && d.duration > 0 ? ` after ${clock(d.duration)}` : ""}`;
+      if (d.event === "call_transferred")
+        return `${String(d.name ?? "A teammate")} took the call`;
+      if (d.event === "call_transcript")
+        return `Transcript ${clock(Number(d.start ?? 0))}: ${String(d.text ?? "")}`;
       if (d.event === "sla_breached")
         return `${SLA_NAMES[String(d.metric)] ?? "SLA"} SLA breached (${(d.policy as { name?: string })?.name ?? "policy"})`;
       if (d.event === "ticket_status")

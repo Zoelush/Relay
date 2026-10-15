@@ -25,6 +25,15 @@ import { graphMessaging } from "../server/meta-api";
 import { checkCommunityJob, discordConnections, receiveCommunityJob, type CommunityEnvironment } from "../server/community";
 import { discordRestApi, slackWebApi } from "../server/community-api";
 import { DiscordGatewayObject } from "./discord-gateway";
+import { buyNumberJob, configureVoiceNumberJob, readRecordingJob, searchNumbersJob, startRecordingJob, type VoiceEnvironment } from "../server/voice";
+import { workersAiTranscriber, type WorkersAiSpeech } from "../server/voice-transcribe";
+/** Voice (phase 12 E9): Twilio (the SMS account) and Workers AI's Whisper for transcripts. */
+const voiceEnvironment = (env: Env, storage: VoiceEnvironment["storage"]): VoiceEnvironment => ({
+  api: twilioApi(),
+  key: env.RELAY_CONNECTOR_KEY,
+  storage,
+  transcriber: env.AI ? workersAiTranscriber(env.AI as unknown as WorkersAiSpeech) : undefined,
+});
 /** Slack and Discord (phase 12 E8): their Web and REST APIs, with each workspace's bot token (sealed). */
 const communityEnvironment = (env: Env, storage: CommunityEnvironment["storage"]): CommunityEnvironment => ({
   slack: slackWebApi(),
@@ -263,6 +272,7 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     emailSending: { sendingDomain: env.RELAY_SENDING_DOMAIN ?? env.RELAY_INBOUND_DOMAIN ?? "", region: env.RELAY_SES_REGION ?? "eu-west-2" },
     sesReports: env.RELAY_SES_TOPIC_ARN ? { topicArn: env.RELAY_SES_TOPIC_ARN } : undefined,
     whatsapp: { api: graphApi() },
+    voice: { api: twilioApi() },
     bridgeSecret: env.BRIDGE_SECRET,
     realtimeUrl: env.PUBLIC_ORIGIN.replace(/^http/, "ws") + "/realtime",
     notify: (workspace, id) =>
@@ -551,6 +561,12 @@ const relayWorker = {
       // Phase 12 E8: Slack's events and Discord's messages read; bots checked (Discord's gateway then started).
       "community.receive": (job) => receiveCommunityJob(runtime.connect, communityEnvironment(env, runtime.attachments), job),
       "community.check": (job) => checkCommunityJob(runtime.connect, communityEnvironment(env, runtime.attachments), job, (w, id) => ensureGateway(env, w, id)),
+      // Phase 12 E9: calls recorded (with consent), recordings stored and transcribed, numbers set up and bought.
+      "voice.record": (job) => startRecordingJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
+      "voice.recording": (job) => readRecordingJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
+      "voice.number": (job) => configureVoiceNumberJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
+      "voice.search": (job) => searchNumbersJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
+      "voice.buy": (job) => buyNumberJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
       // Phase 12 E5: WhatsApp's webhook calls read, numbers checked, templates submitted and synced.
       "whatsapp.receive": (job) => receiveWhatsAppJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
       "whatsapp.check": (job) => checkWhatsAppNumberJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),

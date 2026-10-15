@@ -1337,6 +1337,7 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 .pg-settings-row { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
 .pg-settings-row .pg-settings-field { flex:1; min-width:180px; }
 .pg-settings-actions { display:flex; justify-content:flex-end; gap:8px; }
+.pg-settings-stack { display:flex; flex-direction:column; gap:12px; }
 .pg-settings-day { display:grid; grid-template-columns:140px 1fr; gap:10px; align-items:start; padding:4px 0; }
 .pg-settings-windows { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; min-height:28px; }
 .pg-settings-window { display:inline-flex; align-items:center; gap:6px; font-size:13px; }

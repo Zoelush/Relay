@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: Voice (phase 12, E9)
+
+- **Take calls on your Twilio numbers,** or buy a number from Settings (only once you confirm). Each call is a conversation.
+- **Recording consent by country:** don't record, record and say so, or ask first (press 1).
+- **Zoe answers calls** (when they're recorded) with her usual answers, made to be spoken. Callers can talk over her. Two silences, eight turns or her handover pass the call to the team.
+- **Warm transfer:** teammates who take calls are rung one at a time. Each hears who's calling and why, and presses 1 to take it; the context is also a note.
+- **Voicemail** when nobody answers or you're closed.
+- **Recordings** are kept for the team and transcribed into the conversation.
+- **Behind `channel_voice_v1`,** off by default.
+- **Migration:** 0070, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP9.md`.
+
 ## Unreleased: Slack and Discord (phase 12, E8)
 
 - **Connect a Slack workspace or a Discord server** with your own app or bot. Tokens are stored encrypted.

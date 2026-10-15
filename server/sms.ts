@@ -40,7 +40,8 @@ async function smsOn(db: Sql, w: string) {
       .n === 2
   );
 }
-async function credentials(db: Sql, w: string, key: string): Promise<(SmsCredentials & { status: string; helpReply: string }) | null> {
+/** The workspace's Twilio account, unsealed (E9's calls use it too). */
+export async function credentials(db: Sql, w: string, key: string): Promise<(SmsCredentials & { status: string; helpReply: string }) | null> {
   const a = (await db.query<{ account_sid: string; token_sealed: string; status: string; help_reply: string }>("SELECT account_sid,token_sealed,status,help_reply FROM sms_accounts WHERE workspace_id=$1", [w])).rows[0];
   return a ? { sid: a.account_sid, token: await unseal(key, w, SEAL_ID, "token", a.token_sealed), status: a.status, helpReply: a.help_reply } : null;
 }

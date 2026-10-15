@@ -22,8 +22,16 @@ export interface SmsApi {
   configure(c: SmsCredentials, numberSid: string, smsUrl: string): Promise<void>;
   /** Sends; Twilio's message SID. Throws `SmsRejected` when retrying can't help. */
   send(c: SmsCredentials, m: { from: string; to: string; body: string; statusCallback: string }): Promise<{ sid: string }>;
-  /** An MMS's media, fetched with the account's credentials. */
+  /** An MMS's media (or E9: a recording), fetched with the account's credentials. */
   download(c: SmsCredentials, url: string): Promise<{ bytes: Uint8Array; mime: string }>;
+  /** E9: points the number's calls (and their status) at Relay. */
+  configureVoice(c: SmsCredentials, numberSid: string, voiceUrl: string, statusUrl: string): Promise<void>;
+  /** E9: numbers that can be bought in a country (ISO code), local by default. */
+  searchNumbers(c: SmsCredentials, country: string): Promise<{ phone: string; locality: string; voice: boolean; sms: boolean }[]>;
+  /** E9: buys a number into the account, its texts and calls pointed at Relay; its SID. */
+  buyNumber(c: SmsCredentials, phone: string, urls: { smsUrl: string; voiceUrl: string; statusUrl: string }): Promise<{ sid: string }>;
+  /** E9: records a call in progress (both sides, on two channels), reporting to `callback`. */
+  startRecording(c: SmsCredentials, callSid: string, callback: string): Promise<{ sid: string }>;
 }
 
 const auth = (c: SmsCredentials) => "Basic " + btoa(`${c.sid}:${c.token}`);
@@ -57,6 +65,38 @@ export function twilioApi(options: { fetch?: typeof fetch; base?: string } = {})
     },
     async send(c, m) {
       const j = await call(c, "/Messages.json", { From: m.from, To: m.to, Body: m.body, StatusCallback: m.statusCallback });
+      return { sid: String(j.sid) };
+    },
+    async configureVoice(c, numberSid, voiceUrl, statusUrl) {
+      await call(c, `/IncomingPhoneNumbers/${encodeURIComponent(numberSid)}.json`, { VoiceUrl: voiceUrl, VoiceMethod: "POST", StatusCallback: statusUrl, StatusCallbackMethod: "POST" });
+    },
+    async searchNumbers(c, country) {
+      const j = await call(c, `/AvailablePhoneNumbers/${encodeURIComponent(country)}/Local.json?PageSize=10`);
+      return ((j.available_phone_numbers as { phone_number: string; locality?: string; capabilities?: { voice?: boolean; SMS?: boolean } }[] | undefined) ?? []).map((n) => ({
+        phone: n.phone_number,
+        locality: n.locality ?? "",
+        voice: n.capabilities?.voice !== false,
+        sms: n.capabilities?.SMS !== false,
+      }));
+    },
+    async buyNumber(c, phone, urls) {
+      const j = await call(c, "/IncomingPhoneNumbers.json", {
+        PhoneNumber: phone,
+        SmsUrl: urls.smsUrl,
+        SmsMethod: "POST",
+        VoiceUrl: urls.voiceUrl,
+        VoiceMethod: "POST",
+        StatusCallback: urls.statusUrl,
+        StatusCallbackMethod: "POST",
+      });
+      return { sid: String(j.sid) };
+    },
+    async startRecording(c, callSid, callback) {
+      const j = await call(c, `/Calls/${encodeURIComponent(callSid)}/Recordings.json`, {
+        RecordingChannels: "dual",
+        RecordingStatusCallback: callback,
+        RecordingStatusCallbackMethod: "POST",
+      });
       return { sid: String(j.sid) };
     },
     async download(c, url) {

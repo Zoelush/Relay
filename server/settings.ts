@@ -114,6 +114,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
       if ((await flag(db, w, "channel_facebook_v1")) || (await flag(db, w, "channel_instagram_v1"))) pages.push("meta");
       // Phase 12 E8: Slack and Discord (either channel on).
       if ((await flag(db, w, "channel_slack_v1")) || (await flag(db, w, "channel_discord_v1"))) pages.push("community");
+      // Phase 12 E9: calls (through SMS's Twilio account).
+      if (await flag(db, w, "channel_voice_v1")) pages.push("voice");
       pages.push("suppressions");
     }
   }
