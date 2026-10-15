@@ -32,6 +32,7 @@ import {
   Smartphone,
   AtSign,
   Hash,
+  Phone,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -55,6 +56,7 @@ import { WhatsAppPage } from "./settings-whatsapp";
 import { SmsPage } from "./settings-sms";
 import { MetaPage } from "./settings-meta";
 import { CommunityPage } from "./settings-community";
+import { VoicePage } from "./settings-voice";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -233,6 +235,14 @@ const PAGES: Page[] = [
     label: "Slack & Discord",
     description: "Connect a Slack workspace or Discord server: its messages become conversations.",
     icon: Hash,
+    group: "Channels",
+  },
+  {
+    // Phase 12 E9: calls, through the SMS account's numbers.
+    id: "voice",
+    label: "Voice",
+    description: "Take calls on your numbers: recording consent, Zoe on the phone, transfers and voicemail.",
+    icon: Phone,
     group: "Channels",
   },
   {
@@ -504,6 +514,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "voice" ? (
+            <VoicePage menu={menu} page={current} />
           ) : current.id === "community" ? (
             <CommunityPage menu={menu} page={current} />
           ) : current.id === "meta" ? (

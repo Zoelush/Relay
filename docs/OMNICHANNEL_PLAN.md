@@ -130,4 +130,12 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Threads:** Slack's thread is the conversation. On Discord, a reply to the message, or the same person in the channel within a day, joins it.
     - **Zoe stays out** of public community spaces, and **files aren't posted** (a link instead).
 
-Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5), `docs/OMNICHANNEL_STEP6.md` (E6), `docs/OMNICHANNEL_STEP7.md` (E7), `docs/OMNICHANNEL_STEP8.md` (E8). Email (E1 to E4) is complete.
+18. **E9 decisions** (15 October 2026):
+    - **Voice uses SMS's Twilio account and numbers:** a number takes calls when switched on, and numbers can be bought from Settings (confirmed, since it costs money).
+    - **Recording consent per calling code:** don't record, record and say so, or ask first (the default). Zoe and transcripts need recording, so she never hears a call that isn't recorded.
+    - **Zoe hears by Twilio's speech recognition, turn by turn,** not media streams (decision 4): each utterance is a customer message answered by her own pipeline, and the call waits for her reply. This is simpler and keeps every guard. Media streams can come later for lower latency.
+    - **Warm transfer to teammates' own phones,** one at a time, with a whisper and press 1. Voicemail when nobody takes the call or office hours are closed.
+    - **Transcripts by Workers AI's Whisper** behind `TranscriptionPort`. They're internal: a call's lines are events, and a voicemail is the caller's message.
+    - **A call can't be answered in writing:** a teammate's reply is refused when written.
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5), `docs/OMNICHANNEL_STEP6.md` (E6), `docs/OMNICHANNEL_STEP7.md` (E7), `docs/OMNICHANNEL_STEP8.md` (E8), `docs/OMNICHANNEL_STEP9.md` (E9). Email (E1 to E4) is complete, and so is the plan (E1 to E9).

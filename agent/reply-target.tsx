@@ -42,7 +42,8 @@ export function useReplyTarget(conversationId: string, refresh: number) {
   return target.id === conversationId ? target.target : null;
 }
 export function ReplyTarget({ target }: { target: NonNullable<Target> }) {
-  const how = target.channel === "email" ? "Emailed" : `Sent by ${channelLabel(target.channel)}`;
+  // E9: a call isn't answered in writing; the note below says how to reach them.
+  const how = target.channel === "email" ? "Emailed" : target.channel === "voice" ? "Phone call" : `Sent by ${channelLabel(target.channel)}`;
   const closes = target.window?.closesAt ? new Date(target.window.closesAt) : null;
   return (
     <>

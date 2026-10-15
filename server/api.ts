@@ -212,6 +212,7 @@ import type { WhatsAppApi } from "./whatsapp-api";
 import { changeSms, EMPTY_TWIML, readSms, receiveSmsWebhook } from "./sms";
 import { changeMeta, readMeta, receiveMetaWebhook, verifyMetaWebhook } from "./meta-messaging";
 import { changeCommunity, readCommunity, receiveSlackWebhook } from "./community";
+import { changeVoice, readVoice, voiceHook, type VoiceEnvironment } from "./voice";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -306,6 +307,8 @@ export interface ApiEnvironment {
   sesReports?: SnsEnvironment;
   /** WhatsApp (phase 12 E5): Meta's Cloud API (its credentials are sealed with the connector key). */
   whatsapp?: { api: WhatsAppApi };
+  /** Voice (phase 12 E9): Twilio (the SMS account's) for the call's steps. */
+  voice?: VoiceEnvironment;
 }
 export type Session = {
   workspace: string;
@@ -1016,6 +1019,23 @@ export async function handleApi(
       const r = await receiveWhatsAppWebhook(env.connect, env.connectors?.key, waHook[1], raw, req.headers.get("x-hub-signature-256") ?? "");
       return json(r.body, r.status);
     }
+    // Phase 12 E9: a call's steps, per workspace (Twilio's signature), each answered with TwiML.
+    const voice = /^\/v1\/hooks\/voice\/([A-Za-z0-9_-]{1,100})\/([a-z_]{1,20})$/.exec(url.pathname);
+    if (voice && req.method === "POST") {
+      if (Number(req.headers.get("content-length") ?? 0) > 100_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const raw = await req.text();
+      if (raw.length > 100_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const r = await voiceHook(
+        env.connect,
+        { ...env.voice, key: env.connectors?.key, dispatch: env.dispatchJobs },
+        voice[1],
+        voice[2],
+        req.url,
+        new URLSearchParams(raw),
+        req.headers.get("x-twilio-signature") ?? "",
+      );
+      return r.twiml ? new Response(r.twiml, { status: r.status, headers: { "content-type": "text/xml" } }) : new Response(null, { status: r.status });
+    }
     // Phase 12 E8: Slack's Events API, per workspace (signed over the timestamp and body).
     const slackHook = /^\/v1\/hooks\/slack\/([A-Za-z0-9_-]{1,100})$/.exec(url.pathname);
     if (slackHook && req.method === "POST") {
@@ -1325,6 +1345,7 @@ export async function handleApi(
             "/v1/agent/sms-settings",
             "/v1/agent/meta-settings",
             "/v1/agent/community-settings",
+            "/v1/agent/voice-settings",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1410,6 +1431,7 @@ export async function handleApi(
               "/v1/agent/sms-settings",
               "/v1/agent/meta-settings",
               "/v1/agent/community-settings",
+              "/v1/agent/voice-settings",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1796,6 +1818,9 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/delivery")
           // Phase 12 E4: Zoe's held draft on email, sent or discarded by a teammate.
           return json(await tenant(env.connect, workspace, (db) => decideHeld(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/voice-settings")
+          // Phase 12 E9: calls: settings, numbers taking calls, buying a number, teammates' phones.
+          return json(await tenant(env.connect, workspace, (db) => changeVoice(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p, url.origin)));
         if (url.pathname === "/v1/agent/community-settings")
           // Phase 12 E8: a Slack workspace or Discord server connected, checked or disconnected.
           return json(
@@ -2419,6 +2444,9 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
+      if (url.pathname === "/v1/agent/voice-settings")
+        // Phase 12 E9: the workspace's call settings, numbers, teammates' phones and recent calls.
+        return json(await tenant(env.connect, workspace, (db) => readVoice(db, workspace, principal)));
       if (url.pathname === "/v1/agent/community-settings")
         // Phase 12 E8: the workspace's Slack and Discord connections.
         return json(await tenant(env.connect, workspace, (db) => readCommunity(db, workspace, principal, url.origin)));
