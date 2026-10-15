@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: Slack and Discord (phase 12, E8)
+
+- **Connect a Slack workspace or a Discord server** with your own app or bot. Tokens are stored encrypted.
+- **Community messages become conversations:**
+  - on Slack, by thread: replies go back into the thread
+  - on Discord, by message: replies answer it, pinging nobody
+- **Slack's events are checked by their signature** and taken once each.
+- **Discord's messages come over its gateway,** held by a Durable Object that reconnects on its own. Settings shows its state.
+- **Behind `channel_slack_v1` and `channel_discord_v1`,** off by default.
+- **Migration:** 0069, with rollback.
+- **Details:** `docs/OMNICHANNEL_STEP8.md`.
+
 ## Unreleased: Instagram and Facebook Messenger (phase 12, E7)
 
 - **Connect a brand's Facebook Page and its Instagram account** with your own Meta app. Credentials are stored encrypted, and Meta's webhook is checked by its signature.

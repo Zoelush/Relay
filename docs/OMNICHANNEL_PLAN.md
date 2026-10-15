@@ -124,4 +124,10 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Page-scoped ids are verified but join no other contact.** That fixes E1's identity query for accounts.
     - **Zoe may answer within 24 hours** (Meta verifies the account).
 
-Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5), `docs/OMNICHANNEL_STEP6.md` (E6), `docs/OMNICHANNEL_STEP7.md` (E7). Email (E1 to E4) is complete.
+17. **E8 decisions** (15 October 2026):
+    - **Slack through each workspace's own app,** by the Events API: signed, within 5 minutes, each event once, and only for a connected Slack workspace's own team.
+    - **Discord's gateway in a Durable Object per bot** (decision 4). The protocol is kept apart from the socket (`DiscordGatewaySession`) and tested on its own. The object reconnects with backoff, the sweep keeps it up, and it stops for good on Discord's fatal codes.
+    - **Threads:** Slack's thread is the conversation. On Discord, a reply to the message, or the same person in the channel within a day, joins it.
+    - **Zoe stays out** of public community spaces, and **files aren't posted** (a link instead).
+
+Handoffs: `docs/OMNICHANNEL_STEP1.md` (E1), `docs/OMNICHANNEL_STEP2.md` (E2), `docs/OMNICHANNEL_STEP3.md` (E3), `docs/OMNICHANNEL_STEP4.md` (E4), `docs/OMNICHANNEL_STEP5.md` (E5), `docs/OMNICHANNEL_STEP6.md` (E6), `docs/OMNICHANNEL_STEP7.md` (E7), `docs/OMNICHANNEL_STEP8.md` (E8). Email (E1 to E4) is complete.

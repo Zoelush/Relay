@@ -211,6 +211,7 @@ import { changeWhatsApp, readWhatsApp, receiveWhatsAppWebhook, verifyWhatsAppWeb
 import type { WhatsAppApi } from "./whatsapp-api";
 import { changeSms, EMPTY_TWIML, readSms, receiveSmsWebhook } from "./sms";
 import { changeMeta, readMeta, receiveMetaWebhook, verifyMetaWebhook } from "./meta-messaging";
+import { changeCommunity, readCommunity, receiveSlackWebhook } from "./community";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -1015,6 +1016,22 @@ export async function handleApi(
       const r = await receiveWhatsAppWebhook(env.connect, env.connectors?.key, waHook[1], raw, req.headers.get("x-hub-signature-256") ?? "");
       return json(r.body, r.status);
     }
+    // Phase 12 E8: Slack's Events API, per workspace (signed over the timestamp and body).
+    const slackHook = /^\/v1\/hooks\/slack\/([A-Za-z0-9_-]{1,100})$/.exec(url.pathname);
+    if (slackHook && req.method === "POST") {
+      if (Number(req.headers.get("content-length") ?? 0) > 1_000_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const raw = await req.text();
+      if (raw.length > 1_000_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const r = await receiveSlackWebhook(
+        env.connect,
+        env.connectors?.key,
+        slackHook[1],
+        raw,
+        req.headers.get("x-slack-request-timestamp") ?? "",
+        req.headers.get("x-slack-signature") ?? "",
+      );
+      return json(r.body, r.status);
+    }
     // Phase 12 E7: Meta's Messenger and Instagram webhook, per workspace: set-up check, and signed calls.
     const metaHook = /^\/v1\/hooks\/meta\/([A-Za-z0-9_-]{1,100})$/.exec(url.pathname);
     if (metaHook && req.method === "GET") {
@@ -1307,6 +1324,7 @@ export async function handleApi(
             "/v1/agent/whatsapp-settings",
             "/v1/agent/sms-settings",
             "/v1/agent/meta-settings",
+            "/v1/agent/community-settings",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1391,6 +1409,7 @@ export async function handleApi(
               "/v1/agent/whatsapp-settings",
               "/v1/agent/sms-settings",
               "/v1/agent/meta-settings",
+              "/v1/agent/community-settings",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1777,6 +1796,11 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/delivery")
           // Phase 12 E4: Zoe's held draft on email, sent or discarded by a teammate.
           return json(await tenant(env.connect, workspace, (db) => decideHeld(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/community-settings")
+          // Phase 12 E8: a Slack workspace or Discord server connected, checked or disconnected.
+          return json(
+            await tenant(env.connect, workspace, (db) => changeCommunity(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p, url.origin, env.connectors?.key)),
+          );
         if (url.pathname === "/v1/agent/meta-settings")
           // Phase 12 E7: a Facebook Page (and its Instagram account) connected, checked or disconnected.
           return json(
@@ -2395,6 +2419,9 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
+      if (url.pathname === "/v1/agent/community-settings")
+        // Phase 12 E8: the workspace's Slack and Discord connections.
+        return json(await tenant(env.connect, workspace, (db) => readCommunity(db, workspace, principal, url.origin)));
       if (url.pathname === "/v1/agent/meta-settings")
         // Phase 12 E7: the workspace's Facebook Pages and linked Instagram accounts.
         return json(await tenant(env.connect, workspace, (db) => readMeta(db, workspace, principal, url.origin)));

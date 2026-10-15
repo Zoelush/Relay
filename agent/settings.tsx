@@ -31,6 +31,7 @@ import {
   Mail,
   Smartphone,
   AtSign,
+  Hash,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -53,6 +54,7 @@ import { EmailPage } from "./settings-email";
 import { WhatsAppPage } from "./settings-whatsapp";
 import { SmsPage } from "./settings-sms";
 import { MetaPage } from "./settings-meta";
+import { CommunityPage } from "./settings-community";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -223,6 +225,14 @@ const PAGES: Page[] = [
     label: "Instagram & Facebook",
     description: "Connect a Facebook Page and its Instagram account to answer their messages.",
     icon: AtSign,
+    group: "Channels",
+  },
+  {
+    // Phase 12 E8: community messages from Slack and Discord.
+    id: "community",
+    label: "Slack & Discord",
+    description: "Connect a Slack workspace or Discord server: its messages become conversations.",
+    icon: Hash,
     group: "Channels",
   },
   {
@@ -494,6 +504,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "community" ? (
+            <CommunityPage menu={menu} page={current} />
           ) : current.id === "meta" ? (
             <MetaPage menu={menu} page={current} />
           ) : current.id === "sms" ? (

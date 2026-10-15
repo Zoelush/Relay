@@ -22,6 +22,18 @@ import { checkSmsAccountJob, connectSmsNumberJob, receiveSmsJob, type SmsEnviron
 import { twilioApi } from "../server/sms-api";
 import { checkMetaPageJob, receiveMetaJob, type MetaEnvironment } from "../server/meta-messaging";
 import { graphMessaging } from "../server/meta-api";
+import { checkCommunityJob, discordConnections, receiveCommunityJob, type CommunityEnvironment } from "../server/community";
+import { discordRestApi, slackWebApi } from "../server/community-api";
+import { DiscordGatewayObject } from "./discord-gateway";
+/** Slack and Discord (phase 12 E8): their Web and REST APIs, with each workspace's bot token (sealed). */
+const communityEnvironment = (env: Env, storage: CommunityEnvironment["storage"]): CommunityEnvironment => ({
+  slack: slackWebApi(),
+  discord: discordRestApi(),
+  key: env.RELAY_CONNECTOR_KEY,
+  storage,
+});
+/** Phase 12 E8: a connected Discord bot's gateway, kept running (idempotent: an open socket stays). */
+const ensureGateway = (env: Env, w: string, connectionId: string) => env.DISCORD_GATEWAY.getByName(`${w}:${connectionId}`).ensure(w, connectionId);
 /** Instagram and Facebook Messenger (phase 12 E7): the Graph API, with each workspace's Page token (sealed). */
 const metaEnvironment = (env: Env, storage: MetaEnvironment["storage"]): MetaEnvironment => ({ api: graphMessaging(), key: env.RELAY_CONNECTOR_KEY, storage });
 /** SMS (phase 12 E6): Twilio, with each workspace's account (sealed with RELAY_CONNECTOR_KEY); status callbacks to the public origin. */
@@ -106,6 +118,8 @@ import { CoalescedPublisher } from "../server/publication";
 interface Env extends Partial<StorageEnv> {
   HYPERDRIVE: Hyperdrive;
   RELAY_HUB: DurableObjectNamespace<RelayHub>;
+  /** Phase 12 E8: Discord's gateway connections. */
+  DISCORD_GATEWAY: DurableObjectNamespace<DiscordGateway>;
   CONVERSATION_CLOCK: DurableObjectNamespace<ConversationClock>;
   ASSETS: Fetcher;
   SESSION_SECRET: string;
@@ -272,6 +286,13 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
       ),
   };
 }
+/** Phase 12 E8: Discord's gateway connection for one bot (`workers/discord-gateway.ts`), on Hyperdrive. */
+export class DiscordGateway extends DiscordGatewayObject<Env> {
+  protected connectDb() {
+    return hyperdriveConnection(this.env.HYPERDRIVE);
+  }
+}
+
 export class ConversationClock extends DurableObject<Env> {
   async schedule(
     workspace: string,
@@ -515,6 +536,7 @@ const relayWorker = {
               whatsapp: whatsappEnvironment(env, runtime.attachments),
               sms: smsEnvironment(env, runtime.attachments),
               meta: metaEnvironment(env, runtime.attachments),
+              community: communityEnvironment(env, runtime.attachments),
             },
           },
           job,
@@ -526,6 +548,9 @@ const relayWorker = {
       // Phase 12 E7: Meta's Messenger and Instagram calls read, Pages checked.
       "meta.receive": (job) => receiveMetaJob(runtime.connect, metaEnvironment(env, runtime.attachments), job),
       "meta.check": (job) => checkMetaPageJob(runtime.connect, metaEnvironment(env, runtime.attachments), job),
+      // Phase 12 E8: Slack's events and Discord's messages read; bots checked (Discord's gateway then started).
+      "community.receive": (job) => receiveCommunityJob(runtime.connect, communityEnvironment(env, runtime.attachments), job),
+      "community.check": (job) => checkCommunityJob(runtime.connect, communityEnvironment(env, runtime.attachments), job, (w, id) => ensureGateway(env, w, id)),
       // Phase 12 E5: WhatsApp's webhook calls read, numbers checked, templates submitted and synced.
       "whatsapp.receive": (job) => receiveWhatsAppJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
       "whatsapp.check": (job) => checkWhatsAppNumberJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
@@ -631,6 +656,8 @@ const relayWorker = {
           await releaseDeferred(runtime.connect, work.workspace);
           await checkAwayEmails(runtime.connect, work.workspace);
           await scheduleDomainChecks(runtime.connect, work.workspace);
+          // Phase 12 E8: every connected Discord bot's gateway running.
+          for (const id of await discordConnections(runtime.connect, work.workspace)) await ensureGateway(env, work.workspace, id);
           // Queues left waiting (a missed trigger): route what now fits.
           for (const r of await drainAll(runtime.connect, work.workspace))
             await env.RELAY_HUB.getByName(work.workspace).notify(

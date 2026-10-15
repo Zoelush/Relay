@@ -35,10 +35,13 @@ const config = {
     bindings: [
       { name: "RELAY_HUB", class_name: "RelayHub" },
       { name: "CONVERSATION_CLOCK", class_name: "ConversationClock" },
+      // Phase 12 E8: Discord's gateway connection, one per connected bot.
+      { name: "DISCORD_GATEWAY", class_name: "DiscordGateway" },
     ],
   },
   migrations: [
     { tag: "relay-v1", new_sqlite_classes: ["RelayHub", "ConversationClock"] },
+    { tag: "relay-v2", new_sqlite_classes: ["DiscordGateway"] },
   ],
   kv_namespaces: [
     { binding: "WORKSPACE_REGISTRY", id: process.env.RELAY_WORKSPACE_KV_ID },
