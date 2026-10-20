@@ -4,7 +4,7 @@ import { api } from "./api";
 export type Notification = {
   id: string;
   /** A mention in a note, (phase 08 C2b) an incident Zoe's monitors opened, or (phase 11 W4) a failing workflow. */
-  kind: "mention" | "zoe_incident" | "workflow_alert";
+  kind: "mention" | "zoe_incident" | "workflow_alert" | "webhook_disabled";
   workflowId?: string | null;
   conversationId: string | null;
   conversationTitle: string | null;
@@ -23,6 +23,7 @@ export function NotificationsPanel({
   onOpen,
   onIncident,
   onWorkflowAlert,
+  onWebhook,
   onClose,
   onError,
 }: {
@@ -31,6 +32,8 @@ export function NotificationsPanel({
   onIncident: () => void;
   /** Opens a failing workflow's runs (phase 11 W4). */
   onWorkflowAlert?: (workflowId: string) => void;
+  /** Opens Settings › Developers › Webhooks (phase 15 D3). */
+  onWebhook?: () => void;
   onClose: () => void;
   onError: (e: unknown) => void;
 }) {
@@ -100,6 +103,7 @@ export function NotificationsPanel({
                     onClose();
                     if (n.kind === "zoe_incident") onIncident();
                     else if (n.kind === "workflow_alert") onWorkflowAlert?.(n.workflowId ?? "");
+                    else if (n.kind === "webhook_disabled") onWebhook?.();
                     else if (n.conversationId) onOpen(n.conversationId);
                   }}
                 >
@@ -108,6 +112,8 @@ export function NotificationsPanel({
                       ? "Incident: Zoe's behaviour changed sharply"
                       : n.kind === "workflow_alert"
                         ? "A workflow keeps failing"
+                      : n.kind === "webhook_disabled"
+                        ? "A webhook was turned off"
                       : `${n.actorName} mentioned you in ${n.conversationTitle || "a conversation"}`}
                   </strong>
                   <span>{n.excerpt}</span>

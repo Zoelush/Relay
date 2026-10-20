@@ -73,6 +73,7 @@ import { checkEvent, recordEvent } from "../server/events";
 import { launchJob, outboundSweep } from "../server/outbound";
 import { projectJob, scheduleProjection } from "../server/analytics";
 import { exportJob } from "../server/rest-more";
+import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
 import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -155,6 +156,8 @@ export async function startLocalRelay(
     /** Data connectors (phase 09, D1): on unless turned off; tests pass a fetch with recorded responses. */
     aiActions?: boolean;
     connectors?: { policy?: FetchPolicy; sleep?: (ms: number) => Promise<void> };
+    /** Phase 15 D3: tests let webhooks reach their local receiver (`allowHosts`); never set when deployed. */
+    webhooks?: { policy?: FetchPolicy };
     /** Workflows (phase 11), likewise on unless turned off. */
     workflows?: boolean;
     /** Its model and vector store; by default the test embedder and a local store. */
@@ -310,6 +313,8 @@ export async function startLocalRelay(
     knowledgeIndex: options.index ?? localIndex(options.directory),
     // Data connectors (phase 09 D1): a local key; calls go only where the policy allows.
     connectors: { key: keys.connector, ...options.connectors },
+    // Webhooks (phase 15 D3): secrets sealed with the same key; deliveries go only where the policy allows.
+    webhooks: { key: keys.connector, policy: options.webhooks?.policy ?? {} },
     emailDomain: LOCAL_EMAIL_DOMAIN,
     emailSending: { sendingDomain: LOCAL_SENDING_DOMAIN, region: LOCAL_SES_REGION },
   };
@@ -930,6 +935,8 @@ export async function startLocalRelay(
     "ticket.broadcast": (job) => runBroadcast(db.connect, job),
     "sla.reevaluate": (job) => reevaluateJob(db.connect, job),
   };
+  // Phase 15 D3: webhook events fanned out, and deliveries sent.
+  handlers["webhooks.run"] = (job) => runWebhooks(db.connect, env.webhooks!, job);
   // Phase 15 D2: the API's data exports, in parts.
   if (env.attachments) handlers["api.export"] = (job) => exportJob(db.connect, env.attachments!, job);
   if (env.attachments)
@@ -1234,6 +1241,8 @@ export async function startLocalRelay(
         await outboundSweep(db.connect, w);
         // Reporting (phase 14 R1): the store kept current.
         await scheduleProjection(db.connect, w);
+        // Webhooks (phase 15 D3): events to deliver, and deliveries whose retry is due.
+        await scheduleWebhooks(db.connect, w);
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
         // and sending domains due a check.
         await releaseDeferred(db.connect, w);

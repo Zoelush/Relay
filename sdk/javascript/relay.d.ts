@@ -236,7 +236,44 @@ export type Export = {
     }[];
   created_at?: string;
 };
+export type Webhook = {
+  type: "webhook";
+  id: string;
+  url: string;
+  topics: string[];
+  version?: string;
+  status: "active" | "failing" | "disabled";
+  failing_since?: string | null;
+  disabled_at?: string | null;
+  disabled_reason?: string | null;
+  alert_email?: string | null;
+  previous_secret_until?: string | null;
+  secret?: string;
+  created_at?: string;
+};
+export type WebhookDelivery = {
+  type: "webhook_delivery";
+  id: string;
+  event_id: string;
+  topic: string;
+  status: "pending" | "delivered" | "abandoned";
+  attempts?: number;
+  next_attempt_at?: string | null;
+  delivered_at?: string | null;
+  last_status?: number | null;
+  last_error?: string | null;
+  replay_of?: string | null;
+  payload?: {
+    [key: string]: unknown;
+  };
+  attempt_log?: {
+      [key: string]: unknown;
+    }[];
+  created_at?: string;
+};
 export type RequestOptions<Q> = { query?: Q; idempotencyKey?: string };
+/** Verifies a webhook delivery's `Relay-Signature` and returns its event (throws if it isn't Relay's). */
+export declare function verifyWebhook(secret: string, rawBody: string, signatureHeader: string, toleranceSeconds?: number, now?: number): Promise<{ type: "webhook_event"; id: string; topic: string; created_at: string; workspace_id: string; data: Record<string, unknown> }>;
 export declare class RelayError extends Error {
   status: number;
   code: string;
@@ -552,4 +589,46 @@ export declare class Relay {
   }, options?: RequestOptions<never>): Promise<Export>;
   /** Retrieve an export. */
   getExport(id: string, options?: RequestOptions<never>): Promise<Export>;
+  /** List webhooks. */
+  listWebhooks(options?: RequestOptions<never>): Promise<{
+    type: "list";
+    data: Webhook[];
+    pages: Pages;
+  }>;
+  /** Create a webhook. */
+  createWebhook(body: {
+    url: string;
+    topics: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
+    alert_email?: string | null;
+  }, options?: RequestOptions<never>): Promise<Webhook>;
+  /** Retrieve a webhook. */
+  getWebhook(id: string, options?: RequestOptions<never>): Promise<Webhook>;
+  /** Update a webhook. */
+  updateWebhook(id: string, body: {
+    url?: string;
+    topics?: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
+    alert_email?: string | null;
+    active?: boolean;
+  }, options?: RequestOptions<never>): Promise<Webhook>;
+  /** Delete a webhook. */
+  deleteWebhook(id: string, options?: RequestOptions<never>): Promise<{
+    type?: string;
+    id?: string;
+    deleted?: boolean;
+  }>;
+  /** Rotate a webhook's secret. */
+  rotateWebhookSecret(id: string, options?: RequestOptions<never>): Promise<Webhook>;
+  /** Send a test delivery. */
+  testWebhook(id: string, options?: RequestOptions<never>): Promise<WebhookDelivery>;
+  /** List deliveries. */
+  listWebhookDeliveries(id: string, options?: RequestOptions<{ per_page?: number; starting_after?: string }>): Promise<{
+    type: "list";
+    data: WebhookDelivery[];
+    pages: Pages;
+  }>;
+  listWebhookDeliveriesAll(id: string, options?: RequestOptions<{ per_page?: number; starting_after?: string }>): AsyncGenerator<WebhookDelivery>;
+  /** Retrieve a delivery. */
+  getWebhookDelivery(id: string, deliveryId: string, options?: RequestOptions<never>): Promise<WebhookDelivery>;
+  /** Replay a delivery. */
+  replayWebhookDelivery(id: string, deliveryId: string, options?: RequestOptions<never>): Promise<WebhookDelivery>;
 }

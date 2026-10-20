@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: Webhooks (phase 15, D3)
+
+- **Send Relay's events to your servers:** new and replied conversations, assignments, closes, ratings, tags, tickets, contacts, events, Zoe's resolutions and handovers, SLA breaches and published articles.
+- **Signed and dependable:** every delivery is signed, retried for 24 hours, and identical on a retry or replay. The SDKs verify signatures for you, and secrets rotate without missing a delivery.
+- **See everything:** Settings › Developers › Webhooks shows every delivery and attempt with the receiver's answer, and lets you replay any of them. A webhook that keeps failing is turned off, and you're told.
+- **Also in the API** (`/webhooks`).
+- **Migration:** 0078, with rollback.
+- **Details:** `docs/DEVELOPER_PLATFORM_STEP3.md`.
+
 ## Unreleased: More of Relay's API, search, export and SDKs (phase 15, D2)
 
 - **The API now covers** tickets and ticket types, help centers, articles (draft, edit, publish), knowledge, macros (apply one, and its reply is sent), workflows (and their runs, or run one), outbound messages, contacts' events, data attributes and segments.

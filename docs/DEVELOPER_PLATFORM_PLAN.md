@@ -59,6 +59,12 @@ The brief's point: an integrations team says yes when Relay has a real API, real
     - **Exports are jobs** writing files of up to 1,000 rows, with links signed when fetched.
     - **The SDKs are generated in-house,** with no dependencies (no Java or OpenAPI generator), and tested against the API itself.
 
+9. **D3 decisions** (20 October 2026):
+    - **Webhook events are written by database triggers** in the transaction that made the change (as R1's snapshots), not read from the outbox. The outbox carries only conversation parts, while webhooks also need contacts, events, tickets, resolutions and articles. They're written only while a subscription wants the topic.
+    - **A delivery's body is built once and kept,** so retries and replays are byte-for-byte the same, and `Relay-Event-Id` stays the same for deduping.
+    - **The disabled-webhook email goes through `sendAlert`,** the existing alert path (with a new kind), keeping the rule that only two places send email. Teammates have no email in Relay, so each webhook names its own alert address.
+    - **Rotation keeps the old secret signing for 24 hours,** as a second `v1`.
+
 ## Needs you
 
 - **Scope:**

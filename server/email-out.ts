@@ -616,7 +616,8 @@ export async function readSending(db: Sql, w: string, brandId: string, env: { se
 /* Zoe's incident alerts (E4)                                                                  */
 
 /**
- * The `email.alert` job: one incident, to one address the managers set, from Relay's own address.
+ * The `email.alert` job: one incident (or, phase 15 D3, a webhook turned off after failing), to one
+ * address the managers set, from Relay's own address.
  * It passes the same suppression list as every send (an address that bounced or complained is
  * sent nothing), and is the only other place the provider is called.
  */
@@ -625,9 +626,11 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
   const { alertId } = job.payload as { alertId: string };
   const ready = await tenant(connect, w, async (db) => {
     const a = (
-      await db.query<{ id: string; address: string; status: string; metric: string; baseline: number; latest_value: number; opened_at: string; incident_status: string }>(
-        `SELECT a.id,a.address,a.status,i.metric,i.baseline,i.latest_value,i.opened_at,i.status AS incident_status FROM email_alerts a
-         JOIN ai_incidents i ON i.workspace_id=a.workspace_id AND i.id=a.incident_id WHERE a.workspace_id=$1 AND a.id=$2 FOR UPDATE OF a`,
+      await db.query<{ id: string; kind: string; address: string; status: string; metric: string; baseline: number; latest_value: number; opened_at: string; incident_status: string; url: string | null; disabled_at: string | null }>(
+        `SELECT a.id,a.kind,a.address,a.status,i.metric,i.baseline,i.latest_value,i.opened_at,i.status AS incident_status,h.url,h.disabled_at FROM email_alerts a
+         LEFT JOIN ai_incidents i ON i.workspace_id=a.workspace_id AND i.id=a.incident_id
+         LEFT JOIN webhook_subscriptions h ON h.workspace_id=a.workspace_id AND h.id=a.webhook_subscription_id
+         WHERE a.workspace_id=$1 AND a.id=$2 FOR UPDATE OF a`,
         [w, alertId],
       )
     ).rows[0];
@@ -650,20 +653,37 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
     return a;
   });
   if (!ready) return { done: true, result: { sent: false } };
-  const { monitorOf, changeSentence } = await import("../lib/zoe-monitors");
-  const name = monitorOf(ready.metric)?.name ?? ready.metric;
-  const change = changeSentence(ready.metric, ready.baseline, ready.latest_value);
-  const words = composeReply({
-    brand: "Relay",
-    said: { author: "Relay", body: `Zoe's “${name}” monitor opened an incident on ${new Date(ready.opened_at).toUTCString().replace(" GMT", " UTC")}.\n\n${change}\n\nOpen Zoe › Incidents in Relay to see her answers and acknowledge it.` },
-    quote: null,
-    footer: "You get this because your Relay workspace sends Zoe's incident alerts to this address. Her managers can change that in Zoe › Monitors.",
-  });
+  let subject: string;
+  let words: ReturnType<typeof composeReply>;
+  if (ready.kind === "webhook_disabled") {
+    // Phase 15 D3: a webhook that failed for 24 hours was turned off.
+    subject = "Relay webhook turned off";
+    words = composeReply({
+      brand: "Relay",
+      said: {
+        author: "Relay",
+        body: `A webhook sending to ${ready.url} failed for 24 hours without a success, so it was turned off on ${new Date(ready.disabled_at ?? Date.now()).toUTCString().replace(" GMT", " UTC")}.\n\nIts deliveries are kept: once the receiver works again, turn the webhook back on in Settings › Developers › Webhooks and replay what it missed.`,
+      },
+      quote: null,
+      footer: "You get this because this address is set as the webhook's alert email in your Relay workspace.",
+    });
+  } else {
+    const { monitorOf, changeSentence } = await import("../lib/zoe-monitors");
+    const name = monitorOf(ready.metric)?.name ?? ready.metric;
+    const change = changeSentence(ready.metric, ready.baseline, ready.latest_value);
+    subject = `Zoe incident: ${name}`;
+    words = composeReply({
+      brand: "Relay",
+      said: { author: "Relay", body: `Zoe's “${name}” monitor opened an incident on ${new Date(ready.opened_at).toUTCString().replace(" GMT", " UTC")}.\n\n${change}\n\nOpen Zoe › Incidents in Relay to see her answers and acknowledge it.` },
+      quote: null,
+      footer: "You get this because your Relay workspace sends Zoe's incident alerts to this address. Her managers can change that in Zoe › Monitors.",
+    });
+  }
   const from = { address: `no-reply@${env.sendingDomain}`, name: "Relay" };
   const raw = buildEmail({
     from,
     to: { address: ready.address },
-    subject: `Zoe incident: ${name}`,
+    subject,
     messageId: `alert-${ready.id}@${env.sendingDomain}`,
     text: words.text,
     html: words.html,

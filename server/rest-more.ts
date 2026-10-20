@@ -74,7 +74,7 @@ const ticketOut = (t: TicketRow) => ({
   created_at: iso(t.created_at),
   updated_at: iso(t.updated_at),
 });
-async function readTicket(db: Sql, w: string, id: string) {
+export async function readTicket(db: Sql, w: string, id: string) {
   const t = (await db.query<TicketRow>(`${TICKETS} WHERE t.workspace_id=$1 AND t.conversation_id=$2`, [w, id])).rows[0];
   assert(t, "NOT_FOUND", "No such ticket.", 404);
   return ticketOut(t);
@@ -89,7 +89,7 @@ async function ticketTypes(db: Sql, w: string, id?: string) {
 type ArticleRow = { id: string; source: string; audience: string; for_ai: boolean; for_help_center: boolean; for_inbox: boolean; updated_at: Date; locale: string; status: string; draft_title: string; draft_body: unknown; draft_version: string; published_title: string | null; published_text: string | null; published_at: Date | null };
 const KNOWLEDGE = `SELECT r.id,r.source,r.audience,r.for_ai,r.for_help_center,r.for_inbox,r.updated_at,l.locale,l.status,l.draft_title,l.draft_body,l.draft_version::text AS draft_version,l.published_title,l.published_text,l.published_at
   FROM knowledge_records r JOIN LATERAL (SELECT * FROM knowledge_locales x WHERE x.workspace_id=r.workspace_id AND x.record_id=r.id ORDER BY x.status='published' DESC,x.locale LIMIT 1) l ON true`;
-const articleOut = (a: ArticleRow) => ({
+export const articleOut = (a: ArticleRow) => ({
   type: "article",
   id: a.id,
   title: a.draft_title,
@@ -114,7 +114,7 @@ const knowledgeOut = (a: ArticleRow) => ({
   published: a.status === "published",
   updated_at: iso(a.updated_at),
 });
-async function readRecord(db: Sql, w: string, id: string, article: boolean) {
+export async function readRecord(db: Sql, w: string, id: string, article: boolean) {
   const a = (await db.query<ArticleRow>(`${KNOWLEDGE} WHERE r.workspace_id=$1 AND r.id=$2${article ? " AND r.source='article'" : ""}`, [w, id])).rows[0];
   assert(a, "NOT_FOUND", article ? "No such article." : "No such knowledge record.", 404);
   return a;
@@ -151,8 +151,8 @@ const outboundOut = (m: OutboundRow) => ({
 });
 
 // Events.
-type EventRow = { id: string; contact_id: string; name: string; metadata: Record<string, unknown>; source: string; occurred_at: Date };
-const eventOut = (e: EventRow) => ({ type: "event", id: e.id, contact_id: e.contact_id, name: e.name, metadata: e.metadata, source: e.source, occurred_at: iso(e.occurred_at) });
+export type EventRow = { id: string; contact_id: string; name: string; metadata: Record<string, unknown>; source: string; occurred_at: Date };
+export const eventOut = (e: EventRow) => ({ type: "event", id: e.id, contact_id: e.contact_id, name: e.name, metadata: e.metadata, source: e.source, occurred_at: iso(e.occurred_at) });
 
 /** A search over conversations or contacts: the grammar compiled, sorted, cursor-paged. */
 async function searchRows<R extends { id: string }>(x: Context, fields: Record<string, Field>, resource: "conversation" | "contact", from: string, base: string, fallback: string) {

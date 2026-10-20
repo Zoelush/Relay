@@ -8,6 +8,8 @@
  * checked against the token's scopes and its teammate's role. Operations a token can call without
  * a scope (who am I) have none.
  */
+import { TOPIC_IDS } from "./webhook-topics";
+
 export type Schema = {
   type?: string | string[];
   description?: string;
@@ -102,7 +104,7 @@ export const SPEC: Spec = {
     title: "Relay API",
     version: LATEST_VERSION,
     description:
-      "Relay's REST API: conversations, contacts, tickets, articles and knowledge, macros, workflows, outbound, events, attributes, segments, search and export. Authenticate with a personal access token (Settings › Developers) as `Authorization: Bearer <token>`. Name a version with `Relay-Version`; without one, the token's own version is used.",
+      "Relay's REST API: conversations, contacts, tickets, articles and knowledge, macros, workflows, outbound, events, attributes, segments, search, export and webhooks. Authenticate with a personal access token (Settings › Developers) as `Authorization: Bearer <token>`. Name a version with `Relay-Version`; without one, the token's own version is used.",
   },
   servers: [{ url: "/rest", description: "This Relay (deployed: https://api.<your domain>)." }],
   security: [{ bearer: [] }],
@@ -739,6 +741,141 @@ Object.assign(SPEC.components.schemas, {
       created_at: time,
     },
     ["status", "resources"],
+  ),
+});
+
+
+/* ------------------------------------------------------------------------------------------ */
+/* Phase 15 D3: webhooks.                                                                       */
+/* ------------------------------------------------------------------------------------------ */
+const hook = pathId("id", "webhook");
+const delivery = pathId("delivery_id", "delivery");
+Object.assign(SPEC.paths, {
+  "/webhooks": {
+    get: listing("listWebhooks", "List webhooks", "The workspace's webhook subscriptions.", "Webhooks", "workspace.manage", "Webhook", [], false),
+    post: write(
+      "createWebhook",
+      "Create a webhook",
+      "Subscribe a public https address to topics. The response carries its signing `secret`, this once.",
+      "Webhooks",
+      "workspace.manage",
+      "Webhook",
+      object(
+        {
+          url: { type: "string", minLength: 8, maxLength: 2000, description: "Where deliveries are POSTed (https)." },
+          topics: { type: "array", maxItems: 50, items: { type: "string", enum: TOPIC_IDS } },
+          alert_email: { type: ["string", "null"], format: "email", maxLength: 320, description: "Told if it's turned off after failing for 24 hours." },
+        },
+        ["url", "topics"],
+      ),
+      [],
+      "201",
+    ),
+  },
+  "/webhooks/{id}": {
+    get: read("getWebhook", "Retrieve a webhook", "One webhook subscription and its state.", "Webhooks", "workspace.manage", "Webhook", [hook]),
+    patch: write(
+      "updateWebhook",
+      "Update a webhook",
+      "Change its address, topics or alert email, or turn it off or back on (back on forgives its failures).",
+      "Webhooks",
+      "workspace.manage",
+      "Webhook",
+      object({
+        url: { type: "string", minLength: 8, maxLength: 2000 },
+        topics: { type: "array", maxItems: 50, items: { type: "string", enum: TOPIC_IDS } },
+        alert_email: { type: ["string", "null"], format: "email", maxLength: 320 },
+        active: { type: "boolean" },
+      }),
+      [hook],
+    ),
+    delete: op({
+      operationId: "deleteWebhook",
+      summary: "Delete a webhook",
+      description: "Stop sending to it; deliveries still waiting are abandoned.",
+      tags: ["Webhooks"],
+      "x-relay-scope": "workspace.manage",
+      parameters: [hook],
+      ok: ok({ type: "object", properties: { type: { type: "string" }, id: { type: "string" }, deleted: { type: "boolean" } } }),
+    }),
+  },
+  "/webhooks/{id}/rotate_secret": {
+    post: op({
+      operationId: "rotateWebhookSecret",
+      summary: "Rotate a webhook's secret",
+      description: "A new signing secret (returned this once). For 24 hours, deliveries are signed with both, so you can switch without missing any.",
+      tags: ["Webhooks"],
+      "x-relay-scope": "workspace.manage",
+      parameters: [hook],
+      ok: ok(ref("Webhook")),
+    }),
+  },
+  "/webhooks/{id}/test": {
+    post: op({
+      operationId: "testWebhook",
+      summary: "Send a test delivery",
+      description: "A `ping` delivery, to check the address and your signature check.",
+      tags: ["Webhooks"],
+      "x-relay-scope": "workspace.manage",
+      parameters: [hook],
+      ok: ok(ref("WebhookDelivery"), "Queued."),
+      status: "202",
+    }),
+  },
+  "/webhooks/{id}/deliveries": {
+    get: listing("listWebhookDeliveries", "List deliveries", "What was sent to it, newest first (kept 30 days).", "Webhooks", "workspace.manage", "WebhookDelivery", [hook]),
+  },
+  "/webhooks/{id}/deliveries/{delivery_id}": {
+    get: read("getWebhookDelivery", "Retrieve a delivery", "One delivery: its body, and every attempt with what came back.", "Webhooks", "workspace.manage", "WebhookDelivery", [hook, delivery]),
+  },
+  "/webhooks/{id}/deliveries/{delivery_id}/replay": {
+    post: op({
+      operationId: "replayWebhookDelivery",
+      summary: "Replay a delivery",
+      description: "Send the same event and body again, as a new delivery.",
+      tags: ["Webhooks"],
+      "x-relay-scope": "workspace.manage",
+      parameters: [hook, delivery],
+      ok: ok(ref("WebhookDelivery"), "Queued."),
+      status: "202",
+    }),
+  },
+});
+Object.assign(SPEC.components.schemas, {
+  Webhook: typed(
+    "webhook",
+    {
+      url: { type: "string" },
+      topics: { type: "array", items: { type: "string" } },
+      version: { type: "string", description: "The API version its bodies follow." },
+      status: { type: "string", enum: ["active", "failing", "disabled"] },
+      failing_since: { type: ["string", "null"], format: "date-time" },
+      disabled_at: { type: ["string", "null"], format: "date-time" },
+      disabled_reason: { type: ["string", "null"] },
+      alert_email: { type: ["string", "null"] },
+      previous_secret_until: { type: ["string", "null"], format: "date-time", description: "While rotating: until when the previous secret also signs." },
+      secret: { type: "string", description: "Only when it's created or its secret rotated." },
+      created_at: time,
+    },
+    ["url", "topics", "status"],
+  ),
+  WebhookDelivery: typed(
+    "webhook_delivery",
+    {
+      event_id: { type: "string", description: "The same across retries and replays: dedupe on it." },
+      topic: { type: "string" },
+      status: { type: "string", enum: ["pending", "delivered", "abandoned"] },
+      attempts: { type: "integer" },
+      next_attempt_at: { type: ["string", "null"], format: "date-time" },
+      delivered_at: { type: ["string", "null"], format: "date-time" },
+      last_status: { type: ["integer", "null"] },
+      last_error: { type: ["string", "null"] },
+      replay_of: { type: ["string", "null"] },
+      payload: { type: "object", description: "The body sent (on a single delivery)." },
+      attempt_log: { type: "array", items: { type: "object" }, description: "Each attempt (on a single delivery)." },
+      created_at: time,
+    },
+    ["event_id", "topic", "status"],
   ),
 });
 

@@ -37,6 +37,7 @@ import {
   BellOff,
   BarChart3,
   KeyRound,
+  Webhook,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -64,6 +65,7 @@ import { VoicePage } from "./settings-voice";
 import { EventsPage, OutboundPage, SubscriptionsPage } from "./settings-outbound";
 import { ReportingPage } from "./settings-reporting";
 import { DevelopersPage } from "./settings-developers";
+import { WebhooksPage } from "./settings-webhooks";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -258,6 +260,14 @@ const PAGES: Page[] = [
     label: "API tokens",
     description: "Tokens for Relay's API, what each may do, and how much they're used.",
     icon: KeyRound,
+    group: "Developers",
+  },
+  {
+    // Phase 15 D3: subscriptions, their deliveries and replays.
+    id: "webhooks",
+    label: "Webhooks",
+    description: "Send Relay's events to your servers, signed, and see every delivery.",
+    icon: Webhook,
     group: "Developers",
   },
   {
@@ -571,6 +581,8 @@ export function Settings({
             <ReportingPage menu={menu} page={current} />
           ) : current.id === "developers" ? (
             <DevelopersPage menu={menu} page={current} />
+          ) : current.id === "webhooks" ? (
+            <WebhooksPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (
