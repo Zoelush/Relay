@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: Reporting's foundation (phase 14, R1)
+
+- **Reports get their own store:** a separate database kept up to date from the inbox's data in the background, so reports never slow the inbox.
+- **History holds:** a customer's details are recorded as they were when each conversation started. Editing a contact today doesn't change last month's reports.
+- **Every metric is defined in writing** (`docs/METRICS.md`), generated from the same code that computes it. Durations are given in wall-clock and office hours, right across daylight saving changes.
+- **Settings › Reporting data** shows how current reporting is and what each number means.
+- **Behind `reports_v1`,** off by default.
+- **Migration:** 0074 (and the store's 0001), with rollbacks.
+- **Details:** `docs/REPORTING_STEP1.md`.
+
 ## Unreleased: Fix: the messenger on a shared browser
 
 - **Switching signed-in customers on one browser now works.** When a second customer signed in on a browser where another had been signed in (without logging out), the messenger failed to start ("Only anonymous/lead identity can merge into a verified user."). It now starts for the new customer with their own history. Nothing of the first customer's is merged into it or shown to them.

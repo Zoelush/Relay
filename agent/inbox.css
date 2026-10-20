@@ -1734,3 +1734,9 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-outbound-columns { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:14px; align-items:start; }
 .pg-outbound-problems { margin:0; padding:10px 14px 10px 30px; border:1px solid var(--pg-border); border-radius:10px; background:var(--pg-sunken); font-size:13px; }
 @media (max-width: 1000px) { .pg-outbound-columns { grid-template-columns:1fr; } }
+
+/* Settings › Reporting data (phase 14 R1): the metric dictionary. */
+.pg-metrics { margin:0; display:flex; flex-direction:column; gap:4px; }
+.pg-metrics details { padding:6px 10px; border:1px solid var(--pg-border-subtle); border-radius:8px; }
+.pg-metrics summary { cursor:pointer; font-weight:600; font-size:13px; }
+.pg-metrics p { margin:6px 0 0; font-size:13px; line-height:1.5; }

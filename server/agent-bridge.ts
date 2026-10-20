@@ -59,6 +59,7 @@ const routes = {
     "subscription-settings",
     "outbound",
     "outbound-message",
+    "reporting-status",
     "email-message",
     "email-settings",
     "zoe",

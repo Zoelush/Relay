@@ -41,7 +41,12 @@ E8, Slack and Discord (`server/community.ts`), is done locally (`docs/OMNICHANNE
 `channel_voice_v1`), is done locally (`docs/OMNICHANNEL_STEP9.md`): phase 12's plan is complete. Phase 13 (`docs/OUTBOUND_PLAN.md`): O1,
 events, subscription types and segments (`segments_v1`), and O2, the engine and in-app chats (`server/outbound.ts`, `outbound_v1`),
 and O3, the Outbound area (`agent/outbound.tsx`, `#outbound`) and banners, are done locally (`docs/OUTBOUND_STEP1.md` to `STEP3.md`):
-the scope (O1 to O3) is complete; O4 to O9 wait until asked. A banner is drawn only by the loader (`showBanner`, its own shadow
+the scope (O1 to O3) is complete; O4 to O9 wait until asked. Phase 14 (`docs/REPORTING_PLAN.md`, scope R1 to R4): R1 is done
+locally (`docs/REPORTING_STEP1.md`, `reports_v1`); next is R2 (datasets and the benchmark). Reports read only the analytical store
+(`db/analytics`, a separate database), never the inbox's tables; it's written only by `analytics.project` (`server/analytics.ts`),
+which is idempotent. Every metric is defined once in `lib/metrics.ts`; regenerate `docs/METRICS.md` with `npm run metrics:doc` (a test
+compares them). Contact attributes in reports are the snapshot taken when the conversation started (`conversation_snapshots`); only
+name and email are live. Durations use only phase 06's `businessMilliseconds`. A banner is drawn only by the loader (`showBanner`, its own shadow
 root, brand colours from `theme.css`); clicks and closes are recorded only on the person's own entry (`outboundAction`). Every
 outbound message to a person goes through `admit` (their lock row, re-entry, holdout, subscription, quiet hours, both caps, then the
 type's delivery); never send outbound around it, and keep `tests/postgres/outbound.test.ts` (the burst) passing. A contact in a

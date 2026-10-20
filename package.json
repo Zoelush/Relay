@@ -20,7 +20,8 @@
     "agent:build": "node scripts/build-agent.mjs",
     "portal:build": "node scripts/build-portal.mjs",
     "eval": "node --import tsx scripts/eval.ts",
-    "test:postgres": "node --import tsx --test --test-timeout=600000 tests/postgres/*.test.ts"
+    "test:postgres": "node --import tsx --test --test-timeout=600000 tests/postgres/*.test.ts",
+    "metrics:doc": "node --import tsx scripts/metrics-doc.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

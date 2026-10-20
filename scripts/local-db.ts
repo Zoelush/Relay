@@ -13,7 +13,11 @@ type Timing = {
   queries: number;
 };
 
-export async function localDatabase(directory?: string) {
+/**
+ * An embedded PostgreSQL with `migrations` applied: the application's (`db/postgres`) or, for
+ * reporting (phase 14 R1), the analytical store's (`db/analytics`), a separate database.
+ */
+export async function localDatabase(directory?: string, migrations = "db/postgres") {
   if (directory) await mkdir(directory, { recursive: true });
   const pg = new PGlite({ dataDir: directory, extensions: { pg_trgm } });
   await pg.exec(
@@ -26,10 +30,10 @@ export async function localDatabase(directory?: string) {
       )
     ).rows.map((r) => [r.name, r.checksum]),
   );
-  for (const file of (await readdir("db/postgres"))
+  for (const file of (await readdir(migrations))
     .filter((x) => x.endsWith(".sql"))
     .sort()) {
-    const sql = await readFile("db/postgres/" + file, "utf8"),
+    const sql = await readFile(migrations + "/" + file, "utf8"),
       checksum = createHash("sha256").update(sql).digest("hex");
     if (applied.has(file)) {
       if (applied.get(file) !== checksum)

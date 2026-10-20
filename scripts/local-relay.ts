@@ -71,6 +71,7 @@ import { buyNumberJob, configureVoiceNumberJob, readRecordingJob, searchNumbersJ
 import type { TranscriptionPort } from "../server/voice-transcribe";
 import { checkEvent, recordEvent } from "../server/events";
 import { launchJob, outboundSweep } from "../server/outbound";
+import { projectJob, scheduleProjection } from "../server/analytics";
 import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -196,6 +197,8 @@ export async function startLocalRelay(
     examplePeople?: boolean;
     /** Outbound (phase 13 O2), on unless turned off. */
     outboundFlag?: boolean;
+    /** Reporting (phase 14 R1), on unless turned off. */
+    reportsFlag?: boolean;
     /** Development seed (phase 13 O2, O3): a live in-app chat welcoming pro users, an in-app subscription, and a banner draft. */
     exampleOutbound?: boolean;
     /** Development seed (phase 12 E9): the demo's UK number takes calls, Zoe answers, the owner's phone is rung. */
@@ -211,6 +214,8 @@ export async function startLocalRelay(
   const db = await localDatabase(
       options.directory ? resolve(options.directory, "postgres") : undefined,
     ),
+    // Phase 14 R1: reporting's analytical store, a separate database.
+    analyticsDb = await localDatabase(options.directory ? resolve(options.directory, "analytics") : undefined, "db/analytics"),
     apiPort = options.apiPort ?? 8788,
     hostPort = options.hostPort ?? 8789;
   const localFiles = localAttachmentStorage();
@@ -688,6 +693,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_facebook_v1','channel_instagram_v1')",
         [w, options.metaFlag !== false],
       );
+      // Reporting (phase 14, R1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='reports_v1'",
+        [w, options.reportsFlag !== false],
+      );
       // Outbound (phase 13, O2).
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='outbound_v1'",
@@ -945,6 +955,8 @@ export async function startLocalRelay(
   handlers["voice.search"] = (job) => searchNumbersJob(db.connect, voiceEnv, job);
   handlers["voice.buy"] = (job) => buyNumberJob(db.connect, voiceEnv, job);
   handlers["outbound.launch"] = (job) => launchJob(db.connect, job);
+  handlers["analytics.project"] = (job) => projectJob(db.connect, { connect: analyticsDb.connect }, job);
+  env.analytics = { connect: analyticsDb.connect };
   // Discord's gateway runs only deployed (a Durable Object); locally, messages come by /dev/discord.
   handlers["community.check"] = (job) => checkCommunityJob(db.connect, communityEnv, job);
   // Development seed (phase 12 E8): a Slack workspace and a Discord server for the default brand.
@@ -1161,10 +1173,12 @@ export async function startLocalRelay(
         );
         for (const job of pending) {
           await runJob(db.connect, w, job.id, handlers);
-          // Indexing knowledge changes nothing a teammate's inbox shows: no workspace refresh.
+          // Indexing knowledge and feeding reporting's store change nothing a teammate's inbox
+          // shows: no workspace refresh.
           if (
             job.kind !== "knowledge.index" &&
-            job.kind !== "knowledge.duplicates"
+            job.kind !== "knowledge.duplicates" &&
+            job.kind !== "analytics.project"
           )
             await publishBatch(w, [""]);
         }
@@ -1209,6 +1223,8 @@ export async function startLocalRelay(
         await checkTimedWorkflows(db.connect, w);
         // Outbound (phase 13 O2): one-offs that started, and recurring messages' occurrences.
         await outboundSweep(db.connect, w);
+        // Reporting (phase 14 R1): the store kept current.
+        await scheduleProjection(db.connect, w);
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
         // and sending domains due a check.
         await releaseDeferred(db.connect, w);
@@ -1677,6 +1693,7 @@ export async function startLocalRelay(
       while (requests.size || background.size)
         await Promise.allSettled([...requests, ...background]);
       await db.close();
+      await analyticsDb.close();
     },
   };
 }

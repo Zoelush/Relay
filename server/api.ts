@@ -218,6 +218,7 @@ import { changePeople, readPeople, segmentsOn } from "./segments";
 import { changeSubscriptionTypes, preferencePage, readSubscriptionTypes } from "./subscriptions";
 import { changeOutboundMessage, changeOutboundSettings, dueBanner, dueInApp, outboundAction, outboundOn, outboundSeen, readOutbound, readOutboundMessage } from "./outbound";
 import { deviceOf } from "../lib/outbound";
+import { readReportingStatus, type AnalyticsStore } from "./analytics";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -314,6 +315,8 @@ export interface ApiEnvironment {
   whatsapp?: { api: WhatsAppApi };
   /** Voice (phase 12 E9): Twilio (the SMS account's) for the call's steps. */
   voice?: VoiceEnvironment;
+  /** Reporting (phase 14 R1): the analytical store, a separate database. */
+  analytics?: AnalyticsStore;
 }
 export type Session = {
   workspace: string;
@@ -1375,6 +1378,7 @@ export async function handleApi(
             "/v1/agent/subscription-settings",
             "/v1/agent/outbound",
             "/v1/agent/outbound-message",
+            "/v1/agent/reporting-status",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -2493,6 +2497,9 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
+      if (url.pathname === "/v1/agent/reporting-status")
+        // Phase 14 R1: how current reporting's store is, and the metric dictionary.
+        return json(await readReportingStatus(env.connect, env.analytics, workspace, principal));
       if (url.pathname === "/v1/agent/outbound")
         // Phase 13 O2: the messages with their numbers, and the workspace's limits.
         return json(await tenant(env.connect, workspace, (db) => readOutbound(db, workspace, principal)));
