@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased: Fix: the messenger on a shared browser
+
+- **Switching signed-in customers on one browser now works.** When a second customer signed in on a browser where another had been signed in (without logging out), the messenger failed to start ("Only anonymous/lead identity can merge into a verified user."). It now starts for the new customer with their own history. Nothing of the first customer's is merged into it or shown to them.
+
 ## Unreleased: The Outbound area and banners (phase 13, O3)
 
 - **Outbound in the app:** a list of messages by state and type, and an editor for content, audience (with a live count), delivery, subscription, goal and control group. Publish now or at a time, pause, resume and archive, with each message's numbers, versions and who it reached.

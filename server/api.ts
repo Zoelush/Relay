@@ -1188,12 +1188,25 @@ export async function handleApi(
                     p.user.userId,
                     { name: p.user.name, email: p.user.email },
                   );
-                  await mergeVisitorIdentity(
-                    db,
-                    p.workspaceId,
-                    visitor.identityId,
-                    identity.contactId,
-                  );
+                  // A device already signed in as another user (who didn't log out) stays theirs:
+                  // this user boots with their own identity, and nothing of the other's merges into
+                  // it or shows to them. Only an anonymous visitor or a lead merges into a user.
+                  const deviceOwner = (
+                    await db.query<{ role: string }>(
+                      "SELECT role FROM contacts WHERE workspace_id=$1 AND id=$2",
+                      [p.workspaceId, visitor.contactId],
+                    )
+                  ).rows[0];
+                  if (
+                    deviceOwner?.role !== "user" ||
+                    visitor.contactId === identity.contactId
+                  )
+                    await mergeVisitorIdentity(
+                      db,
+                      p.workspaceId,
+                      visitor.identityId,
+                      identity.contactId,
+                    );
                 }
                 const sessionId = crypto.randomUUID(),
                   proofExpiry = verified
