@@ -33,6 +33,7 @@ import {
   Users,
   Bot,
   Zap,
+  Activity,
 } from "lucide-react";
 import { api } from "./api";
 import { Menu } from "./menu";
@@ -376,6 +377,7 @@ export function InboxViews({
   dir,
   menu,
   headerExtras,
+  onLive,
   onInboxCount,
   me,
 }: {
@@ -384,6 +386,8 @@ export function InboxViews({
   menu: SideMenuState;
   /** Shown in the list header after the view's name: connection, workload. */
   headerExtras?: ReactNode;
+  /** The live dashboard (phase 14 R4), when the teammate may see it: an entry under the views. */
+  onLive?: () => void;
   /** The open count in your inbox, for the badge on Inbox in the icon strip. */
   onInboxCount?: (label: string | null) => void;
   /** The signed-in teammate, whose own replies read "You" in previews. */
@@ -967,6 +971,18 @@ export function InboxViews({
                 );
               })}
             </MenuSection>
+          )}
+          {onLive && (
+            <ul className="pg-menu-entries pg-menu-live">
+              <li data-hue="violet">
+                <button type="button" onClick={onLive}>
+                  <span className="pg-menu-entry-icon" aria-hidden="true">
+                    <Activity size={16} />
+                  </span>
+                  <span className="pg-menu-entry-name">Live dashboard</span>
+                </button>
+              </li>
+            </ul>
           )}
         </nav>
       </SideMenu>

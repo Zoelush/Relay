@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
 import { conversationFlow } from "../../server/reports";
+import { liveDashboard } from "../../server/live";
 
 /**
  * The Reports area (phase 14, R3; docs/REPORTING_STEP3.md): a customer's conversation reaches the
@@ -82,6 +83,40 @@ test("Reports sits before Outbound; the overview's flow matches the store, defin
   await expect(page.getByRole("region", { name: "Reports" }).getByRole("radio", { name: "7 days" })).toHaveAttribute("aria-checked", "true", { timeout: 15000 });
 });
 
+test("the live dashboard, from the inbox: now, as the server counts it, and the longest wait opens in the inbox", async ({ page, browser }) => {
+  // Someone is waiting: a new conversation from the messenger.
+  const site = await (await browser.newContext()).newPage();
+  await site.goto(relay.hostOrigin + "/");
+  await site.getByRole("button", { name: "Open support", exact: true }).click();
+  await expect.poll(() => site.frames().some((f) => f.url().includes("/messenger/frame.html")), { timeout: 15000 }).toBe(true);
+  const frame = site.frames().find((f) => f.url().includes("/messenger/frame.html"))!;
+  await frame.getByRole("button", { name: "Start a conversation" }).click();
+  await frame.getByRole("textbox", { name: "Write your message" }).fill("Is anyone there? Live test");
+  await frame.getByRole("button", { name: "Send message" }).click();
+
+  await page.goto(relay.hostOrigin + "/agent");
+  await page.getByRole("navigation", { name: "Inbox menu" }).getByRole("button", { name: "Live dashboard" }).or(page.getByRole("button", { name: "Live dashboard" })).first().click({ timeout: 15000 });
+  await expect(page).toHaveURL(/#reports\/live$/);
+  const area = page.getByRole("region", { name: "Reports" });
+  await expect(area.getByRole("heading", { name: /^Live/, level: 2 })).toContainText("Updated", { timeout: 15000 });
+  // The numbers are the server's own, for the same moment.
+  const now = await tenant(relay.env.connect, "demo", (db) => liveDashboard(db, "demo", "local-owner", {}));
+  for (const [label, value] of [
+    ["Open now", now.totals.open],
+    ["Unassigned", now.totals.unassigned],
+    ["Waiting for a reply", now.totals.waiting],
+  ] as const)
+    await expect(area.getByRole("region", { name: label }).getByTestId("value")).toHaveText(String(value));
+  expect(now.waitingLongest.some((c) => c.title.includes("Live test"))).toBeTruthy();
+  await expect(area.getByRole("region", { name: "Teammates" })).toContainText("Active");
+  await expect(area.getByRole("region", { name: "Queue by team" }).getByRole("row").nth(1)).toBeVisible();
+  // A waiting conversation opens in the inbox.
+  const queue = area.getByRole("region", { name: "Waiting longest" });
+  await queue.getByRole("button", { name: /Live test/ }).click();
+  await expect(page).not.toHaveURL(/#reports/);
+  await expect(page.getByText("Is anyone there? Live test").first()).toBeVisible({ timeout: 15000 });
+});
+
 test("a teammate who may not view reports has no Reports in the strip, and the flow is refused", async ({ page }) => {
   await page.goto(relay.hostOrigin + "/agent?as=grace#reports");
   const rail = page.getByRole("navigation", { name: "Main" });
@@ -91,4 +126,8 @@ test("a teammate who may not view reports has no Reports in the strip, and the f
   const period = { from: new Date(Date.now() - 86_400_000).toISOString(), to: new Date().toISOString() };
   const flow = await ask(page, "/api/agent/report-flow?as=grace", period);
   expect([403, 404]).toContain(flow.status);
+  // Nor the live dashboard: no link in the inbox, and the numbers are refused.
+  await expect(page.getByRole("button", { name: "Live dashboard" })).toHaveCount(0);
+  const live = await page.evaluate(async () => (await fetch("/api/agent/live-dashboard?as=grace")).status);
+  expect([403, 404]).toContain(live);
 });

@@ -146,6 +146,8 @@ type Snapshot = Directory & {
     outbound?: boolean;
     /** The Reports area (phase 14 R3): who may view reports, while reporting is on. */
     reports?: boolean;
+    /** The live dashboard (phase 14 R4): who may view reports; it needs no reporting store. */
+    live?: boolean;
   };
   /** Zoe's name in this workspace, while the AI agent is on (Z1). */
   ai?: { name: string; enabled: boolean } | null;
@@ -1574,7 +1576,7 @@ export default function PostgresInbox({
               ]
             : []),
           // Reports (phase 14 R3) sit just before Outbound, as in Intercom's strip.
-          ...(snapshot?.capabilities.reports
+          ...(snapshot?.capabilities.reports || snapshot?.capabilities.live
             ? [
                 {
                   id: "reports",
@@ -1725,7 +1727,7 @@ export default function PostgresInbox({
           <OutboundArea open={outboundPage} onOpen={(page) => setArea("outbound", page ?? "home")} />
         </Suspense>
       )}
-      {area === "reports" && snapshot?.capabilities.reports && (
+      {area === "reports" && (snapshot?.capabilities.reports || snapshot?.capabilities.live) && (
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}
         >
@@ -1734,6 +1736,12 @@ export default function PostgresInbox({
             onOpen={(id) => setArea("reports", id ?? "home")}
             directory={{ teammates: snapshot.teammates, teams: snapshot.teams }}
             zoeName={snapshot.ai?.name ?? "Zoe"}
+            history={!!snapshot.capabilities.reports}
+            live={!!snapshot.capabilities.live}
+            onConversation={(id) => {
+              setArea("inbox");
+              pick(id);
+            }}
           />
         </Suspense>
       )}
@@ -1807,7 +1815,7 @@ export default function PostgresInbox({
           (area === "workflows" && !!snapshot?.capabilities.workflows) ||
           (area === "people" && !!snapshot?.capabilities.people) ||
           (area === "outbound" && !!snapshot?.capabilities.outbound) ||
-          (area === "reports" && !!snapshot?.capabilities.reports)
+          (area === "reports" && !!(snapshot?.capabilities.reports || snapshot?.capabilities.live))
         }
       >
         {error && (
@@ -1822,6 +1830,8 @@ export default function PostgresInbox({
           {snapshot?.capabilities.views ? (
             <InboxViews
               menu={inboxMenu}
+              // Phase 14 R4: the live dashboard, reached from the inbox (the gap audit's ask).
+              onLive={snapshot?.capabilities.live ? () => setArea("reports", "live") : undefined}
               headerExtras={listExtras}
               onInboxCount={setInboxCount}
               me={me}
