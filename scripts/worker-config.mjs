@@ -30,7 +30,11 @@ const config = {
     binding: "ASSETS",
     run_worker_first: true,
   },
-  hyperdrive: [{ binding: "HYPERDRIVE", id: process.env.HYPERDRIVE_ID }],
+  hyperdrive: [
+    { binding: "HYPERDRIVE", id: process.env.HYPERDRIVE_ID },
+    // Phase 14 R1: the analytical store, a separate database (optional until it's provisioned).
+    ...(/^[a-f0-9]{32}$/i.test(process.env.ANALYTICS_HYPERDRIVE_ID ?? "") ? [{ binding: "ANALYTICS_HYPERDRIVE", id: process.env.ANALYTICS_HYPERDRIVE_ID }] : []),
+  ],
   durable_objects: {
     bindings: [
       { name: "RELAY_HUB", class_name: "RelayHub" },

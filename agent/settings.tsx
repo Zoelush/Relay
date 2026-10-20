@@ -35,6 +35,7 @@ import {
   Phone,
   Activity,
   BellOff,
+  BarChart3,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -60,6 +61,7 @@ import { MetaPage } from "./settings-meta";
 import { CommunityPage } from "./settings-community";
 import { VoicePage } from "./settings-voice";
 import { EventsPage, OutboundPage, SubscriptionsPage } from "./settings-outbound";
+import { ReportingPage } from "./settings-reporting";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -249,6 +251,14 @@ const PAGES: Page[] = [
     group: "Channels",
   },
   {
+    // Phase 14 R1: reporting's data, and what each number means.
+    id: "reporting",
+    label: "Reporting data",
+    description: "How current reports are, and what each metric means.",
+    icon: BarChart3,
+    group: "Reports",
+  },
+  {
     // Phase 13 O2: the limits every outbound message is held to.
     id: "outbound",
     label: "Limits",
@@ -356,6 +366,7 @@ const GROUPS = [
   "Helpdesk",
   "Channels",
   "Outbound",
+  "Reports",
   "Inbox",
   "Knowledge & AI",
 ];
@@ -367,6 +378,7 @@ const GROUP_HUES: Record<string, Hue> = {
   Helpdesk: "blue",
   Channels: "teal",
   Outbound: "green",
+  Reports: "violet",
   Inbox: "amber",
   "Knowledge & AI": "rose",
 };
@@ -543,6 +555,8 @@ export function Settings({
             <OfficeHoursPage menu={menu} page={current} />
           ) : current.id === "slas" ? (
             <SlasPage menu={menu} page={current} />
+          ) : current.id === "reporting" ? (
+            <ReportingPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

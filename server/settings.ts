@@ -125,6 +125,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if (manage && (await flag(db, w, "workflows_v1"))) pages.push("workflows");
   // Phase 13 O1: the events tracked, and subscription types.
   if (manage && (await flag(db, w, "segments_v1"))) pages.push("events", "subscriptions");
+  // Phase 14 R1: reporting's data (how current it is) and the metric dictionary.
+  if ((await has("reports.view")) && (await flag(db, w, "reports_v1"))) pages.push("reporting");
   // Phase 13 O2: outbound's limits (the cap across all messages, quiet hours).
   if (manage && (await flag(db, w, "segments_v1")) && (await flag(db, w, "outbound_v1"))) pages.push("outbound");
   // The AI agent (phase 08 A2a): its handover choices, for workspace managers.

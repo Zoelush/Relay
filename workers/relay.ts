@@ -26,6 +26,7 @@ import { checkCommunityJob, discordConnections, receiveCommunityJob, type Commun
 import { discordRestApi, slackWebApi } from "../server/community-api";
 import { DiscordGatewayObject } from "./discord-gateway";
 import { launchJob, outboundSweep } from "../server/outbound";
+import { projectJob, scheduleProjection } from "../server/analytics";
 import { buyNumberJob, configureVoiceNumberJob, readRecordingJob, searchNumbersJob, startRecordingJob, type VoiceEnvironment } from "../server/voice";
 import { workersAiTranscriber, type WorkersAiSpeech } from "../server/voice-transcribe";
 /** Voice (phase 12 E9): Twilio (the SMS account) and Workers AI's Whisper for transcripts. */
@@ -127,6 +128,8 @@ import { CoalescedPublisher } from "../server/publication";
 
 interface Env extends Partial<StorageEnv> {
   HYPERDRIVE: Hyperdrive;
+  /** Phase 14 R1: the analytical store, its own database (reporting is off without it). */
+  ANALYTICS_HYPERDRIVE?: Hyperdrive;
   RELAY_HUB: DurableObjectNamespace<RelayHub>;
   /** Phase 12 E8: Discord's gateway connections. */
   DISCORD_GATEWAY: DurableObjectNamespace<DiscordGateway>;
@@ -257,7 +260,9 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     env.R2_CLEAN_BUCKET
       ? r2Attachments(env as StorageEnv)
       : undefined;
+  const analytics = env.ANALYTICS_HYPERDRIVE ? { connect: hyperdriveConnection(env.ANALYTICS_HYPERDRIVE) } : undefined;
   return {
+    analytics,
     connect,
     attachments,
     knowledgeIndex: knowledgeIndex(env),
@@ -570,6 +575,9 @@ const relayWorker = {
       "voice.buy": (job) => buyNumberJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
       // Phase 13 O2: a fixed audience (a one-off, or an occurrence) entered, in batches.
       "outbound.launch": (job) => launchJob(runtime.connect, job),
+      // Phase 14 R1: reporting's store fed from the application (also its backfill).
+      "analytics.project": (job) =>
+        runtime.analytics ? projectJob(runtime.connect, runtime.analytics, job) : Promise.resolve({ done: true, result: { skipped: "No analytical store." } }),
       // Phase 12 E5: WhatsApp's webhook calls read, numbers checked, templates submitted and synced.
       "whatsapp.receive": (job) => receiveWhatsAppJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
       "whatsapp.check": (job) => checkWhatsAppNumberJob(runtime.connect, whatsappEnvironment(env, runtime.attachments), job),
@@ -672,6 +680,8 @@ const relayWorker = {
           await checkTimedWorkflows(runtime.connect, work.workspace);
           // Outbound (phase 13 O2): one-offs that started, and recurring messages' occurrences.
           await outboundSweep(runtime.connect, work.workspace);
+          // Reporting (phase 14 R1): the store kept current, once a sweep.
+          if (runtime.analytics) await scheduleProjection(runtime.connect, work.workspace);
           // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
           // and sending domains due a check.
           await releaseDeferred(runtime.connect, work.workspace);
