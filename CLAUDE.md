@@ -49,7 +49,9 @@ and dictionary) and R2 (datasets, the query layer `server/reports.ts`, and the b
 shape; `runMetric` filters, breaks down and aggregates) and one entry in `lib/metrics.ts`, and `tests/reports.test.ts` asserts it on its
 scenario; rerun `scripts/reporting-benchmark.ts` when a definition's plan may change. Phase 15 (`docs/DEVELOPER_PLATFORM_PLAN.md`, scope D1 to D5):
 D1, the API's foundation (`developer_api_v1`), and D2, coverage, search, export and the SDKs, and D3, webhooks, are
-done locally (`docs/DEVELOPER_PLATFORM_STEP1.md` to `STEP3.md`); next is D4 (OAuth apps). Webhook events are written only by
+done locally, and D4, OAuth apps (`server/oauth.ts`, consent at `/oauth/authorize`), is done locally
+(`docs/DEVELOPER_PLATFORM_STEP1.md` to `STEP4.md`); next is D5 (Canvas apps). An app acts as its installer within the
+granted scopes; its tokens are API tokens tied to the grant; codes and refresh tokens are single-use (reuse revokes). Webhook events are written only by
 0078's triggers (`webhook_emit`); a new topic gets its trigger and an entry in `lib/webhook-topics.ts` (a test compares them). A
 delivery's body is built once and kept; deliveries go only through `runWebhooks` (`safeRequest`, signed); never send an internal note. The SDKs (`sdk/`) are generated with the reference by
 `npm run api:doc`, never edited by hand. Search fields live only in `lib/api-search.ts`'s registry. The spec (`lib/api-spec.ts`)

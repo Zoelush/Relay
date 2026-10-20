@@ -57,6 +57,17 @@ const GUIDE: { title: string; body: string[] }[] = [
     ],
   },
   {
+    title: "Apps and OAuth",
+    body: [
+      "To act for other workspaces, register an app (Settings › Developers › Apps): its name, redirect addresses (https, or http on 127.0.0.1 or localhost) and the scopes it may ask for. You get a client id and a client secret (shown once: keep it on your server).",
+      "**1. Send the person to** `https://<their Relay>/oauth/authorize?response_type=code&client_id=…&redirect_uri=…&scope=conversations.read%20conversations.reply&state=…&code_challenge=…&code_challenge_method=S256`. PKCE is required: `code_challenge` is base64url(SHA-256(`code_verifier`)). Relay shows a consent screen listing what you ask for. Only someone who manages the workspace can allow it, and your app gets what you asked for that they have themselves. It then acts as them.",
+      "**2. They come back** to your `redirect_uri` with `code` and your `state` (or `error=access_denied`). The code works once, within 10 minutes.",
+      "**3. Exchange it:** `POST /oauth/token` with `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`, and your credentials (HTTP Basic, or `client_id` and `client_secret`). You get `access_token` (an hour; use it as a bearer token on this API), `refresh_token`, `expires_in` and `scope`.",
+      "**4. Refresh:** `POST /oauth/token` with `grant_type=refresh_token` and `refresh_token` gets a new pair. Refresh tokens rotate: each works once. One used twice (or a code used twice) means it was copied, so the installation is revoked.",
+      "**Revoke:** `POST /oauth/revoke` with `token` (an access token, or a refresh token, which ends the installation). The workspace can remove your app any time in Settings, and every token stops at once.",
+    ],
+  },
+  {
     title: "Webhooks",
     body: [
       "Subscribe a public https address to topics (Settings › Developers › Webhooks, or `POST /webhooks`). Each event is POSTed as JSON: `{\"type\":\"webhook_event\",\"id\",\"topic\",\"created_at\",\"workspace_id\",\"data\":{\"item\":…}}`, where `item` is the resource as this API shows it (a conversation, ticket, contact, event or article), with `data.part`, `data.tag`, `data.changes` or `data.metric` when the topic has one. Internal notes are never sent.",

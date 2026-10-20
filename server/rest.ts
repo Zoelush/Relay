@@ -355,7 +355,8 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
       const t = (
         await db.query<{ id: string; teammate_id: string; principal_id: string; scopes: string[]; version: string; last_used_at: Date | null }>(
           `SELECT k.id,k.teammate_id,m.principal_id,k.scopes,k.version,k.last_used_at FROM api_tokens k JOIN teammates m ON m.workspace_id=k.workspace_id AND m.id=k.teammate_id
-           WHERE k.workspace_id=$1 AND k.token_hash=$2 AND k.revoked_at IS NULL`,
+           WHERE k.workspace_id=$1 AND k.token_hash=$2 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
+             AND (k.grant_id IS NULL OR EXISTS (SELECT 1 FROM oauth_grants g WHERE g.workspace_id=k.workspace_id AND g.id=k.grant_id AND g.revoked_at IS NULL))`,
           [w, hash],
         )
       ).rows[0];

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased: OAuth apps (phase 15, D4)
+
+- **Build apps on Relay:** register an app (Settings › Developers › Apps) and other workspaces can install it with OAuth 2.
+- **A clear consent screen** says exactly what an app may do, in plain words. Only someone who manages the workspace can allow it, and an app never gets more than they have.
+- **Tokens that stay safe:** short-lived access tokens, refresh tokens that rotate, and a reused one revokes the app. Remove an app any time and its tokens stop at once.
+- **Migration:** 0079, with rollback.
+- **Details:** `docs/DEVELOPER_PLATFORM_STEP4.md`.
+
 ## Unreleased: Webhooks (phase 15, D3)
 
 - **Send Relay's events to your servers:** new and replied conversations, assignments, closes, ratings, tags, tickets, contacts, events, Zoe's resolutions and handovers, SLA breaches and published articles.

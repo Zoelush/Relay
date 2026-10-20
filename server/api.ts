@@ -223,6 +223,7 @@ import { liveDashboard } from "./live";
 import { handleRest } from "./rest";
 import { changeDeveloperTokens, readDeveloperSettings } from "./developer";
 import { changeWebhooks, getDelivery, listDeliveries, listWebhooks, TOPICS } from "./webhooks";
+import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConsent, type AuthorizeQuery } from "./oauth";
 import { apiReferenceHtml } from "../lib/api-reference";
 import type { RateLimiter } from "./rate-limit";
 import type { WebhookEnvironment } from "./webhooks";
@@ -944,6 +945,9 @@ export async function handleApi(
     });
   // Phase 15 D1: the public REST API, its own surface with its own errors and headers.
   if (url.pathname === "/rest" || url.pathname.startsWith("/rest/")) return handleRest(req, { connect: env.connect, rateLimiter: env.rateLimiter, storage: env.attachments, webhooks: env.webhooks });
+  // Phase 15 D4: OAuth's token and revoke endpoints (RFC 6749 and 7009), for apps' servers.
+  if (url.pathname === "/oauth/token") return oauthToken(req, env.connect);
+  if (url.pathname === "/oauth/revoke") return oauthRevoke(req, env.connect);
   // The API's reference, generated from its spec.
   if (url.pathname === "/developers" && req.method === "GET")
     return new Response(apiReferenceHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
@@ -1398,6 +1402,8 @@ export async function handleApi(
             "/v1/agent/live-dashboard",
             "/v1/agent/developer-settings",
             "/v1/agent/developer-webhooks",
+            "/v1/agent/developer-apps",
+            "/v1/agent/oauth-consent",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
             "/v1/agent/email-message",
@@ -1495,6 +1501,8 @@ export async function handleApi(
               "/v1/agent/report-flow",
               "/v1/agent/developer-token",
               "/v1/agent/developer-webhook",
+              "/v1/agent/developer-app",
+              "/v1/agent/oauth-consent",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1884,6 +1892,12 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/report-metric")
           // Phase 14 R2: one metric for a period, broken down (read-only: a POST for its body).
           return json(await reportMetric(env.connect, env.analytics, workspace, principal, p));
+        if (url.pathname === "/v1/agent/developer-app")
+          // Phase 15 D4: an app registered (its secret returned once), changed, given a new secret, archived; or one installed here, uninstalled.
+          return json(await tenant(env.connect, workspace, (db) => changeApps(db, workspace, principal, p)));
+        if (url.pathname === "/v1/agent/oauth-consent")
+          // Phase 15 D4: approve or deny an app: where to send the teammate back.
+          return json(await decideConsent(env.connect, workspace, principal, p as AuthorizeQuery & { decision?: string }));
         if (url.pathname === "/v1/agent/developer-webhook")
           // Phase 15 D3: a webhook created (its secret returned once), changed, rotated, deleted, tested or replayed.
           return json(await tenant(env.connect, workspace, (db) => changeWebhooks(db, workspace, principal, env.webhooks, p)));
@@ -2540,6 +2554,10 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/developer-settings")
         // Phase 15 D1: personal access tokens and the API's usage (the base URL is this server's own).
         return json(await tenant(env.connect, workspace, (db) => readDeveloperSettings(db, workspace, principal, url.origin + "/rest")));
+      // Phase 15 D4: Settings › Developers › Apps, and what an app asks for on the consent screen.
+      if (url.pathname === "/v1/agent/developer-apps") return json(await tenant(env.connect, workspace, (db) => readApps(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/oauth-consent")
+        return json(await readConsent(env.connect, workspace, principal, Object.fromEntries(url.searchParams) as AuthorizeQuery));
       // Phase 15 D3: Settings › Developers › Webhooks: the subscriptions, a log page, one delivery.
       if (url.pathname === "/v1/agent/developer-webhooks")
         return json(await tenant(env.connect, workspace, async (db) => ({ webhooks: await listWebhooks(db, workspace, principal), topics: TOPICS })));

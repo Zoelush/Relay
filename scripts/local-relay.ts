@@ -1507,7 +1507,7 @@ export async function startLocalRelay(
     }
     const { value: response, timing } = await db.measure(() =>
       // The public API (phase 15 D1) and its reference go to the API too.
-      /^\/(v1\/|rest(\/|$)|developers$)/.test(new URL(req.url).pathname)
+      /^\/(v1\/|rest(\/|$)|developers$|oauth\/(token|revoke)$)/.test(new URL(req.url).pathname)
         ? handleApi(req, env)
         : messengerAsset(req, db.connect, (r) =>
             portalAsset(r, db.connect, (x) =>
@@ -1600,7 +1600,8 @@ export async function startLocalRelay(
       )
     )
       return staticResponse(req);
-    if (url.pathname === "/agent") {
+    // Phase 15 D4: an app's consent screen is the agent app at /oauth/authorize (same sign-in).
+    if (url.pathname === "/agent" || url.pathname === "/oauth/authorize") {
       // Development-only identity, issued only on the loopback fixture, never in app/ or workers/.
       // `?as=grace` signs in as the seeded second teammate, to try mentions between two people.
       const token = await new SignJWT({})
