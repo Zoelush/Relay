@@ -60,6 +60,7 @@ const routes = {
     "outbound",
     "outbound-message",
     "reporting-status",
+    "live-dashboard",
     "email-message",
     "email-settings",
     "zoe",

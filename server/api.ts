@@ -219,6 +219,7 @@ import { changeSubscriptionTypes, preferencePage, readSubscriptionTypes } from "
 import { changeOutboundMessage, changeOutboundSettings, dueBanner, dueInApp, outboundAction, outboundOn, outboundSeen, readOutbound, readOutboundMessage } from "./outbound";
 import { deviceOf } from "../lib/outbound";
 import { readReportingStatus, reportFlow, reportMetric, reportsOn, type AnalyticsStore } from "./analytics";
+import { liveDashboard } from "./live";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -1379,6 +1380,7 @@ export async function handleApi(
             "/v1/agent/outbound",
             "/v1/agent/outbound-message",
             "/v1/agent/reporting-status",
+            "/v1/agent/live-dashboard",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -2508,6 +2510,9 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/reporting-status")
         // Phase 14 R1: how current reporting's store is, and the metric dictionary.
         return json(await readReportingStatus(env.connect, env.analytics, workspace, principal));
+      if (url.pathname === "/v1/agent/live-dashboard")
+        // Phase 14 R4: what's happening now, from the live conversations only.
+        return json(await tenant(env.connect, workspace, (db) => liveDashboard(db, workspace, principal, { team: url.searchParams.get("team") })));
       if (url.pathname === "/v1/agent/outbound")
         // Phase 13 O2: the messages with their numbers, and the workspace's limits.
         return json(await tenant(env.connect, workspace, (db) => readOutbound(db, workspace, principal)));
@@ -3046,6 +3051,8 @@ export async function handleApi(
                 !!env.analytics &&
                 (await reportsOn(db, workspace)) &&
                 (await can(db, workspace, principal, "reports.view")),
+              // Phase 14 R4: the live dashboard reads the inbox's live conversations, so it needs no store.
+              live: (await reportsOn(db, workspace)) && (await can(db, workspace, principal, "reports.view")),
               // Phase 13 O1: the People area, for who may see people's details while segments are on.
               people:
                 (await segmentsOn(db, workspace)) &&

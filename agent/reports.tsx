@@ -28,6 +28,7 @@ import { message } from "./settings-ui";
 import { metric as definition, type Metric } from "../lib/metrics";
 import { BETTER, ITEM_LABELS, PREBUILT, REPORT_GROUPS, type Breakdown, type Chart, type PrebuiltReport } from "../lib/reports";
 import { CHANNEL_LABELS, channelLabel } from "../lib/channels";
+import { LiveIcon, LivePage } from "./live";
 
 /**
  * Reports (phase 14, step R3; docs/REPORTING_STEP3.md), behind `reports_v1`, for who may view
@@ -64,6 +65,7 @@ const PRESETS = [
   { id: "custom", label: "Custom" },
 ] as const;
 const ICONS: Record<string, React.ReactNode> = {
+  live: <LiveIcon size={16} />,
   overview: <LayoutDashboard size={16} />,
   conversations: <ChartColumnBig size={16} />,
   responsiveness: <Timer size={16} />,
@@ -291,7 +293,25 @@ function useAnswers(charts: Chart[], q: Query) {
   return { get: (c: Chart) => answers[keyOf(c)], retry };
 }
 
-export function Reports({ open, onOpen, directory, zoeName }: { open: string | null; onOpen: (report: string | null) => void; directory: Directory; zoeName: string }) {
+export function Reports({
+  open,
+  onOpen,
+  directory,
+  zoeName,
+  history = true,
+  live = true,
+  onConversation,
+}: {
+  open: string | null;
+  onOpen: (report: string | null) => void;
+  directory: Directory;
+  zoeName: string;
+  /** The reports over history (R3), while reporting's store is connected. */
+  history?: boolean;
+  /** The live dashboard (R4), which reads the inbox's live conversations. */
+  live?: boolean;
+  onConversation?: (id: string) => void;
+}) {
   const menu = useSideMenu("reports");
   const [prefs, setPrefs] = useState(savedPrefs);
   const [filters, setFilters] = useState<Query["filters"]>({});
@@ -305,11 +325,14 @@ export function Reports({ open, onOpen, directory, zoeName }: { open: string | n
     }
   }, [prefs]);
   useEffect(() => {
+    if (!history) return;
     api<{ asOf: string | null; conversations: number }>("reporting-status")
       .then(setStatus)
       .catch(() => setStatus(null));
-  }, [tick]);
-  const report = open ? PREBUILT.find((r) => r.id === open) : undefined;
+  }, [tick, history]);
+  // Without the store, the area is the live dashboard alone.
+  const page = live && (open === "live" || !history) ? "live" : open;
+  const report = page && page !== "live" ? PREBUILT.find((r) => r.id === page) : undefined;
   // The period is worked out once per choice (and on refresh), so every chart asks for the same one.
   const range = useMemo(() => period(prefs.range, prefs.timezone), [prefs.range, prefs.timezone, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   const query: Query = useMemo(
@@ -318,7 +341,7 @@ export function Reports({ open, onOpen, directory, zoeName }: { open: string | n
   );
   const entry = (id: string, name: string) => (
     <li key={id} data-hue="violet">
-      <button aria-current={(open ?? "overview") === id ? "page" : undefined} onClick={() => onOpen(id === "overview" ? null : id)}>
+      <button aria-current={(page ?? "overview") === id ? "page" : undefined} onClick={() => onOpen(id === "overview" ? null : id)}>
         <span className="pg-menu-entry-icon" aria-hidden="true">
           {ICONS[id]}
         </span>
@@ -342,8 +365,11 @@ export function Reports({ open, onOpen, directory, zoeName }: { open: string | n
       <div className="pg-area">
         <SideMenu state={menu} title="Reports" label="Reports menu">
           <nav aria-label="Reports">
-            <ul className="pg-menu-entries">{entry("overview", "Overview")}</ul>
-            {REPORT_GROUPS.map((g) => (
+            <ul className="pg-menu-entries">
+              {live && entry("live", "Live")}
+              {history && entry("overview", "Overview")}
+            </ul>
+            {history && REPORT_GROUPS.map((g) => (
               <section key={g.name} className="pg-menu-section">
                 <h2 className="pg-settings-group">{g.name}</h2>
                 <ul className="pg-menu-entries">{g.reports.map((id) => entry(id, PREBUILT.find((r) => r.id === id)!.name))}</ul>
@@ -352,7 +378,9 @@ export function Reports({ open, onOpen, directory, zoeName }: { open: string | n
           </nav>
         </SideMenu>
         <div className="pg-area-main">
-          {open && !report ? (
+          {page === "live" ? (
+            <LivePage menu={<ShowMenuButton state={menu} />} directory={directory} onConversation={onConversation} />
+          ) : page && !report ? (
             <div className="pg-settings-body">
               <p className="pg-muted">There’s no such report.</p>
               <button type="button" className="pg-wf-link" onClick={() => onOpen(null)}>

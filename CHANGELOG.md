@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: The live dashboard (phase 14, R4)
+
+- **See what's happening now:** open and unassigned conversations, who's waiting and for how long, SLAs missed or due within the hour, each teammate's presence and load, and the queue by team.
+- **Reached from the inbox** (Live dashboard in its menu) and from Reports, with a team filter. Clicking a waiting conversation opens it.
+- **Fresh while you watch:** refreshed every 15 seconds while the tab is open, and waits keep ticking between refreshes.
+- **Cheap by design:** it reads only the conversations still in play, never the history.
+- **Behind `reports_v1`,** for who may view reports, off by default.
+- **Migration:** 0076, with rollback.
+- **Details:** `docs/REPORTING_STEP4.md`.
+
 ## Unreleased: The Reports area (phase 14, R3)
 
 - **Reports in the app:** its own place in the strip, just before Outbound, with an overview and 14 pre-built reports (conversations, responsiveness, SLAs, team and teammate performance, CSAT, effectiveness, tickets, calls, email deliverability, the AI agent, human in the loop, outbound, and help center and search).

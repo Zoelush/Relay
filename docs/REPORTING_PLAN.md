@@ -73,4 +73,10 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **The page computes nothing:** each chart is one `report-metric` call; names for breakdown keys come from the application with the answer.
     - **Charts are drawn in SVG and CSS from tokens,** with no chart library.
 
-Handoffs: `docs/REPORTING_STEP1.md` (R1), `docs/REPORTING_STEP2.md` (R2), `docs/REPORTING_STEP3.md` (R3).
+11. **R4 decisions** (20 October 2026):
+    - **The live dashboard reads the inbox's own tables,** because "now" can't wait for the projection, but only the live set (open or snoozed, customer-facing, not merged) through two partial indexes. A test bounds the queries' plans: no full scan, no more rows than the live set.
+    - **It needs no analytical store:** it's shown to who may view reports while reporting is on, even where reports over history aren't.
+    - **Every 15 seconds, only while the tab is visible** (Intercom: every 60).
+    - **It's in the Reports area and linked from the inbox's menu.**
+
+Handoffs: `docs/REPORTING_STEP1.md` (R1), `docs/REPORTING_STEP2.md` (R2), `docs/REPORTING_STEP3.md` (R3), `docs/REPORTING_STEP4.md` (R4).
