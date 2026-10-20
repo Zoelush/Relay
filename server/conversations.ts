@@ -903,7 +903,9 @@ export async function command(
           p.action === "note" ? "internal" : "public",
         );
       // Messenger M3: replies to a closed conversation or ticket, when the messenger forbids them.
-      if (actor.type === "contact" && c.status === "closed") {
+      // Phase 13 O2: an outbound chat starts closed; its first reply is never refused.
+      const unansweredOutbound = !!c.outbound_message_id && !c.last_contact_reply_at;
+      if (actor.type === "contact" && c.status === "closed" && !unansweredOutbound) {
         const settings = (
           await db.query<{ settings: Record<string, unknown> }>(
             "SELECT settings FROM brands WHERE workspace_id=$1 AND id=$2",
@@ -1066,6 +1068,11 @@ export async function command(
       if (p.action === "reply") {
         // A customer replying to an "away and reassign replies" teammate's conversation hands it on.
         if (actor.type === "contact") await handOffIfAway(db, w, c.id);
+        // Phase 13 O2: a reply to an outbound chat, in its ledger.
+        if (actor.type === "contact" && c.outbound_message_id) {
+          const { outboundReplied } = await import("./outbound");
+          await outboundReplied(db, w, c.id);
+        }
         await syncSla(db, w, c.id);
         await afterChange(db, w, c.id, before);
       }

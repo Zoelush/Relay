@@ -70,6 +70,7 @@ import { checkCommunityJob, ingestDiscordMessage, receiveCommunityJob, receiveSl
 import { buyNumberJob, configureVoiceNumberJob, readRecordingJob, searchNumbersJob, startRecordingJob, type VoiceEnvironment } from "../server/voice";
 import type { TranscriptionPort } from "../server/voice-transcribe";
 import { checkEvent, recordEvent } from "../server/events";
+import { launchJob, outboundSweep } from "../server/outbound";
 import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -193,6 +194,10 @@ export async function startLocalRelay(
     segmentsFlag?: boolean;
     /** Development seed (phase 13 O1): people with attributes and events, subscription types, a segment. */
     examplePeople?: boolean;
+    /** Outbound (phase 13 O2), on unless turned off. */
+    outboundFlag?: boolean;
+    /** Development seed (phase 13 O2): a live in-app chat welcoming pro users, and an in-app subscription. */
+    exampleOutbound?: boolean;
     /** Development seed (phase 12 E9): the demo's UK number takes calls, Zoe answers, the owner's phone is rung. */
     exampleVoice?: boolean;
     /** Transcription for calls (phase 12 E9): tests pass their own; a stand-in otherwise. */
@@ -683,6 +688,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_facebook_v1','channel_instagram_v1')",
         [w, options.metaFlag !== false],
       );
+      // Outbound (phase 13, O2).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='outbound_v1'",
+        [w, options.outboundFlag !== false],
+      );
       // Events, subscriptions and segments (phase 13, O1).
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='segments_v1'",
@@ -934,6 +944,7 @@ export async function startLocalRelay(
   handlers["voice.number"] = (job) => configureVoiceNumberJob(db.connect, voiceEnv, job);
   handlers["voice.search"] = (job) => searchNumbersJob(db.connect, voiceEnv, job);
   handlers["voice.buy"] = (job) => buyNumberJob(db.connect, voiceEnv, job);
+  handlers["outbound.launch"] = (job) => launchJob(db.connect, job);
   // Discord's gateway runs only deployed (a Durable Object); locally, messages come by /dev/discord.
   handlers["community.check"] = (job) => checkCommunityJob(db.connect, communityEnv, job);
   // Development seed (phase 12 E8): a Slack workspace and a Discord server for the default brand.
@@ -1039,6 +1050,29 @@ export async function startLocalRelay(
       await q.query("INSERT INTO segments(workspace_id,id,name,definition,created_by,updated_by) VALUES('demo','pro-users','Pro users',$1,'owner','owner')", [
         JSON.stringify({ match: "all", rules: [{ field: "role", op: "is", value: "user" }, { field: "attribute", key: "plan", op: "is", value: "pro" }] }),
       ]);
+    });
+  // Development seed (phase 13 O2): "Product tips" (in-app, opt-out), and a live chat to pro users,
+  // once, from the owner: Ada (the demo's pro user) gets it when she next visits.
+  if (options.exampleOutbound && options.examplePeople && options.outboundFlag !== false && options.segmentsFlag !== false)
+    await tenant(db.connect, "demo", async (q) => {
+      if ((await q.query("SELECT 1 FROM outbound_messages WHERE workspace_id='demo'")).rows.length) return;
+      await q.query("INSERT INTO subscription_types(workspace_id,id,name,description,consent,channel,created_by) VALUES('demo','product-tips','Product tips','Tips in the messenger','opt_out','in_app','owner') ON CONFLICT DO NOTHING");
+      const def = {
+        type: "chat",
+        content: { text: "Hi! Thanks for upgrading to Pro. Want a quick tour of what's new?", senderId: "owner" },
+        subscriptionTypeId: "product-tips",
+        audience: { segmentId: "pro-users", rules: { match: "all", rules: [] }, sendTime: [] },
+        delivery: { mode: "ongoing" },
+        reentry: { mode: "once" },
+        cap: null,
+        quietHours: false,
+        goal: { event: "exported report", days: 14 },
+        holdoutPercent: 0,
+        startAt: null,
+        stopAt: null,
+      };
+      await q.query("INSERT INTO outbound_messages(workspace_id,id,type,title,state,draft,live_version,created_by,updated_by) VALUES('demo','welcome-pro','chat','Welcome to Pro','live',$1,1,'owner','owner')", [JSON.stringify(def)]);
+      await q.query("INSERT INTO outbound_versions(workspace_id,message_id,version,definition,published_by) VALUES('demo','welcome-pro',1,$1,'owner')", [JSON.stringify(def)]);
     });
   handlers["whatsapp.receive"] = (job) => receiveWhatsAppJob(db.connect, whatsappEnv, job);
   handlers["whatsapp.check"] = (job) => checkWhatsAppNumberJob(db.connect, whatsappEnv, job);
@@ -1164,6 +1198,8 @@ export async function startLocalRelay(
         await resumeDueWorkflows(db.connect, w);
         // Time triggers (phase 11 W4), checked once a minute.
         await checkTimedWorkflows(db.connect, w);
+        // Outbound (phase 13 O2): one-offs that started, and recurring messages' occurrences.
+        await outboundSweep(db.connect, w);
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
         // and sending domains due a check.
         await releaseDeferred(db.connect, w);
@@ -1665,6 +1701,7 @@ if (
     exampleCommunity: true,
     exampleVoice: true,
     examplePeople: true,
+    exampleOutbound: true,
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),

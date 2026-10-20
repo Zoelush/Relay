@@ -218,6 +218,8 @@ type Init = {
   preview?: boolean;
   /** The preview's chosen space (messenger M4); ignored outside the preview. */
   page?: string;
+  /** Phase 13 O2: an outbound chat to open first. */
+  conversation?: string;
 };
 const query = new URLSearchParams(location.search),
   parentOrigin = query.get("parent") ?? "",
@@ -237,7 +239,7 @@ const sound = () => {
   osc.stop(ctx.currentTime + 0.15);
   osc.onended = () => void ctx.close();
 };
-function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
+function Messenger({ boot, api, open: initialOpen, preview, page, conversation: outboundFirst }: Init) {
   const { strings: t, locale, dir } = language(boot.locale, boot.brand.locale);
   // Messenger settings M1: what this customer's audience (visitor or verified user) sees.
   const m3 = boot.brand.messenger3;
@@ -412,6 +414,18 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
       );
     setTimeout(() => input.current?.focus(), 0);
   }
+  // Phase 13 O2: an outbound chat is new to the list: refreshed, then opened.
+  const outbound = useRef<(id: string) => void>(() => {});
+  useEffect(() => {
+    outbound.current = (id) => {
+      void refreshList()
+        .catch(() => {})
+        .finally(() => select(id));
+    };
+  });
+  useEffect(() => {
+    if (outboundFirst && !preview) outbound.current(outboundFirst);
+  }, [outboundFirst, preview]);
   // The brand's colours, light and dark (messenger M2), from the boot: a draft shows at once. Text
   // on them, and links in them, are worked out to stay readable (M4, lib/brand-colours.ts).
   const brandColor = String(boot.brand.color ?? "");
@@ -455,6 +469,8 @@ function Messenger({ boot, api, open: initialOpen, preview, page }: Init) {
         setVisible(true);
         if (["home", "messages", "help", "tickets"].includes(data.space))
           setSpace(data.space);
+        // Phase 13 O2: an outbound chat for them, opened on its conversation.
+        if (typeof data.conversation === "string") outbound.current(data.conversation);
         setTimeout(
           () => document.querySelector<HTMLButtonElement>(".close")?.focus(),
           0,

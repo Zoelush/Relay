@@ -79,6 +79,9 @@ export async function recordEvent(db: Sql, w: string, contactId: string, e: Chec
      ON CONFLICT (workspace_id,name) DO UPDATE SET count=event_definitions.count+1,last_seen_at=greatest(event_definitions.last_seen_at,EXCLUDED.last_seen_at)`,
     [w, e.name, e.occurredAt.toISOString()],
   );
+  // Phase 13 O2: live messages this event sends (after their delay).
+  const { outboundOnEvent } = await import("./outbound");
+  await outboundOnEvent(db, w, contactId, e.name, String(added.rows[0].id), e.occurredAt);
   return "kept";
 }
 

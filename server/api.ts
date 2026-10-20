@@ -216,6 +216,8 @@ import { changeVoice, readVoice, voiceHook, type VoiceEnvironment } from "./voic
 import { apiEvents, changeEvents, messengerEvent, readEvents } from "./events";
 import { changePeople, readPeople, segmentsOn } from "./segments";
 import { changeSubscriptionTypes, preferencePage, readSubscriptionTypes } from "./subscriptions";
+import { changeOutboundMessage, changeOutboundSettings, dueInApp, outboundSeen, readOutbound, readOutboundMessage } from "./outbound";
+import { deviceOf } from "../lib/outbound";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -1358,6 +1360,8 @@ export async function handleApi(
             "/v1/agent/people",
             "/v1/agent/events-settings",
             "/v1/agent/subscription-settings",
+            "/v1/agent/outbound",
+            "/v1/agent/outbound-message",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1447,6 +1451,8 @@ export async function handleApi(
               "/v1/agent/people",
               "/v1/agent/events-settings",
               "/v1/agent/subscription-settings",
+              "/v1/agent/outbound-message",
+              "/v1/agent/outbound-settings",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1833,6 +1839,12 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/delivery")
           // Phase 12 E4: Zoe's held draft on email, sent or discarded by a teammate.
           return json(await tenant(env.connect, workspace, (db) => decideHeld(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/outbound-message")
+          // Phase 13 O2: a message created, saved, sized, published (now or later), paused, resumed or archived.
+          return json(await tenant(env.connect, workspace, (db) => changeOutboundMessage(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/outbound-settings")
+          // Phase 13 O2: the cap across all outbound, quiet hours and the timezone.
+          return json(await tenant(env.connect, workspace, (db) => changeOutboundSettings(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
         if (url.pathname === "/v1/agent/people")
           // Phase 13 O1: a segment's or draft rules' people, one person, saving or archiving a segment.
           return json(await tenant(env.connect, workspace, (db) => changePeople(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
@@ -2468,6 +2480,12 @@ export async function handleApi(
         return json(
           await tenant(env.connect, workspace, (db) => readDeliveries(db, workspace, principal, url.searchParams.get("conversation") ?? "")),
         );
+      if (url.pathname === "/v1/agent/outbound")
+        // Phase 13 O2: the messages with their numbers, and the workspace's limits.
+        return json(await tenant(env.connect, workspace, (db) => readOutbound(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/outbound-message")
+        // Phase 13 O2: one message: its draft and what stops it, versions, numbers and latest entries.
+        return json(await tenant(env.connect, workspace, (db) => readOutboundMessage(db, workspace, principal, url.searchParams.get("id") ?? "")));
       if (url.pathname === "/v1/agent/people")
         // Phase 13 O1: segments with their counts, and what rules can name.
         return json(await tenant(env.connect, workspace, (db) => readPeople(db, workspace, principal)));
@@ -3322,10 +3340,21 @@ export async function handleApi(
               p.partId,
               s.verified,
             );
+            // Phase 13 O2: an outbound chat, seen.
+            await outboundSeen(db, s.workspace, p.conversationId);
             return { ok: true };
           }),
         );
         await env.notify?.(s.workspace, "");
+        return json(result);
+      }
+      if (url.pathname === "/v1/messenger/due") {
+        // Phase 13 O2: what outbound has for this person on this page (a chat, at most one).
+        const result = await tenant(env.connect, s.workspace, async (db) => {
+          const locale = (await db.query<{ locale: string | null }>("SELECT locale FROM messenger_sessions WHERE workspace_id=$1 AND id=$2", [s.workspace, s.sessionId])).rows[0]?.locale ?? "";
+          return { outbound: await dueInApp(db, s.workspace, s, { pageUrl: pageUrl(p.pageUrl) ?? "", device: deviceOf(req.headers.get("user-agent") ?? ""), locale }) };
+        });
+        if (result.outbound.length) await env.notify?.(s.workspace, "");
         return json(result);
       }
       if (url.pathname === "/v1/messenger/events")
