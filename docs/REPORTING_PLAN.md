@@ -67,4 +67,10 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Daily rollups aren't built:** in the benchmark (`docs/REPORTING_BENCHMARK.md`), every chart is within 200 ms at p95 except two for the largest workspace over a year (about 300 ms). The query layer is where they'd go if those are wanted.
     - **Presence history** is recorded by the application (`teammate_presence_changes`), so pace per active hour is measurable.
 
-Handoffs: `docs/REPORTING_STEP1.md` (R1), `docs/REPORTING_STEP2.md` (R2).
+10. **R3 decisions** (20 October 2026):
+    - **Reports is its own area in the strip, just before Outbound** (asked for; as in Intercom's), not a Settings page.
+    - **The overview leads with a flow** of how conversations were handled (after Intercom's), computed in one query from the dictionary's columns, so its parts always add up.
+    - **The page computes nothing:** each chart is one `report-metric` call; names for breakdown keys come from the application with the answer.
+    - **Charts are drawn in SVG and CSS from tokens,** with no chart library.
+
+Handoffs: `docs/REPORTING_STEP1.md` (R1), `docs/REPORTING_STEP2.md` (R2), `docs/REPORTING_STEP3.md` (R3).

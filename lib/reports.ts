@@ -147,3 +147,69 @@ export const PREBUILT: PrebuiltReport[] = [
     charts: [{ metric: "ai_drafts_reviewed", breakdown: "day" }, { metric: "ai_draft_approval_rate" }],
   },
 ];
+
+/** The Reports area's menu (R3), grouped as Intercom's: support by people, automation, proactive, self-serve. */
+export const REPORT_GROUPS: { name: string; reports: string[] }[] = [
+  {
+    name: "Human support",
+    reports: ["conversations", "responsiveness", "slas", "team_performance", "teammate_performance", "csat", "effectiveness", "tickets", "calls", "email_deliverability"],
+  },
+  { name: "AI & automation", reports: ["ai_agent", "human_in_the_loop"] },
+  { name: "Proactive", reports: ["outbound"] },
+  { name: "Self-serve", reports: ["help_center"] },
+];
+
+/**
+ * Which way is better, for a change against the previous period: "up" (more is better), "down"
+ * (less is better). A metric not listed is neither: volume is just volume, so its change is shown
+ * without praise or alarm.
+ */
+export const BETTER: Record<string, "up" | "down"> = {
+  first_response_time: "down",
+  next_response_time: "down",
+  time_to_close: "down",
+  time_to_resolve: "down",
+  handling_time: "down",
+  handling_time_excluding_idle: "down",
+  adjusted_handling_time: "down",
+  ticket_time_to_resolve: "down",
+  reopened_conversations: "down",
+  awaiting_first_response: "down",
+  reassignments: "down",
+  repeat_contact: "down",
+  sla_miss_rate: "down",
+  sla_misses: "down",
+  searches_without_results: "down",
+  delivery_failures: "down",
+  first_contact_resolution: "up",
+  sla_hit_rate: "up",
+  csat: "up",
+  csat_response_rate: "up",
+  ai_resolution_rate: "up",
+  ai_answer_rate: "up",
+  deflection: "up",
+  search_click_through: "up",
+  article_helpful_rate: "up",
+  calls_answered_rate: "up",
+  delivery_rate: "up",
+  outbound_seen_rate: "up",
+  outbound_reply_rate: "up",
+  outbound_click_rate: "up",
+  ai_draft_approval_rate: "up",
+};
+
+/** Words for an item breakdown's fixed keys (ticket categories, SLA targets, search surfaces, who wrote a delivery). */
+export const ITEM_LABELS: Record<string, string> = {
+  customer: "Customer tickets",
+  back_office: "Back-office tickets",
+  tracker: "Tracker tickets",
+  first_response: "First response",
+  next_response: "Next response",
+  time_to_close: "Time to close",
+  time_to_resolve: "Time to resolve",
+  help_center: "Help center",
+  messenger: "Messenger",
+  teammate_reply: "Teammate replies",
+  ai_reply: "Zoe's replies",
+  workflow_message: "Workflow messages",
+};

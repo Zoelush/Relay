@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: The Reports area (phase 14, R3)
+
+- **Reports in the app:** its own place in the strip, just before Outbound, with an overview and 14 pre-built reports (conversations, responsiveness, SLAs, team and teammate performance, CSAT, effectiveness, tickets, calls, email deliverability, the AI agent, human in the loop, outbound, and help center and search).
+- **How conversations were handled:** the overview's flow shows where the period's conversations went: Zoe, the team, closed without a reply, or waiting, and how each ended.
+- **Every number explained:** each tile shows its change against the previous period, coloured by whether that's better, and its definition is one click away.
+- **Choose the view:** the period, channel, team, timezone, and office hours or wall-clock.
+- **Behind `reports_v1`,** for who may view reports, off by default.
+- **Details:** `docs/REPORTING_STEP3.md`.
+
 ## Unreleased: Reporting's datasets and query layer (phase 14, R2)
 
 - **Every metric can be asked for:** 52 metrics across 11 datasets (conversations, ratings, SLAs, tickets, the AI agent, teammates, outbound, search, articles, calls and deliveries), each with the previous period alongside.

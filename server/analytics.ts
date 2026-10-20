@@ -613,19 +613,63 @@ export async function scheduleProjection(main: Connect, w: string) {
 }
 
 /** `report-metric`: one metric for who may view reports (R3's pages ask through this). */
-export async function reportMetric(main: Connect, store: AnalyticsStore | undefined, w: string, principal: string, p: Record<string, unknown>) {
+/** Who may ask for a report: who may view reports, while reporting is on and its store connected. */
+async function mayReport(main: Connect, store: AnalyticsStore | undefined, w: string, principal: string): Promise<AnalyticsStore> {
   await tenant(main, w, async (db) => {
     await authorize(db, w, principal, "reports.view");
     assert(await reportsOn(db, w), "REPORTS_DISABLED", "Reports are not enabled for this workspace.", 404);
   });
   assert(store, "REPORTS_UNAVAILABLE", "Reporting's store isn't connected.", 503);
+  return store!;
+}
+
+export async function reportMetric(main: Connect, store: AnalyticsStore | undefined, w: string, principal: string, p: Record<string, unknown>) {
+  store = await mayReport(main, store, w, principal);
   const { runMetric } = await import("./reports");
-  return runMetric(store!, w, {
+  const result = await runMetric(store!, w, {
     metric: String(p.metric ?? ""),
     from: new Date(String(p.from ?? "")),
     to: new Date(String(p.to ?? "")),
     timezone: typeof p.timezone === "string" ? p.timezone : undefined,
     breakdown: typeof p.breakdown === "string" ? (p.breakdown as never) : undefined,
+    filters: p.filters && typeof p.filters === "object" ? (p.filters as never) : undefined,
+  });
+  const keys = result.rows.map((r) => r.key).filter((k): k is string => !!k);
+  const labels = keys.length ? await tenant(main, w, (db) => reportLabels(db, w, String(p.breakdown ?? ""), result.metric, keys)) : {};
+  return { ...result, labels };
+}
+
+/**
+ * Names for a breakdown's keys, from the application (the store keeps ids): teammates, teams and
+ * brands, outbound messages' titles and articles' titles. Other items (a ticket category, an SLA
+ * target, a search surface…) are fixed words, named by the page.
+ */
+async function reportLabels(db: Sql, w: string, breakdown: string, metric: string, keys: string[]): Promise<Record<string, string>> {
+  const lookup =
+    breakdown === "teammate"
+      ? "SELECT id,name FROM teammates WHERE workspace_id=$1 AND id=ANY($2)"
+      : breakdown === "team"
+        ? "SELECT id,name FROM teams WHERE workspace_id=$1 AND id=ANY($2)"
+        : breakdown === "brand"
+          ? "SELECT id,name FROM brands WHERE workspace_id=$1 AND id=ANY($2)"
+          : breakdown === "item" && metric.startsWith("outbound_")
+            ? "SELECT id,title AS name FROM outbound_messages WHERE workspace_id=$1 AND id=ANY($2)"
+            : breakdown === "item" && metric === "article_helpful_rate"
+              ? `SELECT record_id AS id,COALESCE(max(published_title),max(NULLIF(draft_title,''))) AS name FROM knowledge_locales
+                 WHERE workspace_id=$1 AND record_id=ANY($2) GROUP BY record_id`
+              : null;
+  if (!lookup) return {};
+  const rows = (await db.query<{ id: string; name: string | null }>(lookup, [w, keys])).rows;
+  return Object.fromEntries(rows.filter((r) => r.name).map((r) => [r.id, r.name!]));
+}
+
+/** The Reports overview's flow (phase 14 R3): how the period's new conversations were handled. */
+export async function reportFlow(main: Connect, store: AnalyticsStore | undefined, w: string, principal: string, p: Record<string, unknown>) {
+  const ready = await mayReport(main, store, w, principal);
+  const { conversationFlow } = await import("./reports");
+  return conversationFlow(ready, w, {
+    from: new Date(String(p.from ?? "")),
+    to: new Date(String(p.to ?? "")),
     filters: p.filters && typeof p.filters === "object" ? (p.filters as never) : undefined,
   });
 }

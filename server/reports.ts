@@ -399,3 +399,58 @@ export async function datasetCounts(store: AnalyticsStore, w: string) {
     return out;
   });
 }
+
+export type Flow = {
+  total: number;
+  zoe: { total: number; resolved: number; handedOver: number; other: number };
+  teammate: { total: number; closed: number; open: number };
+  closedWithoutReply: number;
+  waiting: number;
+};
+/**
+ * How the period's new conversations were handled (phase 14 R3; the Reports overview's flow): each
+ * goes one way at the first split (Zoe took part; else a teammate replied; else it closed without
+ * a reply; else it's waiting), and Zoe's and teammates' split again. The parts always add up.
+ * Built from the same columns as the dictionary's metrics (ai_involvement, ai_resolution_rate,
+ * conversations_replied_to), anchored, as new conversations are, to the start.
+ */
+export async function conversationFlow(store: AnalyticsStore, w: string, q: { from: Date; to: Date; filters?: Filters }): Promise<Flow> {
+  if (!(q.from instanceof Date) || !(q.to instanceof Date) || !Number.isFinite(q.from.getTime()) || !(q.to > q.from) || q.to.getTime() - q.from.getTime() > 400 * 86_400_000)
+    throw new DomainError("INVALID_REPORT", "Choose a period of up to 400 days.", 400);
+  const params: unknown[] = [w, q.from.toISOString(), q.to.toISOString()];
+  const where = [`c.workspace_id=$1`, STARTED, CUSTOMER];
+  for (const [key, column] of [
+    ["brandId", "c.brand_id"],
+    ["channel", "c.channel"],
+    ["teamId", "c.team_id"],
+  ] as const) {
+    const v = q.filters?.[key];
+    if (v !== undefined) {
+      params.push(String(v));
+      where.push(`${column}=$${params.length}`);
+    }
+  }
+  return tenant(store.connect, w, async (db) => {
+    const r = (
+      await db.query<Record<string, number>>(
+        `SELECT count(*)::int AS total,
+           count(*) FILTER (WHERE c.ai_involved)::int AS zoe,
+           count(*) FILTER (WHERE c.ai_involved AND ${resolved})::int AS zoe_resolved,
+           count(*) FILTER (WHERE c.ai_involved AND NOT ${resolved} AND (c.ai_handed_over OR c.teammate_replies>0))::int AS zoe_handed,
+           count(*) FILTER (WHERE NOT c.ai_involved AND c.teammate_replies>0)::int AS teammate,
+           count(*) FILTER (WHERE NOT c.ai_involved AND c.teammate_replies>0 AND c.status='closed')::int AS teammate_closed,
+           count(*) FILTER (WHERE NOT c.ai_involved AND c.teammate_replies=0 AND c.first_closed_at IS NOT NULL)::int AS closed_no_reply
+         FROM a_conversations c WHERE ${where.join(" AND ")}`,
+        params,
+      )
+    ).rows[0];
+    const teammate = r.teammate;
+    return {
+      total: r.total,
+      zoe: { total: r.zoe, resolved: r.zoe_resolved, handedOver: r.zoe_handed, other: r.zoe - r.zoe_resolved - r.zoe_handed },
+      teammate: { total: teammate, closed: r.teammate_closed, open: teammate - r.teammate_closed },
+      closedWithoutReply: r.closed_no_reply,
+      waiting: r.total - r.zoe - teammate - r.closed_no_reply,
+    };
+  });
+}
