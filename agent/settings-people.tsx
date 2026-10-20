@@ -34,7 +34,7 @@ type Teammate = {
 };
 
 /** Every permission, grouped and explained. Some take effect in a later phase, as marked. */
-const PERMISSIONS: [string, [string, string, string?][]][] = [
+export const PERMISSIONS: [string, [string, string, string?][]][] = [
   [
     "Conversations",
     [

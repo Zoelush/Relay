@@ -480,7 +480,8 @@ export class RelayHub extends DurableObject<Env> {
 const relayWorker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith("/v1/") || url.pathname === "/realtime") {
+    // The public API (phase 15 D1) and its reference are the API's too.
+    if (url.pathname.startsWith("/v1/") || url.pathname === "/realtime" || /^\/(rest(\/|$)|developers$)/.test(url.pathname)) {
       if (env.RELAY_ENABLED !== "true")
         return Response.json(
           {

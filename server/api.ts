@@ -220,6 +220,10 @@ import { changeOutboundMessage, changeOutboundSettings, dueBanner, dueInApp, out
 import { deviceOf } from "../lib/outbound";
 import { readReportingStatus, reportFlow, reportMetric, reportsOn, type AnalyticsStore } from "./analytics";
 import { liveDashboard } from "./live";
+import { handleRest } from "./rest";
+import { changeDeveloperTokens, readDeveloperSettings } from "./developer";
+import { apiReferenceHtml } from "../lib/api-reference";
+import type { RateLimiter } from "./rate-limit";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -290,6 +294,8 @@ import {
 
 export interface ApiEnvironment {
   connect: Connect;
+  /** Phase 15 D1: the public API's rate limits (in memory unless a deployment provides its own). */
+  rateLimiter?: RateLimiter;
   storageTransport?: "hyperdrive" | "local-pglite";
   sessionSecret: string;
   identityMaster: string;
@@ -932,6 +938,11 @@ export async function handleApi(
           : {}),
       },
     });
+  // Phase 15 D1: the public REST API, its own surface with its own errors and headers.
+  if (url.pathname === "/rest" || url.pathname.startsWith("/rest/")) return handleRest(req, { connect: env.connect, rateLimiter: env.rateLimiter });
+  // The API's reference, generated from its spec.
+  if (url.pathname === "/developers" && req.method === "GET")
+    return new Response(apiReferenceHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
   try {
     if (req.method === "OPTIONS")
       return new Response(null, {
@@ -1381,6 +1392,7 @@ export async function handleApi(
             "/v1/agent/outbound-message",
             "/v1/agent/reporting-status",
             "/v1/agent/live-dashboard",
+            "/v1/agent/developer-settings",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1474,6 +1486,7 @@ export async function handleApi(
               "/v1/agent/outbound-settings",
               "/v1/agent/report-metric",
               "/v1/agent/report-flow",
+              "/v1/agent/developer-token",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1863,6 +1876,9 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/report-metric")
           // Phase 14 R2: one metric for a period, broken down (read-only: a POST for its body).
           return json(await reportMetric(env.connect, env.analytics, workspace, principal, p));
+        if (url.pathname === "/v1/agent/developer-token")
+          // Phase 15 D1: a token made (its text returned this once) or revoked.
+          return json(await tenant(env.connect, workspace, (db) => changeDeveloperTokens(db, workspace, principal, p)));
         if (url.pathname === "/v1/agent/report-flow")
           // Phase 14 R3: how the period's new conversations were handled (the Reports overview).
           return json(await reportFlow(env.connect, env.analytics, workspace, principal, p));
@@ -2510,6 +2526,9 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/reporting-status")
         // Phase 14 R1: how current reporting's store is, and the metric dictionary.
         return json(await readReportingStatus(env.connect, env.analytics, workspace, principal));
+      if (url.pathname === "/v1/agent/developer-settings")
+        // Phase 15 D1: personal access tokens and the API's usage (the base URL is this server's own).
+        return json(await tenant(env.connect, workspace, (db) => readDeveloperSettings(db, workspace, principal, url.origin + "/rest")));
       if (url.pathname === "/v1/agent/live-dashboard")
         // Phase 14 R4: what's happening now, from the live conversations only.
         return json(await tenant(env.connect, workspace, (db) => liveDashboard(db, workspace, principal, { team: url.searchParams.get("team") })));

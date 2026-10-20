@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: Relay's API (phase 15, D1)
+
+- **A public REST API** at `/rest`: conversations (list, read, start, reply, note, assign, snooze, reopen, close, tag), contacts, tags, teammates and teams.
+- **Personal access tokens** in Settings › Developers: each acts as you, with the scopes you choose (never more than your role). Shown once, revocable, with last use and the last hour's calls.
+- **Built to be relied on:** versions by header with a written deprecation policy, errors that name the field, cursor paging, rate limits in every response (429 with Retry-After), and `Idempotency-Key` for safe retries.
+- **The reference is generated from the spec** (`docs/API.md`, `/developers`, `/rest/openapi.json`).
+- **Behind `developer_api_v1`,** off by default.
+- **Migration:** 0077, with rollback.
+- **Details:** `docs/DEVELOPER_PLATFORM_STEP1.md`.
+
 ## Unreleased: The live dashboard (phase 14, R4)
 
 - **See what's happening now:** open and unassigned conversations, who's waiting and for how long, SLAs missed or due within the hour, each teammate's presence and load, and the queue by team.
