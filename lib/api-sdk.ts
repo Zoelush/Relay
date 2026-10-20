@@ -89,6 +89,22 @@ export class RelayError extends Error {
   }
 }
 
+/**
+ * Verifies a webhook delivery (phase 15 D3): \`Relay-Signature\` against the raw body, under your
+ * secret, within \`toleranceSeconds\`. Returns the parsed event, or throws.
+ */
+export async function verifyWebhook(secret, rawBody, signatureHeader, toleranceSeconds = 300, now = Date.now() / 1000) {
+  const items = String(signatureHeader || "").split(",").map((p) => p.split("="));
+  const t = Number((items.find(([k]) => k === "t") || [])[1]);
+  if (!t || Math.abs(now - t) > toleranceSeconds) throw new Error("Relay webhook: the signature's time is missing or too old.");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(t + "." + rawBody)));
+  const want = Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
+  const same = (a, b) => a.length === b.length && [...a].reduce((d, c, i) => d | (c.charCodeAt(0) ^ b.charCodeAt(i)), 0) === 0;
+  if (!items.some(([k, v]) => k === "v1" && same(String(v), want))) throw new Error("Relay webhook: the signature doesn't match.");
+  return JSON.parse(rawBody);
+}
+
 export class Relay {
   /**
    * @param {{ token: string, baseUrl: string, version?: string, maxRetries?: number, fetch?: typeof fetch }} options
@@ -147,6 +163,8 @@ export function jsTypes(spec: Spec = SPEC) {
   return `// ${HEADER("TypeScript types for the")}
 ${schemas.join("\n")}
 export type RequestOptions<Q> = { query?: Q; idempotencyKey?: string };
+/** Verifies a webhook delivery's \`Relay-Signature\` and returns its event (throws if it isn't Relay's). */
+export declare function verifyWebhook(secret: string, rawBody: string, signatureHeader: string, toleranceSeconds?: number, now?: number): Promise<{ type: "webhook_event"; id: string; topic: string; created_at: string; workspace_id: string; data: Record<string, unknown> }>;
 export declare class RelayError extends Error {
   status: number;
   code: string;
@@ -195,6 +213,22 @@ VERSION = "${LATEST_VERSION}"
 
 def _e(v):
     return urllib.parse.quote(str(v), safe="")
+
+
+def verify_webhook(secret, raw_body, signature_header, tolerance=300, now=None):
+    """Verifies a webhook delivery's Relay-Signature against the raw body (bytes); returns its event, or raises ValueError."""
+    import hashlib
+    import hmac
+
+    items = [p.split("=", 1) for p in (signature_header or "").split(",") if "=" in p]
+    t = next((int(v) for k, v in items if k == "t" and v.isdigit()), 0)
+    if not t or abs((now if now is not None else time.time()) - t) > tolerance:
+        raise ValueError("Relay webhook: the signature's time is missing or too old.")
+    body = raw_body if isinstance(raw_body, bytes) else raw_body.encode()
+    want = hmac.new(secret.encode(), str(t).encode() + b"." + body, hashlib.sha256).hexdigest()
+    if not any(k == "v1" and hmac.compare_digest(v, want) for k, v in items):
+        raise ValueError("Relay webhook: the signature doesn't match.")
+    return json.loads(body.decode())
 
 
 class RelayError(Exception):

@@ -2,7 +2,7 @@
 
 Generated from `lib/api-spec.ts` by `npm run api:doc`; don't edit by hand. The machine-readable spec is at `/rest/openapi.json`, and this page at `/developers`.
 
-Relay's REST API: conversations, contacts, tickets, articles and knowledge, macros, workflows, outbound, events, attributes, segments, search and export. Authenticate with a personal access token (Settings › Developers) as `Authorization: Bearer <token>`. Name a version with `Relay-Version`; without one, the token's own version is used.
+Relay's REST API: conversations, contacts, tickets, articles and knowledge, macros, workflows, outbound, events, attributes, segments, search, export and webhooks. Authenticate with a personal access token (Settings › Developers) as `Authorization: Bearer <token>`. Name a version with `Relay-Version`; without one, the token's own version is used.
 
 Base URL: `https://api.<your domain>/rest` (locally, the API server's `/rest`).
 
@@ -51,6 +51,38 @@ Each field's type decides its operators. **string:** `=` `!=` `IN` `NIN` `~` `!~
 Operators: `=` equals; `!=` doesn't equal; `IN` is one of (a list); `NIN` is none of (a list); `~` contains; `!~` doesn't contain; `^` starts with; `$` ends with; `<` is before / less than; `>` is after / more than; `<=` at or before / at most; `>=` at or after / at least. Text comparisons ignore case; times need an offset.
 
 A refused query names the part at fault, as `query.value[1].operator`.
+
+## Webhooks
+
+Subscribe a public https address to topics (Settings › Developers › Webhooks, or `POST /webhooks`). Each event is POSTed as JSON: `{"type":"webhook_event","id","topic","created_at","workspace_id","data":{"item":…}}`, where `item` is the resource as this API shows it (a conversation, ticket, contact, event or article), with `data.part`, `data.tag`, `data.changes` or `data.metric` when the topic has one. Internal notes are never sent.
+
+Headers: `Relay-Signature`, `Relay-Event-Id` (the same across retries and replays: dedupe on it), `Relay-Webhook-Id` (this delivery) and `Relay-Topic`. Events are sent in the order they happened, but a retry can arrive after a later event: order by `created_at` if it matters.
+
+**Delivery** is at least once. Answer with a 2xx within 10 seconds. Anything else is retried with exponential backoff (a minute, doubling, at most two hours apart) for 24 hours. A webhook that has failed for 24 hours without a success is turned off, and its creator is told (by email too, if it names an alert email). Its deliveries are kept 30 days and any one can be replayed.
+
+**Verifying:** `Relay-Signature` is `t=<unix seconds>,v1=<hex>`. The hex is HMAC-SHA256 of `<t>.<the raw body>` under your secret. While a secret is being rotated, a second `v1` signs under the previous one for 24 hours. Accept the delivery if any `v1` matches and `t` is within 5 minutes. The SDKs do this: `verifyWebhook(secret, rawBody, header)` in JavaScript, `verify_webhook(secret, raw_body, header)` in Python.
+
+```js
+import { createHmac, timingSafeEqual } from "node:crypto";
+export function verify(secret, rawBody, header, now = Date.now() / 1000) {
+  const items = header.split(",").map((p) => p.split("="));
+  const t = Number(items.find(([k]) => k === "t")?.[1]);
+  if (!t || Math.abs(now - t) > 300) return false;
+  const want = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest();
+  return items.some(([k, v]) => { if (k !== "v1") return false; const got = Buffer.from(v, "hex"); return got.length === want.length && timingSafeEqual(got, want); });
+}
+```
+
+```python
+import hashlib, hmac, time
+def verify(secret, raw_body, header, tolerance=300):
+    items = [p.split("=", 1) for p in header.split(",")]
+    t = next((int(v) for k, v in items if k == "t"), 0)
+    if not t or abs(time.time() - t) > tolerance:
+        return False
+    want = hmac.new(secret.encode(), f"{t}.".encode() + raw_body, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(v, want) for k, v in items if k == "v1")
+```
 
 ## Retries
 
@@ -977,6 +1009,161 @@ Its progress, and when it's done, links to its files (each valid for an hour).
 
 **Returns:** `200`, Export.
 
+## Webhooks
+
+### List webhooks
+
+`GET /webhooks`
+
+The workspace's webhook subscriptions.
+
+**Scope:** `workspace.manage`.
+
+**Returns:** `200`, object.
+
+### Create a webhook
+
+`POST /webhooks`
+
+Subscribe a public https address to topics. The response carries its signing `secret`, this once.
+
+**Scope:** `workspace.manage`.
+
+**Body:**
+
+| Field | Type | Required | About |
+|---|---|---|---|
+| `url` | string | yes | Where deliveries are POSTed (https). at least 8 characters; up to 2000 characters |
+| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | yes |  |
+| `alert_email` | string or null (email) | no | Told if it's turned off after failing for 24 hours. up to 320 characters |
+
+**Returns:** `201`, Webhook.
+
+### Retrieve a webhook
+
+`GET /webhooks/{id}`
+
+One webhook subscription and its state.
+
+**Scope:** `workspace.manage`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The webhook's id. up to 100 characters |
+
+**Returns:** `200`, Webhook.
+
+### Update a webhook
+
+`PATCH /webhooks/{id}`
+
+Change its address, topics or alert email, or turn it off or back on (back on forgives its failures).
+
+**Scope:** `workspace.manage`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The webhook's id. up to 100 characters |
+
+**Body:**
+
+| Field | Type | Required | About |
+|---|---|---|---|
+| `url` | string | no | at least 8 characters; up to 2000 characters |
+| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | no |  |
+| `alert_email` | string or null (email) | no | up to 320 characters |
+| `active` | boolean | no |  |
+
+**Returns:** `200`, Webhook.
+
+### Delete a webhook
+
+`DELETE /webhooks/{id}`
+
+Stop sending to it; deliveries still waiting are abandoned.
+
+**Scope:** `workspace.manage`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The webhook's id. up to 100 characters |
+
+**Returns:** `200`, object.
+
+### Rotate a webhook's secret
+
+`POST /webhooks/{id}/rotate_secret`
+
+A new signing secret (returned this once). For 24 hours, deliveries are signed with both, so you can switch without missing any.
+
+**Scope:** `workspace.manage`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The webhook's id. up to 100 characters |
+
+**Returns:** `200`, Webhook.
+
+### Send a test delivery
+
+`POST /webhooks/{id}/test`
+
+A `ping` delivery, to check the address and your signature check.
+
+**Scope:** `workspace.manage`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The webhook's id. up to 100 characters |
+
+**Returns:** `202`, WebhookDelivery.
+
+### List deliveries
+
+`GET /webhooks/{id}/deliveries`
+
+What was sent to it, newest first (kept 30 days).
+
+**Scope:** `workspace.manage`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The webhook's id. up to 100 characters |
+| `per_page` | query | integer | no | How many to return, 1 to 100. 1 to 100; default 20 |
+| `starting_after` | query | string | no | The cursor from the previous page's `pages.next`. up to 400 characters |
+
+**Returns:** `200`, object.
+
+### Retrieve a delivery
+
+`GET /webhooks/{id}/deliveries/{delivery_id}`
+
+One delivery: its body, and every attempt with what came back.
+
+**Scope:** `workspace.manage`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The webhook's id. up to 100 characters |
+| `delivery_id` | path | string | yes | The delivery's id. up to 100 characters |
+
+**Returns:** `200`, WebhookDelivery.
+
+### Replay a delivery
+
+`POST /webhooks/{id}/deliveries/{delivery_id}/replay`
+
+Send the same event and body again, as a new delivery.
+
+**Scope:** `workspace.manage`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The webhook's id. up to 100 characters |
+| `delivery_id` | path | string | yes | The delivery's id. up to 100 characters |
+
+**Returns:** `202`, WebhookDelivery.
+
 ## Search fields
 
 ### Conversations
@@ -1012,6 +1199,30 @@ Sorted by `updated_at`, newest first, unless you choose.
 | `signed_up_at` | time | yes | When they signed up. |
 
 Also `custom_attributes.<name>` (text, or a number when the value is one). Sorted by `last_seen_at`, newest first, unless you choose.
+
+## Webhook topics
+
+| Topic | When | `data.item` |
+|---|---|---|
+| `conversation.created` | A customer (or an API call for them) started a conversation. | conversation |
+| `conversation.customer_replied` | A customer's message, with `data.part`. | conversation |
+| `conversation.teammate_replied` | A public reply by a teammate, with `data.part` (internal notes never). | conversation |
+| `conversation.assigned` | Its teammate or team changed, with `data.part`. | conversation |
+| `conversation.closed` | It was closed. | conversation |
+| `conversation.rated` | The customer rated it, with `data.part`. | conversation |
+| `conversation.tagged` | A tag was added, with `data.tag`. | conversation |
+| `ticket.created` | A conversation became a ticket. | ticket |
+| `ticket.state_changed` | With `data.changes` (from and to state ids). | ticket |
+| `contact.created` | A new visitor, lead or user. | contact |
+| `contact.updated` | Their name, role, your id for them, or custom attributes. | contact |
+| `contact.merged` | The contact that remains, with `data.merged_contact_id`. | contact |
+| `event.received` | From your server or the messenger. | event |
+| `ai_agent.resolved` | A confirmed or assumed resolution. | conversation |
+| `ai_agent.escalated` | Zoe passed the conversation to the team, with `data.part`. | conversation |
+| `sla.breached` | With `data.metric` (first response, next response, time to close or resolve). | conversation |
+| `article.published` | A new or updated article went live. | article |
+
+Company topics and `contact.tagged` come with companies and tags on people (phase 01).
 
 ## Objects
 
@@ -1285,4 +1496,41 @@ Your own facts about them: up to 50, each a string (up to 255), a number, a bool
 | `resources` | array of string | yes |  |
 | `rows` | integer | no |  |
 | `files` | array of object | no |  |
+| `created_at` | string (date-time) | no |  |
+
+### Webhook
+
+| Field | Type | Always present | About |
+|---|---|---|---|
+| `type` | string: `webhook` | yes |  |
+| `id` | string | yes |  |
+| `url` | string | yes |  |
+| `topics` | array of string | yes |  |
+| `version` | string | no | The API version its bodies follow. |
+| `status` | string: `active`, `failing`, `disabled` | yes |  |
+| `failing_since` | string or null (date-time) | no |  |
+| `disabled_at` | string or null (date-time) | no |  |
+| `disabled_reason` | string or null | no |  |
+| `alert_email` | string or null | no |  |
+| `previous_secret_until` | string or null (date-time) | no | While rotating: until when the previous secret also signs. |
+| `secret` | string | no | Only when it's created or its secret rotated. |
+| `created_at` | string (date-time) | no |  |
+
+### WebhookDelivery
+
+| Field | Type | Always present | About |
+|---|---|---|---|
+| `type` | string: `webhook_delivery` | yes |  |
+| `id` | string | yes |  |
+| `event_id` | string | yes | The same across retries and replays: dedupe on it. |
+| `topic` | string | yes |  |
+| `status` | string: `pending`, `delivered`, `abandoned` | yes |  |
+| `attempts` | integer | no |  |
+| `next_attempt_at` | string or null (date-time) | no |  |
+| `delivered_at` | string or null (date-time) | no |  |
+| `last_status` | integer or null | no |  |
+| `last_error` | string or null | no |  |
+| `replay_of` | string or null | no |  |
+| `payload` | object | no | The body sent (on a single delivery). |
+| `attempt_log` | array of object | no | Each attempt (on a single delivery). |
 | `created_at` | string (date-time) | no |  |

@@ -139,6 +139,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   }
   // Phase 15 D1: personal access tokens and the API's usage, for every teammate (their own tokens).
   if (await flag(db, w, "developer_api_v1")) pages.push("developers");
+  // Phase 15 D3: webhooks, for who manages the workspace.
+  if (manage && (await flag(db, w, "developer_api_v1"))) pages.push("webhooks");
   // TODO(phase 16): security, audit log, usage and billing. TODO(phase 15 D3): webhooks. TODO(phase 12): email and other channels. TODO(phase 08 B1): more AI agent pages.
   return { pages };
 }

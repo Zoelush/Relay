@@ -16,6 +16,22 @@ export class RelayError extends Error {
   }
 }
 
+/**
+ * Verifies a webhook delivery (phase 15 D3): `Relay-Signature` against the raw body, under your
+ * secret, within `toleranceSeconds`. Returns the parsed event, or throws.
+ */
+export async function verifyWebhook(secret, rawBody, signatureHeader, toleranceSeconds = 300, now = Date.now() / 1000) {
+  const items = String(signatureHeader || "").split(",").map((p) => p.split("="));
+  const t = Number((items.find(([k]) => k === "t") || [])[1]);
+  if (!t || Math.abs(now - t) > toleranceSeconds) throw new Error("Relay webhook: the signature's time is missing or too old.");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(t + "." + rawBody)));
+  const want = Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
+  const same = (a, b) => a.length === b.length && [...a].reduce((d, c, i) => d | (c.charCodeAt(0) ^ b.charCodeAt(i)), 0) === 0;
+  if (!items.some(([k, v]) => k === "v1" && same(String(v), want))) throw new Error("Relay webhook: the signature doesn't match.");
+  return JSON.parse(rawBody);
+}
+
 export class Relay {
   /**
    * @param {{ token: string, baseUrl: string, version?: string, maxRetries?: number, fetch?: typeof fetch }} options
@@ -442,5 +458,65 @@ export class Relay {
   /** Retrieve an export. Its progress, and when it's done, links to its files (each valid for an hour). */
   getExport(id, options = {}) {
     return this.request("GET", `/exports/${e(id)}`, { ...options });
+  }
+
+  /** List webhooks. The workspace's webhook subscriptions. */
+  listWebhooks(options = {}) {
+    return this.request("GET", "/webhooks", { ...options });
+  }
+
+  /** Create a webhook. Subscribe a public https address to topics. The response carries its signing `secret`, this once. */
+  createWebhook(body, options = {}) {
+    return this.request("POST", "/webhooks", { ...options, body });
+  }
+
+  /** Retrieve a webhook. One webhook subscription and its state. */
+  getWebhook(id, options = {}) {
+    return this.request("GET", `/webhooks/${e(id)}`, { ...options });
+  }
+
+  /** Update a webhook. Change its address, topics or alert email, or turn it off or back on (back on forgives its failures). */
+  updateWebhook(id, body, options = {}) {
+    return this.request("PATCH", `/webhooks/${e(id)}`, { ...options, body });
+  }
+
+  /** Delete a webhook. Stop sending to it; deliveries still waiting are abandoned. */
+  deleteWebhook(id, options = {}) {
+    return this.request("DELETE", `/webhooks/${e(id)}`, { ...options });
+  }
+
+  /** Rotate a webhook's secret. A new signing secret (returned this once). For 24 hours, deliveries are signed with both, so you can switch without missing any. */
+  rotateWebhookSecret(id, options = {}) {
+    return this.request("POST", `/webhooks/${e(id)}/rotate_secret`, { ...options });
+  }
+
+  /** Send a test delivery. A `ping` delivery, to check the address and your signature check. */
+  testWebhook(id, options = {}) {
+    return this.request("POST", `/webhooks/${e(id)}/test`, { ...options });
+  }
+
+  /** List deliveries. What was sent to it, newest first (kept 30 days). */
+  listWebhookDeliveries(id, options = {}) {
+    return this.request("GET", `/webhooks/${e(id)}/deliveries`, { ...options });
+  }
+
+  /** Every page of listWebhookDeliveries, item by item. */
+  async *listWebhookDeliveriesAll(id, options = {}) {
+    let after;
+    do {
+      const page = await this.listWebhookDeliveries(id, { ...options, query: { ...options.query, ...(after ? { starting_after: after } : {}) } });
+      yield* page.data;
+      after = page.pages.next;
+    } while (after);
+  }
+
+  /** Retrieve a delivery. One delivery: its body, and every attempt with what came back. */
+  getWebhookDelivery(id, deliveryId, options = {}) {
+    return this.request("GET", `/webhooks/${e(id)}/deliveries/${e(deliveryId)}`, { ...options });
+  }
+
+  /** Replay a delivery. Send the same event and body again, as a new delivery. */
+  replayWebhookDelivery(id, deliveryId, options = {}) {
+    return this.request("POST", `/webhooks/${e(id)}/deliveries/${e(deliveryId)}/replay`, { ...options });
   }
 }

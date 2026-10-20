@@ -97,6 +97,7 @@ import { purgeDrafts } from "../server/drafts";
 import { purgeHelpSearches } from "../server/help-search";
 import { purgeInlineImages } from "../server/attachments";
 import { exportJob } from "../server/rest-more";
+import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
 import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
 import { hyperdriveConnection } from "../server/postgres";
@@ -275,6 +276,8 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     sessionSecret: env.SESSION_SECRET,
     identityMaster: env.IDENTITY_MASTER,
     connectors: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
+    // Phase 15 D3: webhooks' secrets are sealed with the connector key (public https only when deployed).
+    webhooks: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
     emailDomain: env.RELAY_INBOUND_DOMAIN,
     emailSending: { sendingDomain: env.RELAY_SENDING_DOMAIN ?? env.RELAY_INBOUND_DOMAIN ?? "", region: env.RELAY_SES_REGION ?? "eu-west-2" },
     sesReports: env.RELAY_SES_TOPIC_ARN ? { topicArn: env.RELAY_SES_TOPIC_ARN } : undefined,
@@ -577,6 +580,9 @@ const relayWorker = {
       "voice.buy": (job) => buyNumberJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
       // Phase 13 O2: a fixed audience (a one-off, or an occurrence) entered, in batches.
       "outbound.launch": (job) => launchJob(runtime.connect, job),
+      // Phase 15 D3: webhook events fanned out, and deliveries sent.
+      "webhooks.run": (job) =>
+        runtime.webhooks ? runWebhooks(runtime.connect, runtime.webhooks, job) : Promise.resolve({ done: true, result: { skipped: "No connector key." } }),
       // Phase 15 D2: the API's data exports, in parts (to the attachments bucket).
       "api.export": (job) =>
         runtime.attachments ? exportJob(runtime.connect, runtime.attachments, job) : Promise.resolve({ done: true, result: { skipped: "No storage." } }),
@@ -687,6 +693,8 @@ const relayWorker = {
           await outboundSweep(runtime.connect, work.workspace);
           // Reporting (phase 14 R1): the store kept current, once a sweep.
           if (runtime.analytics) await scheduleProjection(runtime.connect, work.workspace);
+          // Webhooks (phase 15 D3): events to deliver, and deliveries whose retry is due.
+          await scheduleWebhooks(runtime.connect, work.workspace);
           // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
           // and sending domains due a check.
           await releaseDeferred(runtime.connect, work.workspace);

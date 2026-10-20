@@ -13,6 +13,22 @@ def _e(v):
     return urllib.parse.quote(str(v), safe="")
 
 
+def verify_webhook(secret, raw_body, signature_header, tolerance=300, now=None):
+    """Verifies a webhook delivery's Relay-Signature against the raw body (bytes); returns its event, or raises ValueError."""
+    import hashlib
+    import hmac
+
+    items = [p.split("=", 1) for p in (signature_header or "").split(",") if "=" in p]
+    t = next((int(v) for k, v in items if k == "t" and v.isdigit()), 0)
+    if not t or abs((now if now is not None else time.time()) - t) > tolerance:
+        raise ValueError("Relay webhook: the signature's time is missing or too old.")
+    body = raw_body if isinstance(raw_body, bytes) else raw_body.encode()
+    want = hmac.new(secret.encode(), str(t).encode() + b"." + body, hashlib.sha256).hexdigest()
+    if not any(k == "v1" and hmac.compare_digest(v, want) for k, v in items):
+        raise ValueError("Relay webhook: the signature doesn't match.")
+    return json.loads(body.decode())
+
+
 class RelayError(Exception):
     """An error from the API: its HTTP status, stable code, message, the field at fault, and request id."""
 
@@ -406,3 +422,53 @@ class Relay:
     def get_export(self, id, *, idempotency_key=None):
         """Retrieve an export. Its progress, and when it's done, links to its files (each valid for an hour)."""
         return self.request("GET", f"/exports/{_e(id)}", query=None, idempotency_key=idempotency_key)
+
+    def list_webhooks(self, *, idempotency_key=None):
+        """List webhooks. The workspace's webhook subscriptions."""
+        return self.request("GET", "/webhooks", query=None, idempotency_key=idempotency_key)
+
+    def create_webhook(self, body, *, idempotency_key=None):
+        """Create a webhook. Subscribe a public https address to topics. The response carries its signing `secret`, this once."""
+        return self.request("POST", "/webhooks", query=None, body=body, idempotency_key=idempotency_key)
+
+    def get_webhook(self, id, *, idempotency_key=None):
+        """Retrieve a webhook. One webhook subscription and its state."""
+        return self.request("GET", f"/webhooks/{_e(id)}", query=None, idempotency_key=idempotency_key)
+
+    def update_webhook(self, id, body, *, idempotency_key=None):
+        """Update a webhook. Change its address, topics or alert email, or turn it off or back on (back on forgives its failures)."""
+        return self.request("PATCH", f"/webhooks/{_e(id)}", query=None, body=body, idempotency_key=idempotency_key)
+
+    def delete_webhook(self, id, *, idempotency_key=None):
+        """Delete a webhook. Stop sending to it; deliveries still waiting are abandoned."""
+        return self.request("DELETE", f"/webhooks/{_e(id)}", query=None, idempotency_key=idempotency_key)
+
+    def rotate_webhook_secret(self, id, *, idempotency_key=None):
+        """Rotate a webhook's secret. A new signing secret (returned this once). For 24 hours, deliveries are signed with both, so you can switch without missing any."""
+        return self.request("POST", f"/webhooks/{_e(id)}/rotate_secret", query=None, idempotency_key=idempotency_key)
+
+    def test_webhook(self, id, *, idempotency_key=None):
+        """Send a test delivery. A `ping` delivery, to check the address and your signature check."""
+        return self.request("POST", f"/webhooks/{_e(id)}/test", query=None, idempotency_key=idempotency_key)
+
+    def list_webhook_deliveries(self, id, *, per_page=None, starting_after=None, idempotency_key=None):
+        """List deliveries. What was sent to it, newest first (kept 30 days)."""
+        return self.request("GET", f"/webhooks/{_e(id)}/deliveries", query={"per_page": per_page, "starting_after": starting_after}, idempotency_key=idempotency_key)
+
+    def iter_list_webhook_deliveries(self, id, *, per_page=None):
+        """Every page of list_webhook_deliveries, item by item."""
+        after = None
+        while True:
+            page = self.list_webhook_deliveries(id, per_page=per_page, starting_after=after)
+            yield from page["data"]
+            after = page["pages"]["next"]
+            if not after:
+                return
+
+    def get_webhook_delivery(self, id, delivery_id, *, idempotency_key=None):
+        """Retrieve a delivery. One delivery: its body, and every attempt with what came back."""
+        return self.request("GET", f"/webhooks/{_e(id)}/deliveries/{_e(delivery_id)}", query=None, idempotency_key=idempotency_key)
+
+    def replay_webhook_delivery(self, id, delivery_id, *, idempotency_key=None):
+        """Replay a delivery. Send the same event and body again, as a new delivery."""
+        return self.request("POST", f"/webhooks/{_e(id)}/deliveries/{_e(delivery_id)}/replay", query=None, idempotency_key=idempotency_key)

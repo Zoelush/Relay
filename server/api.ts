@@ -222,8 +222,10 @@ import { readReportingStatus, reportFlow, reportMetric, reportsOn, type Analytic
 import { liveDashboard } from "./live";
 import { handleRest } from "./rest";
 import { changeDeveloperTokens, readDeveloperSettings } from "./developer";
+import { changeWebhooks, getDelivery, listDeliveries, listWebhooks, TOPICS } from "./webhooks";
 import { apiReferenceHtml } from "../lib/api-reference";
 import type { RateLimiter } from "./rate-limit";
+import type { WebhookEnvironment } from "./webhooks";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -296,6 +298,8 @@ export interface ApiEnvironment {
   connect: Connect;
   /** Phase 15 D1: the public API's rate limits (in memory unless a deployment provides its own). */
   rateLimiter?: RateLimiter;
+  /** Phase 15 D3: webhooks' secrets are sealed with the connector key; their fetch policy (tests allow loopback). */
+  webhooks?: WebhookEnvironment;
   storageTransport?: "hyperdrive" | "local-pglite";
   sessionSecret: string;
   identityMaster: string;
@@ -939,7 +943,7 @@ export async function handleApi(
       },
     });
   // Phase 15 D1: the public REST API, its own surface with its own errors and headers.
-  if (url.pathname === "/rest" || url.pathname.startsWith("/rest/")) return handleRest(req, { connect: env.connect, rateLimiter: env.rateLimiter, storage: env.attachments });
+  if (url.pathname === "/rest" || url.pathname.startsWith("/rest/")) return handleRest(req, { connect: env.connect, rateLimiter: env.rateLimiter, storage: env.attachments, webhooks: env.webhooks });
   // The API's reference, generated from its spec.
   if (url.pathname === "/developers" && req.method === "GET")
     return new Response(apiReferenceHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
@@ -1393,6 +1397,9 @@ export async function handleApi(
             "/v1/agent/reporting-status",
             "/v1/agent/live-dashboard",
             "/v1/agent/developer-settings",
+            "/v1/agent/developer-webhooks",
+            "/v1/agent/developer-webhook-deliveries",
+            "/v1/agent/developer-webhook-delivery",
             "/v1/agent/email-message",
             "/v1/agent/email-settings",
             "/v1/agent/ai-settings",
@@ -1487,6 +1494,7 @@ export async function handleApi(
               "/v1/agent/report-metric",
               "/v1/agent/report-flow",
               "/v1/agent/developer-token",
+              "/v1/agent/developer-webhook",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1876,6 +1884,9 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/report-metric")
           // Phase 14 R2: one metric for a period, broken down (read-only: a POST for its body).
           return json(await reportMetric(env.connect, env.analytics, workspace, principal, p));
+        if (url.pathname === "/v1/agent/developer-webhook")
+          // Phase 15 D3: a webhook created (its secret returned once), changed, rotated, deleted, tested or replayed.
+          return json(await tenant(env.connect, workspace, (db) => changeWebhooks(db, workspace, principal, env.webhooks, p)));
         if (url.pathname === "/v1/agent/developer-token")
           // Phase 15 D1: a token made (its text returned this once) or revoked.
           return json(await tenant(env.connect, workspace, (db) => changeDeveloperTokens(db, workspace, principal, p)));
@@ -2529,6 +2540,19 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/developer-settings")
         // Phase 15 D1: personal access tokens and the API's usage (the base URL is this server's own).
         return json(await tenant(env.connect, workspace, (db) => readDeveloperSettings(db, workspace, principal, url.origin + "/rest")));
+      // Phase 15 D3: Settings › Developers › Webhooks: the subscriptions, a log page, one delivery.
+      if (url.pathname === "/v1/agent/developer-webhooks")
+        return json(await tenant(env.connect, workspace, async (db) => ({ webhooks: await listWebhooks(db, workspace, principal), topics: TOPICS })));
+      if (url.pathname === "/v1/agent/developer-webhook-deliveries") {
+        const after = url.searchParams.get("after");
+        return json(
+          await tenant(env.connect, workspace, (db) =>
+            listDeliveries(db, workspace, principal, url.searchParams.get("id") ?? "", { perPage: 25, after: after ? (JSON.parse(after) as [string, string]) : null }),
+          ),
+        );
+      }
+      if (url.pathname === "/v1/agent/developer-webhook-delivery")
+        return json(await tenant(env.connect, workspace, (db) => getDelivery(db, workspace, principal, url.searchParams.get("id") ?? "", url.searchParams.get("delivery") ?? "")));
       if (url.pathname === "/v1/agent/live-dashboard")
         // Phase 14 R4: what's happening now, from the live conversations only.
         return json(await tenant(env.connect, workspace, (db) => liveDashboard(db, workspace, principal, { team: url.searchParams.get("team") })));

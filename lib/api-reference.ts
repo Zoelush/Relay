@@ -1,6 +1,7 @@
 import { API_VERSIONS, LATEST_VERSION, operations, SPEC, type Schema, type Spec } from "./api-spec";
 import { resolve } from "./api-validate";
 import { CONTACT_FIELDS, CONVERSATION_FIELDS, OPERATOR_MEANING, OPERATORS, type Field as SearchField } from "./api-search";
+import { TOPICS } from "./webhook-topics";
 
 /**
  * The API's reference, generated from its spec (phase 15, D1): `docs/API.md` (`npm run api:doc`; a
@@ -53,6 +54,17 @@ const GUIDE: { title: string; body: string[] }[] = [
       "Each field's type decides its operators. " + (Object.entries(OPERATORS) as [string, readonly string[]][]).map(([t, ops]) => `**${t}:** ${ops.map((o) => `\`${o}\``).join(" ")}`).join("; ") + ".",
       "Operators: " + Object.entries(OPERATOR_MEANING).map(([o, m]) => `\`${o}\` ${m}`).join("; ") + ". Text comparisons ignore case; times need an offset.",
       "A refused query names the part at fault, as `query.value[1].operator`.",
+    ],
+  },
+  {
+    title: "Webhooks",
+    body: [
+      "Subscribe a public https address to topics (Settings › Developers › Webhooks, or `POST /webhooks`). Each event is POSTed as JSON: `{\"type\":\"webhook_event\",\"id\",\"topic\",\"created_at\",\"workspace_id\",\"data\":{\"item\":…}}`, where `item` is the resource as this API shows it (a conversation, ticket, contact, event or article), with `data.part`, `data.tag`, `data.changes` or `data.metric` when the topic has one. Internal notes are never sent.",
+      "Headers: `Relay-Signature`, `Relay-Event-Id` (the same across retries and replays: dedupe on it), `Relay-Webhook-Id` (this delivery) and `Relay-Topic`. Events are sent in the order they happened, but a retry can arrive after a later event: order by `created_at` if it matters.",
+      "**Delivery** is at least once. Answer with a 2xx within 10 seconds. Anything else is retried with exponential backoff (a minute, doubling, at most two hours apart) for 24 hours. A webhook that has failed for 24 hours without a success is turned off, and its creator is told (by email too, if it names an alert email). Its deliveries are kept 30 days and any one can be replayed.",
+      "**Verifying:** `Relay-Signature` is `t=<unix seconds>,v1=<hex>`. The hex is HMAC-SHA256 of `<t>.<the raw body>` under your secret. While a secret is being rotated, a second `v1` signs under the previous one for 24 hours. Accept the delivery if any `v1` matches and `t` is within 5 minutes. The SDKs do this: `verifyWebhook(secret, rawBody, header)` in JavaScript, `verify_webhook(secret, raw_body, header)` in Python.",
+      "```js\nimport { createHmac, timingSafeEqual } from \"node:crypto\";\nexport function verify(secret, rawBody, header, now = Date.now() / 1000) {\n  const items = header.split(\",\").map((p) => p.split(\"=\"));\n  const t = Number(items.find(([k]) => k === \"t\")?.[1]);\n  if (!t || Math.abs(now - t) > 300) return false;\n  const want = createHmac(\"sha256\", secret).update(`${t}.${rawBody}`).digest();\n  return items.some(([k, v]) => { if (k !== \"v1\") return false; const got = Buffer.from(v, \"hex\"); return got.length === want.length && timingSafeEqual(got, want); });\n}\n```",
+      "```python\nimport hashlib, hmac, time\ndef verify(secret, raw_body, header, tolerance=300):\n    items = [p.split(\"=\", 1) for p in header.split(\",\")]\n    t = next((int(v) for k, v in items if k == \"t\"), 0)\n    if not t or abs(time.time() - t) > tolerance:\n        return False\n    want = hmac.new(secret.encode(), f\"{t}.\".encode() + raw_body, hashlib.sha256).hexdigest()\n    return any(hmac.compare_digest(v, want) for k, v in items if k == \"v1\")\n```",
     ],
   },
   {
@@ -133,6 +145,9 @@ export function apiReferenceMarkdown(spec: Spec = SPEC) {
   out.push("## Search fields", "");
   searchable("Conversations", CONVERSATION_FIELDS, "Sorted by `updated_at`, newest first, unless you choose.");
   searchable("Contacts", CONTACT_FIELDS, "Also `custom_attributes.<name>` (text, or a number when the value is one). Sorted by `last_seen_at`, newest first, unless you choose.");
+  out.push("## Webhook topics", "", "| Topic | When | `data.item` |", "|---|---|---|");
+  for (const t of TOPICS) out.push(`| \`${t.id}\` | ${t.about} | ${t.item} |`);
+  out.push("", "Company topics and `contact.tagged` come with companies and tags on people (phase 01).", "");
   out.push("## Objects", "");
   for (const [name, s] of Object.entries(spec.components.schemas)) {
     out.push(`### ${name}`, "");
@@ -155,6 +170,12 @@ function html(md: string) {
   const inline = (s: string) => escape(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
+    if (l.startsWith("```")) {
+      const code: string[] = [];
+      for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
+      out.push(`<pre><code>${escape(code.join("\n"))}</code></pre>`);
+      continue;
+    }
     if (l.startsWith("|") && lines[i + 1]?.startsWith("|---")) {
       const head = l.split("|").slice(1, -1);
       out.push("<table><thead><tr>" + head.map((h) => `<th>${inline(h.trim())}</th>`).join("") + "</tr></thead><tbody>");
@@ -181,6 +202,6 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-appl
 main{max-width:920px;margin:0 auto;padding:32px 16px 80px}h1{font-size:30px;letter-spacing:-.5px}h2{margin-top:44px;padding-top:12px;border-top:1px solid var(--line)}
 h3{margin-top:28px}code{padding:1px 5px;border-radius:5px;background:var(--code);font-size:.9em}
 table{width:100%;border-collapse:collapse;margin:8px 0;font-size:14px;display:block;overflow-x:auto}th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-th{color:var(--muted);font-weight:600}p{margin:8px 0}
+th{color:var(--muted);font-weight:600}p{margin:8px 0}pre{overflow-x:auto;padding:12px 14px;border-radius:8px;background:var(--code);font-size:13px;line-height:1.5}pre code{padding:0;background:none}
 </style></head><body><main>${html(apiReferenceMarkdown(spec))}</main></body></html>`;
 }

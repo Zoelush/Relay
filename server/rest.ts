@@ -7,6 +7,7 @@ import { check, readParameters } from "../lib/api-validate";
 import { LIMITS, memoryRateLimiter, type RateLimiter } from "./rate-limit";
 import type { AttachmentStorage } from "./attachments";
 import { MORE_HANDLERS } from "./rest-more";
+import { WEBHOOK_HANDLERS, type WebhookEnvironment } from "./webhooks";
 
 /**
  * The public REST API (phase 15, step D1; docs/DEVELOPER_PLATFORM_STEP1.md), behind
@@ -19,7 +20,7 @@ import { MORE_HANDLERS } from "./rest-more";
  * anything unexpected is `internal_error`, with no detail. Lists are cursor-paged. Every response
  * says its version and rate limits in headers.
  */
-export type RestEnvironment = { connect: Connect; rateLimiter?: RateLimiter; storage?: AttachmentStorage };
+export type RestEnvironment = { connect: Connect; rateLimiter?: RateLimiter; storage?: AttachmentStorage; webhooks?: WebhookEnvironment };
 const defaultLimiter = memoryRateLimiter();
 
 /**
@@ -37,9 +38,9 @@ export const VERSION_CHANGES: VersionChange[] = [];
 /** The versions a request may name: the spec's, and each change's predecessor still supported. */
 export const supportedVersions = () => [...new Set([...API_VERSIONS, ...VERSION_CHANGES.map((c) => c.before)])];
 /** The operations the router can serve (a test holds them to the spec). */
-export const handledOperations = () => [...Object.keys(HANDLERS), ...Object.keys(MORE_HANDLERS)];
+export const handledOperations = () => [...Object.keys(HANDLERS), ...Object.keys(MORE_HANDLERS), ...Object.keys(WEBHOOK_HANDLERS)];
 /** An operation's work: D1's here, D2's in rest-more.ts (looked up when called; the two import each other). */
-const handlerFor = (operationId: string) => HANDLERS[operationId] ?? MORE_HANDLERS[operationId];
+const handlerFor = (operationId: string) => HANDLERS[operationId] ?? MORE_HANDLERS[operationId] ?? WEBHOOK_HANDLERS[operationId];
 
 const TOKEN = /^relay_pat_([A-Za-z0-9_-]{2,140})_([A-Za-z0-9]{40})$/;
 const b64 = (s: string) => btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -78,7 +79,7 @@ export const cursor = {
 export const invalid = (field: string, message: string) => new DomainError("INVALID_FIELD", message, 400, { field });
 
 export type Token = { id: string; teammateId: string; principal: string; scopes: string[]; version: string };
-export type Context = { db: Sql; w: string; token: Token; params: Record<string, unknown>; body: Record<string, unknown>; key: string | null; storage?: AttachmentStorage; origin?: string };
+export type Context = { db: Sql; w: string; token: Token; params: Record<string, unknown>; body: Record<string, unknown>; key: string | null; storage?: AttachmentStorage; origin?: string; webhooks?: WebhookEnvironment };
 
 // The shapes the spec promises.
 export type ConversationRow = { id: string; title: string; status: string; channel: string; brand_id: string | null; primary_identity_id: string | null; assigned: string; team_id: string | null; priority: boolean; snooze_until: Date | null; last_contact_reply_at: Date | null; last_teammate_reply_at: Date | null; created_at: Date; updated_at: Date };
@@ -418,7 +419,7 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
     if (key !== null && !/^[A-Za-z0-9_.:-]{1,200}$/.test(key)) return error(400, "invalid_field", "Idempotency-Key is letters, digits and _.:- up to 200.", "Idempotency-Key");
     const result = await tenant(env.connect, w, async (db) => {
       if (scope) await authorize(db, w, token.principal, scope);
-      return handlerFor(op.operationId)({ db, w, token, params: "values" in read ? read.values! : {}, body, key: key ? `api:${token.id}:${key}` : null, storage: env.storage, origin: url.origin });
+      return handlerFor(op.operationId)({ db, w, token, params: "values" in read ? read.values! : {}, body, key: key ? `api:${token.id}:${key}` : null, storage: env.storage, origin: url.origin, webhooks: env.webhooks });
     });
     // And the newest response is taken back, newest change first.
     let out: unknown = result;
