@@ -218,7 +218,7 @@ import { changePeople, readPeople, segmentsOn } from "./segments";
 import { changeSubscriptionTypes, preferencePage, readSubscriptionTypes } from "./subscriptions";
 import { changeOutboundMessage, changeOutboundSettings, dueBanner, dueInApp, outboundAction, outboundOn, outboundSeen, readOutbound, readOutboundMessage } from "./outbound";
 import { deviceOf } from "../lib/outbound";
-import { readReportingStatus, type AnalyticsStore } from "./analytics";
+import { readReportingStatus, reportMetric, type AnalyticsStore } from "./analytics";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
   indexStatus,
@@ -1470,6 +1470,7 @@ export async function handleApi(
               "/v1/agent/subscription-settings",
               "/v1/agent/outbound-message",
               "/v1/agent/outbound-settings",
+              "/v1/agent/report-metric",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1856,6 +1857,9 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/delivery")
           // Phase 12 E4: Zoe's held draft on email, sent or discarded by a teammate.
           return json(await tenant(env.connect, workspace, (db) => decideHeld(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/report-metric")
+          // Phase 14 R2: one metric for a period, broken down (read-only: a POST for its body).
+          return json(await reportMetric(env.connect, env.analytics, workspace, principal, p));
         if (url.pathname === "/v1/agent/outbound-message")
           // Phase 13 O2: a message created, saved, sized, published (now or later), paused, resumed or archived.
           return json(await tenant(env.connect, workspace, (db) => changeOutboundMessage(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: Reporting's datasets and query layer (phase 14, R2)
+
+- **Every metric can be asked for:** 52 metrics across 11 datasets (conversations, ratings, SLAs, tickets, the AI agent, teammates, outbound, search, articles, calls and deliveries), each with the previous period alongside.
+- **Break down and filter** by brand, channel, team, teammate, item, day, week or month in the report's timezone, or a customer attribute as it was when the conversation started.
+- **Settings › Reporting data** lists each dataset: its metrics, breakdowns and size.
+- **Measured at scale:** every pre-built report timed on 10 million conversation parts across 5,000 workspaces (`docs/REPORTING_BENCHMARK.md`).
+- **Behind `reports_v1`,** off by default.
+- **Migration:** 0075 (and the store's 0002), with rollbacks.
+- **Details:** `docs/REPORTING_STEP2.md`.
+
 ## Unreleased: Reporting's foundation (phase 14, R1)
 
 - **Reports get their own store:** a separate database kept up to date from the inbox's data in the background, so reports never slow the inbox.

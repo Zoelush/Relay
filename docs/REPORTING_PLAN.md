@@ -61,4 +61,10 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **The store keeps no message text:** only what metrics read.
     - **Reporting is off where the store isn't connected** (deployed, until the second database exists).
 
-Handoffs: `docs/REPORTING_STEP1.md` (R1).
+9. **R2 decisions** (20 October 2026):
+    - **One query layer:** each metric is one SQL definition with the same row shape, and one wrapper filters, breaks down and aggregates it, so a metric means the same in every report.
+    - **The store derives periods once,** at projection: states, responses and handling periods are rows, not worked out per query.
+    - **Daily rollups aren't built:** in the benchmark (`docs/REPORTING_BENCHMARK.md`), every chart is within 200 ms at p95 except two for the largest workspace over a year (about 300 ms). The query layer is where they'd go if those are wanted.
+    - **Presence history** is recorded by the application (`teammate_presence_changes`), so pace per active hour is measurable.
+
+Handoffs: `docs/REPORTING_STEP1.md` (R1), `docs/REPORTING_STEP2.md` (R2).
