@@ -47,7 +47,12 @@ and dictionary) and R2 (datasets, the query layer `server/reports.ts`, and the b
 (`docs/REPORTING_STEP1.md` to `STEP4.md`, `reports_v1`): the scope (R1 to R4) is complete; R5 to R7 wait until asked. The live dashboard
 (`server/live.ts`) reads only the live set through 0076's partial indexes; keep `tests/live.test.ts`'s plan bound passing. The Reports page computes nothing: each chart is one `report-metric` call, and the overview's flow is `conversationFlow`. A metric is one definition in `server/reports.ts`'s `DEFS` (rows of the same
 shape; `runMetric` filters, breaks down and aggregates) and one entry in `lib/metrics.ts`, and `tests/reports.test.ts` asserts it on its
-scenario; rerun `scripts/reporting-benchmark.ts` when a definition's plan may change. Reports read only the analytical store
+scenario; rerun `scripts/reporting-benchmark.ts` when a definition's plan may change. Phase 15 (`docs/DEVELOPER_PLATFORM_PLAN.md`, scope D1 to D5):
+D1, the API's foundation (`developer_api_v1`), is done locally (`docs/DEVELOPER_PLATFORM_STEP1.md`). The spec (`lib/api-spec.ts`)
+is the source: write an operation there first; the router (`server/rest.ts`), validation (`lib/api-validate.ts`) and the
+reference (`npm run api:doc`, a test compares `docs/API.md`) follow from it. The public API calls the same domain functions
+as the inbox (`command`, `authorize`), as the token's teammate, within its scopes; never give it its own path around them.
+Tokens are kept only as hashes. Reports read only the analytical store
 (`db/analytics`, a separate database), never the inbox's tables; it's written only by `analytics.project` (`server/analytics.ts`),
 which is idempotent. Every metric is defined once in `lib/metrics.ts`; regenerate `docs/METRICS.md` with `npm run metrics:doc` (a test
 compares them). Contact attributes in reports are the snapshot taken when the conversation started (`conversation_snapshots`); only

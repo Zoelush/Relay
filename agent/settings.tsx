@@ -36,6 +36,7 @@ import {
   Activity,
   BellOff,
   BarChart3,
+  KeyRound,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -62,6 +63,7 @@ import { CommunityPage } from "./settings-community";
 import { VoicePage } from "./settings-voice";
 import { EventsPage, OutboundPage, SubscriptionsPage } from "./settings-outbound";
 import { ReportingPage } from "./settings-reporting";
+import { DevelopersPage } from "./settings-developers";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -251,6 +253,14 @@ const PAGES: Page[] = [
     group: "Channels",
   },
   {
+    // Phase 15 D1: personal access tokens and the API's usage.
+    id: "developers",
+    label: "API tokens",
+    description: "Tokens for Relay's API, what each may do, and how much they're used.",
+    icon: KeyRound,
+    group: "Developers",
+  },
+  {
     // Phase 14 R1: reporting's data, and what each number means.
     id: "reporting",
     label: "Reporting data",
@@ -369,6 +379,7 @@ const GROUPS = [
   "Reports",
   "Inbox",
   "Knowledge & AI",
+  "Developers",
 ];
 export const SETTINGS_PAGES = PAGES.map((p) => p.id);
 /** Each group's tint (Z1), on its pages' icons in the menu and on Settings home. */
@@ -381,6 +392,7 @@ const GROUP_HUES: Record<string, Hue> = {
   Reports: "violet",
   Inbox: "amber",
   "Knowledge & AI": "rose",
+  Developers: "slate",
 };
 const hueFor = (p: Page): Hue =>
   p.id === "ai-agent" ? "zoe" : (GROUP_HUES[p.group] ?? "slate");
@@ -557,6 +569,8 @@ export function Settings({
             <SlasPage menu={menu} page={current} />
           ) : current.id === "reporting" ? (
             <ReportingPage menu={menu} page={current} />
+          ) : current.id === "developers" ? (
+            <DevelopersPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

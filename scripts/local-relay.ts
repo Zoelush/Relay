@@ -199,6 +199,7 @@ export async function startLocalRelay(
     outboundFlag?: boolean;
     /** Reporting (phase 14 R1), on unless turned off. */
     reportsFlag?: boolean;
+    developerFlag?: boolean;
     /** Development seed (phase 13 O2, O3): a live in-app chat welcoming pro users, an in-app subscription, and a banner draft. */
     exampleOutbound?: boolean;
     /** Development seed (phase 12 E9): the demo's UK number takes calls, Zoe answers, the owner's phone is rung. */
@@ -692,6 +693,11 @@ export async function startLocalRelay(
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name IN ('channel_facebook_v1','channel_instagram_v1')",
         [w, options.metaFlag !== false],
+      );
+      // The developer platform (phase 15, D1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='developer_api_v1'",
+        [w, options.developerFlag !== false],
       );
       // Reporting (phase 14, R1).
       await sql.query(
@@ -1488,7 +1494,8 @@ export async function startLocalRelay(
       return Response.json({ published: true });
     }
     const { value: response, timing } = await db.measure(() =>
-      new URL(req.url).pathname.startsWith("/v1/")
+      // The public API (phase 15 D1) and its reference go to the API too.
+      /^\/(v1\/|rest(\/|$)|developers$)/.test(new URL(req.url).pathname)
         ? handleApi(req, env)
         : messengerAsset(req, db.connect, (r) =>
             portalAsset(r, db.connect, (x) =>
