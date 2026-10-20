@@ -10,7 +10,7 @@ import { bridgeAgentRequest } from "../server/agent-bridge";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { checkEvent, recordEvent } from "../server/events";
 import { setSubscription } from "../server/subscriptions";
-import { dueInApp, lastSlot, launchJob, outboundSeen, outboundSweep } from "../server/outbound";
+import { dueBanner, dueInApp, lastSlot, launchJob, outboundAction, outboundSeen, outboundSweep } from "../server/outbound";
 import { blankDefinition, bucket, goalReadout, inQuietHours, outboundProblems, sendTimeMatches, type OutboundDefinition } from "../lib/outbound";
 
 /**
@@ -35,6 +35,14 @@ test("outbound definitions and the engine's pure parts: checks, send-time rules,
   assert.deepEqual(one({ startAt: "2026-10-02T00:00:00Z", stopAt: "2026-10-01T00:00:00Z" }), ["Stop after it starts."]);
   assert.deepEqual(one({ audience: { segmentId: null, rules: { match: "all", rules: [{ field: "company.plan", op: "is", value: "x" }] }, sendTime: [] } }), ["Audience: Rule 1: Companies arrive in phase 01."]);
   assert.deepEqual(one({ audience: { segmentId: null, rules: { match: "all", rules: [] }, sendTime: [{ field: "device", op: "is", value: "tv" as "mobile" }] } }), ["Send-time rule 1: desktop or mobile."]);
+
+  // O3: banners: 300 characters, top or bottom, closable or not, an optional https button.
+  const banner: OutboundDefinition = { ...blankDefinition("banner", "owner"), content: { text: "Maintenance tonight", position: "top", dismissible: true, action: null }, subscriptionTypeId: "t" };
+  assert.deepEqual(outboundProblems(banner), []);
+  assert.deepEqual(outboundProblems({ ...banner, content: { ...banner.content, text: "x".repeat(301) } }), ["Write the banner (300 characters at most)."]);
+  assert.deepEqual(outboundProblems({ ...banner, content: { ...banner.content, action: { label: "Status", url: "http://status.test" } } }), ["The banner's button opens an https address."]);
+  assert.deepEqual(outboundProblems({ ...banner, content: { ...banner.content, action: { label: "", url: "https://status.test" } } }), ["Label the banner's button (40 characters at most)."]);
+  assert.deepEqual(outboundProblems({ ...banner, content: { ...banner.content, position: "middle" as "top" } }), ["Put the banner at the top or the bottom."]);
 
   const page = { pageUrl: "https://shop.test/pricing", device: "mobile" as const, locale: "fr-CA", openConversation: false };
   assert.equal(sendTimeMatches([{ field: "page_url", op: "contains", value: "/pricing" }, { field: "device", op: "is", value: "mobile" }, { field: "locale", op: "starts_with", value: "fr" }], page), true);
@@ -303,11 +311,49 @@ test("outbound: a chat reaches the messenger and continues into the inbox; deliv
     assert.equal((await agent("outbound-message", { action: "pause", id: WELCOME })).body.error.message, "Only a live message can be paused.");
     assert.equal((await agent("outbound-message", { action: "resume", id: WELCOME })).status, 200);
 
+    // O3: a banner: shown once (counted once), on every page its rules allow until it's closed;
+    // clicks and closes are the person's own; one that can't be closed stays.
+    const made2 = (await agent("outbound-message", { action: "create", type: "banner", title: "Maintenance" })).body;
+    assert.deepEqual(made2.problems, ["Write the banner (300 characters at most).", "Choose its subscription type: every message has one."]);
+    const bdef = { ...made2.draft, content: { text: "Maintenance tonight", position: "bottom", dismissible: true, action: { label: "Status", url: "https://status.test" } }, subscriptionTypeId: TIPS, audience: { segmentId: null, rules: { match: "all", rules: [] }, sendTime: [{ field: "page_url", op: "contains", value: "/app" }] }, delivery: { mode: "ongoing" }, quietHours: false };
+    assert.equal((await agent("outbound-message", { action: "save", id: made2.message.id, definition: { ...bdef, type: "chat" } })).body.error.message, "A message's type stays as it was made.");
+    await agent("outbound-message", { action: "save", id: made2.message.id, definition: bdef });
+    assert.equal((await agent("outbound-message", { action: "publish", id: made2.message.id })).status, 200);
+    const BANNER = made2.message.id as string;
+    const v6 = await tenant(db.connect, "a", (q) => getIdentity(q, "a", "anonymous", "device-6"));
+    const showBanner = (url: string, identityId = v6.identityId) => tenant(db.connect, "a", (q) => dueBanner(q, "a", { identityId }, { ...page, pageUrl: url }));
+    assert.deepEqual(await showBanner("https://shop.test/home"), [], "not on that page");
+    const [b1] = await showBanner("https://shop.test/app");
+    assert.deepEqual({ ...b1, entryId: "" }, { entryId: "", text: "Maintenance tonight", position: "bottom", dismissible: true, action: { label: "Status", url: "https://status.test" } });
+    assert.equal((await showBanner("https://shop.test/app/settings"))[0].entryId, b1.entryId, "the same banner on the next page");
+    assert.equal((await sql<{ n: number }>("a", "SELECT count(*)::int AS n FROM outbound_entries WHERE message_id=$1", [BANNER]))[0].n, 1, "counted once");
+    await assert.rejects(tenant(db.connect, "a", (q) => outboundAction(q, "a", grace.identityId, b1.entryId, "clicked")), /isn't yours/);
+    await tenant(db.connect, "a", (q) => outboundAction(q, "a", v6.identityId, b1.entryId, "clicked"));
+    await tenant(db.connect, "a", (q) => outboundAction(q, "a", v6.identityId, b1.entryId, "dismissed"));
+    assert.deepEqual(await showBanner("https://shop.test/app"), [], "closed: gone for good");
+    detail = (await agent(`outbound-message?id=${BANNER}`)).body;
+    assert.deepEqual([detail.stats.sent, detail.stats.seen, detail.stats.clicked, detail.stats.dismissed], [1, 1, 1, 1]);
+    assert.ok(detail.entries[0].clickedAt && detail.entries[0].dismissedAt);
+    await agent("outbound-message", { action: "save", id: BANNER, definition: { ...bdef, content: { ...bdef.content, dismissible: false } } });
+    await agent("outbound-message", { action: "publish", id: BANNER });
+    const v7 = await tenant(db.connect, "a", (q) => getIdentity(q, "a", "anonymous", "device-7"));
+    const [b2] = await showBanner("https://shop.test/app", v7.identityId);
+    await assert.rejects(tenant(db.connect, "a", (q) => outboundAction(q, "a", v7.identityId, b2.entryId, "dismissed")), /can't be closed/);
+    assert.equal((await showBanner("https://shop.test/app", v7.identityId)).length, 1);
+    await pause(BANNER);
+    assert.deepEqual(await showBanner("https://shop.test/app", v7.identityId), [], "paused: not shown");
+    // The editor's choices: senders, in-app subscriptions only, segments, events.
+    const choices = (await agent("outbound")).body.choices;
+    assert.deepEqual(choices.subscriptions.map((x: any) => x.name), ["Tips"]);
+    assert.ok(choices.segments.some((x: any) => x.id === "all-users") && choices.events.includes("paid"));
+
     // Another workspace: its own messages; a's aren't its.
     await sql("b", "UPDATE workspace_features SET enabled=true WHERE name='outbound_v1'");
     assert.deepEqual((await agent("outbound", undefined, "owner-b", "b")).body.messages, []);
     assert.equal((await agent(`outbound-message?id=${WELCOME}`, undefined, "owner-b", "b")).status, 404);
     assert.equal((await agent("outbound-message", { action: "pause", id: WELCOME }, "owner-b", "b")).status, 404);
+    const vb = await tenant(db.connect, "b", (q) => getIdentity(q, "b", "anonymous", "device-b"));
+    await assert.rejects(tenant(db.connect, "b", (q) => outboundAction(q, "b", vb.identityId, b1.entryId, "clicked")), /isn't yours/);
 
     // The rollback: the flag off, live messages paused; the messenger is given nothing.
     const rollback = readFileSync("db/rollback/0072_outbound.sql", "utf8");

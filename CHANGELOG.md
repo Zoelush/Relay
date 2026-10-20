@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased: The Outbound area and banners (phase 13, O3)
+
+- **Outbound in the app:** a list of messages by state and type, and an editor for content, audience (with a live count), delivery, subscription, goal and control group. Publish now or at a time, pause, resume and archive, with each message's numbers, versions and who it reached.
+- **Banners:** at the top or bottom of your site, in your brand's colours, with an optional button and close. Once shown, a banner stays until it's closed; clicks and closes are counted.
+- **Behind `outbound_v1`,** off by default.
+- **Migration:** 0073, with rollback.
+- **Details:** `docs/OUTBOUND_STEP3.md`.
+
 ## Unreleased: Outbound engine and in-app chat messages (phase 13, O2)
 
 - **In-app chat messages:** a chat from a teammate opens the messenger when the right person visits. Their reply continues into the inbox.

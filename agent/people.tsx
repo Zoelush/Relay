@@ -13,7 +13,7 @@ import { SEGMENT_FIELDS, type Op, type Rule, type SegmentDefinition } from "../l
  * saved one). A person opens beside the list: their details, latest events and subscriptions.
  */
 type Segment = { id: string; name: string; predefined: boolean; definition: SegmentDefinition; count: number };
-type Directory = { segments: Segment[]; attributes: string[]; events: string[]; subscriptions: { id: string; name: string; channel: string }[] };
+export type Directory = { segments: Segment[]; attributes: string[]; events: string[]; subscriptions: { id: string; name: string; channel: string }[] };
 type Person = { id: string; name: string; role: string; email: string | null; firstSeenAt: string | null; lastSeenAt: string | null; signedUpAt: string | null };
 type Details = {
   contact: {
@@ -57,7 +57,7 @@ const ago = (iso: string | null) => {
 };
 const needsValue = (op: Op) => !["is_set", "is_not_set", "performed", "not_performed", "opted_in", "opted_out"].includes(op);
 /** A new rule on a field, with a first value that makes sense for it. */
-function fresh(field: string, dir: Directory): Rule {
+export function fresh(field: string, dir: Directory): Rule {
   const f = SEGMENT_FIELDS[field];
   const op = f.ops[0];
   const r: Rule = { field, op };
@@ -342,7 +342,7 @@ function SegmentView({
   );
 }
 
-function RuleEditor({ rule, index, dir, onChange }: { rule: Rule; index: number; dir: Directory; onChange: (r: Rule) => void }) {
+export function RuleEditor({ rule, index, dir, onChange }: { rule: Rule; index: number; dir: Directory; onChange: (r: Rule) => void }) {
   const f = SEGMENT_FIELDS[rule.field];
   const n = index + 1;
   const dated = rule.op === "more_than_days_ago" || rule.op === "less_than_days_ago";

@@ -85,4 +85,10 @@ Each step ships the usual: migration and rollback, seed, unit tests, an end-to-e
     - **Goals are events.** Attribute-change goals wait for attribute history (phase 01).
     - **The lift is said only with 100 people in each group,** with its 95% interval. Full A/B testing (O5) is out of the current scope.
 
-Handoffs: `docs/OUTBOUND_STEP1.md` (O1), `docs/OUTBOUND_STEP2.md` (O2).
+13. **O3 decisions** (20 October 2026):
+    - **The Outbound area is for managers** (`workspace.manage`), in the strip after People, with built-in views (All, Live, Drafts, Paused) and a type filter. Saved views wait.
+    - **Once shown, a banner stays** on every page its rules allow until closed (or it stops being live), and is counted once.
+    - **Banners are drawn by the loader** in an open shadow root, in the brand's colours. Clicks and closes are recorded on the person's own entry only.
+    - **The scope (O1 to O3) is complete.**
+
+Handoffs: `docs/OUTBOUND_STEP1.md` (O1), `docs/OUTBOUND_STEP2.md` (O2), `docs/OUTBOUND_STEP3.md` (O3).

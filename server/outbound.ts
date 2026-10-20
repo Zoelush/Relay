@@ -88,7 +88,7 @@ export function entryKey(def: OutboundDefinition, contactId: string, occurrence:
 }
 
 export type Admitted = { status: "sent" | "held_out" | "suppressed" | "later" | "already"; reason: string; entryId?: string; conversationId?: string };
-type Deliver = (db: Sql, entryId: string) => Promise<{ channel: string; conversationId: string; partId: string } | { refused: string }>;
+type Deliver = (db: Sql, entryId: string) => Promise<{ channel: string; conversationId: string | null; partId: string | null } | { refused: string }>;
 
 /** The one decision, per contact and entry (see above). `deliver` is the type's. */
 export async function admit(db: Sql, w: string, m: Live, def: OutboundDefinition, version: number, contactId: string, key: string, deliver: Deliver, now = new Date(), occurrence = ""): Promise<Admitted> {
@@ -154,7 +154,7 @@ export async function admit(db: Sql, w: string, m: Live, def: OutboundDefinition
     d.partId,
     now.toISOString(),
   ]);
-  return { status: "sent", reason: "", entryId, conversationId: d.conversationId };
+  return { status: "sent", reason: "", entryId, conversationId: d.conversationId ?? undefined };
 }
 
 /** The in-app chat: a conversation from its sender, closed until they reply (then it's the team's). */
@@ -178,18 +178,15 @@ function chatDelivery(w: string, m: Live, def: OutboundDefinition, version: numb
   };
 }
 
-/**
- * What the messenger shows now: at most one chat a page view. Entries waiting for this contact
- * (a fixed audience, an event, an occurrence) come first, on the version they entered; then
- * ongoing messages they match now. Send-time rules are checked against the page.
- */
-export async function dueInApp(db: Sql, w: string, session: { identityId: string; brandId: string }, ctx: Omit<PageContext, "openConversation">, now = new Date()) {
-  if (!(await outboundOn(db, w))) return [];
-  const mapping = (await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, session.identityId])).rows[0];
-  if (!mapping) return [];
+type Try = { m: Live; def: OutboundDefinition; version: number; key: string; occurrence: string };
+/** Who's asking, on what page, and the live messages of a type they could get, in order. */
+async function prepare(db: Sql, w: string, identityId: string, type: OutboundDefinition["type"], ctx: Omit<PageContext, "openConversation">, now: Date) {
+  if (!(await outboundOn(db, w))) return null;
+  const mapping = (await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, identityId])).rows[0];
+  if (!mapping) return null;
   const contactId = await resolveContact(db, w, mapping.contact_id);
-  const live = (await liveMessages(db, w, now)).filter((m) => m.def.type === "chat");
-  if (!live.length) return [];
+  const live = (await liveMessages(db, w, now)).filter((m) => m.def.type === type);
+  if (!live.length) return null;
   const open =
     (
       await db.query(
@@ -198,27 +195,98 @@ export async function dueInApp(db: Sql, w: string, session: { identityId: string
         [w, contactId],
       )
     ).rows.length > 0;
-  const page: PageContext = { ...ctx, openConversation: open };
+  return { contactId, live, page: { ...ctx, openConversation: open } as PageContext };
+}
+/** Entries waiting for them (on the version they entered) first, then ongoing messages they match now. */
+async function tries(db: Sql, w: string, contactId: string, live: Live[], now: Date) {
   const pending = (
     await db.query<{ message_id: string; version: number; entry_key: string; occurrence: string }>(
       "SELECT message_id,version,entry_key,occurrence FROM outbound_entries WHERE workspace_id=$1 AND contact_id=$2 AND status='pending' AND due_at<=$3 AND message_id=ANY($4::text[]) ORDER BY due_at,id",
       [w, contactId, now.toISOString(), live.map((m) => m.id)],
     )
   ).rows;
-  const tries: { m: Live; def: OutboundDefinition; version: number; key: string; occurrence: string }[] = [];
+  const out: Try[] = [];
   for (const e of pending) {
     const m = live.find((x) => x.id === e.message_id)!;
     const def = e.version === m.version ? m.def : await versionOf(db, w, m.id, e.version);
-    if (def) tries.push({ m, def, version: e.version, key: e.entry_key, occurrence: e.occurrence });
+    if (def) out.push({ m, def, version: e.version, key: e.entry_key, occurrence: e.occurrence });
   }
   for (const m of live.filter((x) => x.def.delivery.mode === "ongoing"))
-    if (await inAudience(db, w, m.def, contactId, now.getTime())) tries.push({ m, def: m.def, version: m.version, key: entryKey(m.def, contactId, "", now.getTime()), occurrence: "" });
-  for (const t of tries) {
-    if (!sendTimeMatches(t.def.audience.sendTime, page)) continue;
-    const r = await admit(db, w, t.m, t.def, t.version, contactId, t.key, chatDelivery(w, t.m, t.def, t.version, session.identityId, session.brandId), now, t.occurrence);
+    if (await inAudience(db, w, m.def, contactId, now.getTime())) out.push({ m, def: m.def, version: m.version, key: entryKey(m.def, contactId, "", now.getTime()), occurrence: "" });
+  return out;
+}
+
+/**
+ * What the messenger shows now: at most one chat a page view. Entries waiting for this contact
+ * (a fixed audience, an event, an occurrence) come first, on the version they entered; then
+ * ongoing messages they match now. Send-time rules are checked against the page.
+ */
+export async function dueInApp(db: Sql, w: string, session: { identityId: string; brandId: string }, ctx: Omit<PageContext, "openConversation">, now = new Date()) {
+  const p = await prepare(db, w, session.identityId, "chat", ctx, now);
+  if (!p) return [];
+  for (const t of await tries(db, w, p.contactId, p.live, now)) {
+    if (!sendTimeMatches(t.def.audience.sendTime, p.page)) continue;
+    const r = await admit(db, w, t.m, t.def, t.version, p.contactId, t.key, chatDelivery(w, t.m, t.def, t.version, session.identityId, session.brandId), now, t.occurrence);
     if (r.status === "sent") return [{ conversationId: r.conversationId!, entryId: r.entryId! }];
   }
   return [];
+}
+
+export type ShownBanner = { entryId: string; text: string; position: "top" | "bottom"; dismissible: boolean; action: { label: string; url: string } | null };
+const shown = (entryId: string, def: OutboundDefinition): ShownBanner => ({
+  entryId,
+  text: def.content.text,
+  position: def.content.position ?? "top",
+  dismissible: def.content.dismissible !== false,
+  action: def.content.action ?? null,
+});
+/**
+ * O3: the banner for this page, at most one. A banner already shown to them stays on every page
+ * its send-time rules allow until they close it (or it stops being live): shown once, counted
+ * once. Otherwise a new one goes through `admit` (caps, quiet hours, subscription and all).
+ */
+export async function dueBanner(db: Sql, w: string, session: { identityId: string }, ctx: Omit<PageContext, "openConversation">, now = new Date()): Promise<ShownBanner[]> {
+  const p = await prepare(db, w, session.identityId, "banner", ctx, now);
+  if (!p) return [];
+  const showing = (
+    await db.query<{ id: string; message_id: string; version: number }>(
+      "SELECT id,message_id,version FROM outbound_entries WHERE workspace_id=$1 AND contact_id=$2 AND status='sent' AND dismissed_at IS NULL AND message_id=ANY($3::text[]) ORDER BY entered_at DESC,id",
+      [w, p.contactId, p.live.map((m) => m.id)],
+    )
+  ).rows;
+  for (const e of showing) {
+    const m = p.live.find((x) => x.id === e.message_id)!;
+    const def = e.version === m.version ? m.def : await versionOf(db, w, m.id, e.version);
+    if (def && sendTimeMatches(def.audience.sendTime, p.page)) return [shown(e.id, def)];
+  }
+  for (const t of await tries(db, w, p.contactId, p.live, now)) {
+    if (!sendTimeMatches(t.def.audience.sendTime, p.page)) continue;
+    const r = await admit(db, w, t.m, t.def, t.version, p.contactId, t.key, async () => ({ channel: "in_app", conversationId: null, partId: null }), now, t.occurrence);
+    if (r.status === "sent") {
+      await db.query("UPDATE outbound_entries SET seen_at=$3 WHERE workspace_id=$1 AND id=$2", [w, r.entryId, now.toISOString()]);
+      return [shown(r.entryId!, t.def)];
+    }
+  }
+  return [];
+}
+
+/**
+ * O3: what the person did with an in-app message (`/v1/messenger/outbound`): clicked its action,
+ * or closed it. Only their own entries; each is recorded once.
+ */
+export async function outboundAction(db: Sql, w: string, identityId: string, entryId: string, action: string) {
+  assert(action === "clicked" || action === "dismissed", "INVALID_OUTBOUND", "Say clicked or dismissed.", 400);
+  const mapping = (await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, identityId])).rows[0];
+  const contactId = mapping ? await resolveContact(db, w, mapping.contact_id) : "";
+  const e = (await db.query<{ id: string; message_id: string; version: number }>("SELECT id,message_id,version FROM outbound_entries WHERE workspace_id=$1 AND id=$2 AND contact_id=$3 AND status='sent'", [w, entryId, contactId])).rows[0];
+  assert(e, "OUTBOUND_NOT_FOUND", "That message isn't yours.", 404);
+  if (action === "dismissed") {
+    const def = await versionOf(db, w, e.message_id, e.version);
+    assert(def?.content.dismissible !== false, "OUTBOUND_NOT_DISMISSIBLE", "That banner can't be closed.", 409);
+  }
+  const column = action === "clicked" ? "clicked_at" : "dismissed_at";
+  await db.query(`UPDATE outbound_entries SET ${column}=COALESCE(${column},now()) WHERE workspace_id=$1 AND id=$2`, [w, e.id]);
+  return { ok: true };
 }
 
 /** Each entry starts pending, or in the control group (entered now, never sent). */
@@ -345,7 +413,7 @@ async function problemsHere(db: Sql, w: string, def: OutboundDefinition) {
   const type = (await db.query<{ channel: string; archived_at: string | null }>("SELECT channel,archived_at FROM subscription_types WHERE workspace_id=$1 AND id=$2", [w, def.subscriptionTypeId])).rows[0];
   if (!type || type.archived_at) out.push("Its subscription type isn't available.");
   else if (type.channel !== "in_app") out.push("An in-app message needs an in-app subscription type.");
-  if (!(await db.query("SELECT 1 FROM teammates WHERE workspace_id=$1 AND id=$2", [w, def.content.senderId])).rows.length) out.push("Choose a teammate to send it.");
+  if (def.type === "chat" && !(await db.query("SELECT 1 FROM teammates WHERE workspace_id=$1 AND id=$2", [w, def.content.senderId])).rows.length) out.push("Choose a teammate to send it.");
   const seg = def.audience.segmentId;
   if (seg && !PREDEFINED.some((s) => s.id === seg) && !(await db.query("SELECT 1 FROM segments WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL", [w, seg])).rows.length)
     out.push("Its segment isn't available.");
@@ -354,8 +422,8 @@ async function problemsHere(db: Sql, w: string, def: OutboundDefinition) {
 
 async function stats(db: Sql, w: string, messageId: string, goal: OutboundDefinition["goal"]) {
   const r = (
-    await db.query<{ status: string; variant: string; n: number; seen: number; replied: number }>(
-      "SELECT status,variant,count(*)::int AS n,count(seen_at)::int AS seen,count(replied_at)::int AS replied FROM outbound_entries WHERE workspace_id=$1 AND message_id=$2 GROUP BY status,variant",
+    await db.query<{ status: string; variant: string; n: number; seen: number; replied: number; clicked: number; dismissed: number }>(
+      "SELECT status,variant,count(*)::int AS n,count(seen_at)::int AS seen,count(replied_at)::int AS replied,count(clicked_at)::int AS clicked,count(dismissed_at)::int AS dismissed FROM outbound_entries WHERE workspace_id=$1 AND message_id=$2 GROUP BY status,variant",
       [w, messageId],
     )
   ).rows;
@@ -364,6 +432,8 @@ async function stats(db: Sql, w: string, messageId: string, goal: OutboundDefini
     sent: n("sent"),
     seen: r.filter((x) => x.status === "sent").reduce((a, x) => a + x.seen, 0),
     replied: r.filter((x) => x.status === "sent").reduce((a, x) => a + x.replied, 0),
+    clicked: r.filter((x) => x.status === "sent").reduce((a, x) => a + x.clicked, 0),
+    dismissed: r.filter((x) => x.status === "sent").reduce((a, x) => a + x.dismissed, 0),
     heldOut: n("held_out"),
     suppressed: n("suppressed"),
     pending: n("pending"),
@@ -400,9 +470,22 @@ export async function readOutbound(db: Sql, w: string, principal: string) {
     const live = m.live_version ? await versionOf(db, w, m.id, m.live_version) : null;
     out.push({ id: m.id, title: m.title, type: m.type, state: m.state, liveVersion: m.live_version, updatedAt: new Date(m.updated_at).toISOString(), stats: await stats(db, w, m.id, (live ?? m.draft).goal) });
   }
+  const rows = async <T,>(text: string) => (await db.query<T>(text, [w])).rows;
   return {
     settings: { capCount: s.cap_count, capDays: s.cap_days, quietStart: s.quiet_start, quietEnd: s.quiet_end, timezone: s.timezone },
     messages: out,
+    // O3: what the editor offers: senders, in-app subscription types, segments, events and attributes.
+    choices: {
+      teammates: await rows<{ id: string; name: string }>("SELECT id,name FROM teammates WHERE workspace_id=$1 ORDER BY name,id"),
+      subscriptions: await rows<{ id: string; name: string }>("SELECT id,name FROM subscription_types WHERE workspace_id=$1 AND channel='in_app' AND archived_at IS NULL ORDER BY lower(name),id"),
+      segments: [...PREDEFINED.map((x) => ({ id: x.id, name: x.name })), ...(await rows<{ id: string; name: string }>("SELECT id,name FROM segments WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id"))],
+      events: (await rows<{ name: string }>("SELECT name FROM event_definitions WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name)")).map((r) => r.name),
+      attributes: (
+        await rows<{ key: string }>(
+          "SELECT DISTINCT k AS key FROM (SELECT jsonb_object_keys(profile) AS k FROM contacts WHERE workspace_id=$1 AND merged_into_contact_id IS NULL AND jsonb_typeof(profile)='object') x ORDER BY 1 LIMIT 200",
+        )
+      ).map((r) => r.key),
+    },
   };
 }
 
@@ -425,9 +508,9 @@ export async function readOutboundMessage(db: Sql, w: string, principal: string,
     ).rows.map((v) => ({ version: v.version, effectiveAt: new Date(v.effective_at).toISOString(), publishedBy: v.published_by })),
     stats: await stats(db, w, m.id, (live ?? m.draft).goal),
     entries: (
-      await db.query<{ id: string; contact_id: string; name: string; email: string | null; version: number; variant: string; status: string; reason: string; entered_at: Date | null; seen_at: Date | null; replied_at: Date | null; conversation_id: string | null }>(
+      await db.query<{ id: string; contact_id: string; name: string; email: string | null; version: number; variant: string; status: string; reason: string; entered_at: Date | null; seen_at: Date | null; replied_at: Date | null; clicked_at: Date | null; dismissed_at: Date | null; conversation_id: string | null }>(
         `SELECT e.id,e.contact_id,c.name,(SELECT min(email) FROM contact_emails x WHERE x.workspace_id=e.workspace_id AND x.contact_id=e.contact_id) AS email,
-                e.version,e.variant,e.status,e.reason,e.entered_at,e.seen_at,e.replied_at,e.conversation_id
+                e.version,e.variant,e.status,e.reason,e.entered_at,e.seen_at,e.replied_at,e.clicked_at,e.dismissed_at,e.conversation_id
          FROM outbound_entries e JOIN contacts c ON c.workspace_id=e.workspace_id AND c.id=e.contact_id
          WHERE e.workspace_id=$1 AND e.message_id=$2 ORDER BY e.created_at DESC,e.id LIMIT 50`,
         [w, m.id],
@@ -444,6 +527,8 @@ export async function readOutboundMessage(db: Sql, w: string, principal: string,
       enteredAt: e.entered_at ? new Date(e.entered_at).toISOString() : null,
       seenAt: e.seen_at ? new Date(e.seen_at).toISOString() : null,
       repliedAt: e.replied_at ? new Date(e.replied_at).toISOString() : null,
+      clickedAt: e.clicked_at ? new Date(e.clicked_at).toISOString() : null,
+      dismissedAt: e.dismissed_at ? new Date(e.dismissed_at).toISOString() : null,
       conversationId: e.conversation_id,
     })),
   };
@@ -471,23 +556,25 @@ export async function changeOutboundMessage(db: Sql, w: string, principal: strin
     const title = typeof p.title === "string" ? p.title.trim() : undefined;
     if (title !== undefined && (!title || title.length > 120)) invalid("Name the message (120 characters at most).");
     if (p.action === "create") {
-      if (p.type !== "chat") invalid("Choose the message type.");
+      if (p.type !== "chat" && p.type !== "banner") invalid("Choose the message type: chat or banner.");
+      const type = p.type as "chat" | "banner";
       const id = crypto.randomUUID();
-      await db.query("INSERT INTO outbound_messages(workspace_id,id,type,title,draft,created_by,updated_by) VALUES($1,$2,'chat',$3,$4,$5,$5)", [
+      await db.query("INSERT INTO outbound_messages(workspace_id,id,type,title,draft,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$6)", [
         w,
         id,
+        type,
         title || "Untitled",
-        JSON.stringify(blankDefinition("chat", t.id)),
+        JSON.stringify(blankDefinition(type, t.id)),
         t.id,
       ]);
       return readOutboundMessage(db, w, principal, id);
     }
     const id = String(p.id ?? "");
-    const m = (await db.query<{ state: string; draft: OutboundDefinition; live_version: number | null }>("SELECT state,draft,live_version FROM outbound_messages WHERE workspace_id=$1 AND id=$2 FOR UPDATE", [w, id])).rows[0];
+    const m = (await db.query<{ state: string; type: string; draft: OutboundDefinition; live_version: number | null }>("SELECT state,type,draft,live_version FROM outbound_messages WHERE workspace_id=$1 AND id=$2 FOR UPDATE", [w, id])).rows[0];
     assert(m && m.state !== "archived", "OUTBOUND_NOT_FOUND", "That message isn't available.", 404);
     if (p.action === "save") {
       const def = (p.definition ?? m.draft) as OutboundDefinition;
-      if (!def || typeof def !== "object" || def.type !== "chat") invalid("A message's type stays as it was made.");
+      if (!def || typeof def !== "object" || def.type !== m.type) invalid("A message's type stays as it was made.");
       if (JSON.stringify(def).length > 50_000) invalid("That message is too large.");
       await db.query("UPDATE outbound_messages SET draft=$3,title=COALESCE($4,title),updated_by=$5,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, id, JSON.stringify(def), title ?? null, t.id]);
     } else if (p.action === "publish") {
