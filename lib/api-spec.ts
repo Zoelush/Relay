@@ -102,7 +102,7 @@ export const SPEC: Spec = {
     title: "Relay API",
     version: LATEST_VERSION,
     description:
-      "Relay's REST API: conversations, contacts, tags, teammates and teams. Authenticate with a personal access token (Settings › Developers) as `Authorization: Bearer <token>`. Name a version with `Relay-Version`; without one, the token's own version is used.",
+      "Relay's REST API: conversations, contacts, tickets, articles and knowledge, macros, workflows, outbound, events, attributes, segments, search and export. Authenticate with a personal access token (Settings › Developers) as `Authorization: Bearer <token>`. Name a version with `Relay-Version`; without one, the token's own version is used.",
   },
   servers: [{ url: "/rest", description: "This Relay (deployed: https://api.<your domain>)." }],
   security: [{ bearer: [] }],
@@ -435,6 +435,312 @@ export const SPEC: Spec = {
     },
   },
 };
+
+
+/* ------------------------------------------------------------------------------------------ */
+/* Phase 15 D2: the rest of the coverage, search and export.                                    */
+/* ------------------------------------------------------------------------------------------ */
+const read = (operationId: string, summary: string, description: string, tag: string, scope: string, schema: string, params: Parameter[] = [], missing = true): Operation =>
+  op({ operationId, summary, description, tags: [tag], "x-relay-scope": scope, parameters: params, ok: ok(ref(schema)), missing });
+const listing = (operationId: string, summary: string, description: string, tag: string, scope: string, item: string, params: Parameter[] = [], paged = true): Operation =>
+  op({ operationId, summary, description, tags: [tag], "x-relay-scope": scope, parameters: [...params, ...(paged ? page : [])], ok: ok(list(item)), missing: false });
+const write = (operationId: string, summary: string, description: string, tag: string, scope: string, schema: string, request: Schema, params: Parameter[] = [], status = "200"): Operation =>
+  op({ operationId, summary, description, tags: [tag], "x-relay-scope": scope, parameters: params, requestBody: body(request), ok: ok(ref(schema), status === "201" ? "Created." : "OK"), status, missing: params.length > 0 });
+const object = (properties: Record<string, Schema>, required: string[] = []): Schema => ({ type: "object", additionalProperties: false, required, properties });
+const typed = (name: string, properties: Record<string, Schema>, required: string[] = []): Schema => ({
+  type: "object",
+  required: ["type", "id", ...required],
+  properties: { type: { type: "string", enum: [name] }, id: { type: "string" }, ...properties },
+});
+/** A search: a query (one condition, or AND/OR of up to 20, 3 deep), a sort, and a page. */
+const search = (resource: string): Schema =>
+  object(
+    {
+      query: { type: "object", description: `A condition \`{"field","operator","value"}\` or a group \`{"operator":"AND"|"OR","value":[…]}\`. See Search for the ${resource} fields and operators.` },
+      sort: object({ field: { type: "string", maxLength: 60 }, order: { type: "string", enum: ["asc", "desc"] } }, ["field"]),
+      per_page: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+      starting_after: { type: "string", maxLength: 400 },
+    },
+    ["query"],
+  );
+
+Object.assign(SPEC.paths, {
+  "/conversations/search": {
+    post: op({
+      operationId: "searchConversations",
+      summary: "Search conversations",
+      description: "Conversations matching a query, sorted and cursor-paged. Fields: id, status, channel, brand_id, assignee_id, team_id, contact_id, tag_id, priority, created_at, updated_at, waiting_since.",
+      tags: ["Search"],
+      "x-relay-scope": "conversations.read",
+      requestBody: body(search("conversation")),
+      ok: ok(list("Conversation")),
+      missing: false,
+    }),
+  },
+  "/contacts/search": {
+    post: op({
+      operationId: "searchContacts",
+      summary: "Search contacts",
+      description: "Contacts matching a query, sorted and cursor-paged. Fields: id, role, name, email, external_id, first_seen_at, last_seen_at, signed_up_at, and custom_attributes.<name>.",
+      tags: ["Search"],
+      "x-relay-scope": "contacts.personal_data",
+      requestBody: body(search("contact")),
+      ok: ok(list("Contact")),
+      missing: false,
+    }),
+  },
+  "/contacts/{id}/events": {
+    get: listing("listContactEvents", "List a contact's events", "What they did, newest first (from your server, or the messenger while they're signed in).", "Events", "contacts.personal_data", "Event", [pathId("id", "contact")]),
+    post: write(
+      "createContactEvent",
+      "Record an event",
+      "Something the contact did. `id` is yours: an event with an id that's been seen is ignored, so retries are safe.",
+      "Events",
+      "contacts.personal_data",
+      "Event",
+      object(
+        {
+          id: { type: "string", minLength: 1, maxLength: 200, description: "Your id for this event (dedupes)." },
+          name: text(100, "What happened (`upgraded plan`)."),
+          metadata: { type: "object", maxProperties: 10, additionalProperties: { type: ["string", "number", "boolean", "null"], maxLength: 255 }, description: "Up to 10 facts about it." },
+          occurred_at: { ...time, description: "When it happened (now if left out)." },
+        },
+        ["id", "name"],
+      ),
+      [pathId("id", "contact")],
+      "201",
+    ),
+  },
+  "/tickets": {
+    get: listing("listTickets", "List tickets", "Tickets, newest first, by type or state.", "Tickets", "conversations.read", "Ticket", [
+      { name: "ticket_type_id", in: "query", description: "Only this type.", schema: { type: "string", maxLength: 100 } },
+      { name: "state", in: "query", description: "Only tickets in a state of this kind.", schema: { type: "string", enum: ["submitted", "in_progress", "waiting_on_customer", "resolved"] } },
+    ]),
+    post: write(
+      "createTicket",
+      "Make a conversation a ticket",
+      "Turn a conversation into a ticket of a type (in its first state, or the one given).",
+      "Tickets",
+      "conversations.manage",
+      "Ticket",
+      object({ conversation_id: id("conversation"), ticket_type_id: id("ticket type"), state_id: id("ticket state") }, ["conversation_id", "ticket_type_id"]),
+      [],
+      "201",
+    ),
+  },
+  "/tickets/{id}": { get: read("getTicket", "Retrieve a ticket", "One ticket (its id is its conversation's).", "Tickets", "conversations.read", "Ticket", [pathId("id", "ticket")]) },
+  "/tickets/{id}/state": {
+    post: write("setTicketState", "Change a ticket's state", "Move a ticket to another of its type's states.", "Tickets", "conversations.manage", "Ticket", object({ state_id: id("ticket state") }, ["state_id"]), [pathId("id", "ticket")]),
+  },
+  "/ticket_types": { get: listing("listTicketTypes", "List ticket types", "The workspace's ticket types and their states (archived ones left out).", "Tickets", "conversations.read", "TicketType", [], false) },
+  "/ticket_types/{id}": { get: read("getTicketType", "Retrieve a ticket type", "One ticket type and its states.", "Tickets", "conversations.read", "TicketType", [pathId("id", "ticket type")]) },
+  "/help_centers": { get: listing("listHelpCenters", "List help centers", "Each brand's help center and its collections.", "Help centers and articles", "knowledge.manage", "HelpCenter", [], false) },
+  "/help_centers/{id}": { get: read("getHelpCenter", "Retrieve a help center", "One help center and its collections.", "Help centers and articles", "knowledge.manage", "HelpCenter", [pathId("id", "help center")]) },
+  "/articles": {
+    get: listing("listArticles", "List articles", "Articles, most recently updated first.", "Help centers and articles", "conversations.read", "Article", [
+      { name: "state", in: "query", description: "Only published ones, or drafts never published.", schema: { type: "string", enum: ["published", "draft"] } },
+    ]),
+    post: write(
+      "createArticle",
+      "Create an article",
+      "A new article, as a draft. Paragraphs are separated by a blank line. Publish it to put it live.",
+      "Help centers and articles",
+      "knowledge.manage",
+      "Article",
+      object({ title: text(200, "Its title."), body: { type: "string", maxLength: 100_000, description: "Its text; a blank line starts a paragraph." }, locale: { type: "string", minLength: 2, maxLength: 35, default: "en" } }, ["title"]),
+      [],
+      "201",
+    ),
+  },
+  "/articles/{id}": {
+    get: read("getArticle", "Retrieve an article", "One article: its draft and, if published, what's live.", "Help centers and articles", "conversations.read", "Article", [pathId("id", "article")]),
+    patch: write(
+      "updateArticle",
+      "Update an article's draft",
+      "Change the draft's title or text. What's live doesn't change until it's published again.",
+      "Help centers and articles",
+      "knowledge.manage",
+      "Article",
+      object({ title: text(200, "Its title."), body: { type: "string", maxLength: 100_000 } }),
+      [pathId("id", "article")],
+    ),
+  },
+  "/articles/{id}/publish": {
+    post: op({
+      operationId: "publishArticle",
+      summary: "Publish an article",
+      description: "Put the draft live (wherever it's placed: help centers, Zoe, the inbox).",
+      tags: ["Help centers and articles"],
+      "x-relay-scope": "knowledge.manage",
+      parameters: [pathId("id", "article")],
+      ok: ok(ref("Article")),
+    }),
+  },
+  "/knowledge_records": {
+    get: listing("listKnowledgeRecords", "List knowledge", "Everything Zoe and the inbox may draw on: articles, internal articles, snippets, files and synced pages.", "Knowledge", "conversations.read", "KnowledgeRecord", [
+      { name: "source", in: "query", description: "Only this kind.", schema: { type: "string", enum: ["article", "internal_article", "snippet", "file", "external_page"] } },
+    ]),
+  },
+  "/knowledge_records/{id}": { get: read("getKnowledgeRecord", "Retrieve knowledge", "One knowledge record.", "Knowledge", "conversations.read", "KnowledgeRecord", [pathId("id", "knowledge record")]) },
+  "/macros": { get: listing("listMacros", "List macros", "Shared macros, and the token's teammate's own.", "Macros", "macros.use", "Macro", [], false) },
+  "/macros/{id}": { get: read("getMacro", "Retrieve a macro", "One macro: its text and its actions.", "Macros", "macros.use", "Macro", [pathId("id", "macro")]) },
+  "/conversations/{id}/macros": {
+    post: write("applyMacro", "Apply a macro", "Apply a macro to a conversation: its reply or note, and its actions. Send `Idempotency-Key` to make retries safe.", "Macros", "macros.use", "Conversation", object({ macro_id: id("macro") }, ["macro_id"]), [pathId("id", "conversation")]),
+  },
+  "/workflows": { get: listing("listWorkflows", "List workflows", "The workspace's workflows (archived ones left out).", "Workflows", "workspace.manage", "Workflow", [], false) },
+  "/workflows/{id}": { get: read("getWorkflow", "Retrieve a workflow", "One workflow.", "Workflows", "workspace.manage", "Workflow", [pathId("id", "workflow")]) },
+  "/workflows/{id}/runs": { get: listing("listWorkflowRuns", "List a workflow's runs", "Its runs, newest first.", "Workflows", "workspace.manage", "WorkflowRun", [pathId("id", "workflow")]) },
+  "/workflows/{id}/trigger": {
+    post: write("triggerWorkflow", "Run a workflow", "Run a live, manually triggered workflow on a conversation. It runs in the background.", "Workflows", "conversations.manage", "WorkflowRunQueued", object({ conversation_id: id("conversation") }, ["conversation_id"]), [pathId("id", "workflow")], "202"),
+  },
+  "/outbound_messages": { get: listing("listOutboundMessages", "List outbound messages", "Chats and banners, with what they reached.", "Outbound", "workspace.manage", "OutboundMessage", [], false) },
+  "/outbound_messages/{id}": { get: read("getOutboundMessage", "Retrieve an outbound message", "One outbound message and its numbers.", "Outbound", "workspace.manage", "OutboundMessage", [pathId("id", "outbound message")]) },
+  "/data_attributes": {
+    get: listing("listDataAttributes", "List data attributes", "The workspace's attributes for conversations and contacts.", "Data attributes", "conversations.read", "DataAttribute", [
+      { name: "model", in: "query", description: "Only conversation or contact attributes.", schema: { type: "string", enum: ["conversation", "contact"] } },
+    ], false),
+    post: write(
+      "createDataAttribute",
+      "Create a conversation attribute",
+      "A new attribute teammates fill in on conversations.",
+      "Data attributes",
+      "workspace.manage",
+      "DataAttribute",
+      object({ name: text(60, "Its name."), value_type: { type: "string", enum: ["string", "integer", "float", "boolean", "date", "options"] }, options: { type: "array", maxItems: 100, items: { type: "string", minLength: 1, maxLength: 100 } } }, ["name", "value_type"]),
+      [],
+      "201",
+    ),
+  },
+  "/segments": { get: listing("listSegments", "List segments", "Saved and built-in segments of contacts.", "Segments", "contacts.personal_data", "Segment", [], false) },
+  "/segments/{id}/contacts": { get: listing("listSegmentContacts", "List a segment's contacts", "Who's in a segment now.", "Segments", "contacts.personal_data", "Contact", [pathId("id", "segment")]) },
+  "/exports": {
+    post: write(
+      "createExport",
+      "Export data",
+      "Start an export of conversations, contacts and/or tickets (as newline-delimited JSON). It runs in the background; fetch it to see when it's ready.",
+      "Data export",
+      "data.export",
+      "Export",
+      object(
+        {
+          resources: { type: "array", maxItems: 3, items: { type: "string", enum: ["conversations", "contacts", "tickets"] } },
+          created_after: { ...time, description: "Only what was created at or after this." },
+          created_before: { ...time, description: "Only what was created before this." },
+        },
+        ["resources"],
+      ),
+      [],
+      "202",
+    ),
+  },
+  "/exports/{id}": { get: read("getExport", "Retrieve an export", "Its progress, and when it's done, links to its files (each valid for an hour).", "Data export", "data.export", "Export", [pathId("id", "export")]) },
+});
+
+Object.assign(SPEC.components.schemas, {
+  Event: typed("event", { contact_id: { type: "string" }, name: { type: "string" }, metadata: { type: "object" }, source: { type: "string", enum: ["api", "messenger"] }, occurred_at: time }, ["name", "occurred_at"]),
+  Ticket: typed(
+    "ticket",
+    {
+      number: { type: "integer", description: "Its number in this workspace (#123)." },
+      title: { type: "string" },
+      ticket_type_id: { type: "string" },
+      state: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, kind: { type: "string" } } },
+      conversation_id: { type: "string" },
+      created_at: time,
+      updated_at: time,
+    },
+    ["number", "ticket_type_id", "state"],
+  ),
+  TicketType: typed(
+    "ticket_type",
+    {
+      name: { type: "string" },
+      category: { type: "string", enum: ["customer", "back_office", "tracker"] },
+      description: { type: "string" },
+      states: { type: "array", items: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, customer_label: { type: "string" }, kind: { type: "string" } } } },
+    },
+    ["name", "category", "states"],
+  ),
+  HelpCenter: typed(
+    "help_center",
+    {
+      name: { type: "string" },
+      brand_id: { type: "string" },
+      slug: { type: "string" },
+      access: { type: "string", enum: ["public", "signed_in"] },
+      default_locale: { type: "string" },
+      locales: { type: "array", items: { type: "string" } },
+      collections: { type: "array", items: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, description: { type: "string" } } } },
+    },
+    ["name", "collections"],
+  ),
+  Article: typed(
+    "article",
+    {
+      title: { type: "string", description: "The draft's title." },
+      body: { type: "string", description: "The draft's text." },
+      state: { type: "string", enum: ["draft", "published"] },
+      published_title: { type: ["string", "null"] },
+      published_body: { type: ["string", "null"] },
+      locale: { type: "string" },
+      audience: { type: "string", enum: ["public", "signed_in", "internal"] },
+      updated_at: time,
+      published_at: { type: ["string", "null"], format: "date-time" },
+    },
+    ["title", "state"],
+  ),
+  KnowledgeRecord: typed(
+    "knowledge_record",
+    {
+      source: { type: "string", enum: ["article", "internal_article", "snippet", "file", "external_page"] },
+      title: { type: "string" },
+      audience: { type: "string" },
+      for_ai: { type: "boolean" },
+      for_help_center: { type: "boolean" },
+      for_inbox: { type: "boolean" },
+      published: { type: "boolean" },
+      updated_at: time,
+    },
+    ["source", "title"],
+  ),
+  Macro: typed(
+    "macro",
+    { name: { type: "string" }, mode: { type: "string", enum: ["reply", "note"] }, shared: { type: "boolean" }, body: { type: "string" }, actions: { type: "array", items: { type: "object" } } },
+    ["name", "mode"],
+  ),
+  Workflow: typed("workflow", { name: { type: "string" }, trigger: { type: "string" }, state: { type: "string", enum: ["draft", "live", "paused"] }, updated_at: time }, ["name", "trigger", "state"]),
+  WorkflowRun: typed("workflow_run", { workflow_id: { type: "string" }, conversation_id: { type: ["string", "null"] }, status: { type: "string" }, started_at: time, finished_at: { type: ["string", "null"], format: "date-time" } }, ["status"]),
+  WorkflowRunQueued: { type: "object", required: ["type", "queued"], properties: { type: { type: "string", enum: ["workflow_run"] }, queued: { type: "boolean" } } },
+  OutboundMessage: typed(
+    "outbound_message",
+    {
+      title: { type: "string" },
+      kind: { type: "string", enum: ["chat", "banner"] },
+      state: { type: "string", enum: ["draft", "live", "paused", "archived"] },
+      live_version: { type: ["integer", "null"] },
+      stats: { type: "object", properties: { sent: { type: "integer" }, seen: { type: "integer" }, replied: { type: "integer" }, clicked: { type: "integer" }, dismissed: { type: "integer" } } },
+      updated_at: time,
+    },
+    ["title", "kind", "state"],
+  ),
+  DataAttribute: typed(
+    "data_attribute",
+    { name: { type: "string" }, model: { type: "string", enum: ["conversation", "contact"] }, value_type: { type: "string" }, options: { type: "array", items: { type: "string" } }, archived: { type: "boolean" } },
+    ["name", "model", "value_type"],
+  ),
+  Segment: typed("segment", { name: { type: "string" }, predefined: { type: "boolean" } }, ["name"]),
+  Export: typed(
+    "export",
+    {
+      status: { type: "string", enum: ["queued", "running", "done", "failed"] },
+      resources: { type: "array", items: { type: "string" } },
+      rows: { type: "integer" },
+      files: { type: "array", items: { type: "object", properties: { resource: { type: "string" }, url: { type: "string" }, expires_at: time, rows: { type: "integer" } } } },
+      created_at: time,
+    },
+    ["status", "resources"],
+  ),
+});
 
 /** Every operation with its method and path, in the document's order. */
 export function operations(spec: Spec = SPEC) {

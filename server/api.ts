@@ -939,7 +939,7 @@ export async function handleApi(
       },
     });
   // Phase 15 D1: the public REST API, its own surface with its own errors and headers.
-  if (url.pathname === "/rest" || url.pathname.startsWith("/rest/")) return handleRest(req, { connect: env.connect, rateLimiter: env.rateLimiter });
+  if (url.pathname === "/rest" || url.pathname.startsWith("/rest/")) return handleRest(req, { connect: env.connect, rateLimiter: env.rateLimiter, storage: env.attachments });
   // The API's reference, generated from its spec.
   if (url.pathname === "/developers" && req.method === "GET")
     return new Response(apiReferenceHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
