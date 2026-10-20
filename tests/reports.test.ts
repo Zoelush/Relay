@@ -5,7 +5,7 @@ import { analyticsDatabase, testDatabase } from "./database";
 import { tenant } from "../server/db";
 import { getIdentity, seedFoundation } from "../server/people";
 import { append, command, conversation } from "../server/conversations";
-import { projectJob, reportMetric, type AnalyticsStore } from "../server/analytics";
+import { projectJob, reportFlow, reportMetric, type AnalyticsStore } from "../server/analytics";
 import { conversationDerived, type FactPart } from "../server/analytics";
 import { runMetric, QUERYABLE, type Value, datasetCounts } from "../server/reports";
 import { METRICS } from "../lib/metrics";
@@ -298,8 +298,19 @@ test("every metric answers from the store, as defined, with breakdowns, filters,
     await assert.rejects(reportMetric(db.connect, analytics, "a", "lim-a", { metric: "new_conversations", from: period.from.toISOString(), to: period.to.toISOString() }), /permission|not allowed|Forbidden/i);
     const own = await reportMetric(db.connect, analytics, "a", "owner-a", { metric: "new_conversations", from: period.from.toISOString(), to: period.to.toISOString() });
     assert.equal(count(own.total), 3);
+    // A breakdown's keys come with their names (R3): teammates from the application, not the store.
+    const ownerName = (await sql<{ name: string }>("SELECT name FROM teammates WHERE workspace_id='a' AND id='owner'"))[0].name;
+    const named = await reportMetric(db.connect, analytics, "a", "owner-a", { metric: "first_response_time", breakdown: "teammate", from: period.from.toISOString(), to: period.to.toISOString() });
+    assert.deepEqual(named.labels, { owner: ownerName });
+    // The overview's flow (R3): C1 and C2 answered by the team (C1 closed), C3 resolved by Zoe; the parts add up.
+    const flowPeriod = { from: period.from.toISOString(), to: period.to.toISOString() };
+    const flow = await reportFlow(db.connect, analytics, "a", "owner-a", { from: period.from.toISOString(), to: period.to.toISOString() });
+    assert.deepEqual(flow, { total: 3, zoe: { total: 1, resolved: 1, handedOver: 0, other: 0 }, teammate: { total: 2, closed: 1, open: 1 }, closedWithoutReply: 0, waiting: 0 });
+    assert.equal((await reportFlow(db.connect, analytics, "a", "owner-a", { ...flowPeriod, filters: { teamId: "billing" } })).total, 1, "C1 only");
+    await assert.rejects(reportFlow(db.connect, analytics, "a", "lim-a", flowPeriod), /permission|not allowed|Forbidden/i);
     await project("b");
     assert.equal(count((await runMetric(analytics, "b", { metric: "new_conversations", ...period })).total), 0);
+    assert.equal((await reportFlow(db.connect, analytics, "b", "owner-b", flowPeriod)).total, 0, "another workspace's flow sees none of a's");
     assert.equal(count((await runMetric(analytics, "b", { metric: "calls", ...period })).total), 0);
 
     // The store's rollback: rebuilt from the beginning, with the same answers.

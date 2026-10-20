@@ -67,10 +67,11 @@ test("Zoe has her own place between Inbox and Knowledge: an overview with what s
 
   const agent = await (await browser.newContext()).newPage();
   await agent.goto(relay.hostOrigin + "/agent");
-  // The strip: Inbox, Zoe, Workflows (phase 11 W2), Knowledge, People (phase 13 O1), Outbound (O3), each in its own colour.
+  // The strip: Inbox, Zoe, Workflows (phase 11 W2), Knowledge, People (phase 13 O1), Reports (phase 14 R3), Outbound (O3),
+  // each in its own colour.
   const rail = agent.getByRole("navigation", { name: "Main" });
   const items = rail.locator(".pg-rail-items .pg-rail-item");
-  await expect(items).toHaveCount(6, { timeout: 15000 });
+  await expect(items).toHaveCount(7, { timeout: 15000 });
   await expect(items.nth(0)).toHaveAttribute("data-hue", "blue");
   await expect(items.nth(1)).toHaveAttribute("data-hue", "zoe");
   await expect(items.nth(1)).toHaveAccessibleName("Zoe, AI agent");
@@ -79,8 +80,10 @@ test("Zoe has her own place between Inbox and Knowledge: an overview with what s
   await expect(items.nth(3)).toHaveAttribute("data-hue", "amber");
   await expect(items.nth(4)).toHaveAttribute("data-hue", "teal");
   await expect(items.nth(4)).toHaveAccessibleName("People");
-  await expect(items.nth(5)).toHaveAttribute("data-hue", "green");
-  await expect(items.nth(5)).toHaveAccessibleName("Outbound");
+  await expect(items.nth(5)).toHaveAttribute("data-hue", "violet");
+  await expect(items.nth(5)).toHaveAccessibleName("Reports");
+  await expect(items.nth(6)).toHaveAttribute("data-hue", "green");
+  await expect(items.nth(6)).toHaveAccessibleName("Outbound");
   await items.nth(1).click();
   await expect(agent).toHaveURL(/#zoe$/);
 

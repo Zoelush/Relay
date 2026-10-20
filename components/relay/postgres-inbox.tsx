@@ -30,6 +30,7 @@ import {
   Zap,
   Sparkles,
   Workflow,
+  ChartColumnBig,
   Contact,
   Settings as SettingsIcon,
 } from "lucide-react";
@@ -143,6 +144,8 @@ type Snapshot = Directory & {
     people?: boolean;
     /** The Outbound area (phase 13 O3): managers, while outbound is on. */
     outbound?: boolean;
+    /** The Reports area (phase 14 R3): who may view reports, while reporting is on. */
+    reports?: boolean;
   };
   /** Zoe's name in this workspace, while the AI agent is on (Z1). */
   ai?: { name: string; enabled: boolean } | null;
@@ -193,6 +196,16 @@ const OutboundArea = lazy(() =>
 const outboundFromHash = () => {
   if (typeof window === "undefined") return null;
   const m = /^#outbound(?:\/((?:m\/)?[A-Za-z0-9-]+))?$/.exec(window.location.hash);
+  return m ? (m[1] ?? "") : null;
+};
+/** Reports (phase 14 R3): the overview and the pre-built reports, loaded on their own. */
+const ReportsArea = lazy(() =>
+  import("../../agent/reports").then((m) => ({ default: m.Reports })),
+);
+/** The Reports area from the address: `#reports` ("") or `#reports/<report>`; null elsewhere. */
+const reportsFromHash = () => {
+  if (typeof window === "undefined") return null;
+  const m = /^#reports(?:\/([a-z_]+))?$/.exec(window.location.hash);
   return m ? (m[1] ?? "") : null;
 };
 /** A page of Zoe's from the address (`#zoe/<page>`), or null when not in her area. */
@@ -338,7 +351,7 @@ export default function PostgresInbox({
   /** The section on screen. The inbox stays mounted underneath Knowledge, keeping its place. */
   // The section on screen; Settings has an address per page (`#settings/<page>`).
   const [area, setAreaState] = useState<
-    "inbox" | "knowledge" | "settings" | "zoe" | "workflows" | "people" | "outbound"
+    "inbox" | "knowledge" | "settings" | "zoe" | "workflows" | "people" | "outbound" | "reports"
   >(() =>
     settingsFromHash()
       ? "settings"
@@ -350,8 +363,12 @@ export default function PostgresInbox({
             ? "people"
             : outboundFromHash() !== null
               ? "outbound"
-              : "inbox",
+              : reportsFromHash() !== null
+                ? "reports"
+                : "inbox",
   );
+  // The report open (`#reports/<report>`), or null for the overview.
+  const [reportOpen, setReportOpen] = useState<string | null>(() => reportsFromHash() || null);
   // The Outbound page (`#outbound/...`), or null for the list.
   const [outboundPage, setOutboundPage] = useState<string | null>(() => outboundFromHash() || null);
   // The segment shown in People (`#people/<segment>`), "all-users" by default.
@@ -369,7 +386,7 @@ export default function PostgresInbox({
   >("content");
   const setArea = useCallback(
     (
-      next: "inbox" | "knowledge" | "settings" | "zoe" | "workflows" | "people" | "outbound",
+      next: "inbox" | "knowledge" | "settings" | "zoe" | "workflows" | "people" | "outbound" | "reports",
       page = "home",
     ) => {
       setAreaState(next);
@@ -378,6 +395,7 @@ export default function PostgresInbox({
       if (next === "workflows") setWorkflowOpen(page === "home" ? null : page);
       if (next === "people") setPeopleSegment(page === "home" ? "all-users" : page);
       if (next === "outbound") setOutboundPage(page === "home" ? null : page);
+      if (next === "reports") setReportOpen(page === "home" ? null : page);
       const hash =
         next === "settings"
           ? "#settings" + (page === "home" ? "" : "/" + page)
@@ -389,7 +407,9 @@ export default function PostgresInbox({
                 ? "#people" + (page === "home" ? "" : "/" + page)
                 : next === "outbound"
                   ? "#outbound" + (page === "home" ? "" : "/" + page)
-                  : "";
+                  : next === "reports"
+                    ? "#reports" + (page === "home" ? "" : "/" + page)
+                    : "";
       if (window.location.hash !== hash)
         history.replaceState(
           null,
@@ -433,6 +453,7 @@ export default function PostgresInbox({
       const workflow = workflowsFromHash();
       const people = peopleFromHash();
       const outbound = outboundFromHash();
+      const reports = reportsFromHash();
       if (page) {
         setAreaState("settings");
         setSettingsPage(page);
@@ -448,9 +469,12 @@ export default function PostgresInbox({
       } else if (outbound !== null) {
         setAreaState("outbound");
         setOutboundPage(outbound || null);
+      } else if (reports !== null) {
+        setAreaState("reports");
+        setReportOpen(reports || null);
       } else if (window.location.hash === "")
         setAreaState((a) =>
-          a === "settings" || a === "zoe" || a === "workflows" || a === "people" || a === "outbound" ? "inbox" : a,
+          a === "settings" || a === "zoe" || a === "workflows" || a === "people" || a === "outbound" || a === "reports" ? "inbox" : a,
         );
     };
     window.addEventListener("hashchange", onHash);
@@ -1549,6 +1573,19 @@ export default function PostgresInbox({
                 },
               ]
             : []),
+          // Reports (phase 14 R3) sit just before Outbound, as in Intercom's strip.
+          ...(snapshot?.capabilities.reports
+            ? [
+                {
+                  id: "reports",
+                  label: "Reports",
+                  icon: <ChartColumnBig size={19} />,
+                  hue: "violet",
+                  current: area === "reports",
+                  onClick: () => setArea("reports"),
+                },
+              ]
+            : []),
           // Outbound (phase 13 O3): messages to people, as Intercom's Outbound.
           ...(snapshot?.capabilities.outbound
             ? [
@@ -1562,7 +1599,6 @@ export default function PostgresInbox({
                 },
               ]
             : []),
-          // TODO(phase 14): Reports. It joins the strip when its area exists.
         ]}
         tools={[
           {
@@ -1689,6 +1725,18 @@ export default function PostgresInbox({
           <OutboundArea open={outboundPage} onOpen={(page) => setArea("outbound", page ?? "home")} />
         </Suspense>
       )}
+      {area === "reports" && snapshot?.capabilities.reports && (
+        <Suspense
+          fallback={<section className="pg-workspace" aria-busy="true" />}
+        >
+          <ReportsArea
+            open={reportOpen}
+            onOpen={(id) => setArea("reports", id ?? "home")}
+            directory={{ teammates: snapshot.teammates, teams: snapshot.teams }}
+            zoeName={snapshot.ai?.name ?? "Zoe"}
+          />
+        </Suspense>
+      )}
       {area === "settings" && snapshot?.capabilities.settings && (
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}
@@ -1758,7 +1806,8 @@ export default function PostgresInbox({
           (area === "zoe" && !!snapshot?.capabilities.zoe) ||
           (area === "workflows" && !!snapshot?.capabilities.workflows) ||
           (area === "people" && !!snapshot?.capabilities.people) ||
-          (area === "outbound" && !!snapshot?.capabilities.outbound)
+          (area === "outbound" && !!snapshot?.capabilities.outbound) ||
+          (area === "reports" && !!snapshot?.capabilities.reports)
         }
       >
         {error && (
