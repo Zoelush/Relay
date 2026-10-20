@@ -3,6 +3,7 @@ import { authorize, can, capabilities, type Capability } from "./policy";
 import { developerOn } from "./developer";
 import { mintToken, sha256 } from "./rest";
 import { LATEST_VERSION } from "../lib/api-spec";
+import { CANVAS_COLUMNS, canvasOut, rotateCanvasSecret, setCanvas, type CanvasColumns, type CanvasEnvironment } from "./canvas";
 
 /**
  * OAuth apps (phase 15, step D4; docs/DEVELOPER_PLATFORM_STEP4.md), behind `developer_api_v1`.
@@ -61,10 +62,10 @@ function checkScopes(raw: unknown, f = "scopes") {
 /* ------------------------------------------------------------------------------------------ */
 /* Apps, in their developer's workspace                                                        */
 /* ------------------------------------------------------------------------------------------ */
-type AppRow = { id: string; name: string; description: string; redirect_uris: string[]; scopes: string[]; secret_last_four: string; created_at: Date; archived_at: Date | null };
-const APP = "SELECT id,name,description,redirect_uris,scopes,secret_last_four,created_at,archived_at FROM oauth_apps";
+type AppRow = { id: string; name: string; description: string; redirect_uris: string[]; scopes: string[]; secret_last_four: string; created_at: Date; archived_at: Date | null } & CanvasColumns;
+const APP = `SELECT id,name,description,redirect_uris,scopes,secret_last_four,created_at,archived_at,${CANVAS_COLUMNS} FROM oauth_apps`;
 const clientId = (w: string, id: string) => `relay_app_${b64(w)}_${id}`;
-const appOut = (w: string, a: AppRow, secret?: string) => ({
+const appOut = (w: string, a: AppRow, secret?: string, canvasSecret?: string) => ({
   id: a.id,
   clientId: clientId(w, a.id),
   name: a.name,
@@ -74,7 +75,9 @@ const appOut = (w: string, a: AppRow, secret?: string) => ({
   secretLastFour: a.secret_last_four,
   createdAt: a.created_at.toISOString(),
   archived: !!a.archived_at,
+  ...canvasOut(a),
   ...(secret ? { clientSecret: secret } : {}),
+  ...(canvasSecret ? { canvasSecret } : {}),
 });
 async function managing(db: Sql, w: string, principal: string) {
   const t = await authorize(db, w, principal, "workspace.manage");
@@ -96,7 +99,7 @@ export async function readApps(db: Sql, w: string, principal: string) {
   return { apps, installed, scopes: capabilities };
 }
 
-export async function changeApps(db: Sql, w: string, principal: string, p: Record<string, unknown>) {
+export async function changeApps(db: Sql, w: string, principal: string, p: Record<string, unknown>, canvas?: CanvasEnvironment) {
   const t = await managing(db, w, principal);
   const app = async (id: unknown) => {
     const a = (await db.query<AppRow>(`${APP} WHERE workspace_id=$1 AND id=$2`, [w, String(id ?? "")])).rows[0];
@@ -128,7 +131,9 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
         secret.slice(-4),
         t.id,
       ]);
-      return appOut(w, await app(id), secret);
+      // D5: its canvas address and placements, if given (the canvas secret is shown once too).
+      const canvasSecret = await setCanvas(db, w, id, canvas, p);
+      return appOut(w, await app(id), secret, canvasSecret);
     }
     case "update": {
       const a = await app(p.id);
@@ -140,13 +145,20 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
         p.redirectUris === undefined ? a.redirect_uris : redirects(p.redirectUris),
         p.scopes === undefined ? a.scopes : checkScopes(p.scopes),
       ]);
-      return appOut(w, await app(a.id));
+      const canvasSecret = await setCanvas(db, w, a.id, canvas, p);
+      return appOut(w, await app(a.id), undefined, canvasSecret);
     }
     case "secret": {
       const a = await app(p.id);
       const secret = "relay_cs_" + random(40);
       await db.query("UPDATE oauth_apps SET secret_hash=$3,secret_last_four=$4,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, a.id, await sha256(secret), secret.slice(-4)]);
       return appOut(w, await app(a.id), secret);
+    }
+    case "canvas-secret": {
+      // D5: a new canvas signing secret (the previous one signs too for 24 hours).
+      const a = await app(p.id);
+      const canvasSecret = await rotateCanvasSecret(db, w, a.id, canvas);
+      return appOut(w, await app(a.id), undefined, canvasSecret);
     }
     case "archive": {
       const a = await app(p.id);
@@ -162,7 +174,7 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
       return { ok: true };
     }
   }
-  throw new DomainError("INVALID_APP", "Choose create, update, secret, archive or uninstall.");
+  throw new DomainError("INVALID_APP", "Choose create, update, secret, canvas-secret, archive or uninstall.");
 }
 
 /** An installation and everything it issued, revoked. */

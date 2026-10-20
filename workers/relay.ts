@@ -278,6 +278,7 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     connectors: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
     // Phase 15 D3: webhooks' secrets are sealed with the connector key (public https only when deployed).
     webhooks: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
+    canvas: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
     emailDomain: env.RELAY_INBOUND_DOMAIN,
     emailSending: { sendingDomain: env.RELAY_SENDING_DOMAIN ?? env.RELAY_INBOUND_DOMAIN ?? "", region: env.RELAY_SES_REGION ?? "eu-west-2" },
     sesReports: env.RELAY_SES_TOPIC_ARN ? { topicArn: env.RELAY_SES_TOPIC_ARN } : undefined,

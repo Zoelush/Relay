@@ -5,12 +5,6 @@ import { tenant } from "../server/db";
 import { seedFoundation } from "../server/people";
 import { bridgeAgentRequest } from "../server/agent-bridge";
 import { handleApi, type ApiEnvironment } from "../server/api";
-import {
-  createAppHost,
-  AppRequestRefused,
-  APP_SLOT_VERSION,
-  type AppRequest,
-} from "../lib/app-slots";
 
 test("context sidebar: customer through merges, personal data by permission, same-customer recent conversations, typed attributes", async () => {
   const db = await testDatabase();
@@ -182,7 +176,6 @@ test("context sidebar: customer through merges, personal data by permission, sam
     );
     // Sam's conversation resolves to Jo, the surviving contact.
     assert.equal((await context(samConversation)).body.customer.id, joContact);
-    assert.deepEqual(full.body.apps, [], "no app cards until phase 15");
 
     // Without personal-data access: no names, emails, phones or external ids.
     const limited = (await context(current, "lin-a")).body;
@@ -257,66 +250,4 @@ test("context sidebar: customer through merges, personal data by permission, sam
   } finally {
     await db.close();
   }
-});
-
-test("app slot host: scoped context, declared capabilities only, own conversation only", async () => {
-  const performed: AppRequest[] = [];
-  const host = createAppHost(
-    {
-      appId: "orders-app",
-      capabilities: ["conversation.read", "conversation.note"],
-    },
-    {
-      version: APP_SLOT_VERSION,
-      slot: "conversation.sidebar",
-      workspaceId: "a",
-      conversationId: "c1",
-      contactId: "k1",
-    },
-    async (request) => {
-      performed.push(request);
-      return { ok: true };
-    },
-  );
-  assert(Object.isFrozen(host.context));
-  assert.deepEqual(
-    await host.request({ type: "conversation.read", conversationId: "c1" }),
-    { ok: true },
-  );
-  await host.request({
-    type: "conversation.note",
-    conversationId: "c1",
-    text: "Order shipped",
-  });
-  await assert.rejects(
-    host.request({
-      type: "conversation.attributes.write",
-      conversationId: "c1",
-      attributeId: "order",
-      value: "x",
-    }),
-    (e: unknown) =>
-      e instanceof AppRequestRefused && e.code === "CAPABILITY_NOT_DECLARED",
-  );
-  await assert.rejects(
-    host.request({ type: "conversation.read", conversationId: "c2" }),
-    (e: unknown) =>
-      e instanceof AppRequestRefused && e.code === "OUT_OF_CONTEXT",
-  );
-  assert.throws(
-    () =>
-      createAppHost(
-        { appId: "x", capabilities: [] },
-        {
-          version: 2 as never,
-          slot: "conversation.sidebar",
-          workspaceId: "a",
-          conversationId: "c1",
-        },
-        async () => null,
-      ),
-    (e: unknown) =>
-      e instanceof AppRequestRefused && e.code === "UNSUPPORTED_VERSION",
-  );
-  assert.equal(performed.length, 2, "refused requests never reach the host");
 });

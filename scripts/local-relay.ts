@@ -82,6 +82,8 @@ export const LOCAL_AUTHSERV = "relay.localhost";
 /** Relay's own sending domain locally (phase 12 E3): the same as the inbound one. */
 export const LOCAL_SENDING_DOMAIN = LOCAL_EMAIL_DOMAIN;
 export const LOCAL_SES_REGION = "eu-west-2";
+/** Phase 15 D5: where the example order-lookup app listens (`npm run example:orders`). */
+export const EXAMPLE_APP_PORT = 8830;
 import type { FetchPolicy } from "../server/safe-fetch";
 import { purgeModelCalls } from "../server/ai-privacy";
 import {
@@ -158,6 +160,8 @@ export async function startLocalRelay(
     connectors?: { policy?: FetchPolicy; sleep?: (ms: number) => Promise<void> };
     /** Phase 15 D3: tests let webhooks reach their local receiver (`allowHosts`); never set when deployed. */
     webhooks?: { policy?: FetchPolicy };
+    /** Phase 15 D5: Canvas apps' fetch policy (tests allow their own app) and time limit. */
+    canvas?: { policy?: FetchPolicy; timeoutMs?: number };
     /** Workflows (phase 11), likewise on unless turned off. */
     workflows?: boolean;
     /** Its model and vector store; by default the test embedder and a local store. */
@@ -315,6 +319,8 @@ export async function startLocalRelay(
     connectors: { key: keys.connector, ...options.connectors },
     // Webhooks (phase 15 D3): secrets sealed with the same key; deliveries go only where the policy allows.
     webhooks: { key: keys.connector, policy: options.webhooks?.policy ?? {} },
+    // Phase 15 D5: Canvas apps; locally the example order-lookup app (`npm run example:orders`) is allowed.
+    canvas: { key: keys.connector, policy: options.canvas?.policy ?? { allowHosts: [`127.0.0.1:${EXAMPLE_APP_PORT}`] }, timeoutMs: options.canvas?.timeoutMs },
     emailDomain: LOCAL_EMAIL_DOMAIN,
     emailSending: { sendingDomain: LOCAL_SENDING_DOMAIN, region: LOCAL_SES_REGION },
   };

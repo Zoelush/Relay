@@ -98,6 +98,55 @@ def verify(secret, raw_body, header, tolerance=300):
     return any(hmac.compare_digest(v, want) for k, v in items if k == "v1")
 ```
 
+## Canvas apps
+
+An app can also draw cards in Relay: give it a **canvas address** and the **placements** it draws in (Settings › Developers › Apps): the inbox sidebar (`conversation.sidebar`), the composer (`composer`), and settings (`settings`, its set-up step after install). You get a canvas signing secret, shown once. Your app returns a tree of components (below); Relay checks it and draws it with its own controls, so none of your code runs in Relay.
+
+**Requests.** Relay's server POSTs JSON to `<canvas address>/initialize` (a card is first drawn), `/submit` (a teammate pressed something) or `/configure` (settings: drawn, then each press). The body has `type`, `placement`, `request_id`, `workspace_id`, `installation_id`, `teammate` (`id`, `name`), `conversation` (`id` and `contact_id`, or null in settings) and `settings` (what your configure step returned, or null). A submit adds `component_id`, `input_values` (each input, textarea, dropdown and checkbox by id), `stored_data` and `current_canvas`. Read anything else through this API with the installation's token, within its scopes.
+
+**Verify each request** before anything else: `Relay-Signature` is signed like webhooks', under your canvas signing secret (`verifyWebhook` in the SDKs checks it). While a new signing secret is being adopted, the previous one also signs for 24 hours.
+
+**Answer within 5 seconds** with `{"canvas":{"content":{"components":[…]},"stored_data":{…}}}`. `stored_data` (up to 4 KB) comes back with the next submit and never reaches a browser. To a composer submit you may answer `{"insert_text":"…"}`, which goes into the teammate's reply for them to read and send. To a configure submit you may answer `{"results":{…}}` (up to 4 KB), which is kept with the installation and sent as `settings` from then on.
+
+**Failures.** No answer in time, an unreachable address, a status other than 2xx, an answer over 64 KB or a canvas that doesn't check out is shown as a failure card with Try again (a canvas problem names its path, as `canvas.content.components[2].url`). Every request is logged; the workspace sees each app's error rate in Settings, and you see yours across every workspace that installed it.
+
+**The example:** `demo/order-lookup/` is a complete app built only on this API: OAuth install, an order list for the conversation's customer in the sidebar, an order's status inserted from the composer, and a shop chosen at set-up. Run it with `npm run example:orders`. Its canvas route verifies, then answers by placement:
+
+```ts
+if (url.pathname.startsWith("/canvas/") && req.method === "POST") {
+  const raw = await req.text();
+  let body: CanvasRequest;
+  try {
+    if (!credentials) throw new Error("not set up");
+    body = (await verifyWebhook(credentials.canvasSecret, raw, req.headers.get("relay-signature") ?? "")) as unknown as CanvasRequest;
+  } catch {
+    return Response.json({ error: "The signature doesn't match." }, { status: 401 });
+  }
+  const settings: Settings = { shop: body.settings?.shop && body.settings.shop in SHOPS ? body.settings.shop : "uk", show_refunded: !!body.settings?.show_refunded };
+  if (body.placement === "settings") return configure(body, settings);
+  if (body.placement === "composer") return composer(body, settings);
+  return sidebar(body, settings);
+}
+```
+
+It reads the customer with its own token, and says plainly what's missing:
+
+```ts
+async function customerEmail(req: CanvasRequest) {
+  if (req.stored_data?.email) return { email: req.stored_data.email };
+  const relay = await relayFor(req.workspace_id);
+  if (!relay) return { problem: "Order lookup isn't connected to this workspace. Install it again from the app's page." };
+  const contactId = req.conversation?.contact_id;
+  if (!contactId) return { problem: "There's no customer on this conversation yet." };
+  try {
+    const contact = await relay.getContact(contactId);
+    return contact.email ? { email: contact.email } : { problem: "This customer has no email address, so their orders can't be found." };
+  } catch (e) {
+    return { problem: e instanceof RelayError && e.status === 403 ? "Order lookup isn't allowed to see customers' details here." : "Relay's API didn't answer. Try again." };
+  }
+}
+```
+
 ## Retries
 
 Send `Idempotency-Key` (up to 200 letters, digits and `_.:-`) on a `POST` to make it safe to retry. The same key from the same token does the work once and returns the same result.
@@ -1237,6 +1286,25 @@ Also `custom_attributes.<name>` (text, or a number when the value is one). Sorte
 | `article.published` | A new or updated article went live. | article |
 
 Company topics and `contact.tagged` come with companies and tags on people (phase 01).
+
+## Canvas components
+
+Up to 50 per canvas. Every component may have an `id` (1 to 64 letters, digits or `_.:-`), unique on the canvas; anything not listed here is refused.
+
+| Type | Properties |
+|---|---|
+| `text` | `text` (plain, up to 2,000), `style`: `header`, `paragraph`, `muted` or `error`; `align`: `left`, `center` or `right`. |
+| `image` | `url` (https), `alt` (required), `width` and `height` (up to 1,000), `rounded`. |
+| `button` | `id`, `label` (up to 60), `style`: `primary`, `secondary` or `link`; `action`: `{type: submit}` or `{type: url, url}`; `disabled`. |
+| `link` | `text`, `url` (https). Opens in a new tab. |
+| `input` | `id`, `label`, `placeholder`, `value`, `error` (shown under it), `disabled`, `action` (`{type: submit}`: Enter submits). |
+| `textarea` | `id`, `label`, `placeholder`, `value` (up to 5,000), `error`, `disabled`. |
+| `dropdown` | `id`, `label`, `options` (1 to 50 of `{id, text}`), `value` (an option's id), `disabled`. |
+| `checkbox` | `id`, `label`, `options` (1 to 20), `value` (a list of option ids), `disabled`. |
+| `list` | `items` (1 to 20): `id`, `title`, `subtitle`, `tertiary`, `action`, `disabled`. An item with a submit action is pressed by its id. |
+| `data_table` | `items` (1 to 30) of `{field, value}`. |
+| `divider` | A line. |
+| `spacer` | `size`: `xs`, `s`, `m`, `l` or `xl`. |
 
 ## Objects
 

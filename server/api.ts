@@ -224,6 +224,7 @@ import { handleRest } from "./rest";
 import { changeDeveloperTokens, readDeveloperSettings } from "./developer";
 import { changeWebhooks, getDelivery, listDeliveries, listWebhooks, TOPICS } from "./webhooks";
 import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConsent, type AuthorizeQuery } from "./oauth";
+import { canvasOverview, canvasRequest, listCanvasApps, type CanvasEnvironment } from "./canvas";
 import { apiReferenceHtml } from "../lib/api-reference";
 import type { RateLimiter } from "./rate-limit";
 import type { WebhookEnvironment } from "./webhooks";
@@ -301,6 +302,8 @@ export interface ApiEnvironment {
   rateLimiter?: RateLimiter;
   /** Phase 15 D3: webhooks' secrets are sealed with the connector key; their fetch policy (tests allow loopback). */
   webhooks?: WebhookEnvironment;
+  /** Phase 15 D5: Canvas apps' signing secrets are sealed with the connector key; their fetch policy and time limit. */
+  canvas?: CanvasEnvironment;
   storageTransport?: "hyperdrive" | "local-pglite";
   sessionSecret: string;
   identityMaster: string;
@@ -1404,6 +1407,7 @@ export async function handleApi(
             "/v1/agent/developer-webhooks",
             "/v1/agent/developer-apps",
             "/v1/agent/oauth-consent",
+            "/v1/agent/canvas-apps",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
             "/v1/agent/email-message",
@@ -1503,6 +1507,7 @@ export async function handleApi(
               "/v1/agent/developer-webhook",
               "/v1/agent/developer-app",
               "/v1/agent/oauth-consent",
+              "/v1/agent/canvas",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1894,7 +1899,10 @@ export async function handleApi(
           return json(await reportMetric(env.connect, env.analytics, workspace, principal, p));
         if (url.pathname === "/v1/agent/developer-app")
           // Phase 15 D4: an app registered (its secret returned once), changed, given a new secret, archived; or one installed here, uninstalled.
-          return json(await tenant(env.connect, workspace, (db) => changeApps(db, workspace, principal, p)));
+          return json(await tenant(env.connect, workspace, (db) => changeApps(db, workspace, principal, p, env.canvas)));
+        if (url.pathname === "/v1/agent/canvas")
+          // Phase 15 D5: a Canvas app's card drawn or pressed: the app is asked (signed, time-limited) and its answer checked.
+          return json(await canvasRequest(env.connect, env.canvas, workspace, principal, p));
         if (url.pathname === "/v1/agent/oauth-consent")
           // Phase 15 D4: approve or deny an app: where to send the teammate back.
           return json(await decideConsent(env.connect, workspace, principal, p as AuthorizeQuery & { decision?: string }));
@@ -2555,7 +2563,14 @@ export async function handleApi(
         // Phase 15 D1: personal access tokens and the API's usage (the base URL is this server's own).
         return json(await tenant(env.connect, workspace, (db) => readDeveloperSettings(db, workspace, principal, url.origin + "/rest")));
       // Phase 15 D4: Settings › Developers › Apps, and what an app asks for on the consent screen.
-      if (url.pathname === "/v1/agent/developer-apps") return json(await tenant(env.connect, workspace, (db) => readApps(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/developer-apps") {
+        const apps = await tenant(env.connect, workspace, (db) => readApps(db, workspace, principal));
+        // D5: each installation's placements and error rate, and your apps' rates across workspaces.
+        return json({ ...apps, canvas: await canvasOverview(env.connect, workspace) });
+      }
+      if (url.pathname === "/v1/agent/canvas-apps")
+        // Phase 15 D5: the Canvas apps installed here that draw in a placement.
+        return json(await listCanvasApps(env.connect, workspace, principal, url.searchParams.get("placement") ?? "", url.searchParams.get("conversation") ?? undefined));
       if (url.pathname === "/v1/agent/oauth-consent")
         return json(await readConsent(env.connect, workspace, principal, Object.fromEntries(url.searchParams) as AuthorizeQuery));
       // Phase 15 D3: Settings › Developers › Webhooks: the subscriptions, a log page, one delivery.

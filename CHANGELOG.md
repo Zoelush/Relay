@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: Canvas apps (phase 15, D5)
+
+- **Apps can draw in Relay:** an installed app shows its own card beside each conversation, in the composer, and as a set-up step in Settings. It's built from Relay's own components (text, images, buttons, links, fields, dropdowns, checkboxes, lists, tables), so no outside code runs in your inbox.
+- **Safe by design:** every request to an app is signed, has a short time limit and is checked before it's shown. Apps see customers only through the API, within what you allowed. Text an app suggests goes into your reply for you to read and send.
+- **Clear when something's wrong:** a slow or broken app is a plain failure card with Try again, and Settings shows each app's error rate, to you and to the app's developer.
+- **An example to copy:** an order-lookup app (`npm run example:orders`) shows a customer's orders beside their conversation and puts an order's status into your reply. It's the example in the API reference.
+- **Migration:** 0080, with rollback.
+- **Details:** `docs/DEVELOPER_PLATFORM_STEP5.md`.
+
 ## Unreleased: OAuth apps (phase 15, D4)
 
 - **Build apps on Relay:** register an app (Settings › Developers › Apps) and other workspaces can install it with OAuth 2.
