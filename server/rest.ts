@@ -5,6 +5,8 @@ import { getIdentity, resolveContact } from "./people";
 import { API_VERSIONS, operations, SPEC, type Operation } from "../lib/api-spec";
 import { check, readParameters } from "../lib/api-validate";
 import { LIMITS, memoryRateLimiter, type RateLimiter } from "./rate-limit";
+import type { AttachmentStorage } from "./attachments";
+import { MORE_HANDLERS } from "./rest-more";
 
 /**
  * The public REST API (phase 15, step D1; docs/DEVELOPER_PLATFORM_STEP1.md), behind
@@ -17,7 +19,7 @@ import { LIMITS, memoryRateLimiter, type RateLimiter } from "./rate-limit";
  * anything unexpected is `internal_error`, with no detail. Lists are cursor-paged. Every response
  * says its version and rate limits in headers.
  */
-export type RestEnvironment = { connect: Connect; rateLimiter?: RateLimiter };
+export type RestEnvironment = { connect: Connect; rateLimiter?: RateLimiter; storage?: AttachmentStorage };
 const defaultLimiter = memoryRateLimiter();
 
 /**
@@ -35,7 +37,9 @@ export const VERSION_CHANGES: VersionChange[] = [];
 /** The versions a request may name: the spec's, and each change's predecessor still supported. */
 export const supportedVersions = () => [...new Set([...API_VERSIONS, ...VERSION_CHANGES.map((c) => c.before)])];
 /** The operations the router can serve (a test holds them to the spec). */
-export const handledOperations = () => Object.keys(HANDLERS);
+export const handledOperations = () => [...Object.keys(HANDLERS), ...Object.keys(MORE_HANDLERS)];
+/** An operation's work: D1's here, D2's in rest-more.ts (looked up when called; the two import each other). */
+const handlerFor = (operationId: string) => HANDLERS[operationId] ?? MORE_HANDLERS[operationId];
 
 const TOKEN = /^relay_pat_([A-Za-z0-9_-]{2,140})_([A-Za-z0-9]{40})$/;
 const b64 = (s: string) => btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -59,7 +63,7 @@ export async function mintToken(w: string) {
   return { text, hash: await sha256(text), lastFour: secret.slice(-4) };
 }
 
-const cursor = {
+export const cursor = {
   write: (v: unknown) => b64(JSON.stringify(v)),
   read: <T>(s: unknown): T | null => {
     if (typeof s !== "string") return null;
@@ -71,15 +75,15 @@ const cursor = {
     }
   },
 };
-const invalid = (field: string, message: string) => new DomainError("INVALID_FIELD", message, 400, { field });
+export const invalid = (field: string, message: string) => new DomainError("INVALID_FIELD", message, 400, { field });
 
-type Token = { id: string; teammateId: string; principal: string; scopes: string[]; version: string };
-type Context = { db: Sql; w: string; token: Token; params: Record<string, unknown>; body: Record<string, unknown>; key: string | null };
+export type Token = { id: string; teammateId: string; principal: string; scopes: string[]; version: string };
+export type Context = { db: Sql; w: string; token: Token; params: Record<string, unknown>; body: Record<string, unknown>; key: string | null; storage?: AttachmentStorage; origin?: string };
 
 // The shapes the spec promises.
-type ConversationRow = { id: string; title: string; status: string; channel: string; brand_id: string | null; primary_identity_id: string | null; assigned: string; team_id: string | null; priority: boolean; snooze_until: Date | null; last_contact_reply_at: Date | null; last_teammate_reply_at: Date | null; created_at: Date; updated_at: Date };
-const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
-async function conversationOut(db: Sql, w: string, c: ConversationRow) {
+export type ConversationRow = { id: string; title: string; status: string; channel: string; brand_id: string | null; primary_identity_id: string | null; assigned: string; team_id: string | null; priority: boolean; snooze_until: Date | null; last_contact_reply_at: Date | null; last_teammate_reply_at: Date | null; created_at: Date; updated_at: Date };
+export const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
+export async function conversationOut(db: Sql, w: string, c: ConversationRow) {
   const tags = (await db.query<{ id: string; name: string }>("SELECT t.id,t.name FROM conversation_tags ct JOIN tags t ON t.workspace_id=ct.workspace_id AND t.id=ct.tag_id WHERE ct.workspace_id=$1 AND ct.conversation_id=$2 ORDER BY lower(t.name)", [w, c.id])).rows;
   const contact = c.primary_identity_id
     ? (await db.query<{ contact_id: string }>("SELECT contact_id FROM identity_contact_mappings WHERE workspace_id=$1 AND identity_id=$2", [w, c.primary_identity_id])).rows[0]?.contact_id
@@ -103,16 +107,16 @@ async function conversationOut(db: Sql, w: string, c: ConversationRow) {
     updated_at: iso(c.updated_at),
   };
 }
-const CONVERSATION_COLUMNS = "id,title,status,channel,brand_id,primary_identity_id,assigned,team_id,priority,snooze_until,last_contact_reply_at,last_teammate_reply_at,created_at,updated_at";
-async function readConversation(db: Sql, w: string, id: string) {
+export const CONVERSATION_COLUMNS = "id,title,status,channel,brand_id,primary_identity_id,assigned,team_id,priority,snooze_until,last_contact_reply_at,last_teammate_reply_at,created_at,updated_at";
+export async function readConversation(db: Sql, w: string, id: string) {
   const c = (await db.query<ConversationRow>(`SELECT ${CONVERSATION_COLUMNS} FROM conversations WHERE workspace_id=$1 AND id=$2 AND merged_into_id IS NULL AND visibility='customer'`, [w, id])).rows[0];
   assert(c, "NOT_FOUND", "No such conversation.", 404);
   return conversationOut(db, w, c);
 }
-type ContactRow = { id: string; role: string; name: string; external_id: string | null; profile: Record<string, unknown>; first_seen_at: Date; last_seen_at: Date; signed_up_at: Date | null; email: string | null };
-const CONTACT_SELECT = `SELECT c.id,c.role,c.name,c.external_id,c.profile,c.first_seen_at,c.last_seen_at,c.signed_up_at,
+export type ContactRow = { id: string; role: string; name: string; external_id: string | null; profile: Record<string, unknown>; first_seen_at: Date; last_seen_at: Date; signed_up_at: Date | null; email: string | null };
+export const CONTACT_SELECT = `SELECT c.id,c.role,c.name,c.external_id,c.profile,c.first_seen_at,c.last_seen_at,c.signed_up_at,
   (SELECT e.email FROM contact_emails e WHERE e.workspace_id=c.workspace_id AND e.contact_id=c.id ORDER BY e.verified DESC,e.email LIMIT 1) AS email FROM contacts c`;
-const contactOut = (c: ContactRow) => ({
+export const contactOut = (c: ContactRow) => ({
   type: "contact",
   id: c.id,
   role: c.role,
@@ -124,7 +128,7 @@ const contactOut = (c: ContactRow) => ({
   last_seen_at: iso(c.last_seen_at),
   signed_up_at: iso(c.signed_up_at),
 });
-async function readContact(db: Sql, w: string, id: string) {
+export async function readContact(db: Sql, w: string, id: string) {
   const found = (await db.query<{ id: string }>("SELECT id FROM contacts WHERE workspace_id=$1 AND id=$2", [w, id])).rows[0];
   assert(found, "NOT_FOUND", "No such contact.", 404);
   const live = await resolveContact(db, w, id);
@@ -136,10 +140,10 @@ async function teamsOut(db: Sql, w: string, id?: string) {
   const members = (await db.query<{ team_id: string; teammate_id: string }>("SELECT team_id,teammate_id FROM teammate_teams WHERE workspace_id=$1 ORDER BY teammate_id", [w])).rows;
   return teams.map((t) => ({ type: "team", id: t.id, name: t.name, member_ids: members.filter((m) => m.team_id === t.id).map((m) => m.teammate_id) }));
 }
-const listOf = (data: unknown[], next: unknown) => ({ type: "list", data, pages: { next: next === null ? null : cursor.write(next) } });
+export const listOf = (data: unknown[], next: unknown) => ({ type: "list", data, pages: { next: next === null ? null : cursor.write(next) } });
 
 /** A conversation command as the token's teammate, then the conversation as it now is. */
-async function act(x: Context, p: Record<string, unknown>) {
+export async function act(x: Context, p: Record<string, unknown>) {
   const id = String(x.params.id);
   await readConversation(x.db, x.w, id);
   await command(x.db, x.w, { type: "teammate", principal: x.token.principal }, x.key ?? crypto.randomUUID(), { conversationId: id, ...p } as never);
@@ -414,7 +418,7 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
     if (key !== null && !/^[A-Za-z0-9_.:-]{1,200}$/.test(key)) return error(400, "invalid_field", "Idempotency-Key is letters, digits and _.:- up to 200.", "Idempotency-Key");
     const result = await tenant(env.connect, w, async (db) => {
       if (scope) await authorize(db, w, token.principal, scope);
-      return HANDLERS[op.operationId]({ db, w, token, params: "values" in read ? read.values! : {}, body, key: key ? `api:${token.id}:${key}` : null });
+      return handlerFor(op.operationId)({ db, w, token, params: "values" in read ? read.values! : {}, body, key: key ? `api:${token.id}:${key}` : null, storage: env.storage, origin: url.origin });
     });
     // And the newest response is taken back, newest change first.
     let out: unknown = result;

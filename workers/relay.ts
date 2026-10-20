@@ -96,6 +96,7 @@ import {
 import { purgeDrafts } from "../server/drafts";
 import { purgeHelpSearches } from "../server/help-search";
 import { purgeInlineImages } from "../server/attachments";
+import { exportJob } from "../server/rest-more";
 import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
 import { hyperdriveConnection } from "../server/postgres";
@@ -576,6 +577,9 @@ const relayWorker = {
       "voice.buy": (job) => buyNumberJob(runtime.connect, voiceEnvironment(env, runtime.attachments), job),
       // Phase 13 O2: a fixed audience (a one-off, or an occurrence) entered, in batches.
       "outbound.launch": (job) => launchJob(runtime.connect, job),
+      // Phase 15 D2: the API's data exports, in parts (to the attachments bucket).
+      "api.export": (job) =>
+        runtime.attachments ? exportJob(runtime.connect, runtime.attachments, job) : Promise.resolve({ done: true, result: { skipped: "No storage." } }),
       // Phase 14 R1: reporting's store fed from the application (also its backfill).
       "analytics.project": (job) =>
         runtime.analytics ? projectJob(runtime.connect, runtime.analytics, job) : Promise.resolve({ done: true, result: { skipped: "No analytical store." } }),

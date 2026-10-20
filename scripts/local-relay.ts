@@ -72,6 +72,7 @@ import type { TranscriptionPort } from "../server/voice-transcribe";
 import { checkEvent, recordEvent } from "../server/events";
 import { launchJob, outboundSweep } from "../server/outbound";
 import { projectJob, scheduleProjection } from "../server/analytics";
+import { exportJob } from "../server/rest-more";
 import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -929,6 +930,8 @@ export async function startLocalRelay(
     "ticket.broadcast": (job) => runBroadcast(db.connect, job),
     "sla.reevaluate": (job) => reevaluateJob(db.connect, job),
   };
+  // Phase 15 D2: the API's data exports, in parts.
+  if (env.attachments) handlers["api.export"] = (job) => exportJob(db.connect, env.attachments!, job);
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
       attachmentScan(db.connect, env.attachments!, job);

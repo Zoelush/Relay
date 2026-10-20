@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased: More of Relay's API, search, export and SDKs (phase 15, D2)
+
+- **The API now covers** tickets and ticket types, help centers, articles (draft, edit, publish), knowledge, macros (apply one, and its reply is sent), workflows (and their runs, or run one), outbound messages, contacts' events, data attributes and segments.
+- **Search** conversations and contacts with nested AND/OR conditions, operators by field type, sorting and cursor paging. A bad query says exactly which part is wrong.
+- **Data export:** conversations, contacts and tickets as newline-delimited JSON, prepared in the background, with download links.
+- **SDKs for JavaScript (with TypeScript types) and Python,** generated from the spec, with retries on rate limits and automatic paging.
+- **Details:** `docs/DEVELOPER_PLATFORM_STEP2.md`.
+
 ## Unreleased: Relay's API (phase 15, D1)
 
 - **A public REST API** at `/rest`: conversations (list, read, start, reply, note, assign, snooze, reopen, close, tag), contacts, tags, teammates and teams.

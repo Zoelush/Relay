@@ -1,5 +1,6 @@
 import { API_VERSIONS, LATEST_VERSION, operations, SPEC, type Schema, type Spec } from "./api-spec";
 import { resolve } from "./api-validate";
+import { CONTACT_FIELDS, CONVERSATION_FIELDS, OPERATOR_MEANING, OPERATORS, type Field as SearchField } from "./api-search";
 
 /**
  * The API's reference, generated from its spec (phase 15, D1): `docs/API.md` (`npm run api:doc`; a
@@ -42,6 +43,16 @@ const GUIDE: { title: string; body: string[] }[] = [
       "Each token may make bursts of up to 100 requests, refilling at 10 a second (600 a minute). Each workspace may make up to 1,500 a minute across all its tokens.",
       "Every response carries `X-RateLimit-Limit` (a minute's allowance), `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds until the burst is full again). Over the limit, you get `429` with `Retry-After` (seconds).",
       "Each token's calls and refusals over the last hour are on the Developers page.",
+    ],
+  },
+  {
+    title: "Searching",
+    body: [
+      "`POST /conversations/search` and `POST /contacts/search` take `{\"query\":…, \"sort\":{\"field\",\"order\"}, \"per_page\", \"starting_after\"}`. A query is a condition, `{\"field\":\"status\",\"operator\":\"=\",\"value\":\"open\"}`, or a group, `{\"operator\":\"AND\",\"value\":[…]}` (`AND` or `OR`), nested up to 3 groups deep with up to 20 conditions.",
+      "Example: open conversations on email or SMS, waiting since before 9 this morning: `{\"query\":{\"operator\":\"AND\",\"value\":[{\"field\":\"status\",\"operator\":\"=\",\"value\":\"open\"},{\"field\":\"channel\",\"operator\":\"IN\",\"value\":[\"email\",\"sms\"]},{\"field\":\"waiting_since\",\"operator\":\"<\",\"value\":\"2026-10-20T09:00:00Z\"}]}}`.",
+      "Each field's type decides its operators. " + (Object.entries(OPERATORS) as [string, readonly string[]][]).map(([t, ops]) => `**${t}:** ${ops.map((o) => `\`${o}\``).join(" ")}`).join("; ") + ".",
+      "Operators: " + Object.entries(OPERATOR_MEANING).map(([o, m]) => `\`${o}\` ${m}`).join("; ") + ". Text comparisons ignore case; times need an offset.",
+      "A refused query names the part at fault, as `query.value[1].operator`.",
     ],
   },
   {
@@ -113,6 +124,15 @@ export function apiReferenceMarkdown(spec: Spec = SPEC) {
       out.push(`**Returns:** \`${success[0]}\`${schema ? `, ${typeName(schema)}` : ""}.`, "");
     }
   }
+  const searchable = (title: string, fields: Record<string, SearchField>, extra = "") => {
+    out.push(`### ${title}`, "", "| Field | Type | Sortable | About |", "|---|---|---|---|");
+    for (const [name, f] of Object.entries(fields)) out.push(`| \`${name}\` | ${f.type}${f.values ? `: ${f.values.map((v) => `\`${v}\``).join(", ")}` : ""} | ${f.sortable ? "yes" : "no"} | ${f.about} |`);
+    if (extra) out.push("", extra);
+    out.push("");
+  };
+  out.push("## Search fields", "");
+  searchable("Conversations", CONVERSATION_FIELDS, "Sorted by `updated_at`, newest first, unless you choose.");
+  searchable("Contacts", CONTACT_FIELDS, "Also `custom_attributes.<name>` (text, or a number when the value is one). Sorted by `last_seen_at`, newest first, unless you choose.");
   out.push("## Objects", "");
   for (const [name, s] of Object.entries(spec.components.schemas)) {
     out.push(`### ${name}`, "");

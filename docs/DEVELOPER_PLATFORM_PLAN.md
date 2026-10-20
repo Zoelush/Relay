@@ -52,6 +52,13 @@ The brief's point: an integrations team says yes when Relay has a real API, real
     - **A version change names the version before it;** that version stays supported, and its requests and responses are translated.
     - **Usage is counted per token per minute** and kept seven days, pruned as tokens are used.
 
+8. **D2 decisions** (20 October 2026):
+    - **Reads are the API's own queries** into the spec's shapes (never the inbox's screen functions), so the contract can't drift with the UI. Writes always go through the domain functions.
+    - **Applying a macro sends its reply or note:** the API has no composer to put it in.
+    - **Search is one grammar** for conversations and contacts, from a field registry that also writes the reference.
+    - **Exports are jobs** writing files of up to 1,000 rows, with links signed when fetched.
+    - **The SDKs are generated in-house,** with no dependencies (no Java or OpenAPI generator), and tested against the API itself.
+
 ## Needs you
 
 - **Scope:**
