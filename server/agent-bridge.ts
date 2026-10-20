@@ -149,6 +149,7 @@ const routes = {
     "subscription-settings",
     "outbound-message",
     "outbound-settings",
+    "report-metric",
     "email-settings",
     "help-centers",
     "realtime-ticket",

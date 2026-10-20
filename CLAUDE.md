@@ -41,8 +41,11 @@ E8, Slack and Discord (`server/community.ts`), is done locally (`docs/OMNICHANNE
 `channel_voice_v1`), is done locally (`docs/OMNICHANNEL_STEP9.md`): phase 12's plan is complete. Phase 13 (`docs/OUTBOUND_PLAN.md`): O1,
 events, subscription types and segments (`segments_v1`), and O2, the engine and in-app chats (`server/outbound.ts`, `outbound_v1`),
 and O3, the Outbound area (`agent/outbound.tsx`, `#outbound`) and banners, are done locally (`docs/OUTBOUND_STEP1.md` to `STEP3.md`):
-the scope (O1 to O3) is complete; O4 to O9 wait until asked. Phase 14 (`docs/REPORTING_PLAN.md`, scope R1 to R4): R1 is done
-locally (`docs/REPORTING_STEP1.md`, `reports_v1`); next is R2 (datasets and the benchmark). Reports read only the analytical store
+the scope (O1 to O3) is complete; O4 to O9 wait until asked. Phase 14 (`docs/REPORTING_PLAN.md`, scope R1 to R4): R1 (the store
+and dictionary) and R2 (datasets, the query layer `server/reports.ts`, and the benchmark) are done locally (`docs/REPORTING_STEP1.md`,
+`STEP2.md`, `reports_v1`); next is R3 (the Reports area). A metric is one definition in `server/reports.ts`'s `DEFS` (rows of the same
+shape; `runMetric` filters, breaks down and aggregates) and one entry in `lib/metrics.ts`, and `tests/reports.test.ts` asserts it on its
+scenario; rerun `scripts/reporting-benchmark.ts` when a definition's plan may change. Reports read only the analytical store
 (`db/analytics`, a separate database), never the inbox's tables; it's written only by `analytics.project` (`server/analytics.ts`),
 which is idempotent. Every metric is defined once in `lib/metrics.ts`; regenerate `docs/METRICS.md` with `npm run metrics:doc` (a test
 compares them). Contact attributes in reports are the snapshot taken when the conversation started (`conversation_snapshots`); only

@@ -8,7 +8,13 @@ import type { Metric } from "../lib/metrics";
  * who may view reports: how current reporting's store is (it's fed from the inbox's data, a little
  * behind), and the metric dictionary: what every number in Reports means, exactly.
  */
-type Status = { connected: boolean; asOf: string | null; conversations: number; metrics: Metric[] };
+type Status = {
+  connected: boolean;
+  asOf: string | null;
+  conversations: number;
+  metrics: Metric[];
+  datasets: { id: string; name: string; breakdowns: string[]; rows: number; metrics: string[] }[];
+};
 const DATASETS: Record<string, string> = {
   conversation: "Conversations",
   rating: "Ratings",
@@ -21,6 +27,7 @@ const DATASETS: Record<string, string> = {
   article: "Articles",
   search: "Search",
   call: "Calls",
+  delivery: "Deliveries",
 };
 
 export function ReportingPage({ menu, page }: { menu: MenuState; page: Page }) {
@@ -50,6 +57,30 @@ export function ReportingPage({ menu, page }: { menu: MenuState; page: Page }) {
                 ? `Up to date as of ${new Date(data.asOf).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })} · ${data.conversations} ${data.conversations === 1 ? "conversation" : "conversations"}`
                 : "Being prepared: the first copy is on its way."}
           </p>
+        </Card>
+      )}
+      {data && (
+        <Card title="Datasets" description="What reports are built from: each dataset's metrics, how it can be broken down, and how many rows it holds.">
+          <table className="pg-email-records pg-people-table" aria-label="Datasets">
+            <thead>
+              <tr>
+                <th scope="col">Dataset</th>
+                <th scope="col">Metrics</th>
+                <th scope="col">Broken down by</th>
+                <th scope="col">Rows</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.datasets.map((d) => (
+                <tr key={d.id}>
+                  <th scope="row">{d.name}</th>
+                  <td>{d.metrics.map((id) => data.metrics.find((m) => m.id === id)?.name ?? id).join(", ")}</td>
+                  <td>{d.breakdowns.join(", ")}</td>
+                  <td>{d.rows}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Card>
       )}
       {data && (

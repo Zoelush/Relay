@@ -105,7 +105,7 @@ test("conversation facts: only teammates' replies are responses; closes, reopens
     null,
   );
   assert.deepEqual(
-    { ...f, firstCustomerAt: f.firstCustomerAt?.toISOString(), firstResponseAt: f.firstResponseAt?.toISOString(), firstClosedAt: f.firstClosedAt?.toISOString() },
+    { ...f, firstCustomerAt: f.firstCustomerAt?.toISOString(), firstResponseAt: f.firstResponseAt?.toISOString(), firstClosedAt: f.firstClosedAt?.toISOString(), lastClosedAt: f.lastClosedAt?.toISOString(), firstAiAt: f.firstAiAt?.toISOString(), ratedAt: f.ratedAt?.toISOString() },
     {
       firstCustomerAt: "2026-10-01T09:00:00.000Z",
       firstResponseAt: "2026-10-01T09:10:00.000Z",
@@ -124,6 +124,11 @@ test("conversation facts: only teammates' replies are responses; closes, reopens
       aiInvolved: true,
       aiHandedOver: true,
       rating: 5,
+      lastClosedAt: "2026-10-02T09:30:00.000Z",
+      repliesBeforeFirstClose: 1,
+      reopenedWithin7d: true,
+      firstAiAt: "2026-10-01T09:00:05.000Z",
+      ratedAt: "2026-10-02T09:31:00.000Z",
     },
   );
 });

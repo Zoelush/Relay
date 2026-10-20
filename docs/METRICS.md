@@ -288,3 +288,213 @@ Shared terms:
 - **Excludes:** As new conversations.
 - **Automation:** This is automation's own metric.
 - **Unit:** percent
+
+## ticket dataset
+
+### New tickets (`new_tickets`)
+
+- **Formula:** Tickets created in the period, of every category (customer, back-office, tracker).
+- **Anchored to:** When the ticket was created.
+- **Includes:** Tickets converted from conversations and tickets created directly.
+- **Excludes:** Nothing: break down by category to separate them.
+- **Automation:** Tickets created by workflows count.
+- **Unit:** count
+
+### Tickets resolved (`tickets_resolved`)
+
+- **Formula:** Tickets whose state became a resolved one, counted at their last change, in the period.
+- **Anchored to:** The ticket's last state change.
+- **Includes:** Tickets in a resolved state at the time of reporting.
+- **Excludes:** Tickets resolved and then moved back to an open state.
+- **Automation:** Resolutions by workflows count.
+- **Unit:** count
+
+### Ticket time to resolve (`ticket_time_to_resolve`)
+
+- **Formula:** From a ticket's creation to its last state change, for tickets resolved in the period; median and average.
+- **Anchored to:** The ticket's last state change.
+- **Includes:** As tickets resolved.
+- **Excludes:** Tickets not in a resolved state.
+- **Automation:** Resolutions by workflows count.
+- **Unit:** duration
+
+## outbound dataset
+
+### Outbound messages sent (`outbound_sent`)
+
+- **Formula:** Outbound messages delivered to people in the period (a banner counts when first shown).
+- **Anchored to:** When it was sent (entered).
+- **Includes:** Every type; every version.
+- **Excludes:** The control group (held out) and people not subscribed (suppressed).
+- **Automation:** Outbound is itself automated; this counts what reached people.
+- **Unit:** count
+
+### Outbound seen rate (`outbound_seen_rate`)
+
+- **Formula:** Of outbound messages sent in the period, the share seen.
+- **Anchored to:** When it was sent.
+- **Includes:** Chats (their conversation opened) and banners (shown).
+- **Excludes:** The control group.
+- **Automation:** Outbound is itself automated.
+- **Unit:** percent
+
+### Outbound reply rate (`outbound_reply_rate`)
+
+- **Formula:** Of chats sent in the period, the share the person replied to.
+- **Anchored to:** When it was sent.
+- **Includes:** In-app chats, every version.
+- **Excludes:** Banners; the control group.
+- **Automation:** Outbound is itself automated.
+- **Unit:** percent
+
+### Outbound click rate (`outbound_click_rate`)
+
+- **Formula:** Of banners shown in the period, the share whose button was clicked.
+- **Anchored to:** When it was shown.
+- **Includes:** Banners with a button.
+- **Excludes:** Chats; the control group.
+- **Automation:** Outbound is itself automated.
+- **Unit:** percent
+
+### Outbound close rate (`outbound_dismiss_rate`)
+
+- **Formula:** Of banners shown in the period, the share the person closed.
+- **Anchored to:** When it was shown.
+- **Includes:** Banners people can close.
+- **Excludes:** Chats; the control group.
+- **Automation:** Outbound is itself automated.
+- **Unit:** percent
+
+## search dataset
+
+### Help center searches (`help_searches`)
+
+- **Formula:** Searches made in the help center or the messenger's help, in the period.
+- **Anchored to:** When the search was made.
+- **Includes:** Both surfaces.
+- **Excludes:** Searches by teammates in the inbox.
+- **Automation:** Zoe's own retrieval isn't a search here.
+- **Unit:** count
+
+### Searches without results (`searches_without_results`)
+
+- **Formula:** Of searches in the period, the share that found nothing.
+- **Anchored to:** When the search was made.
+- **Includes:** As help center searches.
+- **Excludes:** As help center searches.
+- **Automation:** Zoe's own retrieval isn't a search here.
+- **Unit:** percent
+
+### Search click-through (`search_click_through`)
+
+- **Formula:** Of searches in the period with results, the share where an article was opened.
+- **Anchored to:** When the search was made.
+- **Includes:** Searches that found something.
+- **Excludes:** Searches without results.
+- **Automation:** Zoe's own retrieval isn't a search here.
+- **Unit:** percent
+
+## article dataset
+
+### Article helpfulness (`article_helpful_rate`)
+
+- **Formula:** Of article ratings given in the period, the share saying it helped.
+- **Anchored to:** When the rating was given.
+- **Includes:** Ratings in the help center and the messenger.
+- **Excludes:** Articles nobody rated.
+- **Automation:** Zoe's answers are rated in her own dataset, not here.
+- **Unit:** percent
+
+## call dataset
+
+### Calls (`calls`)
+
+- **Formula:** Calls received in the period.
+- **Anchored to:** When the call started.
+- **Includes:** Every call to a number taking calls, however it ended.
+- **Excludes:** Calls refused while voice was off.
+- **Automation:** Calls Zoe answered count.
+- **Unit:** count
+
+### Calls answered by the team (`calls_answered_rate`)
+
+- **Formula:** Of calls received in the period, the share a teammate took.
+- **Anchored to:** When the call started.
+- **Includes:** Warm transfers taken with press 1.
+- **Excludes:** Calls still in progress.
+- **Automation:** Calls Zoe handled alone count as not answered by the team.
+- **Unit:** percent
+
+### Voicemails (`voicemails`)
+
+- **Formula:** Calls in the period that ended in voicemail.
+- **Anchored to:** When the call started.
+- **Includes:** Out-of-hours calls and calls nobody took.
+- **Excludes:** Callers who hung up before the tone.
+- **Automation:** None of Zoe's: voicemail follows her handover.
+- **Unit:** count
+
+### Call duration (`call_duration`)
+
+- **Formula:** How long each call lasted, for calls ended in the period; median and average.
+- **Anchored to:** When the call ended.
+- **Includes:** Every ended call with a duration from the carrier.
+- **Excludes:** Calls still in progress.
+- **Automation:** Time with Zoe counts in the call's duration.
+- **Unit:** duration
+
+### Calls Zoe took part in (`calls_with_zoe`)
+
+- **Formula:** Of calls received in the period, the share where Zoe answered at least once.
+- **Anchored to:** When the call started.
+- **Includes:** Recorded calls with Zoe on.
+- **Excludes:** Calls she wasn't allowed to hear (not recorded).
+- **Automation:** This is automation's own metric.
+- **Unit:** percent
+
+## delivery dataset
+
+### Delivery rate (`delivery_rate`)
+
+- **Formula:** Of replies sent on a channel in the period, the share delivered (or read).
+- **Anchored to:** When the delivery last changed.
+- **Includes:** Email, WhatsApp, SMS, Instagram, Facebook, Slack and Discord deliveries that were attempted.
+- **Excludes:** Deliveries still queued or held for a teammate; the messenger (it has no deliveries).
+- **Automation:** Zoe's and workflows' replies count, and can be told apart by who wrote them.
+- **Unit:** percent
+
+### Delivery failures (`delivery_failures`)
+
+- **Formula:** Deliveries that failed in the period (refused, bounced, or past their retries).
+- **Anchored to:** When the delivery last changed.
+- **Includes:** Every channel.
+- **Excludes:** Deliveries stopped because the address is suppressed (their own metric).
+- **Automation:** As delivery rate.
+- **Unit:** count
+
+### Deliveries suppressed (`deliveries_suppressed`)
+
+- **Formula:** Deliveries not sent in the period because the address is suppressed or the person isn't subscribed.
+- **Anchored to:** When the delivery last changed.
+- **Includes:** Bounces, complaints, opt-outs, blocks and subscriptions.
+- **Excludes:** Failures for other reasons.
+- **Automation:** As delivery rate.
+- **Unit:** count
+
+### Zoe's drafts reviewed (`ai_drafts_reviewed`)
+
+- **Formula:** Zoe's replies held for a teammate that were sent or discarded in the period (human in the loop).
+- **Anchored to:** When the draft was decided.
+- **Includes:** Email, where a setting holds her replies.
+- **Excludes:** Drafts still waiting.
+- **Automation:** This is the human check on automation.
+- **Unit:** count
+
+### Zoe's drafts approved (`ai_draft_approval_rate`)
+
+- **Formula:** Of Zoe's drafts decided in the period, the share a teammate sent.
+- **Anchored to:** When the draft was decided.
+- **Includes:** As Zoe's drafts reviewed.
+- **Excludes:** Drafts still waiting.
+- **Automation:** This is the human check on automation.
+- **Unit:** percent
