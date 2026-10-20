@@ -65,6 +65,13 @@ The brief's point: an integrations team says yes when Relay has a real API, real
     - **The disabled-webhook email goes through `sendAlert`,** the existing alert path (with a new kind), keeping the rule that only two places send email. Teammates have no email in Relay, so each webhook names its own alert address.
     - **Rotation keeps the old secret signing for 24 hours,** as a second `v1`.
 
+10. **D4 decisions** (20 October 2026):
+    - **PKCE (S256) is required** for every app, with the client secret too.
+    - **Only who manages the workspace can install an app,** and it gets the intersection of what it asks for and what they have, acting as them.
+    - **Single use, enforced:** a code or refresh token used twice revokes the installation.
+    - **App access tokens are API tokens** (an hour, tied to the installation), so one router, scope check and rate limit serve both. An archived app's tokens run out within the hour (no cross-workspace check on every request).
+    - **The consent screen is the agent app at `/oauth/authorize`,** using the teammate's existing sign-in.
+
 ## Needs you
 
 - **Scope:**

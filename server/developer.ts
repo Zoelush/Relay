@@ -33,7 +33,7 @@ export async function readDeveloperSettings(db: Sql, w: string, principal: strin
     await db.query<{ id: string; name: string; teammate_id: string; owner: string; last_four: string; scopes: string[]; version: string; created_at: Date; last_used_at: Date | null; revoked_at: Date | null }>(
       `SELECT k.id,k.name,k.teammate_id,m.name AS owner,k.last_four,k.scopes,k.version,k.created_at,k.last_used_at,k.revoked_at
        FROM api_tokens k JOIN teammates m ON m.workspace_id=k.workspace_id AND m.id=k.teammate_id
-       WHERE k.workspace_id=$1 AND ($2 OR k.teammate_id=$3) ORDER BY k.revoked_at IS NOT NULL,k.created_at DESC`,
+       WHERE k.workspace_id=$1 AND k.grant_id IS NULL AND ($2 OR k.teammate_id=$3) ORDER BY k.revoked_at IS NOT NULL,k.created_at DESC`,
       [w, manager, t.id],
     )
   ).rows;

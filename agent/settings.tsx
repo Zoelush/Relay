@@ -38,6 +38,7 @@ import {
   BarChart3,
   KeyRound,
   Webhook,
+  AppWindow,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -66,6 +67,7 @@ import { EventsPage, OutboundPage, SubscriptionsPage } from "./settings-outbound
 import { ReportingPage } from "./settings-reporting";
 import { DevelopersPage } from "./settings-developers";
 import { WebhooksPage } from "./settings-webhooks";
+import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -268,6 +270,14 @@ const PAGES: Page[] = [
     label: "Webhooks",
     description: "Send Relay's events to your servers, signed, and see every delivery.",
     icon: Webhook,
+    group: "Developers",
+  },
+  {
+    // Phase 15 D4: apps registered here, and apps installed here.
+    id: "apps",
+    label: "Apps",
+    description: "Register apps that use Relay's API with OAuth, and see the apps installed here.",
+    icon: AppWindow,
     group: "Developers",
   },
   {
@@ -583,6 +593,8 @@ export function Settings({
             <DevelopersPage menu={menu} page={current} />
           ) : current.id === "webhooks" ? (
             <WebhooksPage menu={menu} page={current} />
+          ) : current.id === "apps" ? (
+            <AppsPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (
