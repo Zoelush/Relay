@@ -3,8 +3,8 @@
   "use strict";
   const pending = window.Relay?.q || [];
   let config, boot, host, root, button, badge, frame, channel, socket, custom;
-  // Phase 13 O2: an outbound chat to open once the frame is ready.
-  let pendingConversation;
+  // Phase 13 O2: an outbound chat to open once the frame is ready. O3: the banner shown, if any.
+  let pendingConversation, bannerHost;
   let generation = 0,
     opened = false,
     retry = 0,
@@ -155,6 +155,8 @@
     custom?.removeEventListener("click", open);
     frame = undefined;
     button = undefined;
+    bannerHost?.remove();
+    bannerHost = undefined;
     boot = undefined;
     root = undefined;
     opened = false;
@@ -266,10 +268,74 @@
     if (!boot) return;
     api("due", { pageUrl: location.href }, boot.token)
       .then((r) => {
+        if (epoch !== generation) return;
+        showBanner(r && r.banners && r.banners[0]);
         const chat = r && r.outbound && r.outbound[0];
-        if (chat && epoch === generation) open({ conversation: chat.conversationId });
+        if (chat) open({ conversation: chat.conversationId });
       })
       .catch(fail);
+  }
+  // Phase 13 O3: what they did with a banner, sent even as the page navigates away.
+  function report(entryId, action) {
+    if (!boot) return;
+    fetch(config.api + "/v1/messenger/outbound", {
+      method: "POST",
+      credentials: "omit",
+      keepalive: true,
+      headers: { "Content-Type": "application/json", "Idempotency-Key": uid(), Authorization: "Bearer " + boot.token },
+      body: JSON.stringify({ entryId, action }),
+    }).catch(() => {});
+  }
+  /** Phase 13 O3: a banner at the top or bottom of the page, in its own shadow root; none is null. */
+  function showBanner(b) {
+    if (bannerHost && b && bannerHost.dataset.entry === b.entryId) return;
+    bannerHost?.remove();
+    bannerHost = undefined;
+    if (!b) return;
+    bannerHost = document.createElement("relay-banner");
+    bannerHost.dataset.entry = b.entryId;
+    // Open, unlike the launcher's: a banner holds only public text, and tools that read the page
+    // (tests, assistive software) can reach it. The host's styles still can't.
+    const shadow = bannerHost.attachShadow({ mode: "open" });
+    for (const href of [
+      config.api + "/messenger/banner.css",
+      config.api + "/messenger/theme.css?workspace=" + encodeURIComponent(config.workspaceId) + "&brand=" + encodeURIComponent(config.brandId),
+    ]) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = href;
+      shadow.append(link);
+    }
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    bar.dataset.position = b.position === "bottom" ? "bottom" : "top";
+    bar.setAttribute("role", "region");
+    bar.setAttribute("aria-label", "Announcement");
+    const p = document.createElement("p");
+    p.textContent = b.text;
+    bar.append(p);
+    if (b.action && /^https:\/\//.test(b.action.url)) {
+      const a = document.createElement("a");
+      a.href = b.action.url;
+      a.rel = "noopener";
+      a.textContent = b.action.label;
+      a.addEventListener("click", () => report(b.entryId, "clicked"));
+      bar.append(a);
+    }
+    if (b.dismissible) {
+      const x = document.createElement("button");
+      x.type = "button";
+      x.textContent = "✕";
+      x.setAttribute("aria-label", "Close announcement");
+      x.addEventListener("click", () => {
+        report(b.entryId, "dismissed");
+        bannerHost?.remove();
+        bannerHost = undefined;
+      });
+      bar.append(x);
+    }
+    shadow.append(bar);
+    document.body.append(bannerHost);
   }
   function open(space) {
     if (space && typeof space === "object" && space.conversation && !frame) pendingConversation = space.conversation;
@@ -405,7 +471,7 @@
     navigationTimer = setTimeout(() => {
       if (boot) {
         api("context", { pageUrl: location.href }, boot.token).catch(fail);
-        if (!opened) due(generation);
+        due(generation);
       }
     }, 100);
   }
@@ -454,6 +520,7 @@
       socket?.close();
       frame?.remove();
       host?.remove();
+      bannerHost?.remove();
       custom?.removeEventListener("click", open);
       boot = undefined;
       return;

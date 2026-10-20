@@ -1726,3 +1726,11 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-people-facts dd { margin:0; overflow-wrap:anywhere; }
 .pg-people-fact { display:contents; }
 @media (max-width: 900px) { .pg-people-split { flex-direction:column; } .pg-people-person { width:auto; } }
+
+/* Outbound (phase 13 O3): the editor beside the message's numbers. */
+.pg-outbound-title { font-size:18px; font-weight:600; border:1px solid transparent; border-radius:6px; padding:2px 6px; background:transparent; color:inherit; max-width:100%; }
+.pg-outbound-title:hover, .pg-outbound-title:focus { border-color:var(--pg-input-border); }
+.pg-outbound-body { gap:14px; }
+.pg-outbound-columns { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:14px; align-items:start; }
+.pg-outbound-problems { margin:0; padding:10px 14px 10px 30px; border:1px solid var(--pg-border); border-radius:10px; background:var(--pg-sunken); font-size:13px; }
+@media (max-width: 1000px) { .pg-outbound-columns { grid-template-columns:1fr; } }

@@ -196,7 +196,7 @@ export async function startLocalRelay(
     examplePeople?: boolean;
     /** Outbound (phase 13 O2), on unless turned off. */
     outboundFlag?: boolean;
-    /** Development seed (phase 13 O2): a live in-app chat welcoming pro users, and an in-app subscription. */
+    /** Development seed (phase 13 O2, O3): a live in-app chat welcoming pro users, an in-app subscription, and a banner draft. */
     exampleOutbound?: boolean;
     /** Development seed (phase 12 E9): the demo's UK number takes calls, Zoe answers, the owner's phone is rung. */
     exampleVoice?: boolean;
@@ -1073,6 +1073,15 @@ export async function startLocalRelay(
       };
       await q.query("INSERT INTO outbound_messages(workspace_id,id,type,title,state,draft,live_version,created_by,updated_by) VALUES('demo','welcome-pro','chat','Welcome to Pro','live',$1,1,'owner','owner')", [JSON.stringify(def)]);
       await q.query("INSERT INTO outbound_versions(workspace_id,message_id,version,definition,published_by) VALUES('demo','welcome-pro',1,$1,'owner')", [JSON.stringify(def)]);
+      // O3: a banner draft to try in the Outbound area.
+      const banner = {
+        ...def,
+        type: "banner",
+        content: { text: "Scheduled maintenance tonight, 22:00 to 23:00 UTC.", position: "top", dismissible: true, action: { label: "Status page", url: "https://status.example.com" } },
+        audience: { segmentId: null, rules: { match: "all", rules: [] }, sendTime: [] },
+        goal: null,
+      };
+      await q.query("INSERT INTO outbound_messages(workspace_id,id,type,title,state,draft,created_by,updated_by) VALUES('demo','maintenance','banner','Maintenance tonight','draft',$1,'owner','owner')", [JSON.stringify(banner)]);
     });
   handlers["whatsapp.receive"] = (job) => receiveWhatsAppJob(db.connect, whatsappEnv, job);
   handlers["whatsapp.check"] = (job) => checkWhatsAppNumberJob(db.connect, whatsappEnv, job);

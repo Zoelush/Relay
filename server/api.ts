@@ -216,7 +216,7 @@ import { changeVoice, readVoice, voiceHook, type VoiceEnvironment } from "./voic
 import { apiEvents, changeEvents, messengerEvent, readEvents } from "./events";
 import { changePeople, readPeople, segmentsOn } from "./segments";
 import { changeSubscriptionTypes, preferencePage, readSubscriptionTypes } from "./subscriptions";
-import { changeOutboundMessage, changeOutboundSettings, dueInApp, outboundSeen, readOutbound, readOutboundMessage } from "./outbound";
+import { changeOutboundMessage, changeOutboundSettings, dueBanner, dueInApp, outboundAction, outboundOn, outboundSeen, readOutbound, readOutboundMessage } from "./outbound";
 import { deviceOf } from "../lib/outbound";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
@@ -3009,6 +3009,10 @@ export async function handleApi(
               workflows:
                 (await workflowsEnabled(db, workspace)) &&
                 (await can(db, workspace, principal, "workspace.manage")),
+              // Phase 13 O3: the Outbound area, for managers while outbound is on.
+              outbound:
+                (await outboundOn(db, workspace)) &&
+                (await can(db, workspace, principal, "workspace.manage")),
               // Phase 13 O1: the People area, for who may see people's details while segments are on.
               people:
                 (await segmentsOn(db, workspace)) &&
@@ -3352,11 +3356,16 @@ export async function handleApi(
         // Phase 13 O2: what outbound has for this person on this page (a chat, at most one).
         const result = await tenant(env.connect, s.workspace, async (db) => {
           const locale = (await db.query<{ locale: string | null }>("SELECT locale FROM messenger_sessions WHERE workspace_id=$1 AND id=$2", [s.workspace, s.sessionId])).rows[0]?.locale ?? "";
-          return { outbound: await dueInApp(db, s.workspace, s, { pageUrl: pageUrl(p.pageUrl) ?? "", device: deviceOf(req.headers.get("user-agent") ?? ""), locale }) };
+          const ctx = { pageUrl: pageUrl(p.pageUrl) ?? "", device: deviceOf(req.headers.get("user-agent") ?? ""), locale };
+          // O3: a banner for this page too (at most one), shown until they close it.
+          return { outbound: await dueInApp(db, s.workspace, s, ctx), banners: await dueBanner(db, s.workspace, s, ctx) };
         });
         if (result.outbound.length) await env.notify?.(s.workspace, "");
         return json(result);
       }
+      if (url.pathname === "/v1/messenger/outbound")
+        // Phase 13 O3: an in-app message's action clicked, or the banner closed.
+        return json(await tenant(env.connect, s.workspace, (db) => outboundAction(db, s.workspace, s.identityId, String(p.entryId ?? ""), String(p.action ?? ""))));
       if (url.pathname === "/v1/messenger/events")
         // Phase 13 O1: `Relay("track")`, for a signed-in user.
         return json(await tenant(env.connect, s.workspace, (db) => messengerEvent(db, s.workspace, s, key, p)));

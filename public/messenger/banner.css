@@ -1,0 +1,67 @@
+/* Outbound banners (phase 13 O3): drawn by the loader in their own shadow root, in the brand's
+   colours (theme.css), never the host page's styles. */
+:host {
+  all: initial !important;
+  display: contents !important;
+  color-scheme: light dark !important;
+}
+* {
+  box-sizing: border-box;
+}
+.bar {
+  position: fixed;
+  z-index: 2147483645;
+  inset-inline: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 48px 10px 16px;
+  background: var(--relay-accent, #3b3b42);
+  color: var(--relay-on-accent, #ffffff);
+  font:
+    14px/1.4 system-ui,
+    sans-serif;
+  box-shadow: 0 2px 12px #0002;
+}
+.bar[data-position="bottom"] {
+  top: auto;
+  bottom: 0;
+}
+p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+a {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 2px;
+}
+button {
+  all: unset;
+  position: absolute;
+  inset-inline-end: 12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+}
+@media (max-width: 520px) {
+  .bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

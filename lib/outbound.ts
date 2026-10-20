@@ -20,9 +20,22 @@ export type SendTimeRule =
   | { field: "device"; op: "is"; value: "desktop" | "mobile" }
   | { field: "locale"; op: "is" | "starts_with"; value: string }
   | { field: "open_conversation"; op: "is"; value: boolean };
+export type OutboundType = "chat" | "banner";
+/**
+ * What's said. A chat: its text, from a teammate. A banner (O3): its text (300 characters), at the
+ * top or bottom of the page, whether it can be closed, and an optional action (a label and an https
+ * link).
+ */
+export type OutboundContent = {
+  text: string;
+  senderId?: string;
+  position?: "top" | "bottom";
+  dismissible?: boolean;
+  action?: { label: string; url: string } | null;
+};
 export type OutboundDefinition = {
-  type: "chat";
-  content: { text: string; senderId: string };
+  type: OutboundType;
+  content: OutboundContent;
   subscriptionTypeId: string;
   audience: { segmentId: string | null; rules: SegmentDefinition; sendTime: SendTimeRule[] };
   delivery: {
@@ -38,15 +51,15 @@ export type OutboundDefinition = {
   startAt: string | null;
   stopAt: string | null;
 };
-export const OUTBOUND_TYPES = ["chat"] as const;
+export const OUTBOUND_TYPES = ["chat", "banner"] as const;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const EVENT = /^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,99}$/;
 
 /** A new message's definition: nobody yet, sent once, no goal. */
-export function blankDefinition(type: "chat", senderId: string): OutboundDefinition {
+export function blankDefinition(type: OutboundType, senderId: string): OutboundDefinition {
   return {
     type,
-    content: { text: "", senderId },
+    content: type === "chat" ? { text: "", senderId } : { text: "", position: "top", dismissible: true, action: null },
     subscriptionTypeId: "",
     audience: { segmentId: "all-users", rules: { match: "all", rules: [] }, sendTime: [] },
     delivery: { mode: "once" },
@@ -65,8 +78,25 @@ export function outboundProblems(d: OutboundDefinition): string[] {
   const out: string[] = [];
   if (!d || typeof d !== "object") return ["A message needs content, an audience and a delivery."];
   if (!(OUTBOUND_TYPES as readonly string[]).includes(d.type)) out.push("Choose the message type.");
-  if (typeof d.content?.text !== "string" || !d.content.text.trim() || d.content.text.length > 5000) out.push("Write the message (5,000 characters at most).");
-  if (typeof d.content?.senderId !== "string" || !d.content.senderId) out.push("Choose who it's from.");
+  if (d.type === "banner") {
+    const c = d.content ?? ({} as OutboundContent);
+    if (typeof c.text !== "string" || !c.text.trim() || c.text.length > 300) out.push("Write the banner (300 characters at most).");
+    if (c.position !== "top" && c.position !== "bottom") out.push("Put the banner at the top or the bottom.");
+    if (typeof c.dismissible !== "boolean") out.push("Say whether the banner can be closed.");
+    if (c.action !== null && c.action !== undefined) {
+      if (typeof c.action.label !== "string" || !c.action.label.trim() || c.action.label.length > 40) out.push("Label the banner's button (40 characters at most).");
+      let ok = false;
+      try {
+        ok = new URL(String(c.action.url)).protocol === "https:";
+      } catch {
+        ok = false;
+      }
+      if (!ok) out.push("The banner's button opens an https address.");
+    }
+  } else {
+    if (typeof d.content?.text !== "string" || !d.content.text.trim() || d.content.text.length > 5000) out.push("Write the message (5,000 characters at most).");
+    if (typeof d.content?.senderId !== "string" || !d.content.senderId) out.push("Choose who it's from.");
+  }
   if (typeof d.subscriptionTypeId !== "string" || !d.subscriptionTypeId) out.push("Choose its subscription type: every message has one.");
   if (!d.audience || typeof d.audience !== "object") out.push("Choose the audience.");
   else {

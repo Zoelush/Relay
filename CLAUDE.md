@@ -39,8 +39,10 @@ complete. E5, WhatsApp (`server/whatsapp.ts`, `channel_whatsapp_v1`), and E6, SM
 Instagram and Facebook Messenger (`server/meta-messaging.ts`), are done locally (`docs/OMNICHANNEL_STEP5.md` to `STEP7.md`);
 E8, Slack and Discord (`server/community.ts`), is done locally (`docs/OMNICHANNEL_STEP8.md`), and E9, voice (`server/voice.ts`,
 `channel_voice_v1`), is done locally (`docs/OMNICHANNEL_STEP9.md`): phase 12's plan is complete. Phase 13 (`docs/OUTBOUND_PLAN.md`): O1,
-events, subscription types and segments (`segments_v1`), and O2, the engine and in-app chats (`server/outbound.ts`, `outbound_v1`), are
-done locally (`docs/OUTBOUND_STEP1.md`, `STEP2.md`); the scope is O1 to O3, so next is O3 (the Outbound area and banners). Every
+events, subscription types and segments (`segments_v1`), and O2, the engine and in-app chats (`server/outbound.ts`, `outbound_v1`),
+and O3, the Outbound area (`agent/outbound.tsx`, `#outbound`) and banners, are done locally (`docs/OUTBOUND_STEP1.md` to `STEP3.md`):
+the scope (O1 to O3) is complete; O4 to O9 wait until asked. A banner is drawn only by the loader (`showBanner`, its own shadow
+root, brand colours from `theme.css`); clicks and closes are recorded only on the person's own entry (`outboundAction`). Every
 outbound message to a person goes through `admit` (their lock row, re-entry, holdout, subscription, quiet hours, both caps, then the
 type's delivery); never send outbound around it, and keep `tests/postgres/outbound.test.ts` (the burst) passing. A contact in a
 message stays on the version they entered. A segment rule has one meaning: `lib/segments.ts` (`matches`) and its SQL
