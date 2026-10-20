@@ -4,16 +4,15 @@ import { slaContext } from "./sla";
 import { authorize, can } from "./policy";
 import { access, conversation } from "./conversations";
 import { resolveContact } from "./people";
-import type { AppCard } from "../lib/app-slots";
 
 /** Recent conversations shown for the customer, besides the open one. */
 const RECENT_LIMIT = 5;
 
 /**
  * Everything the context sidebar shows for a conversation: the customer (resolved through
- * merges), participants, the customer's other recent conversations, conversation attributes
- * and app cards. Personal data (names, emails, phones, external id, profile) is included only
- * for teammates with `contacts.personal_data`; customer type, times and timezone always are.
+ * merges), participants, the customer's other recent conversations and conversation attributes.
+ * Apps' cards (Canvas, phase 15 D5) are loaded by the sidebar on their own (`server/canvas.ts`).
+ * Personal data (names, emails, phones, external id, profile) is included only for teammates with `contacts.personal_data`; customer type, times and timezone always are.
  */
 export async function conversationContext(
   db: Sql,
@@ -122,8 +121,6 @@ export async function conversationContext(
     value: (c.attributes as Record<string, unknown>)[a.id] ?? null,
   }));
   // TODO(phase 1): company and custom object cards, once the people service has them.
-  // TODO(phase 15): app cards come from installed apps through lib/app-slots.ts.
-  const apps: AppCard[] = [];
   return {
     personalData: personal,
     customer: contact
@@ -151,6 +148,5 @@ export async function conversationContext(
     canEditAttributes: await can(db, w, principal, "conversations.manage"),
     tickets: await ticketContext(db, w, c),
     sla: await slaContext(db, w, c),
-    apps,
   };
 }

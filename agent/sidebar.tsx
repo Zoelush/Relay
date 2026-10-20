@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import type { AppCard } from "../lib/app-slots";
+import { CanvasCards } from "./canvas";
 import { TicketPanel, type TicketContext } from "./tickets";
 import { SlaSection, type SlaContext } from "./sla";
 import { initials } from "./card";
@@ -34,7 +34,6 @@ export type Context = {
   canEditAttributes: boolean;
   tickets: TicketContext;
   sla?: SlaContext;
-  apps: AppCard[];
 };
 
 const when = (iso: string) =>
@@ -210,7 +209,7 @@ export function AttributeField({
   );
 }
 
-/** The conversation's context: customer, attributes, recent conversations, participants, apps. */
+/** The conversation's context: customer, attributes, recent conversations, participants, apps' cards. */
 export function ContextSidebar({
   conversationId,
   refresh,
@@ -382,30 +381,8 @@ export function ContextSidebar({
           </ul>
         </section>
       )}
-      {/* TODO(phase 15): installed apps' cards, hosted through lib/app-slots.ts. */}
-      {c.apps.length > 0 && (
-        <section aria-labelledby="ctx-apps">
-          <h3 id="ctx-apps">Apps</h3>
-          {c.apps.map((card) => (
-            <article key={card.appId} className="pg-app-card">
-              <h4>{card.title}</h4>
-              {card.state.status === "loading" ? (
-                <p aria-busy="true">Loading…</p>
-              ) : card.state.status === "error" ? (
-                <p role="alert">{card.state.message}</p>
-              ) : (
-                card.state.blocks.map((b, i) =>
-                  b.type === "heading" ? (
-                    <h5 key={i}>{b.text}</h5>
-                  ) : (
-                    <p key={i}>{b.text}</p>
-                  ),
-                )
-              )}
-            </article>
-          ))}
-        </section>
-      )}
+      {/* Phase 15 D5: installed Canvas apps' cards. */}
+      <CanvasCards placement="conversation.sidebar" conversationId={conversationId} />
     </aside>
   );
 }

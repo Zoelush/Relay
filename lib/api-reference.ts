@@ -2,6 +2,7 @@ import { API_VERSIONS, LATEST_VERSION, operations, SPEC, type Schema, type Spec 
 import { resolve } from "./api-validate";
 import { CONTACT_FIELDS, CONVERSATION_FIELDS, OPERATOR_MEANING, OPERATORS, type Field as SearchField } from "./api-search";
 import { TOPICS } from "./webhook-topics";
+import { COMPONENT_REFERENCE, LIMITS as CANVAS_LIMITS } from "./canvas";
 
 /**
  * The API's reference, generated from its spec (phase 15, D1): `docs/API.md` (`npm run api:doc`; a
@@ -76,6 +77,20 @@ const GUIDE: { title: string; body: string[] }[] = [
       "**Verifying:** `Relay-Signature` is `t=<unix seconds>,v1=<hex>`. The hex is HMAC-SHA256 of `<t>.<the raw body>` under your secret. While a secret is being rotated, a second `v1` signs under the previous one for 24 hours. Accept the delivery if any `v1` matches and `t` is within 5 minutes. The SDKs do this: `verifyWebhook(secret, rawBody, header)` in JavaScript, `verify_webhook(secret, raw_body, header)` in Python.",
       "```js\nimport { createHmac, timingSafeEqual } from \"node:crypto\";\nexport function verify(secret, rawBody, header, now = Date.now() / 1000) {\n  const items = header.split(\",\").map((p) => p.split(\"=\"));\n  const t = Number(items.find(([k]) => k === \"t\")?.[1]);\n  if (!t || Math.abs(now - t) > 300) return false;\n  const want = createHmac(\"sha256\", secret).update(`${t}.${rawBody}`).digest();\n  return items.some(([k, v]) => { if (k !== \"v1\") return false; const got = Buffer.from(v, \"hex\"); return got.length === want.length && timingSafeEqual(got, want); });\n}\n```",
       "```python\nimport hashlib, hmac, time\ndef verify(secret, raw_body, header, tolerance=300):\n    items = [p.split(\"=\", 1) for p in header.split(\",\")]\n    t = next((int(v) for k, v in items if k == \"t\"), 0)\n    if not t or abs(time.time() - t) > tolerance:\n        return False\n    want = hmac.new(secret.encode(), f\"{t}.\".encode() + raw_body, hashlib.sha256).hexdigest()\n    return any(hmac.compare_digest(v, want) for k, v in items if k == \"v1\")\n```",
+    ],
+  },
+  {
+    title: "Canvas apps",
+    body: [
+      "An app can also draw cards in Relay: give it a **canvas address** and the **placements** it draws in (Settings › Developers › Apps): the inbox sidebar (`conversation.sidebar`), the composer (`composer`), and settings (`settings`, its set-up step after install). You get a canvas signing secret, shown once. Your app returns a tree of components (below); Relay checks it and draws it with its own controls, so none of your code runs in Relay.",
+      "**Requests.** Relay's server POSTs JSON to `<canvas address>/initialize` (a card is first drawn), `/submit` (a teammate pressed something) or `/configure` (settings: drawn, then each press). The body has `type`, `placement`, `request_id`, `workspace_id`, `installation_id`, `teammate` (`id`, `name`), `conversation` (`id` and `contact_id`, or null in settings) and `settings` (what your configure step returned, or null). A submit adds `component_id`, `input_values` (each input, textarea, dropdown and checkbox by id), `stored_data` and `current_canvas`. Read anything else through this API with the installation's token, within its scopes.",
+      "**Verify each request** before anything else: `Relay-Signature` is signed like webhooks', under your canvas signing secret (`verifyWebhook` in the SDKs checks it). While a new signing secret is being adopted, the previous one also signs for 24 hours.",
+      "**Answer within 5 seconds** with `{\"canvas\":{\"content\":{\"components\":[…]},\"stored_data\":{…}}}`. `stored_data` (up to 4 KB) comes back with the next submit and never reaches a browser. To a composer submit you may answer `{\"insert_text\":\"…\"}`, which goes into the teammate's reply for them to read and send. To a configure submit you may answer `{\"results\":{…}}` (up to 4 KB), which is kept with the installation and sent as `settings` from then on.",
+      "**Failures.** No answer in time, an unreachable address, a status other than 2xx, an answer over 64 KB or a canvas that doesn't check out is shown as a failure card with Try again (a canvas problem names its path, as `canvas.content.components[2].url`). Every request is logged; the workspace sees each app's error rate in Settings, and you see yours across every workspace that installed it.",
+      "**The example:** `demo/order-lookup/` is a complete app built only on this API: OAuth install, an order list for the conversation's customer in the sidebar, an order's status inserted from the composer, and a shop chosen at set-up. Run it with `npm run example:orders`. Its canvas route verifies, then answers by placement:",
+      "```ts\nif (url.pathname.startsWith(\"/canvas/\") && req.method === \"POST\") {\n  const raw = await req.text();\n  let body: CanvasRequest;\n  try {\n    if (!credentials) throw new Error(\"not set up\");\n    body = (await verifyWebhook(credentials.canvasSecret, raw, req.headers.get(\"relay-signature\") ?? \"\")) as unknown as CanvasRequest;\n  } catch {\n    return Response.json({ error: \"The signature doesn't match.\" }, { status: 401 });\n  }\n  const settings: Settings = { shop: body.settings?.shop && body.settings.shop in SHOPS ? body.settings.shop : \"uk\", show_refunded: !!body.settings?.show_refunded };\n  if (body.placement === \"settings\") return configure(body, settings);\n  if (body.placement === \"composer\") return composer(body, settings);\n  return sidebar(body, settings);\n}\n```",
+      "It reads the customer with its own token, and says plainly what's missing:",
+      "```ts\nasync function customerEmail(req: CanvasRequest) {\n  if (req.stored_data?.email) return { email: req.stored_data.email };\n  const relay = await relayFor(req.workspace_id);\n  if (!relay) return { problem: \"Order lookup isn't connected to this workspace. Install it again from the app's page.\" };\n  const contactId = req.conversation?.contact_id;\n  if (!contactId) return { problem: \"There's no customer on this conversation yet.\" };\n  try {\n    const contact = await relay.getContact(contactId);\n    return contact.email ? { email: contact.email } : { problem: \"This customer has no email address, so their orders can't be found.\" };\n  } catch (e) {\n    return { problem: e instanceof RelayError && e.status === 403 ? \"Order lookup isn't allowed to see customers' details here.\" : \"Relay's API didn't answer. Try again.\" };\n  }\n}\n```",
     ],
   },
   {
@@ -159,6 +174,9 @@ export function apiReferenceMarkdown(spec: Spec = SPEC) {
   out.push("## Webhook topics", "", "| Topic | When | `data.item` |", "|---|---|---|");
   for (const t of TOPICS) out.push(`| \`${t.id}\` | ${t.about} | ${t.item} |`);
   out.push("", "Company topics and `contact.tagged` come with companies and tags on people (phase 01).", "");
+  out.push("## Canvas components", "", `Up to ${CANVAS_LIMITS.components} per canvas. Every component may have an \`id\` (1 to 64 letters, digits or \`_.:-\`), unique on the canvas; anything not listed here is refused.`, "", "| Type | Properties |", "|---|---|");
+  for (const [type, about] of Object.entries(COMPONENT_REFERENCE)) out.push(`| \`${type}\` | ${about} |`);
+  out.push("");
   out.push("## Objects", "");
   for (const [name, s] of Object.entries(spec.components.schemas)) {
     out.push(`### ${name}`, "");

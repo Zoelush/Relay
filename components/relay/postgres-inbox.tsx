@@ -54,6 +54,7 @@ import { alertTeammate, type AlertPrefs } from "../../agent/alerts";
 import { SlaBadge } from "../../agent/sla";
 import type { MessagePreview } from "../../server/conversations";
 import { ContextSidebar } from "../../agent/sidebar";
+import { ComposerApps } from "../../agent/canvas";
 import { EmailCopies, ReplyTarget, SmsMeter, splitCopies, TemplatePicker, useReplyTarget, type Copies } from "../../agent/reply-target";
 import { SideConversationButton } from "../../agent/side-conversations";
 import {
@@ -1111,6 +1112,25 @@ export default function PostgresInbox({
     } catch (e) {
       report(e);
     }
+  }
+  /** Phase 15 D5: a Canvas app's text, added to the reply for the teammate to read and send. */
+  function insertFromApp(appName: string, text: string) {
+    const conversationId = selectedRef.current;
+    if (!conversationId) return;
+    const doc: RichDoc = {
+      type: "doc",
+      content: text
+        .split(/\n{2,}/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => ({ type: "paragraph" as const, content: [{ type: "text" as const, text: p }] })),
+    };
+    setMode("reply");
+    const key = drafts.keyOf(conversationId, "reply");
+    const existing = drafts.drafts[key]?.doc;
+    drafts.edit(conversationId, "reply", existing ? { type: "doc", content: [...existing.content, ...doc.content] } : doc);
+    reseed(key);
+    setMacroNotice(`Added from ${appName} · review the text, then send`);
   }
   const commands: PaletteCommand[] = [
     ...(selected
@@ -2210,6 +2230,7 @@ export default function PostgresInbox({
                         <kbd aria-hidden="true">M</kbd>
                       </button>
                     )}
+                    {selected && snapshot?.capabilities.reply && <ComposerApps conversationId={selected} onInsert={insertFromApp} />}
                   </div>
                   {mode === "reply" && replyTarget && (
                     // Phase 12 E3/E4: where the reply goes, and (where the channel takes them) copies.

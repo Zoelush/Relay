@@ -22,7 +22,8 @@
     "eval": "node --import tsx scripts/eval.ts",
     "test:postgres": "node --import tsx --test --test-timeout=600000 tests/postgres/*.test.ts",
     "metrics:doc": "node --import tsx scripts/metrics-doc.ts",
-    "api:doc": "node --import tsx scripts/api-doc.ts"
+    "api:doc": "node --import tsx scripts/api-doc.ts",
+    "example:orders": "node --import tsx demo/order-lookup/serve.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

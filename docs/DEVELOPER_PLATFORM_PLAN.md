@@ -72,6 +72,16 @@ The brief's point: an integrations team says yes when Relay has a real API, real
     - **App access tokens are API tokens** (an hour, tied to the installation), so one router, scope check and rate limit serve both. An archived app's tokens run out within the hour (no cross-workspace check on every request).
     - **The consent screen is the agent app at `/oauth/authorize`,** using the teammate's existing sign-in.
 
+11. **D5 decisions** (20 October 2026):
+    - **Placements built:** the inbox sidebar, the composer, and settings (configure, after install). The messenger home waits until asked.
+    - **A Canvas app is an OAuth app** with a canvas address and placements: one registration, one installation, one removal. Its signing secret is separate from the client secret (Relay needs it to sign, so it's sealed, not hashed), and rotates with 24 hours' overlap, as webhooks' do.
+    - **Requests carry ids, not customer data.** The app reads what it needs through the API with its installation's token, so its scopes are the one control on what it sees.
+    - **The canvas on screen stays on the server** (an hour), so a submit is checked against what was shown and `stored_data` never reaches a browser.
+    - **Composer apps add text to the reply draft;** the teammate reads and sends it. Nothing is sent on an app's say-so.
+    - **5-second time limit, 64 KB answers.** A teammate is waiting, so this is the one interactive call to an app (decision 6), not a job.
+    - **Error rates:** the installing workspace reads its own log (30 days); the developer gets daily counts in the app's own workspace. Only counts cross between workspaces.
+    - **Phase 04's app-slot contract (`lib/app-slots.ts`) is replaced:** apps never ask the host to act. They act through the API, within their scopes.
+
 ## Needs you
 
 - **Scope:**

@@ -49,8 +49,14 @@ and dictionary) and R2 (datasets, the query layer `server/reports.ts`, and the b
 shape; `runMetric` filters, breaks down and aggregates) and one entry in `lib/metrics.ts`, and `tests/reports.test.ts` asserts it on its
 scenario; rerun `scripts/reporting-benchmark.ts` when a definition's plan may change. Phase 15 (`docs/DEVELOPER_PLATFORM_PLAN.md`, scope D1 to D5):
 D1, the API's foundation (`developer_api_v1`), and D2, coverage, search, export and the SDKs, and D3, webhooks, are
-done locally, and D4, OAuth apps (`server/oauth.ts`, consent at `/oauth/authorize`), is done locally
-(`docs/DEVELOPER_PLATFORM_STEP1.md` to `STEP4.md`); next is D5 (Canvas apps). An app acts as its installer within the
+done locally, and D4, OAuth apps (`server/oauth.ts`, consent at `/oauth/authorize`), and D5, Canvas apps (`server/canvas.ts`,
+`lib/canvas.ts`, `agent/canvas.tsx`; the example app `demo/order-lookup/`, `npm run example:orders`) are done locally
+(`docs/DEVELOPER_PLATFORM_STEP1.md` to `STEP5.md`): the scope (D1 to D5) is complete; D6 and the messenger home wait until asked.
+A canvas reaches a browser only after `validateCanvas` (`lib/canvas.ts`, the one schema; a new component gets its checker,
+its renderer in `agent/canvas.tsx` and its line in `COMPONENT_REFERENCE`); requests to apps go only through `canvasRequest`
+(`safeRequest`, signed, time-limited, logged); requests carry ids, never customer data (apps read through the API within
+their scopes); `stored_data` stays on the server; a composer app only adds to the draft. The reference's Canvas excerpts are
+the example app's own lines (a test compares them). An app acts as its installer within the
 granted scopes; its tokens are API tokens tied to the grant; codes and refresh tokens are single-use (reuse revokes). Webhook events are written only by
 0078's triggers (`webhook_emit`); a new topic gets its trigger and an entry in `lib/webhook-topics.ts` (a test compares them). A
 delivery's body is built once and kept; deliveries go only through `runWebhooks` (`safeRequest`, signed); never send an internal note. The SDKs (`sdk/`) are generated with the reference by
