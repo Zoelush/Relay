@@ -51,7 +51,14 @@ scenario; rerun `scripts/reporting-benchmark.ts` when a definition's plan may ch
 D1, the API's foundation (`developer_api_v1`), and D2, coverage, search, export and the SDKs, and D3, webhooks, are
 done locally, and D4, OAuth apps (`server/oauth.ts`, consent at `/oauth/authorize`), and D5, Canvas apps (`server/canvas.ts`,
 `lib/canvas.ts`, `agent/canvas.tsx`; the example app `demo/order-lookup/`, `npm run example:orders`) are done locally
-(`docs/DEVELOPER_PLATFORM_STEP1.md` to `STEP5.md`): the scope (D1 to D5) is complete; D6 and the messenger home wait until asked.
+(`docs/DEVELOPER_PLATFORM_STEP1.md` to `STEP5.md`): the scope (D1 to D5) is complete; D6 and the messenger home wait until asked. Phase 16 (`docs/SECURITY_PLAN.md`, scope C1 to C10; Relay owns teammate
+accounts; Stripe behind a port): C1, the audit log (`server/audit.ts`, `lib/audit-actions.ts`, `#settings/audit`, `security_v1`), is
+done locally (`docs/SECURITY_STEP1.md`); next is C2 (roles and the permissions matrix). The audit log is append-only (a trigger
+refuses changes; only `pruneAudit` deletes, past retention). Administrative tables are audited by migration 0081's `audit_row`
+trigger in the change's own transaction: a new administrative table gets that trigger and a `TABLE_ACTIONS` entry (a test
+compares them); anything that isn't a row change is `recordAudit` with an `EXPLICIT_ACTIONS` entry. The actor is the
+transaction's (`authorize` sets `relay.actor_*`; the API sets `relay.actor_via`): never write audit rows with a hand-built actor.
+Secrets never reach the log (the trigger skips secret-like columns; keep new secret columns named so).
 A canvas reaches a browser only after `validateCanvas` (`lib/canvas.ts`, the one schema; a new component gets its checker,
 its renderer in `agent/canvas.tsx` and its line in `COMPONENT_REFERENCE`); requests to apps go only through `canvasRequest`
 (`safeRequest`, signed, time-limited, logged); requests carry ids, never customer data (apps read through the API within

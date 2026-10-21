@@ -74,6 +74,7 @@ import { launchJob, outboundSweep } from "../server/outbound";
 import { projectJob, scheduleProjection } from "../server/analytics";
 import { exportJob } from "../server/rest-more";
 import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
+import { auditExportJob, pruneAudit } from "../server/audit";
 import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -208,6 +209,8 @@ export async function startLocalRelay(
     /** Reporting (phase 14 R1), on unless turned off. */
     reportsFlag?: boolean;
     developerFlag?: boolean;
+    /** Settings › Security (phase 16 C1), on unless turned off. */
+    securityFlag?: boolean;
     /** Development seed (phase 13 O2, O3): a live in-app chat welcoming pro users, an in-app subscription, and a banner draft. */
     exampleOutbound?: boolean;
     /** Development seed (phase 12 E9): the demo's UK number takes calls, Zoe answers, the owner's phone is rung. */
@@ -711,6 +714,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='developer_api_v1'",
         [w, options.developerFlag !== false],
       );
+      // Security, compliance and admin (phase 16, C1).
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='security_v1'",
+        [w, options.securityFlag !== false],
+      );
       // Reporting (phase 14, R1).
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='reports_v1'",
@@ -945,6 +953,7 @@ export async function startLocalRelay(
   handlers["webhooks.run"] = (job) => runWebhooks(db.connect, env.webhooks!, job);
   // Phase 15 D2: the API's data exports, in parts.
   if (env.attachments) handlers["api.export"] = (job) => exportJob(db.connect, env.attachments!, job);
+  if (env.attachments) handlers["audit.export"] = (job) => auditExportJob(db.connect, env.attachments!, job);
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
       attachmentScan(db.connect, env.attachments!, job);
@@ -1249,6 +1258,8 @@ export async function startLocalRelay(
         await scheduleProjection(db.connect, w);
         // Webhooks (phase 15 D3): events to deliver, and deliveries whose retry is due.
         await scheduleWebhooks(db.connect, w);
+        // The audit log (phase 16 C1): events past the workspace's retention.
+        await pruneAudit(db.connect, w);
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
         // and sending domains due a check.
         await releaseDeferred(db.connect, w);

@@ -4,6 +4,7 @@ import { slaContext } from "./sla";
 import { authorize, can } from "./policy";
 import { access, conversation } from "./conversations";
 import { resolveContact } from "./people";
+import { recordContactView } from "./audit";
 
 /** Recent conversations shown for the customer, besides the open one. */
 const RECENT_LIMIT = 5;
@@ -52,6 +53,8 @@ export async function conversationContext(
         )
       ).rows[0]
     : undefined;
+  // Phase 16 C1: a teammate opened this customer's record (once an hour in the audit log).
+  if (contact) await recordContactView(db, w, contact.id, { where: "inbox", personalData: personal, conversationId: c.id });
   // The customer's whole merged family: the surviving contact and every contact merged into it.
   const family = contact
     ? (

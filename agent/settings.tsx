@@ -39,6 +39,7 @@ import {
   KeyRound,
   Webhook,
   AppWindow,
+  ScrollText,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -66,6 +67,7 @@ import { VoicePage } from "./settings-voice";
 import { EventsPage, OutboundPage, SubscriptionsPage } from "./settings-outbound";
 import { ReportingPage } from "./settings-reporting";
 import { DevelopersPage } from "./settings-developers";
+import { AuditPage } from "./settings-audit";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -281,6 +283,14 @@ const PAGES: Page[] = [
     group: "Developers",
   },
   {
+    // Phase 16 C1: every administrative and sensitive action, searchable and exportable.
+    id: "audit",
+    label: "Audit log",
+    description: "Who changed what, and who opened customer records: searchable, exportable, kept as long as you choose.",
+    icon: ScrollText,
+    group: "Security",
+  },
+  {
     // Phase 14 R1: reporting's data, and what each number means.
     id: "reporting",
     label: "Reporting data",
@@ -393,6 +403,7 @@ const PAGES: Page[] = [
 const GROUPS = [
   "Personal",
   "Workspace",
+  "Security",
   "Helpdesk",
   "Channels",
   "Outbound",
@@ -413,6 +424,7 @@ const GROUP_HUES: Record<string, Hue> = {
   Inbox: "amber",
   "Knowledge & AI": "rose",
   Developers: "slate",
+  Security: "rose",
 };
 const hueFor = (p: Page): Hue =>
   p.id === "ai-agent" ? "zoe" : (GROUP_HUES[p.group] ?? "slate");
@@ -595,6 +607,8 @@ export function Settings({
             <WebhooksPage menu={menu} page={current} />
           ) : current.id === "apps" ? (
             <AppsPage menu={menu} page={current} />
+          ) : current.id === "audit" ? (
+            <AuditPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

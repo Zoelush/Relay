@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: The audit log (phase 16, C1)
+
+- **Every administrative and sensitive change is recorded,** with who made it and when, by the database itself, so nothing can skip it. That covers roles and permissions, teammates and teams, settings, channels, Zoe, connectors, workflow publishes, outbound messages, API tokens, apps, webhooks, data definitions, data exports and deleted replies.
+- **Who opened which customer record,** in the inbox, People or the API, with whether they could see personal data.
+- **Settings › Security › Audit log:** search and filter by time, area, teammate or name, open any event's details, and export as CSV or JSON.
+- **Can't be edited or deleted,** even by an owner. Events are removed only after the retention you choose (a year by default, from 90 days to 7 years).
+- **Never records a secret:** a replaced secret is recorded only as replaced.
+- **Migration:** 0081, with rollback.
+- **Details:** `docs/SECURITY_STEP1.md`.
+
 ## Unreleased: Canvas apps (phase 15, D5)
 
 - **Apps can draw in Relay:** an installed app shows its own card beside each conversation, in the composer, and as a set-up step in Settings. It's built from Relay's own components (text, images, buttons, links, fields, dropdowns, checkboxes, lists, tables), so no outside code runs in your inbox.

@@ -225,6 +225,7 @@ import { changeDeveloperTokens, readDeveloperSettings } from "./developer";
 import { changeWebhooks, getDelivery, listDeliveries, listWebhooks, TOPICS } from "./webhooks";
 import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConsent, type AuthorizeQuery } from "./oauth";
 import { canvasOverview, canvasRequest, listCanvasApps, type CanvasEnvironment } from "./canvas";
+import { changeAudit, readAudit } from "./audit";
 import { apiReferenceHtml } from "../lib/api-reference";
 import type { RateLimiter } from "./rate-limit";
 import type { WebhookEnvironment } from "./webhooks";
@@ -1408,6 +1409,7 @@ export async function handleApi(
             "/v1/agent/developer-apps",
             "/v1/agent/oauth-consent",
             "/v1/agent/canvas-apps",
+            "/v1/agent/audit",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
             "/v1/agent/email-message",
@@ -1508,6 +1510,7 @@ export async function handleApi(
               "/v1/agent/developer-app",
               "/v1/agent/oauth-consent",
               "/v1/agent/canvas",
+              "/v1/agent/audit",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1900,6 +1903,9 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/developer-app")
           // Phase 15 D4: an app registered (its secret returned once), changed, given a new secret, archived; or one installed here, uninstalled.
           return json(await tenant(env.connect, workspace, (db) => changeApps(db, workspace, principal, p, env.canvas)));
+        if (url.pathname === "/v1/agent/audit")
+          // Phase 16 C1: the audit log's retention changed, or an export asked for (both audited).
+          return json(await tenant(env.connect, workspace, (db) => changeAudit(db, workspace, principal, p)));
         if (url.pathname === "/v1/agent/canvas")
           // Phase 15 D5: a Canvas app's card drawn or pressed: the app is asked (signed, time-limited) and its answer checked.
           return json(await canvasRequest(env.connect, env.canvas, workspace, principal, p));
@@ -2567,6 +2573,11 @@ export async function handleApi(
         const apps = await tenant(env.connect, workspace, (db) => readApps(db, workspace, principal));
         // D5: each installation's placements and error rate, and your apps' rates across workspaces.
         return json({ ...apps, canvas: await canvasOverview(env.connect, workspace) });
+      }
+      if (url.pathname === "/v1/agent/audit") {
+        // Phase 16 C1: a page of the audit log, filtered; retention; this teammate's recent exports.
+        const q = Object.fromEntries(url.searchParams);
+        return json(await tenant(env.connect, workspace, (db) => readAudit(db, workspace, principal, q, env.attachments, url.origin)));
       }
       if (url.pathname === "/v1/agent/canvas-apps")
         // Phase 15 D5: the Canvas apps installed here that draw in a placement.

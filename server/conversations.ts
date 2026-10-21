@@ -29,6 +29,7 @@ import { authorize, type Capability } from "./policy";
 import { resolveContact } from "./people";
 import { customerReply, refreshCustomerUnread } from "./unread";
 import { enqueueJob } from "./jobs";
+import { recordAudit } from "./audit";
 import { customerVisiblePart } from "./delivery-policy";
 import { confirmAiHelped, queueAiReply } from "./ai-agent";
 import { inboundRules } from "./messenger-config";
@@ -1316,6 +1317,8 @@ export async function command(
         part.id,
       );
       await recordImages(db, w, replacement.id, content.doc);
+      // Phase 16 C1: a deleted reply or note is audited (who, which part, which conversation).
+      if (p.action === "delete") await recordAudit(db, w, "conversation.part_deleted", { type: "conversation", id: c.id }, { partId: part.id, kind: part.kind });
       if (mentioned.length)
         await recordMentions(
           db,

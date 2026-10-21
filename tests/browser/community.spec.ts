@@ -80,8 +80,9 @@ test("a forged Slack call is refused; a bad Slack token isn't connected; a disco
   await form.getByLabel("Bot token").fill("xoxb-a-token-slack-refuses-0000");
   await form.getByLabel("Signing secret").fill("0".repeat(32));
   await form.getByRole("button", { name: "Connect Slack" }).click();
+  // The newest connection with that hint: the seeded one's token ends in 0000 too.
   await expect
-    .poll(async () => (await tenant(relay.db.connect, "demo", (db) => db.query("SELECT status,error FROM community_connections WHERE token_hint='0000'"))).rows[0], { timeout: 15000 })
+    .poll(async () => (await tenant(relay.db.connect, "demo", (db) => db.query("SELECT status,error FROM community_connections WHERE token_hint='0000' ORDER BY created_at DESC LIMIT 1"))).rows[0], { timeout: 15000 })
     .toEqual({ status: "failed", error: "Slack refused: invalid_auth" });
   await page.reload();
   await expect(page.getByText("Slack refused: invalid_auth")).toBeVisible();
