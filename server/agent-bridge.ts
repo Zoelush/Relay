@@ -25,6 +25,15 @@ export const legacyWritesEnabled = (config: AgentBridgeConfig) =>
   !postgresInboxEnabled(config) &&
   (config.RELAY_STORAGE_AUTHORITY ?? "d1") === "d1";
 
+/** Every agent route the bridge passes on (phase 16 C2: the permissions matrix runs over these). */
+export const AGENT_ROUTES: { GET: ReadonlySet<string>; POST: ReadonlySet<string> } = {
+  get GET() {
+    return routes.GET;
+  },
+  get POST() {
+    return routes.POST;
+  },
+};
 const routes = {
   GET: new Set([
     "inbox",

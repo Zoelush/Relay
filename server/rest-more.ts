@@ -1,4 +1,5 @@
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
+import { scopeSql, type Teammate } from "./policy";
 import { command } from "./conversations";
 import { requireTickets } from "./tickets";
 import { changeKnowledge, requireKnowledge } from "./knowledge";
@@ -75,8 +76,11 @@ const ticketOut = (t: TicketRow) => ({
   created_at: iso(t.created_at),
   updated_at: iso(t.updated_at),
 });
-export async function readTicket(db: Sql, w: string, id: string) {
-  const t = (await db.query<TicketRow>(`${TICKETS} WHERE t.workspace_id=$1 AND t.conversation_id=$2`, [w, id])).rows[0];
+/** A ticket in the API's shape; with `scope`, only if that teammate's role may see it (phase 16 C2). */
+export async function readTicket(db: Sql, w: string, id: string, scope?: Teammate) {
+  const values: unknown[] = [w, id];
+  const visible = scope ? scopeSql(scope, "c", values) : "true";
+  const t = (await db.query<TicketRow>(`${TICKETS} WHERE t.workspace_id=$1 AND t.conversation_id=$2 AND ${visible}`, values)).rows[0];
   assert(t, "NOT_FOUND", "No such ticket.", 404);
   return ticketOut(t);
 }
@@ -158,6 +162,8 @@ export const eventOut = (e: EventRow) => ({ type: "event", id: e.id, contact_id:
 /** A search over conversations or contacts: the grammar compiled, sorted, cursor-paged. */
 async function searchRows<R extends { id: string }>(x: Context, fields: Record<string, Field>, resource: "conversation" | "contact", from: string, base: string, fallback: string) {
   const params: unknown[] = [x.w];
+  // Phase 16 C2: conversations within the token teammate's scope.
+  if (resource === "conversation" && x.me) base += ` AND ${scopeSql(x.me, "c", params)}`;
   let where: string;
   let sort: ReturnType<typeof compileSort>;
   try {
@@ -241,6 +247,7 @@ export const MORE_HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
     const after = readCursor<[string, string]>(x, pair);
     const values: unknown[] = [x.w];
     const where = ["t.workspace_id=$1"];
+    if (x.me) where.push(scopeSql(x.me, "c", values));
     if (x.params.ticket_type_id) where.push(`t.type_id=$${values.push(x.params.ticket_type_id)}`);
     if (x.params.state) where.push(`s.kind=$${values.push(x.params.state)}`);
     if (after) {
@@ -254,23 +261,23 @@ export const MORE_HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
   },
   async getTicket(x) {
     await requireTickets(x.db, x.w);
-    return readTicket(x.db, x.w, String(x.params.id));
+    return readTicket(x.db, x.w, String(x.params.id), x.me);
   },
   async createTicket(x) {
     await requireTickets(x.db, x.w);
     const id = String(x.body.conversation_id);
-    await readConversation(x.db, x.w, id).catch(() => {
+    await readConversation(x.db, x.w, id, x.me).catch(() => {
       throw invalid("conversation_id", "No such conversation.");
     });
     await command(x.db, x.w, { type: "teammate", principal: x.token.principal }, x.key ?? crypto.randomUUID(), { action: "ticket", conversationId: id, typeId: String(x.body.ticket_type_id), stateId: x.body.state_id as string | undefined });
-    return readTicket(x.db, x.w, id);
+    return readTicket(x.db, x.w, id, x.me);
   },
   async setTicketState(x) {
     await requireTickets(x.db, x.w);
     const id = String(x.params.id);
-    await readTicket(x.db, x.w, id);
+    await readTicket(x.db, x.w, id, x.me);
     await command(x.db, x.w, { type: "teammate", principal: x.token.principal }, x.key ?? crypto.randomUUID(), { action: "ticket_state", conversationId: id, stateId: String(x.body.state_id) });
-    return readTicket(x.db, x.w, id);
+    return readTicket(x.db, x.w, id, x.me);
   },
   async listTicketTypes(x) {
     await requireTickets(x.db, x.w);
@@ -353,13 +360,13 @@ export const MORE_HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
   },
   async applyMacro(x) {
     const id = String(x.params.id);
-    await readConversation(x.db, x.w, id);
+    await readConversation(x.db, x.w, id, x.me);
     // The inbox fills the composer with a macro's text; the API has no composer, so it sends it too.
     const key = x.key ?? crypto.randomUUID();
     const applied = (await applyMacro(x.db, x.w, x.token.principal, key, { macroId: String(x.body.macro_id), conversationId: id })) as { mode: "reply" | "note"; doc: RichDoc | null };
     if (applied.doc && textOf(applied.doc).trim())
       await command(x.db, x.w, { type: "teammate", principal: x.token.principal }, key + ":send", { action: applied.mode, conversationId: id, doc: applied.doc, text: textOf(applied.doc) });
-    return readConversation(x.db, x.w, id);
+    return readConversation(x.db, x.w, id, x.me);
   },
 
   async listWorkflows(x) {

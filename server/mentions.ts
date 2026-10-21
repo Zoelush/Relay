@@ -1,5 +1,5 @@
 import { assert, type Sql } from "./db";
-import { authorize } from "./policy";
+import { authorize, scopeSql } from "./policy";
 import {
   mentions,
   plainText,
@@ -109,6 +109,9 @@ export async function recordMentions(
  */
 export async function listNotifications(db: Sql, w: string, principal: string) {
   const t = await authorize(db, w, principal, "conversations.read");
+  // Phase 16 C2: a restricted role isn't shown notes (or titles) from conversations it can't see.
+  const values: unknown[] = [w, t.id];
+  const scope = t.restricted ? ` AND (n.conversation_id IS NULL OR ${scopeSql(t, "c", values)})` : "";
   const items = (
     await db.query(
       `SELECT n.id,n.kind,n.conversation_id AS "conversationId",c.title AS "conversationTitle",a.name AS "actorName",
@@ -116,9 +119,9 @@ export async function listNotifications(db: Sql, w: string, principal: string) {
       (SELECT a.workflow_id FROM workflow_alerts a WHERE a.workspace_id=n.workspace_id AND a.id=n.workflow_alert_id) AS "workflowId"
       FROM notifications n LEFT JOIN conversations c ON c.workspace_id=n.workspace_id AND c.id=n.conversation_id
       LEFT JOIN teammates a ON a.workspace_id=n.workspace_id AND a.id=n.actor_teammate_id
-      WHERE n.workspace_id=$1 AND n.teammate_id=$2 AND (n.kind<>'mention' OR (c.id IS NOT NULL AND a.id IS NOT NULL))
+      WHERE n.workspace_id=$1 AND n.teammate_id=$2 AND (n.kind<>'mention' OR (c.id IS NOT NULL AND a.id IS NOT NULL))${scope}
       ORDER BY n.created_at DESC,n.id DESC LIMIT 50`,
-      [w, t.id],
+      values,
     )
   ).rows;
   return { unread: await unreadNotifications(db, w, t.id), items };

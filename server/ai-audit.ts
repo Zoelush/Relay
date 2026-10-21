@@ -1,5 +1,5 @@
 import { assert, type Sql } from "./db";
-import { authorize, can } from "./policy";
+import { authorize, can, visibleTo } from "./policy";
 
 /**
  * One conversation's audit of Zoe's actions (phase 09, step D4; docs/ACTIONS_STEP4.md): every
@@ -51,9 +51,11 @@ export type AuditEntry =
 const iso = (v: string | null) => (v ? new Date(v).toISOString() : null);
 
 export async function readAiAudit(db: Sql, w: string, principal: string, conversationId: string) {
-  await authorize(db, w, principal, "conversations.read");
+  const me = await authorize(db, w, principal, "conversations.read");
+  const c = (await db.query<{ assigned: string; team_id: string | null }>("SELECT assigned,team_id FROM conversations WHERE workspace_id=$1 AND id=$2", [w, conversationId])).rows[0];
   assert(
-    (await db.query("SELECT 1 FROM conversations WHERE workspace_id=$1 AND id=$2", [w, conversationId])).rows.length,
+    // Phase 16 C2: and within the teammate's role's scope.
+    c && visibleTo(me, c),
     "CONVERSATION_NOT_FOUND",
     "Conversation unavailable.",
     404,

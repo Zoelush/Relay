@@ -103,6 +103,14 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **Recording is always on.** `security_v1` gates Settings › Security only. Retention is 365 days by default (90 days to 7 years), pruned by the sweep under a transaction flag the append-only trigger checks.
     - **Who reads it:** who manages the workspace (`workspace.manage`) until C2's permission editor gives it a capability of its own.
 
+10. **C2 decisions** (21 October 2026):
+    - **A role has a scope:** every conversation, or only those assigned to its teammate or their teams. The rule is written once in `server/policy.ts`: `visibleTo` for one conversation (in `access`, which every conversation route uses), and `scopeSql` for every list, count and search. `authorize` loads the role's scope (and the teammate's teams, only when restricted) in the query it already runs.
+    - **A restricted role holds only conversation work:** read, reply, note, work on, assign, delete, and use macros. Never personal data, reports, exports, shared macros, or anything that manages the workspace. The editor says so, the server refuses it in words, and migration 0082's trigger refuses it whatever the code does. The owner role is never restricted.
+    - **Restricted teammates work from Mine and their team inboxes only.** All, Unassigned, Mentions and custom views count across the workspace, so they aren't listed or opened, and the inbox's counters drop workspace-wide totals. Notifications from conversations they can't see aren't shown.
+    - **A new permission, `security.manage`,** for the audit log (and C3's sign-in settings), given by the migration to every role that managed the workspace. `macros.manage` is marked old (nothing checks it) and isn't offered.
+    - **The matrix is a reviewed table** (`tests/fixtures/route-policy.ts`): every agent route and the one permission it needs, written from probing each route with single-permission roles. The test holds every kind of role to it, and fails on a route that isn't listed. The public API's operations are held to their scopes the same way.
+    - **Limited seats' limits** (no inbox search, open by link) move to C8, with seats.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

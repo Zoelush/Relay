@@ -1,5 +1,5 @@
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
-import { authorize, capabilities, type Capability } from "./policy";
+import { authorize, capabilities, scopeSql, type Capability, type Teammate } from "./policy";
 import { command } from "./conversations";
 import { getIdentity, resolveContact } from "./people";
 import { API_VERSIONS, operations, SPEC, type Operation } from "../lib/api-spec";
@@ -80,7 +80,8 @@ export const cursor = {
 export const invalid = (field: string, message: string) => new DomainError("INVALID_FIELD", message, 400, { field });
 
 export type Token = { id: string; teammateId: string; principal: string; scopes: string[]; version: string; grantId?: string | null };
-export type Context = { db: Sql; w: string; token: Token; params: Record<string, unknown>; body: Record<string, unknown>; key: string | null; storage?: AttachmentStorage; origin?: string; webhooks?: WebhookEnvironment };
+/** `me`: the token's teammate as authorized for this call, with their role's scope (phase 16 C2). */
+export type Context = { db: Sql; w: string; token: Token; me?: Teammate; params: Record<string, unknown>; body: Record<string, unknown>; key: string | null; storage?: AttachmentStorage; origin?: string; webhooks?: WebhookEnvironment };
 
 // The shapes the spec promises.
 export type ConversationRow = { id: string; title: string; status: string; channel: string; brand_id: string | null; primary_identity_id: string | null; assigned: string; team_id: string | null; priority: boolean; snooze_until: Date | null; last_contact_reply_at: Date | null; last_teammate_reply_at: Date | null; created_at: Date; updated_at: Date };
@@ -110,8 +111,11 @@ export async function conversationOut(db: Sql, w: string, c: ConversationRow) {
   };
 }
 export const CONVERSATION_COLUMNS = "id,title,status,channel,brand_id,primary_identity_id,assigned,team_id,priority,snooze_until,last_contact_reply_at,last_teammate_reply_at,created_at,updated_at";
-export async function readConversation(db: Sql, w: string, id: string) {
-  const c = (await db.query<ConversationRow>(`SELECT ${CONVERSATION_COLUMNS} FROM conversations WHERE workspace_id=$1 AND id=$2 AND merged_into_id IS NULL AND visibility='customer'`, [w, id])).rows[0];
+/** A conversation in the API's shape; with `scope`, only if that teammate's role may see it (phase 16 C2). */
+export async function readConversation(db: Sql, w: string, id: string, scope?: Teammate) {
+  const values: unknown[] = [w, id];
+  const visible = scope ? scopeSql(scope, "conversations", values) : "true";
+  const c = (await db.query<ConversationRow>(`SELECT ${CONVERSATION_COLUMNS} FROM conversations WHERE workspace_id=$1 AND id=$2 AND merged_into_id IS NULL AND visibility='customer' AND ${visible}`, values)).rows[0];
   assert(c, "NOT_FOUND", "No such conversation.", 404);
   return conversationOut(db, w, c);
 }
@@ -147,9 +151,9 @@ export const listOf = (data: unknown[], next: unknown) => ({ type: "list", data,
 /** A conversation command as the token's teammate, then the conversation as it now is. */
 export async function act(x: Context, p: Record<string, unknown>) {
   const id = String(x.params.id);
-  await readConversation(x.db, x.w, id);
+  await readConversation(x.db, x.w, id, x.me);
   await command(x.db, x.w, { type: "teammate", principal: x.token.principal }, x.key ?? crypto.randomUUID(), { conversationId: id, ...p } as never);
-  return readConversation(x.db, x.w, id);
+  return readConversation(x.db, x.w, id, x.me);
 }
 const sanitizeAttributes = (a: unknown) => {
   const out: Record<string, unknown> = {};
@@ -183,6 +187,7 @@ const HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
       where.push(`(updated_at,id)<($${values.length - 1}::timestamptz,$${values.length})`);
     }
     const n = Number(x.params.per_page);
+    if (x.me) where.push(scopeSql(x.me, "conversations", values));
     const rows = (await x.db.query<ConversationRow>(`SELECT ${CONVERSATION_COLUMNS} FROM conversations WHERE ${where.join(" AND ")} ORDER BY updated_at DESC,id DESC LIMIT ${n + 1}`, values)).rows;
     const page = rows.slice(0, n);
     return listOf(await Promise.all(page.map((c) => conversationOut(x.db, x.w, c))), rows.length > n ? [iso(page.at(-1)!.updated_at), page.at(-1)!.id] : null);
@@ -198,12 +203,12 @@ const HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
     if (!identity) throw invalid("contact_id", "That contact can't write in yet.");
     const brand = (await x.db.query<{ id: string }>("SELECT id FROM brands WHERE workspace_id=$1 ORDER BY (id='default') DESC,id LIMIT 1", [x.w])).rows[0];
     const started = (await command(x.db, x.w, { type: "contact", identityId: identity.identity_id, brandId: brand.id }, x.key ?? crypto.randomUUID(), { action: "start", text: String(x.body.body) })) as { conversationId: string };
-    return readConversation(x.db, x.w, started.conversationId);
+    return readConversation(x.db, x.w, started.conversationId, x.me);
   },
-  getConversation: (x) => readConversation(x.db, x.w, String(x.params.id)),
+  getConversation: (x) => readConversation(x.db, x.w, String(x.params.id), x.me),
   async listConversationParts(x) {
     const id = String(x.params.id);
-    await readConversation(x.db, x.w, id);
+    await readConversation(x.db, x.w, id, x.me);
     const after = cursor.read<number>(x.params.starting_after);
     if (x.params.starting_after !== undefined && typeof after !== "number") throw invalid("starting_after", "That cursor isn't one of ours.");
     const n = Number(x.params.per_page);
@@ -427,8 +432,9 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
     const result = await tenant(env.connect, w, async (db) => {
       // Phase 16 C1: audited as the token's teammate, via the token (or the app's installation).
       await actingVia(db, token.grantId ? "app:" + token.grantId : "api_token:" + token.id);
-      if (scope) await authorize(db, w, token.principal, scope);
-      return handlerFor(op.operationId)({ db, w, token, params: "values" in read ? read.values! : {}, body, key: key ? `api:${token.id}:${key}` : null, storage: env.storage, origin: url.origin, webhooks: env.webhooks });
+      // Phase 16 C2: and seen through their role's scope.
+      const me = scope ? await authorize(db, w, token.principal, scope) : undefined;
+      return handlerFor(op.operationId)({ db, w, token, me, params: "values" in read ? read.values! : {}, body, key: key ? `api:${token.id}:${key}` : null, storage: env.storage, origin: url.origin, webhooks: env.webhooks });
     });
     // And the newest response is taken back, newest change first.
     let out: unknown = result;

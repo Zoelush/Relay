@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { PERMISSION_INFO, permissionGroups, RESTRICTED_ALLOWED } from "../lib/permissions";
 import {
   Card,
   Field,
@@ -22,6 +23,8 @@ type Role = {
   teammates: number;
   builtIn: boolean;
   editable: boolean;
+  /** Phase 16 C2: every conversation, or only those assigned to its teammates or their teams. */
+  scope: "all" | "assigned";
 };
 type Teammate = {
   id: string;
@@ -33,82 +36,11 @@ type Teammate = {
   teams: string[];
 };
 
-/** Every permission, grouped and explained. Some take effect in a later phase, as marked. */
-export const PERMISSIONS: [string, [string, string, string?][]][] = [
-  [
-    "Conversations",
-    [
-      [
-        "conversations.read",
-        "See conversations",
-        "Every role has this: it's what lets a teammate open Relay.",
-      ],
-      ["conversations.reply", "Reply to customers"],
-      ["conversations.note", "Write internal notes"],
-      [
-        "conversations.manage",
-        "Work on conversations",
-        "Close, snooze, tag, prioritise, merge and fill in details.",
-      ],
-      ["conversations.assign", "Assign conversations to anyone"],
-      ["conversations.delete_reply", "Delete replies sent to customers"],
-      ["conversations.delete_note", "Delete internal notes"],
-      [
-        "contacts.personal_data",
-        "See customers' personal details",
-        "Email addresses, phone numbers and the like.",
-      ],
-    ],
-  ],
-  [
-    "Macros",
-    [
-      ["macros.use", "Use macros"],
-      ["macros.create", "Create shared macros"],
-      ["macros.edit", "Edit shared macros"],
-      ["macros.delete", "Archive shared macros"],
-    ],
-  ],
-  [
-    "Helpdesk and knowledge",
-    [
-      ["tickets.manage", "Manage ticket types"],
-      [
-        "knowledge.manage",
-        "Manage knowledge",
-        "Articles, help centers, websites and the AI index.",
-      ],
-    ],
-  ],
-  [
-    "Workspace",
-    [
-      [
-        "workspace.manage",
-        "Manage workspace settings",
-        "General, teams, office hours, SLAs, tags, attributes and the portal.",
-      ],
-      ["teammates.manage", "Manage teammates and roles"],
-    ],
-  ],
-  [
-    "Coming later",
-    [
-      [
-        "reports.view",
-        "View reports",
-        "Takes effect with reporting (phase 14).",
-      ],
-      [
-        "reports.share",
-        "Share reports",
-        "Takes effect with reporting (phase 14).",
-      ],
-      ["data.export", "Export data", "Takes effect in phase 16."],
-      ["billing.manage", "Manage billing", "Takes effect in phase 16."],
-    ],
-  ],
-];
+/** Every permission, grouped and explained in plain words (phase 16 C2: from `lib/permissions.ts`). */
+export const PERMISSIONS: [string, [string, string, string?][]][] = permissionGroups(Object.keys(PERMISSION_INFO)).map((g) => [
+  g.group,
+  g.items.map((i): [string, string, string] => [i.id, i.label, i.description]),
+]);
 const PRESENCE: Record<string, string> = {
   active: "Active",
   away: "Away",
@@ -307,7 +239,8 @@ export function RolesPage({ menu, page }: { menu: MenuState; page: Page }) {
                 <small className="pg-muted">
                   {r.id === "owner"
                     ? "Every permission"
-                    : `${r.capabilities.length} permissions`}{" "}
+                    : `${r.capabilities.length} permissions`}
+                  {r.scope === "assigned" && " · restricted to assigned conversations"}{" "}
                   · {r.teammates} {r.teammates === 1 ? "teammate" : "teammates"}
                   {!r.editable &&
                     r.id !== "owner" &&
@@ -391,8 +324,14 @@ function RoleEditor({
         ],
       ),
   );
+  const [scope, setScope] = useState<"all" | "assigned">(role?.scope ?? "all");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const restricted = scope === "assigned";
+  // What the role won't be able to do, in words: the editor's summary.
+  const cannot = Object.entries(PERMISSION_INFO)
+    .filter(([c, p]) => !p.legacy && !caps.has(c))
+    .map(([, p]) => p.label);
   async function save() {
     setBusy(true);
     setError("");
@@ -400,7 +339,8 @@ function RoleEditor({
       await api("roles", {
         ...(role ? { id: role.id } : {}),
         name,
-        capabilities: [...caps],
+        scope,
+        capabilities: [...caps].filter((c) => !restricted || RESTRICTED_ALLOWED.includes(c)),
       });
       onSaved(name.trim());
     } catch (e) {
@@ -436,18 +376,47 @@ function RoleEditor({
           />
         )}
       </Field>
+      <fieldset className="pg-settings-fieldset">
+        <legend>Which conversations</legend>
+        <label className="pg-settings-toggle">
+          <input type="radio" name="role-scope" checked={!restricted} disabled={role?.id === "owner"} onChange={() => setScope("all")} />
+          <span>
+            <strong>Every conversation</strong>
+            <small className="pg-muted">Teammates with this role can open any conversation in the workspace.</small>
+          </span>
+        </label>
+        <label className="pg-settings-toggle">
+          <input
+            type="radio"
+            name="role-scope"
+            checked={restricted}
+            disabled={role?.id === "owner"}
+            onChange={() => {
+              setScope("assigned");
+              setCaps(new Set([...caps].filter((c) => RESTRICTED_ALLOWED.includes(c))));
+            }}
+          />
+          <span>
+            <strong>Only conversations assigned to them or their teams</strong>
+            <small className="pg-muted">
+              For outsourced teams. They see no customers&apos; personal details, no reports and no other conversations, in the inbox, search, notifications or the API.
+            </small>
+          </span>
+        </label>
+      </fieldset>
       {PERMISSIONS.map(([group, items]) => (
         <fieldset key={group} className="pg-settings-fieldset">
           <legend>{group}</legend>
           {items.map(([cap, label, help]) => {
             const fixed = cap === "conversations.read";
             const beyond = !yours.includes(cap);
+            const notRestricted = restricted && !RESTRICTED_ALLOWED.includes(cap);
             return (
               <label key={cap} className="pg-settings-toggle">
                 <input
                   type="checkbox"
-                  checked={caps.has(cap)}
-                  disabled={fixed || beyond}
+                  checked={caps.has(cap) && !notRestricted}
+                  disabled={fixed || beyond || notRestricted}
                   onChange={(e) => {
                     const next = new Set(caps);
                     if (e.target.checked) next.add(cap);
@@ -457,19 +426,29 @@ function RoleEditor({
                 />
                 <span>
                   <strong>{label}</strong>
-                  {(help || beyond) && (
-                    <small className="pg-muted">
-                      {beyond
-                        ? "You don't have this permission yourself."
-                        : help}
-                    </small>
-                  )}
+                  <small className="pg-muted">
+                    {notRestricted ? "Not for restricted roles. " : beyond ? "You don't have this permission yourself. " : ""}
+                    {help}
+                  </small>
                 </span>
               </label>
             );
           })}
         </fieldset>
       ))}
+      <section className="pg-role-summary" aria-label="What this role can't do">
+        <h4>Teammates with this role can&apos;t</h4>
+        {restricted && <p>Open conversations that aren&apos;t assigned to them or their teams.</p>}
+        {cannot.length ? (
+          <ul>
+            {cannot.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        ) : (
+          !restricted && <p className="pg-muted">Nothing: this role has every permission.</p>
+        )}
+      </section>
       {error && (
         <p role="alert" className="pg-attr-error">
           {error}

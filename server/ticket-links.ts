@@ -6,7 +6,7 @@ import {
   type Connect,
   type Sql,
 } from "./db";
-import { authorize } from "./policy";
+import { authorize, scopeSql } from "./policy";
 import {
   append,
   command,
@@ -304,8 +304,11 @@ export async function unlinkFromTracker(
 
 /** Open trackers, for "Link to tracker" and the bulk bar. */
 export async function listTrackers(db: Sql, w: string, principal: string) {
-  await authorize(db, w, principal, "conversations.read");
+  const me = await authorize(db, w, principal, "conversations.read");
   await requireTickets(db, w);
+  // Phase 16 C2: within what the teammate's role may see.
+  const values: unknown[] = [w];
+  const scope = scopeSql(me, "c", values);
   return {
     trackers: (
       await db.query<{
@@ -318,8 +321,8 @@ export async function listTrackers(db: Sql, w: string, principal: string) {
         JOIN ticket_types y ON y.workspace_id=t.workspace_id AND y.id=t.type_id AND y.category='tracker'
         JOIN ticket_states s ON s.workspace_id=t.workspace_id AND s.id=t.state_id AND s.kind<>'resolved'
         JOIN conversations c ON c.workspace_id=t.workspace_id AND c.id=t.conversation_id
-        WHERE t.workspace_id=$1 ORDER BY t.number DESC LIMIT 200`,
-        [w],
+        WHERE t.workspace_id=$1 AND ${scope} ORDER BY t.number DESC LIMIT 200`,
+        values,
       )
     ).rows.map((r) => ({ ...r, number: Number(r.number) })),
   };

@@ -1946,6 +1946,11 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-webhook-url { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pg-webhooks > li > p { margin:6px 0 0; font-size:12.5px; }
 .pg-webhook-actions { display:flex; flex-wrap:wrap; gap:14px; margin-top:8px; font-size:13px; }
+/* Phase 16 C2: the role editor's summary of what a role can't do. */
+.pg-role-summary { margin:4px 0 12px; padding:10px 12px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-sunken); font-size:13px; }
+.pg-role-summary h4 { margin:0 0 6px; font-size:12px; color:var(--pg-text-3); text-transform:uppercase; letter-spacing:.04em; }
+.pg-role-summary p { margin:0 0 4px; }
+.pg-role-summary ul { margin:0; padding-left:18px; columns:2; column-gap:24px; }
 /* Phase 16 C1: the audit log. */
 .pg-audit-filters { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; margin-bottom:12px; }
 .pg-audit-filters label { display:grid; gap:3px; font-size:12px; color:var(--pg-text-3); }

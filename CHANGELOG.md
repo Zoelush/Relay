@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: Roles and permissions (phase 16, C2)
+
+- **Restricted roles for outsourced teams:** they see only conversations assigned to them or their teams, everywhere: the inbox, search, notifications, a customer's other conversations, and the API. They never see customers' personal details, reports or settings.
+- **A clearer permission editor:** every permission says what it lets someone do, and the editor shows what a role can't do before you save it.
+- **Manage security** is a permission of its own (the audit log). Everyone who managed the workspace keeps it.
+- **Tested from every side:** every page and API call against every kind of role.
+- **Migration:** 0082, with rollback.
+- **Details:** `docs/SECURITY_STEP2.md`.
+
 ## Unreleased: The audit log (phase 16, C1)
 
 - **Every administrative and sensitive change is recorded,** with who made it and when, by the database itself, so nothing can skip it. That covers roles and permissions, teammates and teams, settings, channels, Zoe, connectors, workflow publishes, outbound messages, API tokens, apps, webhooks, data definitions, data exports and deleted replies.
