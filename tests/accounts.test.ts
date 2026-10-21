@@ -6,7 +6,7 @@ import { tenant } from "../server/db";
 import { seedFoundation } from "../server/people";
 import { saveRole } from "../server/people-settings";
 import { hashPassword, needsRehash, passwordProblem, verifyPassword } from "../server/passwords";
-import { acceptInvitation, changeAccount, changeInvitations, changeSessions, readAccount, readInvitation, readSessions, resolveSession, signIn, signOut } from "../server/accounts";
+import { acceptInvitation as acceptOrChallenge, changeAccount, changeInvitations, changeSessions, readAccount, readInvitation, readSessions, resolveSession, signIn as signInOrChallenge, signOut } from "../server/accounts";
 import { sendAlert } from "../server/email-out";
 import { bridgeAgentRequest, bridgeAuthRequest } from "../server/agent-bridge";
 import { handleApi, type ApiEnvironment } from "../server/api";
@@ -23,6 +23,14 @@ import PostalMime from "postal-mime";
  * log; tokens only work in their own workspace; the host's bridge keeps the session in an HttpOnly
  * cookie and the API resolves it on every request.
  */
+/** Without two-factor (C3b), a right password starts a session rather than a challenge. */
+const session = <T extends object>(r: T) => {
+  assert.ok("token" in r, "a session, not a two-factor challenge");
+  return r as Extract<T, { token: string }>;
+};
+const signIn = async (...a: Parameters<typeof signInOrChallenge>) => session(await signInOrChallenge(...a));
+const acceptInvitation = async (...a: Parameters<typeof acceptOrChallenge>) => session(await acceptOrChallenge(...a));
+
 test("passwords: scrypt hashes, verified in constant time; weak ones refused", () => {
   const h = hashPassword("correct horse battery");
   assert.match(h, /^scrypt\$32768\$8\$1\$[\w-]{22}\$[\w-]{43}$/);

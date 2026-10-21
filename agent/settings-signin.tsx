@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Card, Frame, message, type MenuState, type Page } from "./settings-ui";
+import { CodeField, RecoveryCodes, SetupSteps } from "./two-factor";
 
 /**
  * Phase 16, step C3a (docs/SECURITY_STEP3.md), behind `security_v1`:
  * - **Your sign-in** (every teammate): a password to sign in with (set, or changed with the
  *   current one; a new password signs out every other device), and the devices signed in, each
- *   of which can be signed out.
+ *   of which can be signed out. C3b: two-factor (scan, confirm a code, save the recovery codes;
+ *   new recovery codes or turning it off each take a code).
  * - **Sessions** (Security, for `security.manage`): how long a session lasts without use and in
  *   all, and every teammate's open sessions, each of which can be ended.
  */
@@ -14,6 +16,7 @@ type Session = {
   id: string;
   current: boolean;
   method: string;
+  twoFactor: string | null;
   ip: string | null;
   userAgent: string | null;
   createdAt: string;
@@ -21,7 +24,117 @@ type Session = {
   expiresAt: string;
   teammate?: { id: string; name: string };
 };
-type Account = { email: string | null; passwordChangedAt: string | null; platform: boolean; sessions: Session[] };
+type TwoFactor = { enabled: boolean; recoveryCodesLeft: number; available: boolean; required: boolean };
+type Account = { email: string | null; passwordChangedAt: string | null; platform: boolean; sessions: Session[]; twoFactor: TwoFactor };
+
+/** Your two-factor: set up (scan, then a code; the recovery codes shown once), new recovery codes, or off. */
+function TwoFactorCard({ data, onChange }: { data: Account; onChange: (d: Account) => void }) {
+  const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const t = data.twoFactor;
+  const act = async (p: Record<string, unknown>, done: string, fallback: string) => {
+    setError("");
+    setNotice("");
+    try {
+      const r = await api<Account & { setup?: { secret: string; uri: string }; recoveryCodes?: string[] }>("account", p);
+      onChange(r);
+      setSetup(r.setup ?? null);
+      if (r.recoveryCodes) setCodes(r.recoveryCodes);
+      setCode("");
+      setNotice(done);
+    } catch (e) {
+      setError(message(e, fallback));
+    }
+  };
+  const feedback = (
+    <>
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      {notice && !error && (
+        <p role="status" className="pg-settings-notice">
+          {notice}
+        </p>
+      )}
+    </>
+  );
+  return (
+    <Card title="Two-factor" description="A code from an authenticator app each time you sign in with your password, as well as the password.">
+      {codes ? (
+        <RecoveryCodes
+          codes={codes}
+          doneLabel="I've saved them"
+          onDone={() => {
+            setCodes(null);
+            setNotice("");
+          }}
+        />
+      ) : !t.available ? (
+        <p className="pg-muted">Set a password above first: two-factor protects signing in with it.</p>
+      ) : t.enabled ? (
+        <>
+          <p>
+            <span className="pg-settings-badge">On</span> {t.recoveryCodesLeft} recovery {t.recoveryCodesLeft === 1 ? "code" : "codes"} left.
+            {t.required && " Your workspace requires two-factor."}
+          </p>
+          <form
+            className="pg-2fa-manage"
+            aria-label="Manage two-factor"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void act({ action: "recovery-codes", code }, "New recovery codes made. The old ones no longer work.", "New recovery codes couldn't be made.");
+            }}
+          >
+            <CodeField value={code} onChange={setCode} either />
+            <button type="submit" className="pg-secondary">
+              New recovery codes
+            </button>
+            {!t.required && (
+              <button
+                type="button"
+                className="pg-wf-link pg-danger-link"
+                onClick={() => void act({ action: "two-factor-off", code }, "Two-factor is off.", "Two-factor couldn't be turned off.")}
+              >
+                Turn off two-factor
+              </button>
+            )}
+          </form>
+          {feedback}
+        </>
+      ) : setup ? (
+        <SetupSteps setup={setup}>
+          <form
+            className="pg-2fa-manage"
+            aria-label="Turn on two-factor"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void act({ action: "two-factor-confirm", code }, "Two-factor is on.", "Two-factor couldn't be turned on.");
+            }}
+          >
+            <CodeField value={code} onChange={setCode} />
+            <button type="submit" className="pg-primary">
+              Turn on
+            </button>
+          </form>
+          {feedback}
+        </SetupSteps>
+      ) : (
+        <>
+          <p className="pg-muted">{t.required ? "Your workspace requires two-factor: you'll set it up the next time you sign in, or now." : "Off."}</p>
+          <button type="button" className="pg-primary" onClick={() => void act({ action: "two-factor-start" }, "", "Two-factor couldn't be set up.")}>
+            Set up two-factor
+          </button>
+          {feedback}
+        </>
+      )}
+    </Card>
+  );
+}
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 /** "Chrome on macOS", near enough, from a user agent. */
 export function device(ua: string | null) {
@@ -118,6 +231,7 @@ export function SignInSettingsPage({ menu, page }: { menu: MenuState; page: Page
               </button>
             </form>
           </Card>
+          <TwoFactorCard data={data} onChange={setData} />
           <Card title="Your devices" description="Where you're signed in to Relay. Sign out of any you don't recognise.">
             {data.platform && <p className="pg-muted">You&apos;re signed in here through your hosting account; sign out of it there.</p>}
             {data.sessions.length ? (
@@ -130,7 +244,8 @@ export function SignInSettingsPage({ menu, page }: { menu: MenuState; page: Page
                         {s.current && <span className="pg-settings-badge">This device</span>}
                       </strong>
                       <small className="pg-muted">
-                        Signed in {when(s.createdAt)} · last used {when(s.lastSeenAt)}
+                        Signed in {when(s.createdAt)}
+                        {s.twoFactor ? " with two-factor" : ""} · last used {when(s.lastSeenAt)}
                         {s.ip ? ` · from ${s.ip}` : ""}
                       </small>
                     </span>

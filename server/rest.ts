@@ -9,6 +9,7 @@ import type { AttachmentStorage } from "./attachments";
 import { MORE_HANDLERS } from "./rest-more";
 import { WEBHOOK_HANDLERS, type WebhookEnvironment } from "./webhooks";
 import { actingVia, recordContactView } from "./audit";
+import { networkAllowed, normalIp } from "./allowlists";
 
 /**
  * The public REST API (phase 15, step D1; docs/DEVELOPER_PLATFORM_STEP1.md), behind
@@ -360,6 +361,8 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
     const w = parsed ? unb64(parsed[1]) : null;
     if (!parsed || !w) return error(401, "unauthorized", "Send a personal access token as `Authorization: Bearer <token>`.");
     const hash = await sha256(auth![1]);
+    // Phase 16 C3b: the API's IP allowlist, against the address Cloudflare sets (a caller can't).
+    const ip = req.headers.get("cf-connecting-ip");
     const token = await tenant(env.connect, w, async (db) => {
       const on = (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='developer_api_v1' AND enabled", [w])).rows.length > 0;
       if (!on) return null;
@@ -372,6 +375,7 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
         )
       ).rows[0];
       if (!t) return null;
+      if (!(await networkAllowed(db, w, "api", ip))) return "network" as const;
       // At most once a minute per token: its last use, and usage older than seven days goes.
       if (!t.last_used_at || Date.now() - new Date(t.last_used_at).getTime() > 60_000) {
         await db.query("UPDATE api_tokens SET last_used_at=now() WHERE workspace_id=$1 AND id=$2", [w, t.id]);
@@ -380,6 +384,7 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
       return { id: t.id, teammateId: t.teammate_id, principal: t.principal_id, scopes: t.scopes, version: t.version, grantId: t.grant_id } satisfies Token;
     }).catch(() => null);
     if (!token) return error(401, "unauthorized", "That token isn't valid: it may have been revoked.");
+    if (token === "network") return error(403, "network_not_allowed", `This workspace's API isn't available from this address${normalIp(ip) ? ` (${normalIp(ip)})` : ""}. Ask someone who manages security to add it.`);
     // Rate limits, per token and per workspace; each call is counted for the Developers page.
     const limiter = env.rateLimiter ?? defaultLimiter;
     const mine = limiter.take("token:" + token.id, LIMITS.token);

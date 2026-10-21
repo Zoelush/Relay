@@ -1413,14 +1413,20 @@ export async function startLocalRelay(
             chunks.push(chunk as Buffer);
           }
           const body = Buffer.concat(chunks);
+          // Phase 16 C3b: the caller's address as Cloudflare sets it, from the socket, so a
+          // caller can't choose it (the IP allowlists and sessions read it).
+          const given = { ...req.headers };
+          delete given["x-real-ip"];
           const request = new Request(origin + req.url, {
             method: req.method,
-            headers: req.headers as HeadersInit,
+            headers: { ...given, "cf-connecting-ip": req.socket.remoteAddress ?? "" } as unknown as HeadersInit,
             ...(body.length ? { body } : {}),
           });
           const r =
             (await localFiles.handle(request)) ?? (await handler(request));
-          res.writeHead(r.status, Object.fromEntries(r.headers));
+          // Each Set-Cookie kept apart (signing in with two-factor sets one cookie and clears another).
+          const cookies = r.headers.getSetCookie();
+          res.writeHead(r.status, { ...Object.fromEntries(r.headers), ...(cookies.length ? { "set-cookie": cookies } : {}) });
           res.end(Buffer.from(await r.arrayBuffer()));
         } catch {
           res.writeHead(500);

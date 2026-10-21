@@ -129,6 +129,20 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **Break-glass:** an owner's password always signs in (C4's enforced SSO will keep it), and every sign-in, failure, sign-out and ended session is in the audit log.
     - **Locally,** `/agent` still signs in as the development owner (or `?as=grace`) unless a Relay session is present. Only the loopback fixture does that, never `app/` or `workers/`.
 
+13. **C3b decisions** (21 October 2026):
+    - **Two-factor is TOTP** (RFC 6238: SHA-1, six digits, 30 seconds, one step either side), from any authenticator app. The key is sealed with the connector key, like connector secrets. A code is used once: a code at or before the last one used is refused.
+    - **Recovery codes:** ten, shown once when two-factor is turned on or the codes are replaced, kept only as hashes, each used once.
+    - **Signing in with two-factor is two steps.** A right password gives a challenge, not a session: ten minutes, five wrong codes, then sign in again. The host keeps it in its own HttpOnly cookie (`relay_2fa`, on `/auth` only), so the page never holds it. Wrong codes also count toward the account's lock, and only a finished sign-in clears that count (a right password alone doesn't).
+    - **A workspace can require it** (Security › Access, `security.manage`). Whoever turns it on must have it on themselves. Turning it on signs out password sessions without two-factor. Those teammates set it up at their next sign-in, as do new teammates accepting an invitation, before they get a session. While it's required, nobody can turn their own off.
+    - **A password reset doesn't skip it.** Using the link sets the password, then asks for the code. A lost authenticator: a recovery code, or someone with `security.manage` (within their permissions) turns that teammate's two-factor off, which ends their sessions.
+    - **Platform sign-in isn't Relay's to hold to two-factor.** Its two-factor is the platform's, until it's retired.
+    - **Two IP allowlists** (Security › Access), each up to 100 addresses or CIDR ranges, IPv4 or IPv6. Empty means anywhere.
+      - **The app's** covers the inbox, Settings and signing in, however a teammate signed in, so the hosting platform's sign-in too. It's checked on every agent request and every sign-in step, against the address the host signs into its proof. Saving a list that leaves out your own address is refused.
+      - **The API's** covers the REST API (`/rest`), against the address Cloudflare sets (`cf-connecting-ip`, which a caller can't set). The local fixture sets it from the socket.
+      - **Neither list is honored without an address:** if a list exists and the address is unknown, the request is refused.
+      - **Allowlists stay enforced if `security_v1` is turned off,** so turning off the pages never opens access. Refused sign-ins are in the audit log; refused agent and API requests aren't, as there would be too many.
+    - **Break-glass:** an owner's password plus two-factor (or a recovery code) always signs in from an allowed address. The rollback turns off the requirement and empties both lists.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).
