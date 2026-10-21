@@ -143,6 +143,9 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if (manage && (await flag(db, w, "developer_api_v1"))) pages.push("webhooks");
   // Phase 15 D4: apps registered here, and apps installed here.
   if (manage && (await flag(db, w, "developer_api_v1"))) pages.push("apps");
+  // Phase 16 C3a: your own sign-in for everyone; sessions for who manages security.
+  if (await flag(db, w, "security_v1")) pages.push("sign-in");
+  if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("sessions");
   // Phase 16 C1: the audit log, for who manages security (C2's permission).
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("audit");
   // TODO(phase 16 C3–C10): sign-in, sessions, data, usage and billing. TODO(phase 12): email and other channels. TODO(phase 08 B1): more AI agent pages.

@@ -76,6 +76,9 @@ const routes = {
     "oauth-consent",
     "canvas-apps",
     "audit",
+    "account",
+    "security-sessions",
+    "invitations",
     "developer-webhook-deliveries",
     "developer-webhook-delivery",
     "email-message",
@@ -175,6 +178,9 @@ const routes = {
     "oauth-consent",
     "canvas",
     "audit",
+    "account",
+    "security-sessions",
+    "invitations",
     "email-settings",
     "help-centers",
     "realtime-ticket",
@@ -184,14 +190,35 @@ const routes = {
 };
 
 /** Principal comes exclusively from the hosting platform's authenticated session. */
+/** Phase 16 C3a: Relay's own session cookie (HttpOnly; the API resolves it on every request). */
+export const SESSION_COOKIE = "relay_session";
+/** The session token in a request's cookies, if any. */
+export function sessionCookie(request: Request) {
+  return (
+    request.headers
+      .get("cookie")
+      ?.split(";")
+      .map((s) => s.trim())
+      .find((s) => s.startsWith(SESSION_COOKIE + "="))
+      ?.slice(SESSION_COOKIE.length + 1) || undefined
+  );
+}
+/** Where the request came from, for sessions and the audit log (the host's proxy sets this). */
+const clientOf = (request: Request) => ({
+  ip: request.headers.get("cf-connecting-ip") ?? request.headers.get("x-real-ip") ?? null,
+  ua: request.headers.get("user-agent")?.slice(0, 300) ?? null,
+});
+
 export async function bridgeAgentRequest(
   request: Request,
   principal: string | undefined,
   config: AgentBridgeConfig,
   send: (request: Request) => Promise<Response> = fetch,
+  /** Phase 16 C3a: a Relay session (from `sessionCookie`), used in place of the platform's principal. */
+  session?: string,
 ) {
   try {
-    assert(principal, "AUTH_REQUIRED", "Sign in to open your inbox.", 401);
+    assert(principal || session, "AUTH_REQUIRED", "Sign in to open your inbox.", 401);
     assert(
       postgresInboxEnabled(config),
       "FEATURE_DISABLED",
@@ -294,9 +321,14 @@ export async function bridgeAgentRequest(
         "IDEMPOTENCY_REQUIRED",
         "Provide a request key.",
       );
+    const client = clientOf(request);
     const proof = await new SignJWT({
       workspace: config.RELAY_WORKSPACE_ID,
-      principal,
+      ...(session ? { session } : { principal }),
+      // Phase 16 C3a: who's asking from where, and the address teammates use (for invitation links).
+      ip: client.ip,
+      ua: client.ua,
+      origin: url.origin,
       inbox: true,
       method: request.method,
       path: target.pathname,
@@ -356,5 +388,60 @@ export async function bridgeAgentRequest(
         headers: { "cache-control": "private, no-store" },
       },
     );
+  }
+}
+
+/**
+ * Phase 16 C3a: signing in and out, and invitations, through the host (no principal yet). Each is
+ * signed for the API like the agent bridge; a session it starts goes into an HttpOnly cookie, never
+ * into the page. `/auth/signin`, `/auth/accept` and `/auth/signout` are POSTs from the host's own
+ * origin; `/auth/invitation` reads an invitation by its token.
+ */
+export async function bridgeAuthRequest(request: Request, config: AgentBridgeConfig, send: (request: Request) => Promise<Response> = fetch) {
+  const fail = (e: unknown) =>
+    Response.json(
+      { error: { code: e instanceof DomainError ? e.code : "UNAVAILABLE", message: e instanceof DomainError ? e.message : "Sign-in is unavailable. Try again." } },
+      { status: e instanceof DomainError ? e.status : 503, headers: { "cache-control": "no-store" } },
+    );
+  try {
+    const url = new URL(request.url);
+    const action = url.pathname.replace(/^\/auth\//, "");
+    assert(request.method === "POST" && ["signin", "accept", "signout", "invitation"].includes(action), "NOT_FOUND", "Endpoint unavailable.", 404);
+    assert(request.headers.get("origin") === url.origin && !["cross-site", "none"].includes(request.headers.get("sec-fetch-site") ?? ""), "ORIGIN_NOT_ALLOWED", "This request is not allowed.", 403);
+    assert(config.RELAY_WORKSPACE_ID && config.RELAY_API_ORIGIN && (config.RELAY_BRIDGE_SECRET?.length ?? 0) >= 32, "CONFIGURATION", "Sign-in is not configured.", 503);
+    const text = await request.text();
+    assert(text.length <= 4000, "BODY_TOO_LARGE", "Request is too large.", 413);
+    let body: Record<string, unknown> = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      throw new DomainError("INVALID_JSON", "Send a JSON object.");
+    }
+    if (action === "signout") body = { token: sessionCookie(request) ?? "" };
+    const client = clientOf(request);
+    const proof = await new SignJWT({ workspace: config.RELAY_WORKSPACE_ID, action, digest: await digest(body), ip: client.ip, ua: client.ua, origin: url.origin })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("relay-sites")
+      .setAudience("relay-auth")
+      .setIssuedAt()
+      .setExpirationTime("30s")
+      .sign(new TextEncoder().encode(config.RELAY_BRIDGE_SECRET!));
+    const target = new URL(config.RELAY_API_ORIGIN!);
+    target.pathname = "/v1/auth/" + action;
+    const upstream = await send(
+      new Request(target, { method: "POST", redirect: "error", signal: AbortSignal.timeout(15000), headers: { authorization: "Bearer " + proof, "content-type": "application/json" }, body: JSON.stringify(body) }),
+    );
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown> & { token?: string; expiresAt?: string };
+    const headers = new Headers({ "cache-control": "no-store", "content-type": "application/json" });
+    const secure = url.protocol === "https:" ? "; Secure" : "";
+    if (upstream.ok && typeof data.token === "string") {
+      const maxAge = Math.max(60, Math.floor((new Date(data.expiresAt ?? Date.now()).getTime() - Date.now()) / 1000));
+      headers.append("set-cookie", `${SESSION_COOKIE}=${data.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`);
+      delete data.token;
+    }
+    if (action === "signout") headers.append("set-cookie", `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+    return new Response(JSON.stringify(data), { status: upstream.status, headers });
+  } catch (e) {
+    return fail(e);
   }
 }

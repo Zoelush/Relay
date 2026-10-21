@@ -24,6 +24,8 @@ import { composeAway, composeReply, type Said } from "./email-compose";
  */
 export type EmailOutEnvironment = {
   sender?: EmailSender;
+  /** Phase 16 C3a: the connector key, to open an invitation's sealed link. */
+  key?: string;
   dns?: DnsResolver;
   /** Reads attachments' clean bytes for sending. */
   storage?: AttachmentStorage;
@@ -626,17 +628,37 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
   const { alertId } = job.payload as { alertId: string };
   const ready = await tenant(connect, w, async (db) => {
     const a = (
-      await db.query<{ id: string; kind: string; address: string; status: string; metric: string; baseline: number; latest_value: number; opened_at: string; incident_status: string; url: string | null; disabled_at: string | null }>(
-        `SELECT a.id,a.kind,a.address,a.status,i.metric,i.baseline,i.latest_value,i.opened_at,i.status AS incident_status,h.url,h.disabled_at FROM email_alerts a
+      await db.query<{
+        id: string;
+        kind: string;
+        address: string;
+        status: string;
+        metric: string;
+        baseline: number;
+        latest_value: number;
+        opened_at: string;
+        incident_status: string;
+        url: string | null;
+        disabled_at: string | null;
+        link_sealed: string | null;
+        inviter: string | null;
+        workspace_name: string | null;
+        invite_expires_at: string | null;
+      }>(
+        `SELECT a.id,a.kind,a.address,a.status,i.metric,i.baseline,i.latest_value,i.opened_at,i.status AS incident_status,h.url,h.disabled_at,
+           a.link_sealed,m.name AS inviter,(SELECT brand FROM workspace WHERE id=a.workspace_id) AS workspace_name,v.expires_at AS invite_expires_at FROM email_alerts a
          LEFT JOIN ai_incidents i ON i.workspace_id=a.workspace_id AND i.id=a.incident_id
          LEFT JOIN webhook_subscriptions h ON h.workspace_id=a.workspace_id AND h.id=a.webhook_subscription_id
+         LEFT JOIN teammate_invitations v ON v.workspace_id=a.workspace_id AND v.id=a.invitation_id
+         LEFT JOIN teammates m ON m.workspace_id=v.workspace_id AND m.id=v.invited_by
          WHERE a.workspace_id=$1 AND a.id=$2 FOR UPDATE OF a`,
         [w, alertId],
       )
     ).rows[0];
     if (!a || a.status !== "queued") return null;
+    // An invitation's sealed link is cleared whatever happens to the email.
     const set = (status: string, error = "", providerId: string | null = null) =>
-      db.query("UPDATE email_alerts SET status=$3,error=$4,provider_id=$5,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, a.id, status, error, providerId]);
+      db.query("UPDATE email_alerts SET status=$3,error=$4,provider_id=$5,link_sealed=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, a.id, status, error, providerId]);
     if (!(await emailOn(db, w))) {
       await set("failed", "Email was turned off.");
       return null;
@@ -655,7 +677,25 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
   if (!ready) return { done: true, result: { sent: false } };
   let subject: string;
   let words: ReturnType<typeof composeReply>;
-  if (ready.kind === "webhook_disabled") {
+  if (ready.kind === "invitation") {
+    // Phase 16 C3a: an invitation to the workspace, with its single-use link.
+    const { unseal } = await import("./connectors");
+    const link = ready.link_sealed && env.key ? await unseal(env.key, w, ready.id, "invitation_link", ready.link_sealed).catch(() => null) : null;
+    if (!link) {
+      await tenant(connect, w, (db) => db.query("UPDATE email_alerts SET status='failed',error='The invitation link is no longer available.',link_sealed=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, ready.id]));
+      return { done: true, result: { sent: false } };
+    }
+    subject = `${ready.inviter ?? "A teammate"} invited you to ${ready.workspace_name ?? "Relay"}`;
+    words = composeReply({
+      brand: "Relay",
+      said: {
+        author: "Relay",
+        body: `${ready.inviter ?? "A teammate"} invited you to join ${ready.workspace_name ?? "their workspace"} on Relay.\n\nChoose your password here (the link works once, until ${new Date(ready.invite_expires_at ?? Date.now()).toUTCString().replace(" GMT", " UTC")}):\n${link}`,
+      },
+      quote: null,
+      footer: "If you weren't expecting this, you can ignore it: nothing happens unless the link is used.",
+    });
+  } else if (ready.kind === "webhook_disabled") {
     // Phase 15 D3: a webhook that failed for 24 hours was turned off.
     subject = "Relay webhook turned off";
     words = composeReply({
@@ -691,11 +731,11 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
   });
   try {
     const sent = await env.sender!.sendRaw({ from: from.address, to: ready.address, raw, tags: { relay_workspace: w, relay_alert: ready.id } });
-    await tenant(connect, w, (db) => db.query("UPDATE email_alerts SET status='sent',provider_id=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, ready.id, sent.providerId]));
+    await tenant(connect, w, (db) => db.query("UPDATE email_alerts SET status='sent',provider_id=$3,link_sealed=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, ready.id, sent.providerId]));
     return { done: true, result: { sent: true } };
   } catch (err) {
     if (err instanceof EmailRejected) {
-      await tenant(connect, w, (db) => db.query("UPDATE email_alerts SET status='failed',error=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, ready.id, err.message]));
+      await tenant(connect, w, (db) => db.query("UPDATE email_alerts SET status='failed',error=$3,link_sealed=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, ready.id, err.message]));
       return { done: true, result: { sent: false } };
     }
     throw err;

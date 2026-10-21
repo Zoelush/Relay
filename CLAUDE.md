@@ -54,7 +54,11 @@ done locally, and D4, OAuth apps (`server/oauth.ts`, consent at `/oauth/authoriz
 (`docs/DEVELOPER_PLATFORM_STEP1.md` to `STEP5.md`): the scope (D1 to D5) is complete; D6 and the messenger home wait until asked. Phase 16 (`docs/SECURITY_PLAN.md`, scope C1 to C10; Relay owns teammate
 accounts; Stripe behind a port): C1, the audit log (`server/audit.ts`, `lib/audit-actions.ts`, `#settings/audit`, `security_v1`), is
 and C2, roles and the permissions matrix (`lib/permissions.ts`, role `scope`), are done locally (`docs/SECURITY_STEP1.md`,
-`STEP2.md`); next is C3 (teammate accounts and sessions). A conversation reaches a teammate only within their role's scope:
+`STEP2.md`), and C3a, Relay's own sign-in (`server/accounts.ts`, `server/passwords.ts`, `/signin`, `/invite`, `/auth/*`), is done
+locally (`docs/SECURITY_STEP3.md`); next is C3b (two-factor and IP allowlists). A Relay session's token lives only in the
+HttpOnly `relay_session` cookie and is resolved by the API on every request (`resolveSession`, from the bridge's proof);
+never trust a principal a host sends alongside it, and never put the token in a page or URL. Passwords are only `hashPassword`
+(scrypt); sign-in answers the same for an unknown email and a wrong password. A conversation reaches a teammate only within their role's scope:
 `visibleTo` (in `access`) for one, `scopeSql` for any list, count or search; a new query that lists conversations for a
 teammate applies `scopeSql`, and `tests/restricted-roles.test.ts` sweeps every GET route for leaks. A new agent route gets
 its line in `tests/fixtures/route-policy.ts` (the matrix fails without one); a new capability gets its plain words in

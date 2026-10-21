@@ -22,7 +22,7 @@ const refuse = (code: string, message: string): never => {
   throw new DomainError(code, message, 409);
 };
 
-async function capsOf(db: Sql, w: string, roleId: string) {
+export async function capsOf(db: Sql, w: string, roleId: string) {
   return new Set(
     (
       await db.query<{ capability: string }>(
@@ -32,7 +32,7 @@ async function capsOf(db: Sql, w: string, roleId: string) {
     ).rows.map((r) => r.capability),
   );
 }
-const within = (inner: Set<string>, outer: Set<string>) =>
+export const within = (inner: Set<string>, outer: Set<string>) =>
   [...inner].every((c) => outer.has(c));
 
 /** The acting manager: who they are, and what they may hand out. */
@@ -53,8 +53,10 @@ export async function listTeammates(db: Sql, w: string, principal: string) {
       seat: string;
       presence: string;
       teams: string[];
+      password: boolean;
     }>(
       `SELECT t.id,t.name,t.role_id,r.name AS role,t.seat,t.presence,
+        EXISTS(SELECT 1 FROM teammate_credentials c WHERE c.workspace_id=t.workspace_id AND c.teammate_id=t.id) AS password,
         COALESCE((SELECT array_agg(g.name ORDER BY g.name) FROM teammate_teams m
           JOIN teams g ON g.workspace_id=m.workspace_id AND g.id=m.team_id
           WHERE m.workspace_id=t.workspace_id AND m.teammate_id=t.id),'{}') AS teams
@@ -73,6 +75,8 @@ export async function listTeammates(db: Sql, w: string, principal: string) {
       seat: t.seat,
       presence: t.presence,
       teams: t.teams,
+      // Phase 16 C3a: signs in with a password (so a reset can be sent).
+      passwordSignIn: t.password,
     })),
     roles: (await listRoles(db, w, principal)).roles,
   };

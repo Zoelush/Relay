@@ -69,6 +69,7 @@ const emailOutEnvironment = (env: Env, storage: EmailOutEnvironment["storage"]):
     inboundDomain: env.RELAY_INBOUND_DOMAIN ?? "",
     sendingDomain: env.RELAY_SENDING_DOMAIN ?? env.RELAY_INBOUND_DOMAIN ?? "",
     region,
+    key: env.RELAY_CONNECTOR_KEY,
   };
 };
 import { purgeModelCalls } from "../server/ai-privacy";

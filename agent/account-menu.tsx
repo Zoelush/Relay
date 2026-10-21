@@ -32,6 +32,8 @@ export type Account = {
   email?: string;
   /** Where signing out goes, where the hosting sign-in supports it. */
   signOutHref?: string;
+  /** Phase 16 C3a: signed in with Relay's own sign-in: signing out ends the session here. */
+  relaySession?: boolean;
 };
 
 /** Role names are stored as written by admins ("owner"); shown with a capital. */
@@ -237,7 +239,21 @@ export function AccountMenu({
               ))}
             </div>
           </section>
-          {account.signOutHref && (
+          {account.relaySession && (
+            <section className="pg-account-section">
+              <button
+                type="button"
+                className="pg-account-item pg-account-out"
+                onClick={() =>
+                  void fetch("/auth/signout", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" }).finally(() => window.location.assign("/signin"))
+                }
+              >
+                <LogOut size={16} aria-hidden="true" />
+                <span>Sign out</span>
+              </button>
+            </section>
+          )}
+          {!account.relaySession && account.signOutHref && (
             <section className="pg-account-section">
               <a
                 className="pg-account-item pg-account-out"

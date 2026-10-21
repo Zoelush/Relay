@@ -226,8 +226,9 @@ import { changeWebhooks, getDelivery, listDeliveries, listWebhooks, TOPICS } fro
 import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConsent, type AuthorizeQuery } from "./oauth";
 import { canvasOverview, canvasRequest, listCanvasApps, type CanvasEnvironment } from "./canvas";
 import { changeAudit, readAudit } from "./audit";
+import { acceptInvitation, changeAccount, changeInvitations, changeSessions, readAccount, readInvitation, readInvitations, readSessions, resolveSession, sessionLive, signIn, signOut } from "./accounts";
 import { apiReferenceHtml } from "../lib/api-reference";
-import type { RateLimiter } from "./rate-limit";
+import { memoryRateLimiter, type RateLimiter } from "./rate-limit";
 import type { WebhookEnvironment } from "./webhooks";
 import { changeEmailSettings, readEmailMessage, readEmailSettings } from "./email-in";
 import {
@@ -351,6 +352,8 @@ export type AgentSession = {
   principal: string;
   teammateId: string;
   expiresAt: number;
+  /** Phase 16 C3a: the Relay session behind it, checked each time the socket re-validates. */
+  agentSessionId?: string | null;
 };
 export type RealtimeSession = Session | AgentSession;
 export function isAgent(s: RealtimeSession): s is AgentSession {
@@ -398,6 +401,40 @@ async function claims(token: string, env: ApiEnvironment, audience: string) {
       "Your session expired. Refresh your identity and try again.",
       401,
     );
+  }
+}
+const authLimiter = memoryRateLimiter();
+/**
+ * Phase 16 C3a: `/v1/auth/<action>`, signed by the host (`bridgeAuthRequest`): sign in, accept an
+ * invitation, sign out, or read an invitation. At most 20 at once, then one every 3 seconds, per
+ * address (each account also locks after ten wrong passwords).
+ */
+async function handleAuth(req: Request, env: ApiEnvironment): Promise<Response> {
+  const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
+  try {
+    assert(req.method === "POST", "NOT_FOUND", "Endpoint unavailable.", 404);
+    const action = new URL(req.url).pathname.slice("/v1/auth/".length);
+    let c;
+    try {
+      c = (await jwtVerify(req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "", bytes(env.bridgeSecret), { algorithms: ["HS256"], audience: "relay-auth", issuer: "relay-sites" })).payload;
+    } catch {
+      throw new DomainError("FORBIDDEN", "Sign-in must come through Relay's own pages.", 401);
+    }
+    const body = (await readBody(req, 4000)) as Record<string, unknown>;
+    assert(typeof c.workspace === "string" && c.action === action && c.digest === (await digest(body)), "FORBIDDEN", "Request signature does not match.", 401);
+    const client = { ip: typeof c.ip === "string" ? c.ip : null, userAgent: typeof c.ua === "string" ? c.ua : null, origin: typeof c.origin === "string" ? c.origin : null };
+    const taken = (env.rateLimiter ?? authLimiter).take("auth:" + (client.ip ?? "unknown"), { capacity: 20, perSecond: 1 / 3 });
+    assert(taken.ok, "RATE_LIMITED", "Too many attempts from here. Wait a minute and try again.", 429);
+    const w = c.workspace;
+    if (action === "signin") return reply(await signIn(env.connect, w, body, client));
+    if (action === "accept") return reply(await acceptInvitation(env.connect, w, body, client));
+    if (action === "signout") return reply(await signOut(env.connect, w, String(body.token ?? "")));
+    if (action === "invitation") return reply(await readInvitation(env.connect, w, body.token));
+    throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
+  } catch (e) {
+    const f = e instanceof DomainError ? e : null;
+    if (!f) console.error("auth", e);
+    return reply({ error: { code: f?.code ?? "UNAVAILABLE", message: f?.message ?? "Sign-in is unavailable. Try again." } }, f?.status ?? 503);
   }
 }
 async function readBody(req: Request, limit = 20000) {
@@ -550,6 +587,7 @@ export async function socketContext(
       principal = a.principal;
     const teammate = await tenant(env.connect, workspace, async (db) => {
       if (a.inbox === true) await inboxEnabled(db, workspace);
+      if (typeof a.agentSessionId === "string") assert(await sessionLive(db, workspace, a.agentSessionId), "SESSION_EXPIRED", "You're signed out. Sign in again.", 401);
       return authorize(db, workspace, principal, "conversations.read");
     });
     return {
@@ -560,6 +598,7 @@ export async function socketContext(
         principal,
         teammateId: teammate.id,
         expiresAt: Math.floor(Date.now() / 1000) + 300,
+        agentSessionId: typeof a.agentSessionId === "string" ? a.agentSessionId : null,
       },
       token,
     };
@@ -596,6 +635,8 @@ export async function validateRealtime(
   await tenant(env.connect, s.workspace, async (db) => {
     if (s.inbox) await inboxEnabled(db, s.workspace);
     await authorize(db, s.workspace, s.principal, "conversations.read");
+    // Phase 16 C3a: a Relay session signed out or revoked ends the socket too.
+    if (s.agentSessionId) assert(await sessionLive(db, s.workspace, s.agentSessionId), "SESSION_EXPIRED", "You're signed out. Sign in again.", 401);
   });
   return s;
 }
@@ -948,6 +989,8 @@ export async function handleApi(
       },
     });
   // Phase 15 D1: the public REST API, its own surface with its own errors and headers.
+  // Phase 16 C3a: signing in and out, and invitations, forwarded by the host (no principal yet).
+  if (url.pathname.startsWith("/v1/auth/")) return handleAuth(req, env);
   if (url.pathname === "/rest" || url.pathname.startsWith("/rest/")) return handleRest(req, { connect: env.connect, rateLimiter: env.rateLimiter, storage: env.attachments, webhooks: env.webhooks });
   // Phase 15 D4: OAuth's token and revoke endpoints (RFC 6749 and 7009), for apps' servers.
   if (url.pathname === "/oauth/token") return oauthToken(req, env.connect);
@@ -1410,6 +1453,9 @@ export async function handleApi(
             "/v1/agent/oauth-consent",
             "/v1/agent/canvas-apps",
             "/v1/agent/audit",
+            "/v1/agent/account",
+            "/v1/agent/security-sessions",
+            "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
             "/v1/agent/email-message",
@@ -1511,6 +1557,9 @@ export async function handleApi(
               "/v1/agent/oauth-consent",
               "/v1/agent/canvas",
               "/v1/agent/audit",
+              "/v1/agent/account",
+              "/v1/agent/security-sessions",
+              "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
               "/v1/agent/realtime-ticket",
@@ -1542,13 +1591,21 @@ export async function handleApi(
         );
       }
       assert(
-        typeof c.workspace === "string" && typeof c.principal === "string",
+        typeof c.workspace === "string" && (typeof c.principal === "string" || typeof c.session === "string"),
         "FORBIDDEN",
         "Agent authentication required.",
         401,
       );
+      // Phase 16 C3a: a Relay session is resolved here, on every request (revoked or expired: signed out).
+      const client = {
+        ip: typeof c.ip === "string" ? c.ip : null,
+        userAgent: typeof c.ua === "string" ? c.ua : null,
+        origin: typeof c.origin === "string" ? c.origin : null,
+      };
+      const signedIn = typeof c.session === "string" ? await resolveSession(env.connect, c.workspace, c.session, client) : null;
+      const sessionId = signedIn?.sessionId ?? null;
       const workspace = c.workspace,
-        principal = c.principal;
+        principal = signedIn ? signedIn.principal : (c.principal as string);
       const inbox = c.inbox === true;
       const actor: Actor = {
         type: "teammate",
@@ -1613,7 +1670,7 @@ export async function handleApi(
           return json({
             url: env.realtimeUrl,
             ticket: await sign(
-              { agent: { workspace, principal, inbox } },
+              { agent: { workspace, principal, inbox, agentSessionId: sessionId } },
               env,
               Math.floor(Date.now() / 1000) + 60,
               "realtime",
@@ -1903,6 +1960,15 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/developer-app")
           // Phase 15 D4: an app registered (its secret returned once), changed, given a new secret, archived; or one installed here, uninstalled.
           return json(await tenant(env.connect, workspace, (db) => changeApps(db, workspace, principal, p, env.canvas)));
+        if (url.pathname === "/v1/agent/account")
+          // Phase 16 C3a: your password, and signing out your devices.
+          return json(await tenant(env.connect, workspace, (db) => changeAccount(db, workspace, principal, sessionId, p)));
+        if (url.pathname === "/v1/agent/security-sessions")
+          // Phase 16 C3a: session limits, and ending anyone's sessions.
+          return json(await tenant(env.connect, workspace, (db) => changeSessions(db, workspace, principal, sessionId, p)));
+        if (url.pathname === "/v1/agent/invitations")
+          // Phase 16 C3a: an invitation made (its link returned once, and emailed) or withdrawn.
+          return json(await tenant(env.connect, workspace, (db) => changeInvitations(db, workspace, principal, { key: env.connectors?.key ?? env.webhooks?.key }, client, p)));
         if (url.pathname === "/v1/agent/audit")
           // Phase 16 C1: the audit log's retention changed, or an export asked for (both audited).
           return json(await tenant(env.connect, workspace, (db) => changeAudit(db, workspace, principal, p)));
@@ -2574,6 +2640,10 @@ export async function handleApi(
         // D5: each installation's placements and error rate, and your apps' rates across workspaces.
         return json({ ...apps, canvas: await canvasOverview(env.connect, workspace) });
       }
+      // Phase 16 C3a: your sign-in and devices; everyone's sessions and their limits; open invitations.
+      if (url.pathname === "/v1/agent/account") return json(await tenant(env.connect, workspace, (db) => readAccount(db, workspace, principal, sessionId)));
+      if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
+      if (url.pathname === "/v1/agent/invitations") return json(await tenant(env.connect, workspace, (db) => readInvitations(db, workspace, principal)));
       if (url.pathname === "/v1/agent/audit") {
         // Phase 16 C1: a page of the audit log, filtered; retention; this teammate's recent exports.
         const q = Object.fromEntries(url.searchParams);
@@ -3086,6 +3156,8 @@ export async function handleApi(
             teammate: t,
             account: {
               role: account?.role ?? t.role_id,
+              // Phase 16 C3a: signed in with a Relay session (its sign-out is Relay's).
+              relaySession: !!sessionId,
               workspace: {
                 id: workspace,
                 name: account?.workspace_name ?? workspace,

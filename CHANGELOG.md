@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: Sign-in, sessions and invitations (phase 16, C3a)
+
+- **Sign in to Relay with an email and password,** at `/signin`. Passwords are stored as scrypt hashes, and repeated wrong guesses lock the account for a while.
+- **Invite teammates** from Settings › Teammates: they get a link by email (shown to you once too), choose their name and password, and land in the inbox with the role you picked.
+- **Password resets:** a manager sends a single-use link from Settings › Teammates; using it sets a new password and signs out every old session.
+- **See your devices** in Settings › Your sign-in, and sign any of them out. Changing your password signs out the others.
+- **Session length:** choose how long teammates stay signed in, without use and in all, and end anyone's session at once (Settings › Security › Sessions).
+- **In the audit log:** every sign-in, failed attempt, sign-out and ended session.
+- **Migration:** 0083, with rollback.
+- **Details:** `docs/SECURITY_STEP3.md`.
+
 ## Unreleased: Roles and permissions (phase 16, C2)
 
 - **Restricted roles for outsourced teams:** they see only conversations assigned to them or their teams, everywhere: the inbox, search, notifications, a customer's other conversations, and the API. They never see customers' personal details, reports or settings.

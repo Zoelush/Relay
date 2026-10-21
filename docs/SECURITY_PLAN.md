@@ -111,6 +111,24 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **The matrix is a reviewed table** (`tests/fixtures/route-policy.ts`): every agent route and the one permission it needs, written from probing each route with single-permission roles. The test holds every kind of role to it, and fails on a route that isn't listed. The public API's operations are held to their scopes the same way.
     - **Limited seats' limits** (no inbox search, open by link) move to C8, with seats.
 
+11. **C3 choices** (21 October 2026, asked because C3 was larger than one step):
+    - **Split:**
+      - **C3a:** password sign-in, server-side sessions with idle and absolute limits, devices with remote sign-out, invitations and break-glass.
+      - **C3b:** TOTP two-factor with recovery codes and a switch to require it, plus the two IP allowlists.
+    - **Passwords** are hashed with scrypt from `@noble/hashes` (audited, no dependencies, the same on Workers and locally).
+    - **Invitations:** the link is shown to the manager once and emailed through the alert email path (`sendAlert`, kind `invitation`).
+    - **Two-factor setup** shows a QR code (`qrcode-generator`) with the key as text beside it.
+
+12. **C3a decisions** (21 October 2026):
+    - **Accounts are per workspace** (an email and password per teammate per workspace), because a host serves one workspace. Every table keeps its workspace id and row-level security.
+    - **The API resolves the session on every request.** The host only passes the cookie's token along, signed in the bridge's proof, so a revoked session stops at once. Sockets check it again each time they re-validate, at least every 5 minutes.
+    - **The token never reaches the page:** it lives in an HttpOnly, SameSite=Lax cookie (Secure over https). An invitation's token goes after `#`, so it never reaches a server's logs.
+    - **Sign-in reveals nothing:** an unknown email and a wrong password get the same answer after the same work. Ten wrong passwords lock the account for 15 minutes, and each address may try 20 times at once, then once every 3 seconds.
+    - **A new password signs out every other device.** Shortening the absolute limit applies to sessions already open.
+    - **Platform sign-in stays as a method.** Its sessions aren't Relay's, so they aren't listed. A Relay session, when present, comes first.
+    - **Break-glass:** an owner's password always signs in (C4's enforced SSO will keep it), and every sign-in, failure, sign-out and ended session is in the audit log.
+    - **Locally,** `/agent` still signs in as the development owner (or `?as=grace`) unless a Relay session is present. Only the loopback fixture does that, never `app/` or `workers/`.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

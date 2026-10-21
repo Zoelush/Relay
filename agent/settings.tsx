@@ -40,6 +40,8 @@ import {
   Webhook,
   AppWindow,
   ScrollText,
+  LockKeyhole,
+  MonitorSmartphone,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -68,6 +70,7 @@ import { EventsPage, OutboundPage, SubscriptionsPage } from "./settings-outbound
 import { ReportingPage } from "./settings-reporting";
 import { DevelopersPage } from "./settings-developers";
 import { AuditPage } from "./settings-audit";
+import { SessionsPage, SignInSettingsPage } from "./settings-signin";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -281,6 +284,22 @@ const PAGES: Page[] = [
     description: "Register apps that use Relay's API with OAuth, and see the apps installed here.",
     icon: AppWindow,
     group: "Developers",
+  },
+  {
+    // Phase 16 C3a: your password, and the devices you're signed in on.
+    id: "sign-in",
+    label: "Your sign-in",
+    description: "Your password, and the devices you're signed in on.",
+    icon: LockKeyhole,
+    group: "Personal",
+  },
+  {
+    // Phase 16 C3a: how long sessions last, and everyone's open sessions.
+    id: "sessions",
+    label: "Sessions",
+    description: "How long a sign-in lasts, and who's signed in where.",
+    icon: MonitorSmartphone,
+    group: "Security",
   },
   {
     // Phase 16 C1: every administrative and sensitive action, searchable and exportable.
@@ -609,6 +628,10 @@ export function Settings({
             <AppsPage menu={menu} page={current} />
           ) : current.id === "audit" ? (
             <AuditPage menu={menu} page={current} />
+          ) : current.id === "sign-in" ? (
+            <SignInSettingsPage menu={menu} page={current} />
+          ) : current.id === "sessions" ? (
+            <SessionsPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (
