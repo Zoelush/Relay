@@ -29,6 +29,9 @@ export async function api<T>(
   const data = (await r.json()) as T & {
     error?: { message?: string; code?: string };
   };
+  // Phase 16 C3a: a Relay session that ended (signed out elsewhere, revoked, or over its limits).
+  if (r.status === 401 && data.error?.code === "SIGNED_OUT" && typeof window !== "undefined" && window.location.pathname !== "/signin")
+    window.location.assign("/signin?next=" + encodeURIComponent(window.location.pathname + window.location.hash));
   if (!r.ok)
     throw new InboxError(
       data.error?.message ?? "The inbox is unavailable.",

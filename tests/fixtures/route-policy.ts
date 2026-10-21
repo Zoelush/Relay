@@ -12,6 +12,7 @@ import type { Capability } from "../../server/policy";
  */
 export type RoutePolicy = { needs: Capability | "teammate"; body?: Record<string, unknown>; restricted?: false };
 export const ROUTE_POLICY: Record<string, RoutePolicy> = {
+  "GET account": { needs: "teammate" },
   "GET ai-answers": { needs: "teammate" },
   "GET ai-approval": { needs: "teammate" },
   "GET ai-audit": { needs: "teammate" },
@@ -41,6 +42,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET help-insights": { needs: "knowledge.manage" },
   "GET history": { needs: "teammate" },
   "GET inbox": { needs: "teammate" },
+  "GET invitations": { needs: "teammates.manage" },
   "GET job": { needs: "teammate" },
   "GET knowledge": { needs: "teammate" },
   "GET knowledge-file": { needs: "teammate" },
@@ -64,6 +66,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET reply-target": { needs: "teammate" },
   "GET reporting-status": { needs: "reports.view" },
   "GET roles": { needs: "teammates.manage" },
+  "GET security-sessions": { needs: "security.manage" },
   "GET settings": { needs: "teammate" },
   "GET side-conversations": { needs: "teammate" },
   "GET sla-policies": { needs: "teammate" },
@@ -87,6 +90,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET workflows": { needs: "workspace.manage" },
   "GET workload": { needs: "teammate" },
   "GET zoe": { needs: "workspace.manage" },
+  "POST account": { needs: "teammate" },
   "POST ai-approval": { needs: "conversations.reply" },
   "POST ai-settings": { needs: "workspace.manage" },
   "POST attachment/complete": { needs: "teammate" },
@@ -107,6 +111,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "POST email-settings": { needs: "workspace.manage" },
   "POST events-settings": { needs: "workspace.manage" },
   "POST help-centers": { needs: "knowledge.manage" },
+  "POST invitations": { needs: "teammates.manage" },
   "POST knowledge": { needs: "knowledge.manage" },
   "POST knowledge-files": { needs: "teammate" },
   "POST knowledge-health": { needs: "knowledge.manage" },
@@ -128,6 +133,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "POST report-flow": { needs: "reports.view" },
   "POST report-metric": { needs: "reports.view" },
   "POST roles": { needs: "teammates.manage" },
+  "POST security-sessions": { needs: "security.manage" },
   "POST settings": { needs: "workspace.manage", body: { section: "general", name: "Relay", timezone: "Europe/London", language: "en" } },
   "POST side-conversation": { needs: "conversations.reply" },
   "POST sla-policies": { needs: "workspace.manage" },

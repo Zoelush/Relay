@@ -1982,5 +1982,18 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-consent-scopes li[data-granted="false"] { opacity:.6; }
 .pg-consent-scopes strong { font-size:13.5px; }
 .pg-consent-actions { display:flex; gap:10px; margin-top:18px; }
+/* Phase 16 C3a: Relay's own sign-in and invitations. */
+.pg-invite-form { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; margin:6px 0 12px; }
+.pg-invite-form label { display:grid; gap:3px; font-size:12px; color:var(--pg-text-3); }
+.pg-invite-form input, .pg-invite-form select { font:inherit; font-size:13px; padding:6px 8px; border:1px solid var(--pg-input-border); border-radius:6px; background:var(--pg-surface); color:var(--pg-text); }
+.pg-invite-made { display:grid; gap:4px; margin-bottom:12px; padding:10px 12px; border:1px solid var(--pg-accent-border); border-radius:8px; background:var(--pg-sunken); font-size:13px; }
+.pg-invite-made p { margin:0; }
+.pg-invite-made code { overflow-wrap:anywhere; }
+.pg-signin-settings { display:grid; gap:4px; max-width:420px; }
+.pg-signin-form { display:grid; gap:12px; margin:16px 0 8px; }
+.pg-signin-form label { display:grid; gap:4px; font-size:13px; color:var(--pg-text-2); }
+.pg-signin-form input { font:inherit; padding:8px 10px; border:1px solid var(--pg-input-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); }
+.pg-signin-form .pg-primary { justify-content:center; padding:9px 14px; }
+.pg-consent-card a { color:var(--pg-accent); }
 .pg-secondary { display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border:1px solid var(--pg-border-strong); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); font-weight:600; }
 .pg-secondary:hover { background:var(--pg-hover); }

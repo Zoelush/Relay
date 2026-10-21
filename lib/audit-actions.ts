@@ -70,6 +70,9 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   segment: { noun: "Segment", area: "Data" },
   "contact.merge": { noun: "Contact", area: "Customer records" },
   audit_settings: { noun: "Audit log retention", area: "Security" },
+  account: { noun: "Password sign-in", area: "Security" },
+  invitation: { noun: "Invitation", area: "People and roles" },
+  session_settings: { noun: "Session limits", area: "Security" },
 };
 
 /** Actions written by `recordAudit`: what isn't a row change. */
@@ -78,6 +81,11 @@ export const EXPLICIT_ACTIONS = {
   "conversation.part_deleted": { label: "Reply or note deleted", area: "Customer records" },
   "data.export_requested": { label: "Data export requested", area: "Data" },
   "audit.exported": { label: "Audit log exported", area: "Security" },
+  "session.signed_in": { label: "Signed in", area: "Security" },
+  "session.sign_in_failed": { label: "Sign-in failed", area: "Security" },
+  "session.signed_out": { label: "Signed out", area: "Security" },
+  "session.revoked": { label: "Session ended", area: "Security" },
+  "invitation.accepted": { label: "Invitation accepted", area: "People and roles" },
 } as const satisfies Record<string, { label: string; area: Area }>;
 export type ExplicitAction = keyof typeof EXPLICIT_ACTIONS;
 

@@ -34,6 +34,7 @@ type Teammate = {
   seat: string;
   presence: string;
   teams: string[];
+  passwordSignIn?: boolean;
 };
 
 /** Every permission, grouped and explained in plain words (phase 16 C2: from `lib/permissions.ts`). */
@@ -58,6 +59,7 @@ export function TeammatesPage({ menu, page }: { menu: MenuState; page: Page }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  const [resetLink, setResetLink] = useState<{ name: string; link: string; emailed: boolean } | null>(null);
   const load = useCallback(
     () =>
       api<NonNullable<typeof data>>("teammates")
@@ -102,6 +104,15 @@ export function TeammatesPage({ menu, page }: { menu: MenuState; page: Page }) {
           {notice}
         </p>
       )}
+      {resetLink && (
+        <div className="pg-invite-made" role="status">
+          <p>
+            Password reset for {resetLink.name}.{resetLink.emailed ? " We've emailed them the link; you can also send it yourself:" : " Send them this link:"}
+          </p>
+          <code aria-label="Password reset link">{resetLink.link}</code>
+          <small className="pg-muted">It works once, for a week, and isn&apos;t shown again. Their sessions end when they use it.</small>
+        </div>
+      )}
       <Card
         title="Teammates"
         description="Everyone in this workspace and their role. A role decides what a teammate can do; you can hand out only roles within your own permissions, and not change your own."
@@ -132,6 +143,24 @@ export function TeammatesPage({ menu, page }: { menu: MenuState; page: Page }) {
                   </small>
                 </span>
                 <span className="pg-settings-buttons">
+                  {t.passwordSignIn && !you && (
+                    <button
+                      type="button"
+                      aria-label={`Send ${t.name} a password reset`}
+                      onClick={async () => {
+                        setError("");
+                        setNotice("");
+                        try {
+                          const r = await api<{ link: string; emailed: boolean }>("invitations", { action: "reset", teammateId: t.id });
+                          setResetLink({ name: t.name, link: r.link, emailed: r.emailed });
+                        } catch (e) {
+                          setError(message(e, "The reset couldn't be sent."));
+                        }
+                      }}
+                    >
+                      Reset password
+                    </button>
+                  )}
                   <select
                     aria-label={`${t.name}: role`}
                     value={value}
@@ -164,11 +193,113 @@ export function TeammatesPage({ menu, page }: { menu: MenuState; page: Page }) {
           })}
         </ul>
         <p className="pg-muted pg-settings-small">
-          Inviting and removing teammates, and seats, arrive with administration
-          and billing.
+          Removing teammates, and seats, arrive with billing.
         </p>
       </Card>
+      {data && <Invitations roles={data.roles} />}
     </Frame>
+  );
+}
+
+type Invite = { id: string; email: string; name: string; role: string; invitedBy: string | null; createdAt: string; expiresAt: string };
+/** Phase 16 C3a: invite someone by email to a role; their link is shown once and emailed. */
+function Invitations({ roles }: { roles: Role[] }) {
+  const [list, setList] = useState<Invite[] | null>(null);
+  const [form, setForm] = useState({ email: "", name: "", roleId: roles.find((r) => r.id === "agent")?.id ?? roles[0]?.id ?? "" });
+  const [made, setMade] = useState<{ email: string; link: string; emailed: boolean } | null>(null);
+  const [error, setError] = useState("");
+  const load = useCallback(
+    () =>
+      api<{ invitations: Invite[] }>("invitations")
+        .then((r) => setList(r.invitations))
+        .catch(() => setList(null)),
+    [],
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+  if (!list) return null;
+  const act = async (p: Record<string, unknown>, fallback: string) => {
+    setError("");
+    try {
+      const r = await api<{ invitations: Invite[]; link?: string; emailed?: boolean }>("invitations", p);
+      setList(r.invitations);
+      return r;
+    } catch (e) {
+      setError(message(e, fallback));
+      return null;
+    }
+  };
+  return (
+    <Card title="Invitations" description="Invite someone by email to a role. Their link works once, for a week; you can withdraw it until it's used.">
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      {made && (
+        <div className="pg-invite-made" role="status">
+          <p>
+            Invited {made.email}.{made.emailed ? " We've emailed them the link; you can also send it yourself:" : " Send them this link:"}
+          </p>
+          <code aria-label="Invitation link">{made.link}</code>
+          <small className="pg-muted">It isn&apos;t shown again.</small>
+        </div>
+      )}
+      <form
+        className="pg-invite-form"
+        aria-label="Invite a teammate"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const r = await act({ action: "create", ...form }, "The invitation couldn't be made.");
+          if (r?.link) {
+            setMade({ email: form.email.trim().toLowerCase(), link: r.link, emailed: !!r.emailed });
+            setForm({ ...form, email: "", name: "" });
+          }
+        }}
+      >
+        <label>
+          <span>Email</span>
+          <input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </label>
+        <label>
+          <span>Name (optional)</span>
+          <input maxLength={80} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </label>
+        <label>
+          <span>Role</span>
+          <select value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })}>
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {roleName(r.name)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className="pg-primary">
+          Invite
+        </button>
+      </form>
+      {list.length > 0 && (
+        <ul className="pg-settings-list" aria-label="Open invitations">
+          {list.map((i) => (
+            <li key={i.id}>
+              <span>
+                <strong>{i.email}</strong>
+                <small className="pg-muted">
+                  {roleName(i.role)} · invited by {i.invitedBy ?? "a teammate"} · until {new Date(i.expiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                </small>
+              </span>
+              <span className="pg-settings-buttons">
+                <button type="button" aria-label={`Withdraw the invitation to ${i.email}`} onClick={() => void act({ action: "revoke", id: i.id }, "The invitation couldn't be withdrawn.")}>
+                  Withdraw
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 /** Built-in roles are stored as owner, admin and agent; shown capitalised. */

@@ -127,7 +127,7 @@ type Snapshot = Directory & {
   conversations: Conversation[];
   teammate: { id: string; name: string; role_id?: string };
   /** The account menu: the teammate's role and the workspace's name. */
-  account?: { role: string; workspace: { id: string; name: string } };
+  account?: { role: string; relaySession?: boolean; workspace: { id: string; name: string } };
   storage: { engine: string; transport: string; workspaceId: string };
   capabilities: {
     reply: boolean;
@@ -1669,6 +1669,7 @@ export default function PostgresInbox({
                 },
                 email: hosting.email,
                 signOutHref: hosting.signOutHref,
+                relaySession: snapshot.account?.relaySession,
               }}
               theme={theme}
               onTheme={setTheme}

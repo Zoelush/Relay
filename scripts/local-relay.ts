@@ -17,7 +17,7 @@ import { pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
 import { WebSocketServer } from "ws";
 import { SignJWT, jwtVerify } from "jose";
-import { bodyLimit, bridgeAgentRequest } from "../server/agent-bridge";
+import { bodyLimit, bridgeAgentRequest, bridgeAuthRequest, sessionCookie } from "../server/agent-bridge";
 import {
   attachmentScan,
   purgeInlineImages,
@@ -361,6 +361,7 @@ export async function startLocalRelay(
     inboundDomain: LOCAL_EMAIL_DOMAIN,
     sendingDomain: LOCAL_SENDING_DOMAIN,
     region: LOCAL_SES_REGION,
+    key: keys.connector,
   };
   // The AI agent (phase 08): offline stand-ins locally, unless a test passes its own.
   env.ai = {
@@ -1603,8 +1604,29 @@ export async function startLocalRelay(
           RELAY_BRIDGE_SECRET: keys.bridge,
         },
         (upstream) => handleApi(upstream, env),
+        // Phase 16 C3a: a Relay session, when signed in with a password, comes first.
+        sessionCookie(req),
       );
     }
+    // Phase 16 C3a: Relay's own sign-in, sign-out and invitations.
+    if (url.pathname.startsWith("/auth/"))
+      return bridgeAuthRequest(
+        req,
+        { RELAY_WORKSPACE_ID: "demo", RELAY_API_ORIGIN: apiOrigin, RELAY_BRIDGE_SECRET: keys.bridge },
+        (upstream) => handleApi(upstream, env),
+      );
+    // The sign-in and invitation pages: the agent app, with no development identity.
+    if (url.pathname === "/signin" || url.pathname === "/invite")
+      return new Response(
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relay</title><link rel="stylesheet" href="/agent/entry.css"></head><body style="margin:0"><div id="agent-root"></div><script src="/agent/entry.js" defer></script></body></html>`,
+        {
+          headers: {
+            "content-type": "text/html",
+            "cache-control": "no-store",
+            "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'`,
+          },
+        },
+      );
     if (url.pathname === "/demo/agent" || url.pathname === "/demo/agent.js")
       return new Response("Use the authenticated agent inbox.", {
         status: 404,
