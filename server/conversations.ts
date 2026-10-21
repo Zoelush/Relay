@@ -25,7 +25,7 @@ import {
   type RichDoc,
 } from "../lib/rich-doc";
 import { assert, once, DomainError, type Sql } from "./db";
-import { authorize, type Capability } from "./policy";
+import { authorize, visibleTo, type Capability } from "./policy";
 import { resolveContact } from "./people";
 import { customerReply, refreshCustomerUnread } from "./unread";
 import { enqueueJob } from "./jobs";
@@ -322,6 +322,8 @@ export async function access(
     };
   if (actor.type === "teammate") {
     const t = await authorize(db, w, actor.principal, cap);
+    // Phase 16 C2: a restricted role sees only conversations assigned to the teammate or their teams.
+    assert(visibleTo(t, c), "CONVERSATION_NOT_FOUND", "Conversation unavailable.", 404);
     return {
       type: "teammate",
       id: t.id,

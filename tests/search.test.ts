@@ -54,7 +54,7 @@ test("search filters, superseding edits, merged aliases, incremental rebuild and
     });
     const search = (w: string, q: string) =>
       tenant(db.connect, w, (sql) =>
-        searchConversations(sql, w, new URLSearchParams(q)),
+        searchConversations(sql, w, new URLSearchParams(q), { id: "owner" }),
       );
     assert.equal(
       (await search("a", "q=invoice&state=open&channel=messenger"))

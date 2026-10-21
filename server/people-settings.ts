@@ -1,6 +1,7 @@
 import { assert, DomainError, type Sql } from "./db";
 import { authorize, capabilities, type Capability } from "./policy";
 import { requireSettings } from "./settings";
+import { PERMISSION_INFO, RESTRICTED_ALLOWED } from "../lib/permissions";
 
 /**
  * Settings › Teammates and Roles (S3a; docs/SETTINGS_STEP4.md), for those with
@@ -142,8 +143,9 @@ export async function listRoles(db: Sql, w: string, principal: string) {
       name: string;
       capabilities: string[];
       teammates: number;
+      scope: "all" | "assigned";
     }>(
-      `SELECT r.id,r.name,
+      `SELECT r.id,r.name,r.scope,
         COALESCE((SELECT array_agg(c.capability ORDER BY c.capability) FROM role_capabilities c
           WHERE c.workspace_id=r.workspace_id AND c.role_id=r.id),'{}') AS capabilities,
         (SELECT count(*) FROM teammates t WHERE t.workspace_id=r.workspace_id AND t.role_id=r.id)::int AS teammates
@@ -244,6 +246,16 @@ export async function saveRole(
       "ROLE_ABOVE_YOURS",
       "You can only give a role permissions you have yourself.",
     );
+  // Phase 16 C2: a restricted role sees only its teammates' and their teams' conversations, and
+  // never has personal data, reports, exports or anything that manages the workspace.
+  const scope = p.scope === undefined ? null : p.scope === "assigned" ? "assigned" : p.scope === "all" ? "all" : invalid("Choose who the role's conversations are.");
+  if (scope === "assigned" && existing?.id === "owner") invalid("The owner role always sees every conversation.");
+  const current = existing ? (await db.query<{ scope: string }>("SELECT scope FROM roles WHERE workspace_id=$1 AND id=$2", [w, existing.id])).rows[0].scope : "all";
+  const finalScope = scope ?? current;
+  if (finalScope === "assigned") {
+    const beyond = [...wanted].filter((c) => !RESTRICTED_ALLOWED.includes(c));
+    if (beyond.length) invalid(`A restricted role can't have: ${beyond.map((c) => PERMISSION_INFO[c]?.label ?? c).join(", ")}.`);
+  }
   let id: string;
   if (existing && (BUILT_IN_ROLES as readonly string[]).includes(existing.id))
     id = existing.id;
@@ -281,11 +293,13 @@ export async function saveRole(
       ).rows.length;
       id = taken ? `${base}_${crypto.randomUUID().slice(0, 6)}` : base;
       await db.query(
-        "INSERT INTO roles(workspace_id,id,name) VALUES($1,$2,$3)",
-        [w, id, name],
+        "INSERT INTO roles(workspace_id,id,name,scope) VALUES($1,$2,$3,$4)",
+        [w, id, name, finalScope],
       );
     }
   }
+  // Widening a restricted role: its scope first, so its new permissions are allowed.
+  if (finalScope === "all" && current !== "all") await db.query("UPDATE roles SET scope='all' WHERE workspace_id=$1 AND id=$2", [w, id]);
   // Capabilities this page doesn't offer (none today) are left as they are.
   await db.query(
     "DELETE FROM role_capabilities WHERE workspace_id=$1 AND role_id=$2 AND capability=ANY($3::text[])",
@@ -296,5 +310,7 @@ export async function saveRole(
       "INSERT INTO role_capabilities(workspace_id,role_id,capability) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
       [w, id, c as Capability],
     );
+  // Restricting a role: last, once it holds only what a restricted role may (the database checks too).
+  if (finalScope === "assigned" && current !== "assigned") await db.query("UPDATE roles SET scope='assigned' WHERE workspace_id=$1 AND id=$2", [w, id]);
   return { id };
 }

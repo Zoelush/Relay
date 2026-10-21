@@ -1,9 +1,12 @@
 import { assert, tenant, type Sql, type Connect } from "./db";
 import type { Job } from "./jobs";
+import { scopeSql, type Teammate } from "./policy";
+/** Search, within what the teammate may see (phase 16 C2: a restricted role's own and its teams'). */
 export async function searchConversations(
   db: Sql,
   w: string,
   query: URLSearchParams,
+  scope: Pick<Teammate, "id" | "restricted" | "teams">,
 ) {
   const text = query.get("q") ?? "";
   assert(
@@ -17,6 +20,7 @@ export async function searchConversations(
     "c.merged_into_id IS NULL",
     "d.document @@ websearch_to_tsquery('simple',$2)",
   ];
+  where.push(scopeSql(scope, "c", values));
   const param = (value: unknown) => {
     values.push(value);
     return "$" + values.length;

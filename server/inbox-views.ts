@@ -1,5 +1,5 @@
-import { assert, once, tenant, type Sql, type Connect } from "./db";
-import { authorize, can, type Teammate } from "./policy";
+import { assert, DomainError, once, tenant, type Sql, type Connect } from "./db";
+import { authorize, can, scopeSql, type Teammate } from "./policy";
 import {
   agentConversation,
   listPreviews,
@@ -361,6 +361,12 @@ const countColumns =
   "COALESCE(s.ready,false) AS ready,COALESCE(s.open_count,0)::text AS count,COALESCE(s.count_version,0)::text AS count_version,CASE WHEN s.open_count>9999 THEN '9,999+' ELSE COALESCE(s.open_count,0)::text END AS count_label";
 const withSet =
   "inbox_views v LEFT JOIN inbox_filter_sets s ON s.workspace_id=v.workspace_id AND s.id=v.set_id";
+/**
+ * Phase 16 C2: a restricted role works from its own Mine and its team inboxes only. Other views
+ * (All, Unassigned, Mentions, shared and custom ones) count across the workspace, so they're
+ * neither listed nor opened; each page is also scoped (`scopeSql`).
+ */
+const restrictedViews = (t: Teammate, owner: string) => (t.restricted ? ` AND v.owner_id=${owner} AND (v.builtin='mine' OR starts_with(v.builtin,'${TEAM_INBOX}'))` : "");
 export async function visibleView(
   db: Sql,
   w: string,
@@ -370,7 +376,7 @@ export async function visibleView(
 ) {
   const v = (
     await db.query<InboxView>(
-      `SELECT ${viewColumns},COALESCE(s.ready,false) AS ready FROM ${withSet} WHERE v.workspace_id=$1 AND v.id=$2 AND NOT v.archived AND (v.owner_id=$3 OR v.shared)` +
+      `SELECT ${viewColumns},COALESCE(s.ready,false) AS ready FROM ${withSet} WHERE v.workspace_id=$1 AND v.id=$2 AND NOT v.archived AND (v.owner_id=$3 OR v.shared)${restrictedViews(t, "$3")}` +
         (lock ? " FOR UPDATE OF v" : ""),
       [w, id, t.id],
     )
@@ -434,16 +440,18 @@ async function seedAiView(db: Sql, w: string, t: Teammate) {
 export async function viewSnapshot(db: Sql, w: string, t: Teammate) {
   const views = (
     await db.query(
-      `SELECT ${viewColumns},${countColumns} FROM ${withSet} WHERE v.workspace_id=$1 AND NOT v.archived AND (v.owner_id=$2 OR v.shared) ORDER BY v.position,v.created_at,v.id`,
+      `SELECT ${viewColumns},${countColumns} FROM ${withSet} WHERE v.workspace_id=$1 AND NOT v.archived AND (v.owner_id=$2 OR v.shared)${restrictedViews(t, "$2")} ORDER BY v.position,v.created_at,v.id`,
       [w, t.id],
     )
   ).rows;
-  const folders = (
-    await db.query(
-      "SELECT id,name,owner_id,shared,position FROM inbox_view_folders WHERE workspace_id=$1 AND (owner_id=$2 OR shared) ORDER BY position,id",
-      [w, t.id],
-    )
-  ).rows;
+  const folders = t.restricted
+    ? []
+    : (
+        await db.query(
+          "SELECT id,name,owner_id,shared,position FROM inbox_view_folders WHERE workspace_id=$1 AND (owner_id=$2 OR shared) ORDER BY position,id",
+          [w, t.id],
+        )
+      ).rows;
   // The client compares these with its team inboxes and runs initialize when they differ.
   return {
     views,
@@ -462,6 +470,9 @@ export async function mutateView(
 ) {
   const t = await authorize(db, w, principal, "conversations.read");
   await viewsEnabled(db, w);
+  // Phase 16 C2: a restricted role keeps its built-in views; it doesn't make or change others.
+  if (t.restricted && p.action !== "initialize")
+    throw new DomainError("FORBIDDEN", "Your role works from your own inbox and your teams' inboxes.", 403);
   return once(db, w, "inbox.views:" + t.id, key, p, async () => {
     if (p.action === "initialize") {
       await seedInboxViews(db, w, t);
@@ -918,6 +929,8 @@ export async function viewPage(
     "m.workspace_id=$1",
     "m.set_id=$2",
     "c.merged_into_id IS NULL",
+    // Phase 16 C2: only what the teammate's role may see.
+    scopeSql(t, "c", values),
   ];
   const bind = (v: unknown) => {
     values.push(v);

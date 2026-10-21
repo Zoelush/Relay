@@ -1,7 +1,7 @@
 import type { Sql } from "./db";
 import { ticketContext } from "./tickets";
 import { slaContext } from "./sla";
-import { authorize, can } from "./policy";
+import { authorize, can, scopeSql } from "./policy";
 import { access, conversation } from "./conversations";
 import { resolveContact } from "./people";
 import { recordContactView } from "./audit";
@@ -21,7 +21,7 @@ export async function conversationContext(
   principal: string,
   conversationId: string,
 ) {
-  await authorize(db, w, principal, "conversations.read");
+  const me = await authorize(db, w, principal, "conversations.read");
   const c = await conversation(db, w, conversationId);
   await access(db, w, c, { type: "teammate", principal });
   const personal = await can(db, w, principal, "contacts.personal_data");
@@ -78,14 +78,17 @@ export async function conversationContext(
           )
         ).rows
       : [];
+  // Phase 16 C2: only the customer's conversations this teammate's role may see.
+  const scoped: unknown[] = [w, family, c.id, RECENT_LIMIT];
+  const scope = scopeSql(me, "c", scoped);
   const recent = family.length
     ? (
         await db.query(
           `SELECT DISTINCT c.id,c.title,c.status,c.updated_at AS "updatedAt" FROM conversations c
           JOIN identity_contact_mappings m ON m.workspace_id=c.workspace_id AND m.identity_id=c.primary_identity_id
-          WHERE c.workspace_id=$1 AND m.contact_id=ANY($2::text[]) AND c.id<>$3 AND c.merged_into_id IS NULL
+          WHERE c.workspace_id=$1 AND m.contact_id=ANY($2::text[]) AND c.id<>$3 AND c.merged_into_id IS NULL AND ${scope}
           ORDER BY c.updated_at DESC,c.id LIMIT $4`,
-          [w, family, c.id, RECENT_LIMIT],
+          scoped,
         )
       ).rows
     : [];

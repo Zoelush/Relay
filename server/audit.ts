@@ -13,7 +13,7 @@ import { actionsIn, AREAS, describeAction, EXPLICIT_ACTIONS, type Area, type Exp
  *   (`relay.actor_*`), set by `authorize` and, for the API, by the token check (`relay.actor_via`).
  * - **Append-only:** the database refuses an update or delete; only `pruneAudit` (retention)
  *   removes rows, past the workspace's retention (365 days unless changed; 90 days to 7 years).
- * - **Read** by who manages the workspace: filtered by time, area, action, teammate and target,
+ * - **Read** by who has `security.manage`: filtered by time, area, action, teammate and target,
  *   newest first; exported as CSV or JSON by a job (the export is itself audited).
  */
 const PAGE = 50;
@@ -111,7 +111,8 @@ const out = (r: Row) => {
 const SELECT = "SELECT seq::text,at,action,actor_type,actor_id,actor_name,via,target_type,target_id,target_name,details FROM audit_events";
 
 async function managing(db: Sql, w: string, principal: string) {
-  const t = await authorize(db, w, principal, "workspace.manage");
+  // Phase 16 C2: its own permission (migration 0082 gave it to every role that managed the workspace).
+  const t = await authorize(db, w, principal, "security.manage");
   assert(
     (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='security_v1' AND enabled", [w])).rows.length,
     "NOT_FOUND",

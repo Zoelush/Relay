@@ -28,7 +28,7 @@ import {
   type Conversation,
   type OlderBounds,
 } from "./conversations";
-import { authorize, can } from "./policy";
+import { authorize, can, scopeSql } from "./policy";
 import { readDrafts, saveDraft } from "./drafts";
 import { applyMacro, listMacros, saveMacro } from "./macros";
 import { commitBulk, prepareBulk, readBulk, undoBulk } from "./bulk";
@@ -3009,7 +3009,7 @@ export async function handleApi(
               : viewSnapshot(db, workspace, t);
           }
           if (url.pathname === "/v1/agent/search")
-            return searchConversations(db, workspace, url.searchParams);
+            return searchConversations(db, workspace, url.searchParams, t);
           if (url.pathname === "/v1/agent/job")
             return readJob(db, workspace, url.searchParams.get("id") ?? "", {
               teammateId: t.id,
@@ -3028,11 +3028,14 @@ export async function handleApi(
               conversation: agentConversation(data.conversation, personalData),
             };
           }
+          // Phase 16 C2: a restricted role lists only its own and its teams' conversations.
+          const scoped: unknown[] = [workspace];
+          const scope = scopeSql(t, "c", scoped);
           const listed = (
             await db.query<Conversation & { activity_at: string }>(
               `SELECT c.*,COALESCE(GREATEST(c.last_contact_reply_at,c.last_teammate_reply_at),c.created_at) AS activity_at
-               FROM conversations c WHERE c.workspace_id=$1 AND c.merged_into_id IS NULL ORDER BY c.updated_at DESC,c.id LIMIT 100`,
-              [workspace],
+               FROM conversations c WHERE c.workspace_id=$1 AND c.merged_into_id IS NULL AND ${scope} ORDER BY c.updated_at DESC,c.id LIMIT 100`,
+              scoped,
             )
           ).rows;
           const previews = await listPreviews(
@@ -3045,12 +3048,13 @@ export async function handleApi(
             activity_at: c.activity_at,
             preview: previews.get(c.id) ?? null,
           }));
+          // A restricted role's counters are only its own and its teams' (no workspace-wide totals).
           const counters = (
-            await db.query(
+            await db.query<{ view: string }>(
               "SELECT view,count::int,version FROM inbox_counters WHERE workspace_id=$1 AND teammate_id=$2",
               [workspace, t.id],
             )
-          ).rows;
+          ).rows.filter((r) => !t.restricted || r.view === "mine" || r.view.startsWith("team:"));
           // Workspace directory for names in the timeline and targets in the command palette.
           const directory = async (table: "teammates" | "teams") =>
             (
