@@ -8,6 +8,7 @@ import { LIMITS, memoryRateLimiter, type RateLimiter } from "./rate-limit";
 import type { AttachmentStorage } from "./attachments";
 import { MORE_HANDLERS } from "./rest-more";
 import { WEBHOOK_HANDLERS, type WebhookEnvironment } from "./webhooks";
+import { actingVia, recordContactView } from "./audit";
 
 /**
  * The public REST API (phase 15, step D1; docs/DEVELOPER_PLATFORM_STEP1.md), behind
@@ -78,7 +79,7 @@ export const cursor = {
 };
 export const invalid = (field: string, message: string) => new DomainError("INVALID_FIELD", message, 400, { field });
 
-export type Token = { id: string; teammateId: string; principal: string; scopes: string[]; version: string };
+export type Token = { id: string; teammateId: string; principal: string; scopes: string[]; version: string; grantId?: string | null };
 export type Context = { db: Sql; w: string; token: Token; params: Record<string, unknown>; body: Record<string, unknown>; key: string | null; storage?: AttachmentStorage; origin?: string; webhooks?: WebhookEnvironment };
 
 // The shapes the spec promises.
@@ -274,7 +275,12 @@ const HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
       await x.db.query("UPDATE contacts SET profile=jsonb_strip_nulls(profile||$3::jsonb),version=version+1 WHERE workspace_id=$1 AND id=$2", [x.w, found.contactId, JSON.stringify(attributes)]);
     return readContact(x.db, x.w, found.contactId);
   },
-  getContact: (x) => readContact(x.db, x.w, String(x.params.id)),
+  async getContact(x) {
+    const contact = await readContact(x.db, x.w, String(x.params.id));
+    // Phase 16 C1: a customer's record read through the API (once an hour in the audit log).
+    await recordContactView(x.db, x.w, contact.id, { where: "api", personalData: true });
+    return contact;
+  },
   async updateContact(x) {
     const current = await readContact(x.db, x.w, String(x.params.id));
     const attributes = sanitizeAttributes(x.body.custom_attributes);
@@ -353,8 +359,8 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
       const on = (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='developer_api_v1' AND enabled", [w])).rows.length > 0;
       if (!on) return null;
       const t = (
-        await db.query<{ id: string; teammate_id: string; principal_id: string; scopes: string[]; version: string; last_used_at: Date | null }>(
-          `SELECT k.id,k.teammate_id,m.principal_id,k.scopes,k.version,k.last_used_at FROM api_tokens k JOIN teammates m ON m.workspace_id=k.workspace_id AND m.id=k.teammate_id
+        await db.query<{ id: string; teammate_id: string; principal_id: string; scopes: string[]; version: string; last_used_at: Date | null; grant_id: string | null }>(
+          `SELECT k.id,k.teammate_id,m.principal_id,k.scopes,k.version,k.last_used_at,k.grant_id FROM api_tokens k JOIN teammates m ON m.workspace_id=k.workspace_id AND m.id=k.teammate_id
            WHERE k.workspace_id=$1 AND k.token_hash=$2 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
              AND (k.grant_id IS NULL OR EXISTS (SELECT 1 FROM oauth_grants g WHERE g.workspace_id=k.workspace_id AND g.id=k.grant_id AND g.revoked_at IS NULL))`,
           [w, hash],
@@ -366,7 +372,7 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
         await db.query("UPDATE api_tokens SET last_used_at=now() WHERE workspace_id=$1 AND id=$2", [w, t.id]);
         await db.query("DELETE FROM api_usage WHERE workspace_id=$1 AND minute<now()-interval '7 days'", [w]);
       }
-      return { id: t.id, teammateId: t.teammate_id, principal: t.principal_id, scopes: t.scopes, version: t.version } satisfies Token;
+      return { id: t.id, teammateId: t.teammate_id, principal: t.principal_id, scopes: t.scopes, version: t.version, grantId: t.grant_id } satisfies Token;
     }).catch(() => null);
     if (!token) return error(401, "unauthorized", "That token isn't valid: it may have been revoked.");
     // Rate limits, per token and per workspace; each call is counted for the Developers page.
@@ -419,6 +425,8 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
     const key = req.headers.get("idempotency-key");
     if (key !== null && !/^[A-Za-z0-9_.:-]{1,200}$/.test(key)) return error(400, "invalid_field", "Idempotency-Key is letters, digits and _.:- up to 200.", "Idempotency-Key");
     const result = await tenant(env.connect, w, async (db) => {
+      // Phase 16 C1: audited as the token's teammate, via the token (or the app's installation).
+      await actingVia(db, token.grantId ? "app:" + token.grantId : "api_token:" + token.id);
       if (scope) await authorize(db, w, token.principal, scope);
       return handlerFor(op.operationId)({ db, w, token, params: "values" in read ? read.values! : {}, body, key: key ? `api:${token.id}:${key}` : null, storage: env.storage, origin: url.origin, webhooks: env.webhooks });
     });

@@ -1946,6 +1946,16 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-webhook-url { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pg-webhooks > li > p { margin:6px 0 0; font-size:12.5px; }
 .pg-webhook-actions { display:flex; flex-wrap:wrap; gap:14px; margin-top:8px; font-size:13px; }
+/* Phase 16 C1: the audit log. */
+.pg-audit-filters { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; margin-bottom:12px; }
+.pg-audit-filters label { display:grid; gap:3px; font-size:12px; color:var(--pg-text-3); }
+.pg-audit-filters input, .pg-audit-filters select { font:inherit; font-size:13px; padding:5px 8px; border:1px solid var(--pg-input-border); border-radius:6px; background:var(--pg-surface); color:var(--pg-text); }
+.pg-audit-search input { min-width:200px; }
+.pg-audit-table th[scope="row"] { font-weight:600; }
+.pg-audit-table td, .pg-audit-table th { vertical-align:top; }
+.pg-audit-area { display:block; font-weight:400; }
+.pg-audit-details { margin:6px 0 0; padding-left:16px; font-weight:400; font-size:12px; color:var(--pg-text-2); overflow-wrap:anywhere; }
+.pg-audit-exports { margin:8px 0 0; padding-left:18px; display:grid; gap:4px; }
 .pg-webhook-log { margin-top:10px; padding-top:10px; border-top:1px solid var(--pg-border-subtle); }
 .pg-webhook-detail { margin-top:10px; padding:10px 12px; border-radius:8px; background:var(--pg-sunken); font-size:12.5px; }
 .pg-webhook-detail h4 { margin:0 0 6px; font-size:13px; }

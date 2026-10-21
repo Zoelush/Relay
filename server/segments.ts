@@ -1,6 +1,7 @@
 import { assert, DomainError, once, type Sql } from "./db";
 import { authorize } from "./policy";
 import { effectiveSubscriptions } from "./subscriptions";
+import { recordContactView } from "./audit";
 import { PREDEFINED, segmentProblems, type ContactFacts, type Rule, type SegmentDefinition } from "../lib/segments";
 
 /**
@@ -245,6 +246,8 @@ async function contactDetails(db: Sql, w: string, contactId: string) {
     )
   ).rows[0];
   assert(c, "CONTACT_NOT_FOUND", "That person isn't available.", 404);
+  // Phase 16 C1: a teammate opened this person's record (People needs personal-data access).
+  await recordContactView(db, w, c.id, { where: "people", personalData: true });
   const types = (await db.query<{ id: string; name: string; channel: string }>("SELECT id,name,channel FROM subscription_types WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id", [w])).rows;
   const states = await effectiveSubscriptions(db, w, c.id, types.map((x) => x.id));
   const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);

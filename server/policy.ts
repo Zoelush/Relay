@@ -36,7 +36,9 @@ export async function authorize(
 ): Promise<Teammate> {
   const t = (
     await db.query<Teammate>(
-      `SELECT t.id,t.name,t.role_id FROM teammates t JOIN role_capabilities p ON p.workspace_id=t.workspace_id AND p.role_id=t.role_id
+      // Phase 16 C1: the teammate becomes this transaction's actor for the audit log (`relay.actor_*`).
+      `SELECT t.id,t.name,t.role_id,set_config('relay.actor_id',t.id,true),set_config('relay.actor_name',t.name,true)
+    FROM teammates t JOIN role_capabilities p ON p.workspace_id=t.workspace_id AND p.role_id=t.role_id
     WHERE t.workspace_id=$1 AND t.principal_id=$2 AND p.capability=$3`,
       [workspace, principal, capability],
     )

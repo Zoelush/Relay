@@ -9,6 +9,7 @@ import { checkEvent, recordEvent } from "./events";
 import { compileSegment, segmentsOn } from "./segments";
 import { saveAttribute } from "./workspace-data";
 import { enqueueJob, type Job } from "./jobs";
+import { recordAudit } from "./audit";
 import type { AttachmentStorage } from "./attachments";
 import { PREDEFINED, type SegmentDefinition } from "../lib/segments";
 import { plainText, type RichDoc } from "../lib/rich-doc";
@@ -450,6 +451,8 @@ export const MORE_HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
     if (x.body.created_after && x.body.created_before && String(x.body.created_after) >= String(x.body.created_before)) throw invalid("created_before", "Must be after created_after.");
     const payload = { resources, after: x.body.created_after ?? null, before: x.body.created_before ?? null };
     const id = await enqueueJob(x.db, x.w, "api.export", payload, { teammateId: await teammateOf(x) });
+    // Phase 16 C1: a data export is audited when it's asked for.
+    await recordAudit(x.db, x.w, "data.export_requested", { type: "export", id }, payload);
     return exportOut(x, id);
   },
   getExport: (x) => exportOut(x, String(x.params.id)),
