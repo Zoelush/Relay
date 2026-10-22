@@ -143,6 +143,40 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **Allowlists stay enforced if `security_v1` is turned off,** so turning off the pages never opens access. Refused sign-ins are in the audit log; refused agent and API requests aren't, as there would be too many.
     - **Break-glass:** an owner's password plus two-factor (or a recovery code) always signs in from an allowed address. The rollback turns off the requirement and empties both lists.
 
+14. **C4 choices** (22 October 2026, asked because C4 was larger than one step):
+    - **Split:**
+      - **C4a:** OIDC, domain verification, enforced SSO with owner break-glass, and just-in-time accounts with roles from groups.
+      - **C4b:** SAML 2.0 on the same records.
+    - **SAML** uses a maintained library, pinned. C4b starts by confirming it runs on Workers (`nodejs_compat`) and stops to ask if it doesn't. Signed XML isn't checked by hand-written code.
+    - **No group maps to a role:** the sign-in is refused, says why, and is recorded. No account is made.
+
+15. **C4a decisions** (22 October 2026):
+    - **One connection per workspace** (a host serves one workspace). It's OIDC now, with SAML beside it in C4b, so both keep the same domains, role mappings and identities.
+    - **OIDC is the authorization code flow with PKCE, a nonce and a state:**
+      - **Saving:** the issuer's discovery document is read and its endpoints kept. The client secret is sealed with the connector key and never returned.
+      - **Each sign-in:** the ID token is checked with `jose` against the issuer's keys (issuer, audience, nonce, expiry).
+      - **Every call to the provider** goes through `safeFetch`/`safeRequest` (public https only; tests allow their loopback provider).
+      - **In the request:** the token exchange happens in the sign-in callback, not a job, because a browser redirect can't wait for one. It has a 10-second limit.
+    - **The flow runs through the host:**
+      - **`/auth/sso`** starts the flow. A login row holds the state, the nonce and the PKCE verifier, and the host keeps its token in an HttpOnly cookie (`relay_sso`, `/auth` only, ten minutes, SameSite=Lax so the provider's redirect carries it).
+      - **`/auth/sso/callback`** finishes it: it sets the session cookie and redirects to the inbox.
+      - **Never in a URL:** the session never appears in one, and a state matches only the browser that started it.
+    - **Domains are verified by a DNS TXT record** (`_relay-verification.<domain>`), checked by a job (`sso.domain.check`) through the DNS port.
+      - **Only emails at verified domains** sign in through SSO, and the provider must say the email is verified.
+      - **A domain is verified by one workspace at a time** (a unique index across workspaces).
+    - **Identities** (`sso_identities`) are keyed by the connection and the provider's subject, never by email, so a renamed email still finds its teammate.
+      - **First sign-in:** an existing teammate with that email (a password teammate) is linked; otherwise a teammate is made just in time.
+    - **Roles come from groups at every sign-in:**
+      - **Mappings** are an ordered list of group → role; the first match wins. No match refuses the sign-in.
+      - **Owners:** the owner role can't be mapped, and an owner's role is never changed by SSO, so a workspace always keeps its owner.
+      - **Role changes:** a change from the provider is recorded as a role change in the audit log.
+    - **Two-factor:** SSO sessions don't ask for Relay's two-factor. The identity provider's own MFA applies; the requirement covers password sign-in.
+    - **Enforced SSO:**
+      - **Before it can be turned on:** it needs an enabled connection, a verified domain and one successful SSO sign-in.
+      - **While it's on, for everyone but owners:** password sign-in, password resets, invitations and platform sign-in (including the local development identity) are refused, and their password sessions end when it's turned on.
+      - **Break-glass:** owners keep their password (and two-factor), and each such sign-in is recorded as break-glass.
+    - **Deprovisioning without SCIM** happens at the next sign-in (groups are checked each time), or when a manager ends the sessions. SCIM stays deferred.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

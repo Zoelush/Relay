@@ -16,6 +16,7 @@ import { releaseDeferred, runDelivery } from "../server/channels";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 import { checkAwayEmails, checkDomainJob, scheduleDomainChecks, sendAlert, type EmailOutEnvironment } from "../server/email-out";
 import { dohResolver, sesSender } from "../server/email-providers";
+import { checkSsoDomainJob } from "../server/sso";
 import { checkWhatsAppNumberJob, receiveWhatsAppJob, submitTemplateJob, syncTemplatesJob, type WhatsAppEnvironment } from "../server/whatsapp";
 import { graphApi } from "../server/whatsapp-api";
 import { checkSmsAccountJob, connectSmsNumberJob, receiveSmsJob, type SmsEnvironment } from "../server/sms";
@@ -604,6 +605,8 @@ const relayWorker = {
       "email.domain.check": (job) => checkDomainJob(runtime.connect, emailOutEnvironment(env, runtime.attachments), job),
       // Phase 12 E4: Zoe's incident alerts by email.
       "email.alert": (job) => sendAlert(runtime.connect, emailOutEnvironment(env, runtime.attachments), job),
+      // Phase 16 C4a: an SSO domain's TXT record, through DNS over HTTPS.
+      "sso.domain.check": (job) => checkSsoDomainJob(runtime.connect, { dns: dohResolver() }, job),
       // Phase 12 E2: an email received at an inbound address, read into its conversation.
       "email.receive": (job) => receiveEmailJob(runtime.connect, emailEnvironment(env, runtime.attachments), job),
     };

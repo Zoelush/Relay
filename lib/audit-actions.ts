@@ -73,6 +73,9 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   account: { noun: "Password sign-in", area: "Security" },
   invitation: { noun: "Invitation", area: "People and roles" },
   session_settings: { noun: "Sign-in and access settings", area: "Security" },
+  sso: { noun: "Single sign-on", area: "Security" },
+  sso_domain: { noun: "Single sign-on domain", area: "Security" },
+  sso_role: { noun: "Single sign-on group role", area: "Security" },
 };
 
 /** Actions written by `recordAudit`: what isn't a row change. */
@@ -92,6 +95,8 @@ export const EXPLICIT_ACTIONS = {
   "two_factor.reset": { label: "Two-factor turned off for a teammate", area: "Security" },
   "two_factor.recovery_codes_replaced": { label: "Recovery codes replaced", area: "Security" },
   "two_factor.recovery_code_used": { label: "Recovery code used", area: "Security" },
+  "session.sso_refused": { label: "Single sign-on refused", area: "Security" },
+  "session.break_glass": { label: "Owner signed in with a password (single sign-on enforced)", area: "Security" },
   "invitation.accepted": { label: "Invitation accepted", area: "People and roles" },
 } as const satisfies Record<string, { label: string; area: Area }>;
 export type ExplicitAction = keyof typeof EXPLICIT_ACTIONS;

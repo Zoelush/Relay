@@ -43,6 +43,33 @@ export async function securityOn(db: Sql, w: string) {
   );
 }
 
+/**
+ * Phase 16 C4a: whether single sign-on is enforced. Password sign-in, resets, invitations and
+ * platform sign-in are then for owners only (break-glass); see `server/sso.ts`.
+ */
+export async function ssoEnforced(db: Sql, w: string) {
+  return (await db.query("SELECT 1 FROM sso_connections WHERE workspace_id=$1 AND enforced", [w])).rows.length > 0;
+}
+const SSO_ONLY = "Your workspace signs in with single sign-on. Use “Sign in with single sign-on” instead.";
+/** Refuses what enforced SSO leaves to owners, for a teammate who isn't one. */
+export async function assertNotSsoOnly(db: Sql, w: string, roleId: string | null | undefined, message = SSO_ONLY) {
+  if (roleId !== "owner" && (await ssoEnforced(db, w))) throw new DomainError("SSO_REQUIRED", message, 403);
+}
+
+/**
+ * Signed in by the hosting platform (or the local development identity) rather than a Relay
+ * session: with single sign-on enforced, only owners. Anyone else is sent to sign in.
+ */
+export async function assertPlatformAllowed(db: Sql, w: string, principal: string) {
+  const r = (
+    await db.query<{ owner: boolean }>(
+      "SELECT t.role_id='owner' AS owner FROM sso_connections c LEFT JOIN teammates t ON t.workspace_id=c.workspace_id AND t.principal_id=$2 WHERE c.workspace_id=$1 AND c.enforced",
+      [w, principal],
+    )
+  ).rows[0];
+  if (r && !r.owner) throw new DomainError("SIGNED_OUT", "Your workspace signs in with single sign-on. Sign in again.", 401);
+}
+
 /** Whether a teammate has two-factor on, and how many recovery codes they have left. */
 export async function twoFactorOf(db: Sql, w: string, teammateId: string) {
   const r = (

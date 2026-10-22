@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: Single sign-on with OpenID Connect (phase 16, C4a)
+
+- **Sign in with your identity provider** (Okta, Microsoft Entra ID, Google Workspace and others) from Settings › Security › Single sign-on.
+- **Verified domains:** only people with an email at a domain you've verified with a DNS record can sign in this way.
+- **Roles from groups:** map groups to roles. People are added the first time they sign in, and their role follows their groups each time. Someone in no mapped group isn't let in.
+- **Require single sign-on:** passwords, invitations and other sign-in methods stop for everyone but owners, who keep a password for emergencies (each use is recorded).
+- **In the audit log:** sign-ins and refusals, role changes from groups, and every change to the settings.
+- **Migration:** 0085, with rollback.
+- **Details:** `docs/SECURITY_STEP5.md`.
+
 ## Unreleased: Two-factor and IP allowlists (phase 16, C3b)
 
 - **Two-factor sign-in:** turn it on in Settings › Your sign-in by scanning a QR code with any authenticator app. Sign-in then asks for a six-digit code after your password.

@@ -79,6 +79,7 @@ const routes = {
     "account",
     "security-sessions",
     "security-access",
+    "sso-settings",
     "invitations",
     "developer-webhook-deliveries",
     "developer-webhook-delivery",
@@ -182,6 +183,7 @@ const routes = {
     "account",
     "security-sessions",
     "security-access",
+    "sso-settings",
     "invitations",
     "email-settings",
     "help-centers",
@@ -412,7 +414,7 @@ export async function bridgeAuthRequest(request: Request, config: AgentBridgeCon
   try {
     const url = new URL(request.url);
     const action = url.pathname.replace(/^\/auth\//, "");
-    assert(request.method === "POST" && ["signin", "accept", "signout", "invitation", "two-factor", "two-factor-setup"].includes(action), "NOT_FOUND", "Endpoint unavailable.", 404);
+    assert(request.method === "POST" && ["signin", "accept", "signout", "invitation", "two-factor", "two-factor-setup", "sso-info"].includes(action), "NOT_FOUND", "Endpoint unavailable.", 404);
     assert(request.headers.get("origin") === url.origin && !["cross-site", "none"].includes(request.headers.get("sec-fetch-site") ?? ""), "ORIGIN_NOT_ALLOWED", "This request is not allowed.", 403);
     assert(config.RELAY_WORKSPACE_ID && config.RELAY_API_ORIGIN && (config.RELAY_BRIDGE_SECRET?.length ?? 0) >= 32, "CONFIGURATION", "Sign-in is not configured.", 503);
     const text = await request.text();
@@ -455,5 +457,68 @@ export async function bridgeAuthRequest(request: Request, config: AgentBridgeCon
     return new Response(JSON.stringify(data), { status: upstream.status, headers });
   } catch (e) {
     return fail(e);
+  }
+}
+
+/** Phase 16 C4a: the browser's single sign-on login, between `/auth/sso` and the provider's return (on `/auth` only). */
+export const SSO_COOKIE = "relay_sso";
+/** Errors the sign-in page explains in its own words (never text from the address). */
+export const SSO_ERRORS = ["SSO_OFF", "SSO_EXPIRED", "SSO_DENIED", "SSO_EMAIL", "SSO_DOMAIN", "SSO_NO_ROLE", "SSO_FAILED", "NETWORK_NOT_ALLOWED", "RATE_LIMITED", "UNAVAILABLE"];
+
+/**
+ * Phase 16 C4a: single sign-on through the host. `GET /auth/sso` asks the API where to send the
+ * browser, keeps the login's token in an HttpOnly cookie (`relay_sso`, `/auth` only, ten minutes,
+ * SameSite=Lax so the provider's redirect back carries it) and redirects to the provider.
+ * `GET /auth/sso/callback` passes the provider's code and state with that cookie; the session goes
+ * into the session cookie and the browser to the inbox. A failure goes back to `/signin?sso=<code>`.
+ */
+export async function bridgeSsoRequest(request: Request, config: AgentBridgeConfig, send: (request: Request) => Promise<Response> = fetch) {
+  const url = new URL(request.url);
+  const secure = url.protocol === "https:" ? "; Secure" : "";
+  const back = (code: string) =>
+    new Response(null, {
+      status: 302,
+      headers: { location: `/signin?sso=${SSO_ERRORS.includes(code) ? code : "SSO_FAILED"}`, "cache-control": "no-store", "set-cookie": `${SSO_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}` },
+    });
+  try {
+    assert(request.method === "GET" && (url.pathname === "/auth/sso" || url.pathname === "/auth/sso/callback"), "NOT_FOUND", "Endpoint unavailable.", 404);
+    assert(config.RELAY_WORKSPACE_ID && config.RELAY_API_ORIGIN && (config.RELAY_BRIDGE_SECRET?.length ?? 0) >= 32, "UNAVAILABLE", "Sign-in is not configured.", 503);
+    const start = url.pathname === "/auth/sso";
+    // Starting is from this site (or typed in); the return comes from the provider's site.
+    if (start) assert(["same-origin", "none", ""].includes(request.headers.get("sec-fetch-site") ?? ""), "SSO_EXPIRED", "Start from the sign-in page.", 403);
+    const action = start ? "sso-start" : "sso-finish";
+    const body = start
+      ? { next: url.searchParams.get("next") ?? "" }
+      : { login: sessionCookie(request, SSO_COOKIE) ?? "", state: url.searchParams.get("state") ?? "", code: url.searchParams.get("code") ?? "", error: url.searchParams.get("error") ?? "" };
+    const client = clientOf(request);
+    const proof = await new SignJWT({ workspace: config.RELAY_WORKSPACE_ID, action, digest: await digest(body), ip: client.ip, ua: client.ua, origin: url.origin })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("relay-sites")
+      .setAudience("relay-auth")
+      .setIssuedAt()
+      .setExpirationTime("30s")
+      .sign(new TextEncoder().encode(config.RELAY_BRIDGE_SECRET!));
+    const target = new URL(config.RELAY_API_ORIGIN!);
+    target.pathname = "/v1/auth/" + action;
+    const upstream = await send(
+      new Request(target, { method: "POST", redirect: "error", signal: AbortSignal.timeout(30000), headers: { authorization: "Bearer " + proof, "content-type": "application/json" }, body: JSON.stringify(body) }),
+    );
+    const data = (await upstream.json().catch(() => ({}))) as { url?: string; login?: string; token?: string; expiresAt?: string; next?: string; error?: { code?: string } };
+    if (!upstream.ok) return back(data.error?.code ?? "SSO_FAILED");
+    const headers = new Headers({ "cache-control": "no-store" });
+    if (start) {
+      if (typeof data.url !== "string" || typeof data.login !== "string" || !/^https?:\/\//.test(data.url)) return back("SSO_FAILED");
+      headers.append("set-cookie", `${SSO_COOKIE}=${data.login}; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
+      headers.set("location", data.url);
+      return new Response(null, { status: 302, headers });
+    }
+    if (typeof data.token !== "string") return back("SSO_FAILED");
+    const maxAge = Math.max(60, Math.floor((new Date(data.expiresAt ?? Date.now()).getTime() - Date.now()) / 1000));
+    headers.append("set-cookie", `${SESSION_COOKIE}=${data.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`);
+    headers.append("set-cookie", `${SSO_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+    headers.set("location", typeof data.next === "string" && /^\/(?!\/)/.test(data.next) ? data.next : "/agent");
+    return new Response(null, { status: 302, headers });
+  } catch (e) {
+    return back(e instanceof DomainError ? e.code : "SSO_FAILED");
   }
 }

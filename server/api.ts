@@ -227,8 +227,10 @@ import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConse
 import { canvasOverview, canvasRequest, listCanvasApps, type CanvasEnvironment } from "./canvas";
 import { changeAudit, readAudit } from "./audit";
 import { acceptInvitation, changeAccount, changeInvitations, changeSessions, completeTwoFactor, readAccount, readInvitation, readInvitations, readSessions, resolveSession, sessionLive, signIn, signInAllowed, signOut, twoFactorSetup } from "./accounts";
-import { changeAccess, readAccess } from "./two-factor";
+import { assertPlatformAllowed, changeAccess, readAccess } from "./two-factor";
 import { assertNetwork, notAllowed } from "./allowlists";
+import { changeSso, discover, finishSso, readSso, ssoInfo, startSso } from "./sso";
+import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
 import { memoryRateLimiter, type RateLimiter } from "./rate-limit";
 import type { WebhookEnvironment } from "./webhooks";
@@ -336,6 +338,8 @@ export interface ApiEnvironment {
   voice?: VoiceEnvironment;
   /** Reporting (phase 14 R1): the analytical store, a separate database. */
   analytics?: AnalyticsStore;
+  /** Single sign-on (phase 16 C4a): the fetch policy for identity providers (tests allow their loopback provider). */
+  sso?: { policy?: FetchPolicy };
 }
 export type Session = {
   workspace: string;
@@ -426,14 +430,19 @@ async function handleAuth(req: Request, env: ApiEnvironment): Promise<Response> 
     const body = (await readBody(req, 4000)) as Record<string, unknown>;
     assert(typeof c.workspace === "string" && c.action === action && c.digest === (await digest(body)), "FORBIDDEN", "Request signature does not match.", 401);
     const client = { ip: typeof c.ip === "string" ? c.ip : null, userAgent: typeof c.ua === "string" ? c.ua : null, origin: typeof c.origin === "string" ? c.origin : null };
+    const w = c.workspace;
+    // Phase 16 C4a: whether the sign-in page offers single sign-on is read on every page view: not an attempt.
+    if (action === "sso-info") return reply(await ssoInfo(env.connect, w));
     const taken = (env.rateLimiter ?? authLimiter).take("auth:" + (client.ip ?? "unknown"), { capacity: 20, perSecond: 1 / 3 });
     assert(taken.ok, "RATE_LIMITED", "Too many attempts from here. Wait a minute and try again.", 429);
-    const w = c.workspace;
     const keys = { key: env.connectors?.key ?? env.webhooks?.key };
     if (action !== "signout" && !(await signInAllowed(env.connect, w, client))) throw notAllowed(client.ip);
     if (action === "signin") return reply(await signIn(env.connect, w, body, client));
     if (action === "two-factor-setup") return reply(await twoFactorSetup(env.connect, w, keys, body));
     if (action === "two-factor") return reply(await completeTwoFactor(env.connect, w, keys, body, client));
+    // Phase 16 C4a: single sign-on: where to send the browser, and its return.
+    if (action === "sso-start") return reply(await startSso(env.connect, w, body, client));
+    if (action === "sso-finish") return reply(await finishSso(env.connect, w, { ...keys, policy: env.sso?.policy }, body, client));
     if (action === "accept") return reply(await acceptInvitation(env.connect, w, body, client));
     if (action === "signout") return reply(await signOut(env.connect, w, String(body.token ?? "")));
     if (action === "invitation") return reply(await readInvitation(env.connect, w, body.token));
@@ -595,6 +604,7 @@ export async function socketContext(
     const teammate = await tenant(env.connect, workspace, async (db) => {
       if (a.inbox === true) await inboxEnabled(db, workspace);
       if (typeof a.agentSessionId === "string") assert(await sessionLive(db, workspace, a.agentSessionId), "SESSION_EXPIRED", "You're signed out. Sign in again.", 401);
+      else await assertPlatformAllowed(db, workspace, principal);
       return authorize(db, workspace, principal, "conversations.read");
     });
     return {
@@ -644,6 +654,8 @@ export async function validateRealtime(
     await authorize(db, s.workspace, s.principal, "conversations.read");
     // Phase 16 C3a: a Relay session signed out or revoked ends the socket too.
     if (s.agentSessionId) assert(await sessionLive(db, s.workspace, s.agentSessionId), "SESSION_EXPIRED", "You're signed out. Sign in again.", 401);
+    // Phase 16 C4a: and platform sign-in stops for all but owners once single sign-on is enforced.
+    else await assertPlatformAllowed(db, s.workspace, s.principal);
   });
   return s;
 }
@@ -1463,6 +1475,7 @@ export async function handleApi(
             "/v1/agent/account",
             "/v1/agent/security-sessions",
             "/v1/agent/security-access",
+            "/v1/agent/sso-settings",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -1568,6 +1581,7 @@ export async function handleApi(
               "/v1/agent/account",
               "/v1/agent/security-sessions",
               "/v1/agent/security-access",
+              "/v1/agent/sso-settings",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -1624,6 +1638,8 @@ export async function handleApi(
       await tenant(env.connect, workspace, async (db) => {
         // Phase 16 C3b: the app's IP allowlist, however the teammate signed in.
         await assertNetwork(db, workspace, "app", client.ip);
+        // Phase 16 C4a: platform sign-in, with single sign-on enforced, is for owners only.
+        if (!sessionId) await assertPlatformAllowed(db, workspace, principal);
         if (
           inbox ||
           url.pathname.startsWith("/v1/agent/attachment/") ||
@@ -1977,6 +1993,13 @@ export async function handleApi(
           const r = await tenant(env.connect, workspace, (db) => changeAccount(db, workspace, principal, sessionId, p, { key: env.connectors?.key ?? env.webhooks?.key }));
           if ("refused" in r) throw r.refused;
           return json(r);
+        }
+        if (url.pathname === "/v1/agent/sso-settings") {
+          // Phase 16 C4a: the SSO connection (its issuer's discovery read before the transaction), domains, group roles, enforcement.
+          const ssoEnv = { key: env.connectors?.key ?? env.webhooks?.key, policy: env.sso?.policy };
+          if (p.action === "connection") await tenant(env.connect, workspace, (db) => authorize(db, workspace, principal, "security.manage"));
+          const discovered = p.action === "connection" ? await discover(ssoEnv, p.issuer) : null;
+          return json(await tenant(env.connect, workspace, (db) => changeSso(db, workspace, principal, ssoEnv, client, p, discovered)));
         }
         if (url.pathname === "/v1/agent/security-access")
           // Phase 16 C3b: requiring two-factor, a teammate's two-factor turned off, the IP allowlists.
@@ -2662,6 +2685,7 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/account") return json(await tenant(env.connect, workspace, (db) => readAccount(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
+      if (url.pathname === "/v1/agent/sso-settings") return json(await tenant(env.connect, workspace, (db) => readSso(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/invitations") return json(await tenant(env.connect, workspace, (db) => readInvitations(db, workspace, principal)));
       if (url.pathname === "/v1/agent/audit") {
         // Phase 16 C1: a page of the audit log, filtered; retention; this teammate's recent exports.

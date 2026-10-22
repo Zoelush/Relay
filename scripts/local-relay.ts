@@ -17,7 +17,9 @@ import { pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
 import { WebSocketServer } from "ws";
 import { SignJWT, jwtVerify } from "jose";
-import { bodyLimit, bridgeAgentRequest, bridgeAuthRequest, sessionCookie } from "../server/agent-bridge";
+import { bodyLimit, bridgeAgentRequest, bridgeAuthRequest, bridgeSsoRequest, sessionCookie } from "../server/agent-bridge";
+import { startLocalIdp } from "./local-idp";
+import { checkSsoDomainJob } from "../server/sso";
 import {
   attachmentScan,
   purgeInlineImages,
@@ -171,6 +173,8 @@ export async function startLocalRelay(
     ai?: { model?: AnswerModel; rerank?: RerankPort; classify?: ClassifierPort };
     /** The AI agent (phase 08), likewise on locally unless turned off. */
     aiAgent?: boolean;
+    /** Phase 16 C4a: a stand-in OpenID Connect provider on this loopback port, for single sign-on. */
+    idpPort?: number;
     /** Messenger drafts (messenger settings M1), likewise on locally unless turned off. */
     messengerV3?: boolean;
     /** Website sync's fetch policy and renderer (tests reach a local test site this way). */
@@ -326,6 +330,8 @@ export async function startLocalRelay(
     canvas: { key: keys.connector, policy: options.canvas?.policy ?? { allowHosts: [`127.0.0.1:${EXAMPLE_APP_PORT}`] }, timeoutMs: options.canvas?.timeoutMs },
     emailDomain: LOCAL_EMAIL_DOMAIN,
     emailSending: { sendingDomain: LOCAL_SENDING_DOMAIN, region: LOCAL_SES_REGION },
+    // Phase 16 C4a: single sign-on reaches only the local stand-in provider.
+    sso: { policy: { allowHosts: options.idpPort ? [`127.0.0.1:${options.idpPort}`] : [] } },
   };
   const emailEnv: EmailEnvironment = { storage: env.attachments, domain: LOCAL_EMAIL_DOMAIN, trustedAuthServ: [LOCAL_AUTHSERV] };
   // Email out (phase 12 E3): stand-in providers; nothing leaves the machine. SNS reports are
@@ -1157,6 +1163,8 @@ export async function startLocalRelay(
     });
   handlers["email.domain.check"] = (job) => checkDomainJob(db.connect, emailOut, job);
   handlers["email.alert"] = (job) => sendAlert(db.connect, emailOut, job);
+  // Phase 16 C4a: an SSO domain's TXT record, through the local DNS stand-in (`/dev/dns`).
+  handlers["sso.domain.check"] = (job) => checkSsoDomainJob(db.connect, { dns: email.dns }, job);
   // Phase 12 E2: emails received at inbound addresses, read into their conversations.
   handlers["email.receive"] = (job) => receiveEmailJob(db.connect, emailEnv, job);
   // Development seed (phase 12 E2): a Gmail reply with its quote, and one with attachments, sent to
@@ -1614,6 +1622,9 @@ export async function startLocalRelay(
         sessionCookie(req),
       );
     }
+    // Phase 16 C4a: single sign-on's start and the provider's return.
+    if (url.pathname === "/auth/sso" || url.pathname === "/auth/sso/callback")
+      return bridgeSsoRequest(req, { RELAY_WORKSPACE_ID: "demo", RELAY_API_ORIGIN: apiOrigin, RELAY_BRIDGE_SECRET: keys.bridge }, (upstream) => handleApi(upstream, env));
     // Phase 16 C3a: Relay's own sign-in, sign-out and invitations.
     if (url.pathname.startsWith("/auth/"))
       return bridgeAuthRequest(
@@ -1716,7 +1727,10 @@ export async function startLocalRelay(
     new Promise<void>((r) => api.listen(apiPort, "127.0.0.1", r)),
     new Promise<void>((r) => host.listen(hostPort, "127.0.0.1", r)),
   ]);
+  const idp = options.idpPort ? await startLocalIdp({ port: options.idpPort }) : null;
   return {
+    /** Phase 16 C4a: the stand-in identity provider, when started. */
+    idp,
     db,
     env,
     agent,
@@ -1755,6 +1769,7 @@ export async function startLocalRelay(
           host.closeAllConnections();
         }),
       ]);
+      await idp?.close();
       while (requests.size || background.size)
         await Promise.allSettled([...requests, ...background]);
       await db.close();
@@ -1796,6 +1811,8 @@ if (
     exampleWorkflow: true,
     apiPort: Number(process.env.RELAY_LOCAL_API_PORT ?? 8788),
     hostPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789),
+    // Phase 16 C4a: the stand-in identity provider, one port above the host (8790 by default).
+    idpPort: Number(process.env.RELAY_LOCAL_HOST_PORT ?? 8789) + 1,
     // Reranking stays offline: Workers AI isn't reachable from here.
     ai: key ? { model: claudeAnswerModel(key), classify: claudeClassifier(key) } : undefined,
   });
