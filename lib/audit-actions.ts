@@ -72,7 +72,7 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   audit_settings: { noun: "Audit log retention", area: "Security" },
   account: { noun: "Password sign-in", area: "Security" },
   invitation: { noun: "Invitation", area: "People and roles" },
-  session_settings: { noun: "Session limits", area: "Security" },
+  session_settings: { noun: "Sign-in and access settings", area: "Security" },
 };
 
 /** Actions written by `recordAudit`: what isn't a row change. */
@@ -85,6 +85,13 @@ export const EXPLICIT_ACTIONS = {
   "session.sign_in_failed": { label: "Sign-in failed", area: "Security" },
   "session.signed_out": { label: "Signed out", area: "Security" },
   "session.revoked": { label: "Session ended", area: "Security" },
+  "session.two_factor_failed": { label: "Wrong two-factor code", area: "Security" },
+  "session.network_refused": { label: "Sign-in refused (address not allowed)", area: "Security" },
+  "two_factor.enabled": { label: "Two-factor turned on", area: "Security" },
+  "two_factor.disabled": { label: "Two-factor turned off", area: "Security" },
+  "two_factor.reset": { label: "Two-factor turned off for a teammate", area: "Security" },
+  "two_factor.recovery_codes_replaced": { label: "Recovery codes replaced", area: "Security" },
+  "two_factor.recovery_code_used": { label: "Recovery code used", area: "Security" },
   "invitation.accepted": { label: "Invitation accepted", area: "People and roles" },
 } as const satisfies Record<string, { label: string; area: Area }>;
 export type ExplicitAction = keyof typeof EXPLICIT_ACTIONS;

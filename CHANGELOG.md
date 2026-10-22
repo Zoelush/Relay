@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: Two-factor and IP allowlists (phase 16, C3b)
+
+- **Two-factor sign-in:** turn it on in Settings › Your sign-in by scanning a QR code with any authenticator app. Sign-in then asks for a six-digit code after your password.
+- **Recovery codes:** ten, shown once, each good for one sign-in if you lose your phone.
+- **Require two-factor** for everyone who signs in with a password (Settings › Security › Access). Teammates without it set it up the next time they sign in, as do new teammates.
+- **A lost phone:** a manager can turn off a teammate's two-factor so they can set it up again.
+- **IP allowlists:** limit the app and the REST API, separately, to your office or VPN addresses. Relay won't let you save a list that would lock you out.
+- **In the audit log:** two-factor turned on and off, recovery codes used, wrong codes, sign-ins refused by address, and changes to the settings.
+- **Migration:** 0084, with rollback.
+- **Details:** `docs/SECURITY_STEP4.md`.
+
 ## Unreleased: Sign-in, sessions and invitations (phase 16, C3a)
 
 - **Sign in to Relay with an email and password,** at `/signin`. Passwords are stored as scrypt hashes, and repeated wrong guesses lock the account for a while.

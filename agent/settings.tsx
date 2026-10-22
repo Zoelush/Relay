@@ -21,6 +21,7 @@ import {
   Ticket,
   UserCog,
   ShieldCheck,
+  Fingerprint,
   Store,
   MessageCircle,
   DoorOpen,
@@ -71,6 +72,7 @@ import { ReportingPage } from "./settings-reporting";
 import { DevelopersPage } from "./settings-developers";
 import { AuditPage } from "./settings-audit";
 import { SessionsPage, SignInSettingsPage } from "./settings-signin";
+import { AccessPage } from "./settings-access";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -299,6 +301,14 @@ const PAGES: Page[] = [
     label: "Sessions",
     description: "How long a sign-in lasts, and who's signed in where.",
     icon: MonitorSmartphone,
+    group: "Security",
+  },
+  {
+    // Phase 16 C3b: requiring two-factor, teammates' two-factor, and the IP allowlists.
+    id: "access",
+    label: "Access",
+    description: "Require two-factor, and choose which networks can use the app and the API.",
+    icon: Fingerprint,
     group: "Security",
   },
   {
@@ -632,6 +642,8 @@ export function Settings({
             <SignInSettingsPage menu={menu} page={current} />
           ) : current.id === "sessions" ? (
             <SessionsPage menu={menu} page={current} />
+          ) : current.id === "access" ? (
+            <AccessPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

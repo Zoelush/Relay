@@ -78,6 +78,7 @@ const routes = {
     "audit",
     "account",
     "security-sessions",
+    "security-access",
     "invitations",
     "developer-webhook-deliveries",
     "developer-webhook-delivery",
@@ -180,6 +181,7 @@ const routes = {
     "audit",
     "account",
     "security-sessions",
+    "security-access",
     "invitations",
     "email-settings",
     "help-centers",
@@ -192,15 +194,17 @@ const routes = {
 /** Principal comes exclusively from the hosting platform's authenticated session. */
 /** Phase 16 C3a: Relay's own session cookie (HttpOnly; the API resolves it on every request). */
 export const SESSION_COOKIE = "relay_session";
+/** Phase 16 C3b: the two-factor challenge between a right password and the code (on `/auth` only). */
+export const CHALLENGE_COOKIE = "relay_2fa";
 /** The session token in a request's cookies, if any. */
-export function sessionCookie(request: Request) {
+export function sessionCookie(request: Request, name = SESSION_COOKIE) {
   return (
     request.headers
       .get("cookie")
       ?.split(";")
       .map((s) => s.trim())
-      .find((s) => s.startsWith(SESSION_COOKIE + "="))
-      ?.slice(SESSION_COOKIE.length + 1) || undefined
+      .find((s) => s.startsWith(name + "="))
+      ?.slice(name.length + 1) || undefined
   );
 }
 /** Where the request came from, for sessions and the audit log (the host's proxy sets this). */
@@ -395,7 +399,9 @@ export async function bridgeAgentRequest(
  * Phase 16 C3a: signing in and out, and invitations, through the host (no principal yet). Each is
  * signed for the API like the agent bridge; a session it starts goes into an HttpOnly cookie, never
  * into the page. `/auth/signin`, `/auth/accept` and `/auth/signout` are POSTs from the host's own
- * origin; `/auth/invitation` reads an invitation by its token.
+ * origin; `/auth/invitation` reads an invitation by its token. C3b: a right password may instead
+ * give a two-factor challenge, kept in its own HttpOnly cookie (`/auth` only, ten minutes) and sent
+ * with `/auth/two-factor` (the code) and `/auth/two-factor-setup` (when it's required).
  */
 export async function bridgeAuthRequest(request: Request, config: AgentBridgeConfig, send: (request: Request) => Promise<Response> = fetch) {
   const fail = (e: unknown) =>
@@ -406,7 +412,7 @@ export async function bridgeAuthRequest(request: Request, config: AgentBridgeCon
   try {
     const url = new URL(request.url);
     const action = url.pathname.replace(/^\/auth\//, "");
-    assert(request.method === "POST" && ["signin", "accept", "signout", "invitation"].includes(action), "NOT_FOUND", "Endpoint unavailable.", 404);
+    assert(request.method === "POST" && ["signin", "accept", "signout", "invitation", "two-factor", "two-factor-setup"].includes(action), "NOT_FOUND", "Endpoint unavailable.", 404);
     assert(request.headers.get("origin") === url.origin && !["cross-site", "none"].includes(request.headers.get("sec-fetch-site") ?? ""), "ORIGIN_NOT_ALLOWED", "This request is not allowed.", 403);
     assert(config.RELAY_WORKSPACE_ID && config.RELAY_API_ORIGIN && (config.RELAY_BRIDGE_SECRET?.length ?? 0) >= 32, "CONFIGURATION", "Sign-in is not configured.", 503);
     const text = await request.text();
@@ -418,6 +424,7 @@ export async function bridgeAuthRequest(request: Request, config: AgentBridgeCon
       throw new DomainError("INVALID_JSON", "Send a JSON object.");
     }
     if (action === "signout") body = { token: sessionCookie(request) ?? "" };
+    if (action.startsWith("two-factor")) body = { ...body, challenge: sessionCookie(request, CHALLENGE_COOKIE) ?? "" };
     const client = clientOf(request);
     const proof = await new SignJWT({ workspace: config.RELAY_WORKSPACE_ID, action, digest: await digest(body), ip: client.ip, ua: client.ua, origin: url.origin })
       .setProtectedHeader({ alg: "HS256" })
@@ -431,13 +438,18 @@ export async function bridgeAuthRequest(request: Request, config: AgentBridgeCon
     const upstream = await send(
       new Request(target, { method: "POST", redirect: "error", signal: AbortSignal.timeout(15000), headers: { authorization: "Bearer " + proof, "content-type": "application/json" }, body: JSON.stringify(body) }),
     );
-    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown> & { token?: string; expiresAt?: string };
+    const data = (await upstream.json().catch(() => ({}))) as Record<string, unknown> & { token?: string; expiresAt?: string; challenge?: string };
     const headers = new Headers({ "cache-control": "no-store", "content-type": "application/json" });
     const secure = url.protocol === "https:" ? "; Secure" : "";
     if (upstream.ok && typeof data.token === "string") {
       const maxAge = Math.max(60, Math.floor((new Date(data.expiresAt ?? Date.now()).getTime() - Date.now()) / 1000));
       headers.append("set-cookie", `${SESSION_COOKIE}=${data.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`);
       delete data.token;
+      if (action.startsWith("two-factor")) headers.append("set-cookie", `${CHALLENGE_COOKIE}=; Path=/auth; HttpOnly; SameSite=Strict; Max-Age=0${secure}`);
+    }
+    if (upstream.ok && typeof data.challenge === "string") {
+      headers.append("set-cookie", `${CHALLENGE_COOKIE}=${data.challenge}; Path=/auth; HttpOnly; SameSite=Strict; Max-Age=600${secure}`);
+      delete data.challenge;
     }
     if (action === "signout") headers.append("set-cookie", `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
     return new Response(JSON.stringify(data), { status: upstream.status, headers });

@@ -5,6 +5,23 @@ import { seal } from "./connectors";
 import { recordAudit } from "./audit";
 import { capsOf, within } from "./people-settings";
 import { DUMMY_HASH, hashPassword, needsRehash, passwordProblem, verifyPassword } from "./passwords";
+import {
+  beginSetup,
+  changeTwoFactor,
+  checkSecondFactor,
+  confirmSetup,
+  countWrongCode,
+  LOCK_AFTER,
+  LOCK_MINUTES,
+  lockedMessage,
+  lockedUntil,
+  securityOn,
+  twoFactorOf,
+  twoFactorRequired,
+  WRONG_CODE,
+  type TwoFactorEnvironment,
+} from "./two-factor";
+import { networkAllowed } from "./allowlists";
 
 /**
  * Teammate accounts and sessions (phase 16, step C3a; docs/SECURITY_STEP3.md). Relay's own
@@ -20,14 +37,19 @@ import { DUMMY_HASH, hashPassword, needsRehash, passwordProblem, verifyPassword 
  * - **Invitations:** for a week, single use, to a role the inviter could hand out; the link is
  *   shown once and emailed (`sendAlert`, sealed until sent). Accepting makes the teammate, their
  *   password and their first session.
- * - **Break-glass:** an owner's password always signs in (C4's enforced SSO keeps it); every
- *   sign-in, failure, sign-out and revocation is in the audit log.
+ * - **Two-factor** (C3b, docs/SECURITY_STEP4.md): with it on, or required by the workspace, a right
+ *   password gives a challenge rather than a session (`challengeOrSession`): ten minutes, five
+ *   wrong codes. The host keeps it in its own HttpOnly cookie. `completeTwoFactor` takes the code
+ *   (setting two-factor up first, when it's required and not yet on) and starts the session.
+ * - **Break-glass:** an owner's password (and second factor) always signs in from an allowed
+ *   address (C4's enforced SSO keeps it); every sign-in, failure, sign-out and revocation is in the
+ *   audit log.
  */
 export type ClientInfo = { ip?: string | null; userAgent?: string | null; origin?: string | null };
-export type AccountsEnvironment = { key?: string };
-const LOCK_AFTER = 10;
-const LOCK_MINUTES = 15;
+export type AccountsEnvironment = TwoFactorEnvironment;
 const INVITE_DAYS = 7;
+const CHALLENGE_MINUTES = 10;
+const CHALLENGE_TRIES = 5;
 const TOUCH_SECONDS = 60;
 const b64 = (s: string) => btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const unb64 = (s: string) => {
@@ -53,15 +75,6 @@ const clip = (v: string | null | undefined, n: number) => (v ? v.slice(0, n) : n
 /** The audit log's actor for this transaction (sign-in happens before `authorize` could set it). */
 const actAs = (db: Sql, t: { id: string; name: string }) => db.query("SELECT set_config('relay.actor_id',$1,true),set_config('relay.actor_name',$2,true)", [t.id, t.name]);
 
-/** Relay's own sign-in is part of Settings › Security (`security_v1`). */
-async function securityOn(db: Sql, w: string) {
-  assert(
-    (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='security_v1' AND enabled", [w])).rows.length,
-    "NOT_FOUND",
-    "Relay sign-in isn't turned on for this workspace.",
-    404,
-  );
-}
 async function limits(db: Sql, w: string) {
   return (
     (await db.query<{ idle_minutes: number; absolute_hours: number }>("SELECT idle_minutes,absolute_hours FROM security_settings WHERE workspace_id=$1", [w])).rows[0] ?? {
@@ -72,18 +85,33 @@ async function limits(db: Sql, w: string) {
 }
 
 /** A new session for a teammate; its token is returned this once. */
-async function startSession(db: Sql, w: string, teammateId: string, method: "password" | "invitation", client: ClientInfo) {
+async function startSession(db: Sql, w: string, teammateId: string, method: "password" | "invitation", client: ClientInfo, twoFactor: "totp" | "recovery" | null = null) {
   const token = `relay_ses_${b64(w)}_${random(40)}`;
   const { absolute_hours } = await limits(db, w);
   const id = crypto.randomUUID();
   const r = (
     await db.query<{ expires_at: Date }>(
-      `INSERT INTO teammate_sessions(workspace_id,id,teammate_id,token_hash,method,ip,user_agent,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::int*interval '1 hour')) RETURNING expires_at`,
-      [w, id, teammateId, await sha256(token), method, clip(client.ip, 64), clip(client.userAgent, 300), absolute_hours],
+      `INSERT INTO teammate_sessions(workspace_id,id,teammate_id,token_hash,method,ip,user_agent,expires_at,two_factor) VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::int*interval '1 hour'),$9) RETURNING expires_at`,
+      [w, id, teammateId, await sha256(token), method, clip(client.ip, 64), clip(client.userAgent, 300), absolute_hours, twoFactor],
     )
   ).rows[0];
-  await recordAudit(db, w, "session.signed_in", { type: "teammate", id: teammateId }, { method, ip: client.ip ?? null, userAgent: clip(client.userAgent, 120) });
+  await recordAudit(db, w, "session.signed_in", { type: "teammate", id: teammateId }, { method, twoFactor, ip: client.ip ?? null, userAgent: clip(client.userAgent, 120) });
   return { token, sessionId: id, expiresAt: new Date(r.expires_at).toISOString() };
+}
+
+/**
+ * After a right password: a session, or, with two-factor on (or required and not yet set up), a
+ * challenge for the code. Its token is returned this once; the host keeps it in an HttpOnly cookie.
+ */
+async function challengeOrSession(db: Sql, w: string, teammateId: string, method: "password" | "invitation", client: ClientInfo) {
+  const purpose: "verify" | "setup" | null = (await twoFactorOf(db, w, teammateId)).enabled ? "verify" : (await twoFactorRequired(db, w)) ? "setup" : null;
+  if (!purpose) return startSession(db, w, teammateId, method, client);
+  const challenge = `relay_chl_${b64(w)}_${random(40)}`;
+  await db.query(
+    "INSERT INTO teammate_challenges(workspace_id,id,teammate_id,token_hash,purpose,method,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+($7::int*interval '1 minute'))",
+    [w, crypto.randomUUID(), teammateId, await sha256(challenge), purpose, method, CHALLENGE_MINUTES],
+  );
+  return { twoFactor: purpose, challenge };
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -118,12 +146,89 @@ export async function signIn(connect: Connect, w: string, p: Record<string, unkn
       return { refused: WRONG, status: 401 } as const;
     }
     await actAs(db, { id: c.teammate_id, name: c.name });
-    await db.query("UPDATE teammate_credentials SET failed_count=0,locked_until=NULL WHERE workspace_id=$1 AND teammate_id=$2", [w, c.teammate_id]);
     if (needsRehash(c.password_hash)) await db.query("UPDATE teammate_credentials SET password_hash=$3 WHERE workspace_id=$1 AND teammate_id=$2", [w, c.teammate_id, hashPassword(password)]);
-    return startSession(db, w, c.teammate_id, "password", client);
+    const next = await challengeOrSession(db, w, c.teammate_id, "password", client);
+    // Wrong attempts clear only when signing in is done: with two-factor, a right password alone
+    // mustn't reset the count, or each new challenge would bring five more guesses at the code.
+    if ("token" in next) await db.query("UPDATE teammate_credentials SET failed_count=0,locked_until=NULL WHERE workspace_id=$1 AND teammate_id=$2", [w, c.teammate_id]);
+    return next;
   });
   if ("refused" in outcome) throw new DomainError(outcome.status === 429 ? "LOCKED" : "SIGN_IN_FAILED", outcome.refused, outcome.status);
   return outcome;
+}
+
+/** An open challenge, by its token (from the host's cookie), locked for this transaction. */
+const CHALLENGE_OVER = "That sign-in has expired. Sign in again.";
+async function openChallenge(db: Sql, w: string, token: unknown) {
+  assert(workspaceOf("relay_chl", token) === w, "CHALLENGE_EXPIRED", CHALLENGE_OVER, 401);
+  const c = (
+    await db.query<{ id: string; teammate_id: string; name: string; email: string; purpose: "verify" | "setup"; method: "password" | "invitation"; attempts: number; expires_at: Date; used_at: Date | null }>(
+      `SELECT c.id,c.teammate_id,t.name,cr.email,c.purpose,c.method,c.attempts,c.expires_at,c.used_at FROM teammate_challenges c
+       JOIN teammates t ON t.workspace_id=c.workspace_id AND t.id=c.teammate_id JOIN teammate_credentials cr ON cr.workspace_id=c.workspace_id AND cr.teammate_id=c.teammate_id
+       WHERE c.workspace_id=$1 AND c.token_hash=$2 FOR UPDATE OF c`,
+      [w, await sha256(String(token))],
+    )
+  ).rows[0];
+  assert(c && !c.used_at && new Date(c.expires_at) > new Date() && c.attempts < CHALLENGE_TRIES, "CHALLENGE_EXPIRED", CHALLENGE_OVER, 401);
+  return c!;
+}
+
+/** Setting two-factor up while signing in (when it's required): what to scan. */
+export async function twoFactorSetup(connect: Connect, w: string, env: AccountsEnvironment, p: Record<string, unknown>) {
+  return tenant(connect, w, async (db) => {
+    const c = await openChallenge(db, w, p.challenge);
+    assert(c.purpose === "setup", "CHALLENGE_EXPIRED", CHALLENGE_OVER, 401);
+    return beginSetup(db, w, env, { id: c.teammate_id, email: c.email });
+  });
+}
+
+/**
+ * The code that finishes signing in: from the app or a recovery code, or (when setting up) the
+ * first code from the new key, which also returns the recovery codes. Wrong codes are kept (they
+ * count toward the challenge's five and the account's lock), so they're refused after the commit.
+ */
+export async function completeTwoFactor(connect: Connect, w: string, env: AccountsEnvironment, p: Record<string, unknown>, client: ClientInfo) {
+  const outcome = await tenant(connect, w, async (db) => {
+    const c = await openChallenge(db, w, p.challenge);
+    const t = { id: c.teammate_id, name: c.name };
+    await actAs(db, t);
+    const locked = await lockedUntil(db, w, t.id);
+    if (locked) return { refused: lockedMessage(locked), code: "LOCKED", status: 429 } as const;
+    let recoveryCodes: string[] | null = null;
+    let factor: "totp" | "recovery" | null;
+    if (c.purpose === "setup") {
+      recoveryCodes = await confirmSetup(db, w, env, t, p.code);
+      factor = recoveryCodes ? "totp" : null;
+    } else factor = await checkSecondFactor(db, w, env, t, p.code);
+    if (!factor) {
+      await db.query("UPDATE teammate_challenges SET attempts=attempts+1 WHERE workspace_id=$1 AND id=$2", [w, c.id]);
+      const lockedNow = await countWrongCode(db, w, t, { ip: client.ip ?? null });
+      return c.attempts + 1 >= CHALLENGE_TRIES || lockedNow
+        ? ({ refused: "Too many wrong codes. Sign in again.", code: "CHALLENGE_EXPIRED", status: 401 } as const)
+        : ({ refused: WRONG_CODE, code: "WRONG_CODE", status: 401 } as const);
+    }
+    await db.query("UPDATE teammate_challenges SET used_at=now() WHERE workspace_id=$1 AND id=$2", [w, c.id]);
+    await db.query("UPDATE teammate_credentials SET failed_count=0 WHERE workspace_id=$1 AND teammate_id=$2", [w, t.id]);
+    const session = await startSession(db, w, t.id, c.method, client, factor);
+    return recoveryCodes ? { ...session, recoveryCodes } : session;
+  });
+  if ("refused" in outcome) {
+    const r = outcome as { refused: string; code: string; status: number };
+    throw new DomainError(r.code, r.refused, r.status);
+  }
+  return outcome;
+}
+
+/**
+ * Whether signing in may happen from this address (the app's allowlist). A refusal is kept in the
+ * audit log, so it's decided in its own transaction and refused after it commits.
+ */
+export async function signInAllowed(connect: Connect, w: string, client: ClientInfo) {
+  return tenant(connect, w, async (db) => {
+    if (await networkAllowed(db, w, "app", client.ip)) return true;
+    await recordAudit(db, w, "session.network_refused", { type: "workspace", id: w }, { ip: client.ip ?? null });
+    return false;
+  });
 }
 
 /** The teammate a session token belongs to, if it's still live; touches it at most once a minute. */
@@ -183,11 +288,12 @@ export async function signOut(connect: Connect, w: string, token: string) {
 /* ------------------------------------------------------------------------------------------ */
 /* Your sign-in (Settings › Your sign-in): password and devices                                */
 /* ------------------------------------------------------------------------------------------ */
-type SessionRow = { id: string; teammate_id: string; name?: string; method: string; ip: string | null; user_agent: string | null; created_at: Date; last_seen_at: Date; expires_at: Date };
+type SessionRow = { id: string; teammate_id: string; name?: string; method: string; two_factor?: string | null; ip: string | null; user_agent: string | null; created_at: Date; last_seen_at: Date; expires_at: Date };
 const sessionOut = (s: SessionRow, current?: string | null) => ({
   id: s.id,
   current: s.id === current,
   method: s.method,
+  twoFactor: s.two_factor ?? null,
   ip: s.ip,
   userAgent: s.user_agent,
   createdAt: new Date(s.created_at).toISOString(),
@@ -202,7 +308,7 @@ export async function readAccount(db: Sql, w: string, principal: string, session
   const c = (await db.query<{ email: string; password_changed_at: Date }>("SELECT email,password_changed_at FROM teammate_credentials WHERE workspace_id=$1 AND teammate_id=$2", [w, me.id])).rows[0];
   const sessions = (
     await db.query<SessionRow>(
-      `SELECT id,teammate_id,method,ip,user_agent,created_at,last_seen_at,expires_at FROM teammate_sessions WHERE workspace_id=$1 AND teammate_id=$2 AND ${LIVE} ORDER BY last_seen_at DESC`,
+      `SELECT id,teammate_id,method,two_factor,ip,user_agent,created_at,last_seen_at,expires_at FROM teammate_sessions WHERE workspace_id=$1 AND teammate_id=$2 AND ${LIVE} ORDER BY last_seen_at DESC`,
       [w, me.id],
     )
   ).rows;
@@ -212,11 +318,18 @@ export async function readAccount(db: Sql, w: string, principal: string, session
     // Signed in by the hosting platform rather than a Relay session: its sign-out is the platform's.
     platform: !sessionId,
     sessions: sessions.map((s) => sessionOut(s, sessionId)),
+    // Phase 16 C3b: two-factor protects password sign-in, so it needs a password first.
+    twoFactor: { ...(await twoFactorOf(db, w, me.id)), available: !!c, required: await twoFactorRequired(db, w) },
   };
 }
 
-export async function changeAccount(db: Sql, w: string, principal: string, sessionId: string | null, p: Record<string, unknown>) {
+export async function changeAccount(db: Sql, w: string, principal: string, sessionId: string | null, p: Record<string, unknown>, env: AccountsEnvironment = {}) {
   const me = await authorize(db, w, principal, "conversations.read");
+  // Phase 16 C3b: two-factor (a wrong code comes back as `refused`, thrown after the commit).
+  if (typeof p.action === "string" && (p.action.startsWith("two-factor") || p.action === "recovery-codes")) {
+    const r = await changeTwoFactor(db, w, me, env, p);
+    return "refused" in r ? r : { ...(await readAccount(db, w, principal, sessionId)), ...r };
+  }
   const end = (where: string, values: unknown[], reason: string) =>
     db.query(`UPDATE teammate_sessions SET revoked_at=now(),revoked_reason=$${values.length + 1} WHERE ${where} AND revoked_at IS NULL RETURNING id`, [...values, reason]);
   if (p.action === "password") {
@@ -264,7 +377,7 @@ export async function readSessions(db: Sql, w: string, principal: string, sessio
   const l = await limits(db, w);
   const sessions = (
     await db.query<SessionRow>(
-      `SELECT s.id,s.teammate_id,t.name,s.method,s.ip,s.user_agent,s.created_at,s.last_seen_at,s.expires_at FROM teammate_sessions s
+      `SELECT s.id,s.teammate_id,t.name,s.method,s.two_factor,s.ip,s.user_agent,s.created_at,s.last_seen_at,s.expires_at FROM teammate_sessions s
        JOIN teammates t ON t.workspace_id=s.workspace_id AND t.id=s.teammate_id WHERE s.workspace_id=$1 AND s.${LIVE.replace(" AND expires_at", " AND s.expires_at")} ORDER BY lower(t.name),s.last_seen_at DESC LIMIT 500`,
       [w],
     )
@@ -449,7 +562,8 @@ export async function acceptInvitation(connect: Connect, w: string, p: Record<st
       await db.query("UPDATE teammate_sessions SET revoked_at=now(),revoked_reason='Password reset.' WHERE workspace_id=$1 AND teammate_id=$2 AND revoked_at IS NULL", [w, t.id]);
       await db.query("UPDATE teammate_invitations SET accepted_at=now(),accepted_teammate_id=$3 WHERE workspace_id=$1 AND id=$2", [w, i.id, t.id]);
       await recordAudit(db, w, "invitation.accepted", { type: "teammate", id: t.id, name: t.name }, { invitation: i.id, reset: true });
-      return startSession(db, w, t.id, "invitation", client);
+      // Phase 16 C3b: a reset doesn't skip two-factor.
+      return challengeOrSession(db, w, t.id, "invitation", client);
     }
     const name = typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 80) : i.name;
     assert(name, "INVALID_FIELD", "Enter your name.");
@@ -462,6 +576,7 @@ export async function acceptInvitation(connect: Connect, w: string, p: Record<st
     await db.query("INSERT INTO teammate_credentials(workspace_id,teammate_id,email,password_hash) VALUES($1,$2,$3,$4)", [w, teammateId, i.email, hashPassword(String(p.password))]);
     await db.query("UPDATE teammate_invitations SET accepted_at=now(),accepted_teammate_id=$3 WHERE workspace_id=$1 AND id=$2", [w, i.id, teammateId]);
     await recordAudit(db, w, "invitation.accepted", { type: "teammate", id: teammateId, name }, { invitation: i.id, email: i.email, role: i.role_id });
-    return startSession(db, w, teammateId, "invitation", client);
+    // Phase 16 C3b: where two-factor is required, it's set up before the first session.
+    return challengeOrSession(db, w, teammateId, "invitation", client);
   });
 }

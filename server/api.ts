@@ -226,7 +226,9 @@ import { changeWebhooks, getDelivery, listDeliveries, listWebhooks, TOPICS } fro
 import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConsent, type AuthorizeQuery } from "./oauth";
 import { canvasOverview, canvasRequest, listCanvasApps, type CanvasEnvironment } from "./canvas";
 import { changeAudit, readAudit } from "./audit";
-import { acceptInvitation, changeAccount, changeInvitations, changeSessions, readAccount, readInvitation, readInvitations, readSessions, resolveSession, sessionLive, signIn, signOut } from "./accounts";
+import { acceptInvitation, changeAccount, changeInvitations, changeSessions, completeTwoFactor, readAccount, readInvitation, readInvitations, readSessions, resolveSession, sessionLive, signIn, signInAllowed, signOut, twoFactorSetup } from "./accounts";
+import { changeAccess, readAccess } from "./two-factor";
+import { assertNetwork, notAllowed } from "./allowlists";
 import { apiReferenceHtml } from "../lib/api-reference";
 import { memoryRateLimiter, type RateLimiter } from "./rate-limit";
 import type { WebhookEnvironment } from "./webhooks";
@@ -407,7 +409,8 @@ const authLimiter = memoryRateLimiter();
 /**
  * Phase 16 C3a: `/v1/auth/<action>`, signed by the host (`bridgeAuthRequest`): sign in, accept an
  * invitation, sign out, or read an invitation. At most 20 at once, then one every 3 seconds, per
- * address (each account also locks after ten wrong passwords).
+ * address (each account also locks after ten wrong passwords). C3b: the two-factor step (`two-factor`,
+ * and `two-factor-setup` when it's required), and only from the app's allowlist (signing out aside).
  */
 async function handleAuth(req: Request, env: ApiEnvironment): Promise<Response> {
   const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -426,7 +429,11 @@ async function handleAuth(req: Request, env: ApiEnvironment): Promise<Response> 
     const taken = (env.rateLimiter ?? authLimiter).take("auth:" + (client.ip ?? "unknown"), { capacity: 20, perSecond: 1 / 3 });
     assert(taken.ok, "RATE_LIMITED", "Too many attempts from here. Wait a minute and try again.", 429);
     const w = c.workspace;
+    const keys = { key: env.connectors?.key ?? env.webhooks?.key };
+    if (action !== "signout" && !(await signInAllowed(env.connect, w, client))) throw notAllowed(client.ip);
     if (action === "signin") return reply(await signIn(env.connect, w, body, client));
+    if (action === "two-factor-setup") return reply(await twoFactorSetup(env.connect, w, keys, body));
+    if (action === "two-factor") return reply(await completeTwoFactor(env.connect, w, keys, body, client));
     if (action === "accept") return reply(await acceptInvitation(env.connect, w, body, client));
     if (action === "signout") return reply(await signOut(env.connect, w, String(body.token ?? "")));
     if (action === "invitation") return reply(await readInvitation(env.connect, w, body.token));
@@ -1455,6 +1462,7 @@ export async function handleApi(
             "/v1/agent/audit",
             "/v1/agent/account",
             "/v1/agent/security-sessions",
+            "/v1/agent/security-access",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -1559,6 +1567,7 @@ export async function handleApi(
               "/v1/agent/audit",
               "/v1/agent/account",
               "/v1/agent/security-sessions",
+              "/v1/agent/security-access",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -1613,6 +1622,8 @@ export async function handleApi(
         originTimezone: originTimezone(c.timezone),
       };
       await tenant(env.connect, workspace, async (db) => {
+        // Phase 16 C3b: the app's IP allowlist, however the teammate signed in.
+        await assertNetwork(db, workspace, "app", client.ip);
         if (
           inbox ||
           url.pathname.startsWith("/v1/agent/attachment/") ||
@@ -1960,9 +1971,16 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/developer-app")
           // Phase 15 D4: an app registered (its secret returned once), changed, given a new secret, archived; or one installed here, uninstalled.
           return json(await tenant(env.connect, workspace, (db) => changeApps(db, workspace, principal, p, env.canvas)));
-        if (url.pathname === "/v1/agent/account")
-          // Phase 16 C3a: your password, and signing out your devices.
-          return json(await tenant(env.connect, workspace, (db) => changeAccount(db, workspace, principal, sessionId, p)));
+        if (url.pathname === "/v1/agent/account") {
+          // Phase 16 C3a: your password, and signing out your devices. C3b: and two-factor (a wrong
+          // code is kept, toward the account's lock, then refused).
+          const r = await tenant(env.connect, workspace, (db) => changeAccount(db, workspace, principal, sessionId, p, { key: env.connectors?.key ?? env.webhooks?.key }));
+          if ("refused" in r) throw r.refused;
+          return json(r);
+        }
+        if (url.pathname === "/v1/agent/security-access")
+          // Phase 16 C3b: requiring two-factor, a teammate's two-factor turned off, the IP allowlists.
+          return json(await tenant(env.connect, workspace, (db) => changeAccess(db, workspace, principal, client, p)));
         if (url.pathname === "/v1/agent/security-sessions")
           // Phase 16 C3a: session limits, and ending anyone's sessions.
           return json(await tenant(env.connect, workspace, (db) => changeSessions(db, workspace, principal, sessionId, p)));
@@ -2643,6 +2661,7 @@ export async function handleApi(
       // Phase 16 C3a: your sign-in and devices; everyone's sessions and their limits; open invitations.
       if (url.pathname === "/v1/agent/account") return json(await tenant(env.connect, workspace, (db) => readAccount(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
+      if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/invitations") return json(await tenant(env.connect, workspace, (db) => readInvitations(db, workspace, principal)));
       if (url.pathname === "/v1/agent/audit") {
         // Phase 16 C1: a page of the audit log, filtered; retention; this teammate's recent exports.

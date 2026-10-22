@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
-import { KeyRound, UserPlus } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { KeyRound, ShieldCheck, UserPlus } from "lucide-react";
 import "./inbox.css";
 import { applyTheme, readChoice } from "./theme";
+import { CodeField, RecoveryCodes, SetupSteps } from "./two-factor";
 
 /**
  * Relay's own sign-in (phase 16, step C3a; docs/SECURITY_STEP3.md): `/signin` (email and password)
  * and `/invite` (accepting an invitation: your name and a password). Both post to the host's
  * `/auth/*`, which keeps the session in an HttpOnly cookie, then go to the inbox (or `?next=`).
  * The invitation's token is read from after the `#`, so it never reaches a server's logs.
+ * C3b: with two-factor on, or required, a second step asks for the code (or sets two-factor up
+ * first); the host keeps the step's challenge in its own HttpOnly cookie.
  */
 type Problem = { error?: { code?: string; message?: string } };
 async function post<T>(path: string, body: unknown): Promise<T & Problem & { ok: boolean }> {
@@ -25,12 +28,121 @@ const useTheme = () =>
     applyTheme(readChoice(() => localStorage));
   }, []);
 
+type Second = { twoFactor?: "verify" | "setup" };
+type Setup = { secret: string; uri: string };
+
+/** The second step: a code from the app (or a recovery code), or setting two-factor up when the workspace requires it. */
+function TwoFactorStep({ purpose, onDone, onRestart }: { purpose: "verify" | "setup"; onDone: () => void; onRestart: () => void }) {
+  const [setup, setSetup] = useState<Setup | null>(null);
+  const [recovery, setRecovery] = useState(false);
+  const [code, setCode] = useState("");
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [error, setError] = useState("");
+  const [over, setOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (purpose === "setup")
+      void post<Setup>("/auth/two-factor-setup", {}).then((r) => {
+        if (r.ok) setSetup(r);
+        else {
+          setError(r.error?.message ?? "Two-factor can't be set up now.");
+          setOver(true);
+        }
+      });
+  }, [purpose]);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const r = await post<{ recoveryCodes?: string[] }>("/auth/two-factor", { code });
+    setBusy(false);
+    if (r.ok) return r.recoveryCodes ? setCodes(r.recoveryCodes) : onDone();
+    setError(r.error?.message ?? "That didn't work. Try again.");
+    setCode("");
+    if (r.error?.code === "CHALLENGE_EXPIRED" || r.error?.code === "LOCKED") setOver(true);
+  };
+  const form = (
+    <form className="pg-signin-form" onSubmit={submit}>
+      <CodeField value={code} onChange={setCode} recovery={recovery} />
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      <button type="submit" className="pg-primary" disabled={busy}>
+        {busy ? "Checking…" : purpose === "setup" ? "Turn on and sign in" : "Sign in"}
+      </button>
+    </form>
+  );
+  return (
+    <section className="pg-consent-card" aria-label="Two-factor sign-in">
+      <span className="pg-consent-icon" aria-hidden="true">
+        <ShieldCheck size={22} />
+      </span>
+      {codes ? (
+        <>
+          <h1>Two-factor is on</h1>
+          <RecoveryCodes codes={codes} onDone={onDone} doneLabel="Continue to Relay" />
+        </>
+      ) : over ? (
+        <>
+          <h1>Sign in again</h1>
+          <p role="alert" className="pg-attr-error">
+            {error}
+          </p>
+          <button type="button" className="pg-primary" onClick={onRestart}>
+            Back to sign-in
+          </button>
+        </>
+      ) : purpose === "setup" ? (
+        <>
+          <h1>Set up two-factor</h1>
+          <p className="pg-muted">Your workspace requires a code from an authenticator app each time you sign in. Set it up now to continue.</p>
+          {setup ? <SetupSteps setup={setup}>{form}</SetupSteps> : <p className="pg-muted">Preparing your key…</p>}
+        </>
+      ) : (
+        <>
+          <h1>Two-factor sign-in</h1>
+          <p className="pg-muted">{recovery ? "Enter one of your recovery codes. Each works once." : "Enter the six-digit code from your authenticator app."}</p>
+          {form}
+          <button
+            type="button"
+            className="pg-wf-link"
+            onClick={() => {
+              setRecovery(!recovery);
+              setCode("");
+              setError("");
+            }}
+          >
+            {recovery ? "Use a code from your app instead" : "Use a recovery code instead"}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function SignIn() {
   useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [second, setSecond] = useState<"verify" | "setup" | null>(null);
+  if (second)
+    return (
+      <main className="pg-consent">
+        <TwoFactorStep
+          purpose={second}
+          onDone={() => window.location.assign(nextPath())}
+          onRestart={() => {
+            setSecond(null);
+            setPassword("");
+            setBusy(false);
+          }}
+        />
+      </main>
+    );
   return (
     <main className="pg-consent">
       <section className="pg-consent-card" aria-label="Sign in">
@@ -44,8 +156,9 @@ export function SignIn() {
             e.preventDefault();
             setBusy(true);
             setError("");
-            const r = await post("/auth/signin", { email, password });
-            if (r.ok) window.location.assign(nextPath());
+            const r = await post<Second>("/auth/signin", { email, password });
+            if (r.ok && r.twoFactor) setSecond(r.twoFactor);
+            else if (r.ok) window.location.assign(nextPath());
             else {
               setError(r.error?.message ?? "Sign-in is unavailable. Try again.");
               setBusy(false);
@@ -86,6 +199,7 @@ export function AcceptInvitation() {
   const [again, setAgain] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [second, setSecond] = useState<"verify" | "setup" | null>(null);
   useEffect(() => {
     void post<Invitation>("/auth/invitation", { token }).then((r) => {
       if (r.ok) {
@@ -94,6 +208,12 @@ export function AcceptInvitation() {
       } else setProblem(r.error?.message ?? "This invitation can't be read.");
     });
   }, [token]);
+  if (second)
+    return (
+      <main className="pg-consent">
+        <TwoFactorStep purpose={second} onDone={() => window.location.assign("/agent")} onRestart={() => window.location.assign("/signin")} />
+      </main>
+    );
   return (
     <main className="pg-consent">
       <section className="pg-consent-card" aria-label="Join a workspace">
@@ -133,8 +253,9 @@ export function AcceptInvitation() {
                 if (password !== again) return setError("The passwords don't match.");
                 setBusy(true);
                 setError("");
-                const r = await post("/auth/accept", { token, name, password });
-                if (r.ok) window.location.assign("/agent");
+                const r = await post<Second>("/auth/accept", { token, name, password });
+                if (r.ok && r.twoFactor) setSecond(r.twoFactor);
+                else if (r.ok) window.location.assign("/agent");
                 else {
                   setError(r.error?.message ?? "That didn't work. Try again.");
                   setBusy(false);
