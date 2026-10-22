@@ -122,13 +122,34 @@ function TwoFactorStep({ purpose, onDone, onRestart }: { purpose: "verify" | "se
   );
 }
 
+/** Phase 16 C4a: why single sign-on sent the browser back here, in Relay's own words (never text from the address). */
+const SSO_PROBLEMS: Record<string, string> = {
+  SSO_OFF: "Single sign-on isn't turned on for this workspace.",
+  SSO_EXPIRED: "That sign-in took too long or was started elsewhere. Try again.",
+  SSO_DENIED: "Your identity provider didn't let you sign in.",
+  SSO_EMAIL: "Your identity provider didn't share a verified email address.",
+  SSO_DOMAIN: "Your email's domain isn't verified for this workspace's single sign-on.",
+  SSO_NO_ROLE: "Your groups don't give you access to this workspace. Ask someone who manages security.",
+  SSO_FAILED: "Your identity provider didn't confirm the sign-in. Try again, or ask someone who manages security.",
+  NETWORK_NOT_ALLOWED: "Relay isn't available from this network.",
+  RATE_LIMITED: "Too many attempts from here. Wait a minute and try again.",
+  UNAVAILABLE: "Sign-in is unavailable. Try again.",
+};
+type SsoInfo = { sso: { name: string; enforced: boolean } | null };
+
 export function SignIn() {
   useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => SSO_PROBLEMS[new URLSearchParams(window.location.search).get("sso") ?? ""] ?? "");
   const [busy, setBusy] = useState(false);
   const [second, setSecond] = useState<"verify" | "setup" | null>(null);
+  const [sso, setSso] = useState<SsoInfo["sso"]>(null);
+  useEffect(() => {
+    void post<SsoInfo>("/auth/sso-info", {}).then((r) => {
+      if (r.ok) setSso(r.sso);
+    });
+  }, []);
   if (second)
     return (
       <main className="pg-consent">
@@ -150,6 +171,13 @@ export function SignIn() {
           <KeyRound size={22} />
         </span>
         <h1>Sign in to Relay</h1>
+        {sso && (
+          <a className="pg-primary pg-sso-button" href={"/auth/sso?next=" + encodeURIComponent(nextPath())}>
+            Sign in with {sso.name}
+          </a>
+        )}
+        {sso?.enforced && <p className="pg-muted">Your workspace signs in with {sso.name}. Owners can still use a password below.</p>}
+        {sso && !sso.enforced && <p className="pg-muted pg-sso-or">or with your email and password</p>}
         <form
           className="pg-signin-form"
           onSubmit={async (e) => {

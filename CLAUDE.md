@@ -56,7 +56,12 @@ accounts; Stripe behind a port): C1, the audit log (`server/audit.ts`, `lib/audi
 and C2, roles and the permissions matrix (`lib/permissions.ts`, role `scope`), are done locally (`docs/SECURITY_STEP1.md`,
 `STEP2.md`), and C3a, Relay's own sign-in (`server/accounts.ts`, `server/passwords.ts`, `/signin`, `/invite`, `/auth/*`), and C3b,
 two-factor and IP allowlists (`server/totp.ts`, `server/two-factor.ts`, `server/allowlists.ts`, `#settings/access`), are done
-locally (`docs/SECURITY_STEP3.md`, `STEP4.md`); next is C4. A Relay session's token lives only in the
+locally (`docs/SECURITY_STEP3.md`, `STEP4.md`), and C4a, OIDC single sign-on (`server/sso.ts`, `#settings/sso`, `/auth/sso`,
+the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_STEP5.md`); next is C4b (SAML 2.0, with a
+maintained library confirmed on Workers first). An SSO identity is found only by connection and subject (`sso_identities`),
+never by email after the first link; only verified emails at verified domains sign in; the role comes only from the first
+mapped group, never the owner role, and an owner is never changed by groups. With SSO enforced, every way in other than SSO
+is for owners only (`assertNotSsoOnly`, `assertPlatformAllowed`); a new way to sign in or join checks it. A Relay session's token lives only in the
 HttpOnly `relay_session` cookie and is resolved by the API on every request (`resolveSession`, from the bridge's proof);
 never trust a principal a host sends alongside it, and never put the token in a page or URL. A right password leads only
 to `challengeOrSession`, so two-factor (and its requirement) can't be skipped by any path, resets included; a code is checked

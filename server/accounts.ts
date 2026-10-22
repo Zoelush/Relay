@@ -15,7 +15,9 @@ import {
   LOCK_MINUTES,
   lockedMessage,
   lockedUntil,
+  assertNotSsoOnly,
   securityOn,
+  ssoEnforced,
   twoFactorOf,
   twoFactorRequired,
   WRONG_CODE,
@@ -73,7 +75,7 @@ const normalEmail = (v: unknown) => {
 };
 const clip = (v: string | null | undefined, n: number) => (v ? v.slice(0, n) : null);
 /** The audit log's actor for this transaction (sign-in happens before `authorize` could set it). */
-const actAs = (db: Sql, t: { id: string; name: string }) => db.query("SELECT set_config('relay.actor_id',$1,true),set_config('relay.actor_name',$2,true)", [t.id, t.name]);
+export const actAs = (db: Sql, t: { id: string; name: string }) => db.query("SELECT set_config('relay.actor_id',$1,true),set_config('relay.actor_name',$2,true)", [t.id, t.name]);
 
 async function limits(db: Sql, w: string) {
   return (
@@ -85,7 +87,7 @@ async function limits(db: Sql, w: string) {
 }
 
 /** A new session for a teammate; its token is returned this once. */
-async function startSession(db: Sql, w: string, teammateId: string, method: "password" | "invitation", client: ClientInfo, twoFactor: "totp" | "recovery" | null = null) {
+export async function startSession(db: Sql, w: string, teammateId: string, method: "password" | "invitation" | "sso", client: ClientInfo, twoFactor: "totp" | "recovery" | null = null) {
   const token = `relay_ses_${b64(w)}_${random(40)}`;
   const { absolute_hours } = await limits(db, w);
   const id = crypto.randomUUID();
@@ -124,8 +126,8 @@ export async function signIn(connect: Connect, w: string, p: Record<string, unkn
   // Decided inside the transaction, refused after it commits (so failures and locks are kept).
   const outcome = await tenant(connect, w, async (db) => {
     const c = (
-      await db.query<{ teammate_id: string; name: string; password_hash: string; failed_count: number; locked_until: Date | null }>(
-        `SELECT c.teammate_id,t.name,c.password_hash,c.failed_count,c.locked_until FROM teammate_credentials c
+      await db.query<{ teammate_id: string; name: string; role_id: string; password_hash: string; failed_count: number; locked_until: Date | null }>(
+        `SELECT c.teammate_id,t.name,t.role_id,c.password_hash,c.failed_count,c.locked_until FROM teammate_credentials c
          JOIN teammates t ON t.workspace_id=c.workspace_id AND t.id=c.teammate_id WHERE c.workspace_id=$1 AND c.email=$2 FOR UPDATE OF c`,
         [w, email],
       )
@@ -146,6 +148,14 @@ export async function signIn(connect: Connect, w: string, p: Record<string, unkn
       return { refused: WRONG, status: 401 } as const;
     }
     await actAs(db, { id: c.teammate_id, name: c.name });
+    // Phase 16 C4a: with single sign-on enforced, a password is for owners only (break-glass, recorded).
+    if (await ssoEnforced(db, w)) {
+      if (c.role_id !== "owner") {
+        await recordAudit(db, w, "session.sign_in_failed", { type: "teammate", id: c.teammate_id, name: c.name }, { ip: client.ip ?? null, reason: "sso_enforced" });
+        return { refused: "Your workspace signs in with single sign-on. Use “Sign in with single sign-on” instead.", status: 403, code: "SSO_REQUIRED" } as const;
+      }
+      await recordAudit(db, w, "session.break_glass", { type: "teammate", id: c.teammate_id, name: c.name }, { ip: client.ip ?? null });
+    }
     if (needsRehash(c.password_hash)) await db.query("UPDATE teammate_credentials SET password_hash=$3 WHERE workspace_id=$1 AND teammate_id=$2", [w, c.teammate_id, hashPassword(password)]);
     const next = await challengeOrSession(db, w, c.teammate_id, "password", client);
     // Wrong attempts clear only when signing in is done: with two-factor, a right password alone
@@ -153,7 +163,10 @@ export async function signIn(connect: Connect, w: string, p: Record<string, unkn
     if ("token" in next) await db.query("UPDATE teammate_credentials SET failed_count=0,locked_until=NULL WHERE workspace_id=$1 AND teammate_id=$2", [w, c.teammate_id]);
     return next;
   });
-  if ("refused" in outcome) throw new DomainError(outcome.status === 429 ? "LOCKED" : "SIGN_IN_FAILED", outcome.refused, outcome.status);
+  if ("refused" in outcome) {
+    const r = outcome as { refused: string; status: number; code?: string };
+    throw new DomainError(r.code ?? (r.status === 429 ? "LOCKED" : "SIGN_IN_FAILED"), r.refused, r.status);
+  }
   return outcome;
 }
 
@@ -334,6 +347,7 @@ export async function changeAccount(db: Sql, w: string, principal: string, sessi
     db.query(`UPDATE teammate_sessions SET revoked_at=now(),revoked_reason=$${values.length + 1} WHERE ${where} AND revoked_at IS NULL RETURNING id`, [...values, reason]);
   if (p.action === "password") {
     await securityOn(db, w);
+    await assertNotSsoOnly(db, w, me.role_id, "Your workspace signs in with single sign-on, so only owners keep a password.");
     const c = (await db.query<{ email: string; password_hash: string }>("SELECT email,password_hash FROM teammate_credentials WHERE workspace_id=$1 AND teammate_id=$2 FOR UPDATE", [w, me.id]))
       .rows[0];
     if (c) assert(typeof p.current === "string" && verifyPassword(p.current, c.password_hash), "WRONG_PASSWORD", "Your current password isn't right.", 403);
@@ -480,6 +494,9 @@ export async function changeInvitations(db: Sql, w: string, principal: string, e
   await securityOn(db, w);
   if (p.action === "reset") {
     // A password reset for a teammate who signs in with a password: a link to choose a new one.
+    // Phase 16 C4a: with single sign-on enforced, only an owner's (break-glass).
+    const role = (await db.query<{ role_id: string }>("SELECT role_id FROM teammates WHERE workspace_id=$1 AND id=$2", [w, String(p.teammateId ?? "")])).rows[0];
+    await assertNotSsoOnly(db, w, role?.role_id, "Your workspace signs in with single sign-on, so only owners have passwords to reset.");
     const t = (
       await db.query<{ id: string; email: string; name: string; role_id: string }>(
         "SELECT t.id,c.email,t.name,t.role_id FROM teammates t JOIN teammate_credentials c ON c.workspace_id=t.workspace_id AND c.teammate_id=t.id WHERE t.workspace_id=$1 AND t.id=$2",
@@ -492,6 +509,8 @@ export async function changeInvitations(db: Sql, w: string, principal: string, e
     return { ...(await sendLink(db, w, env, client, { email: t.email, name: t.name, roleId: t.role_id, invitedBy: me.id, teammateId: t.id })), ...(await readInvitations(db, w, principal)) };
   }
   if (p.action === "create") {
+    // Phase 16 C4a: with single sign-on enforced, people join by signing in with it.
+    await assertNotSsoOnly(db, w, null, "Your workspace signs in with single sign-on: people join by signing in with it, with a role from their groups.");
     const email = normalEmail(p.email);
     const name = typeof p.name === "string" ? p.name.trim().slice(0, 80) : "";
     const role = (await db.query<{ id: string }>("SELECT id FROM roles WHERE workspace_id=$1 AND id=$2", [w, String(p.roleId ?? "")])).rows[0];
@@ -547,6 +566,9 @@ export async function readInvitation(connect: Connect, w: string, token: unknown
 export async function acceptInvitation(connect: Connect, w: string, p: Record<string, unknown>, client: ClientInfo) {
   return tenant(connect, w, async (db) => {
     const i = await openInvitation(db, w, p.token);
+    // Phase 16 C4a: an invitation or reset made before single sign-on was enforced: owners only.
+    const role = i.teammate_id ? (await db.query<{ role_id: string }>("SELECT role_id FROM teammates WHERE workspace_id=$1 AND id=$2", [w, i.teammate_id])).rows[0]?.role_id : null;
+    await assertNotSsoOnly(db, w, role);
     if (i.teammate_id) {
       // A password reset: the same teammate, a new password, every old session ended.
       const problem = passwordProblem(p.password, i.email);

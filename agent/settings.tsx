@@ -22,6 +22,7 @@ import {
   UserCog,
   ShieldCheck,
   Fingerprint,
+  LogIn,
   Store,
   MessageCircle,
   DoorOpen,
@@ -73,6 +74,7 @@ import { DevelopersPage } from "./settings-developers";
 import { AuditPage } from "./settings-audit";
 import { SessionsPage, SignInSettingsPage } from "./settings-signin";
 import { AccessPage } from "./settings-access";
+import { SsoPage } from "./settings-sso";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -309,6 +311,14 @@ const PAGES: Page[] = [
     label: "Access",
     description: "Require two-factor, and choose which networks can use the app and the API.",
     icon: Fingerprint,
+    group: "Security",
+  },
+  {
+    // Phase 16 C4a: OpenID Connect, verified domains, groups to roles, and enforcing it.
+    id: "sso",
+    label: "Single sign-on",
+    description: "Sign in with your identity provider, with roles from its groups.",
+    icon: LogIn,
     group: "Security",
   },
   {
@@ -644,6 +654,8 @@ export function Settings({
             <SessionsPage menu={menu} page={current} />
           ) : current.id === "access" ? (
             <AccessPage menu={menu} page={current} />
+          ) : current.id === "sso" ? (
+            <SsoPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (
