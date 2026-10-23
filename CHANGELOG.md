@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased: Single sign-on with SAML 2.0 (phase 16, C4b)
+
+- **SAML 2.0 as well as OpenID Connect:** choose it in Settings › Security › Single sign-on, paste your identity provider's SSO URL, entity ID and signing certificate, and give it Relay's entity ID, sign-in address or metadata link, all shown there.
+- **The same rules as OpenID Connect:** verified domains, roles from groups, and requiring single sign-on with owners as break-glass.
+- **Checked strictly:** only a signed sign-in from your provider, in answer to Relay's own request, gets in. Refusals say why and are recorded.
+- **Migration:** 0086, with rollback.
+- **Details:** `docs/SECURITY_STEP6.md`.
+
 ## Unreleased: Single sign-on with OpenID Connect (phase 16, C4a)
 
 - **Sign in with your identity provider** (Okta, Microsoft Entra ID, Google Workspace and others) from Settings › Security › Single sign-on.

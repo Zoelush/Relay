@@ -2021,3 +2021,7 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-sso-button { display:flex; justify-content:center; margin:16px 0 6px; padding:9px 14px; text-decoration:none; }
 .pg-consent-card a.pg-sso-button { color:var(--pg-on-accent); }
 .pg-sso-or { text-align:center; }
+/* Phase 16 C4b: what a SAML identity provider is given about Relay. */
+.pg-saml-sp { display:grid; grid-template-columns:max-content 1fr; gap:4px 12px; margin:8px 0 12px; font-size:13px; }
+.pg-saml-sp dt { color:var(--pg-text-3); }
+.pg-saml-sp dd { margin:0; overflow-wrap:anywhere; }

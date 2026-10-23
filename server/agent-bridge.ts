@@ -471,6 +471,11 @@ export const SSO_ERRORS = ["SSO_OFF", "SSO_EXPIRED", "SSO_DENIED", "SSO_EMAIL", 
  * SameSite=Lax so the provider's redirect back carries it) and redirects to the provider.
  * `GET /auth/sso/callback` passes the provider's code and state with that cookie; the session goes
  * into the session cookie and the browser to the inbox. A failure goes back to `/signin?sso=<code>`.
+ *
+ * C4b, SAML: `POST /auth/saml/acs` takes the provider's form post (which can't carry the Lax
+ * cookie): the API parks the response on the login its RelayState names, and the browser is sent
+ * on (303) to `/auth/sso/callback?state=…`, which does carry it. `GET /auth/saml/metadata` is
+ * Relay's service provider metadata.
  */
 export async function bridgeSsoRequest(request: Request, config: AgentBridgeConfig, send: (request: Request) => Promise<Response> = fetch) {
   const url = new URL(request.url);
@@ -480,16 +485,8 @@ export async function bridgeSsoRequest(request: Request, config: AgentBridgeConf
       status: 302,
       headers: { location: `/signin?sso=${SSO_ERRORS.includes(code) ? code : "SSO_FAILED"}`, "cache-control": "no-store", "set-cookie": `${SSO_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}` },
     });
-  try {
-    assert(request.method === "GET" && (url.pathname === "/auth/sso" || url.pathname === "/auth/sso/callback"), "NOT_FOUND", "Endpoint unavailable.", 404);
-    assert(config.RELAY_WORKSPACE_ID && config.RELAY_API_ORIGIN && (config.RELAY_BRIDGE_SECRET?.length ?? 0) >= 32, "UNAVAILABLE", "Sign-in is not configured.", 503);
-    const start = url.pathname === "/auth/sso";
-    // Starting is from this site (or typed in); the return comes from the provider's site.
-    if (start) assert(["same-origin", "none", ""].includes(request.headers.get("sec-fetch-site") ?? ""), "SSO_EXPIRED", "Start from the sign-in page.", 403);
-    const action = start ? "sso-start" : "sso-finish";
-    const body = start
-      ? { next: url.searchParams.get("next") ?? "" }
-      : { login: sessionCookie(request, SSO_COOKIE) ?? "", state: url.searchParams.get("state") ?? "", code: url.searchParams.get("code") ?? "", error: url.searchParams.get("error") ?? "" };
+  const route = `${request.method} ${url.pathname}`;
+  const call = async (action: string, body: Record<string, unknown>) => {
     const client = clientOf(request);
     const proof = await new SignJWT({ workspace: config.RELAY_WORKSPACE_ID, action, digest: await digest(body), ip: client.ip, ua: client.ua, origin: url.origin })
       .setProtectedHeader({ alg: "HS256" })
@@ -503,8 +500,36 @@ export async function bridgeSsoRequest(request: Request, config: AgentBridgeConf
     const upstream = await send(
       new Request(target, { method: "POST", redirect: "error", signal: AbortSignal.timeout(30000), headers: { authorization: "Bearer " + proof, "content-type": "application/json" }, body: JSON.stringify(body) }),
     );
-    const data = (await upstream.json().catch(() => ({}))) as { url?: string; login?: string; token?: string; expiresAt?: string; next?: string; error?: { code?: string } };
-    if (!upstream.ok) return back(data.error?.code ?? "SSO_FAILED");
+    return { ok: upstream.ok, status: upstream.status, data: (await upstream.json().catch(() => ({}))) as Record<string, unknown> & { error?: { code?: string } } };
+  };
+  try {
+    assert(["GET /auth/sso", "GET /auth/sso/callback", "POST /auth/saml/acs", "GET /auth/saml/metadata"].includes(route), "NOT_FOUND", "Endpoint unavailable.", 404);
+    assert(config.RELAY_WORKSPACE_ID && config.RELAY_API_ORIGIN && (config.RELAY_BRIDGE_SECRET?.length ?? 0) >= 32, "UNAVAILABLE", "Sign-in is not configured.", 503);
+    if (route === "GET /auth/saml/metadata") {
+      const r = await call("saml-metadata", {});
+      if (!r.ok || typeof r.data.xml !== "string") return new Response("No SAML connection here.", { status: r.status === 200 ? 404 : r.status, headers: { "content-type": "text/plain" } });
+      return new Response(r.data.xml, { headers: { "content-type": "application/samlmetadata+xml", "cache-control": "no-store" } });
+    }
+    if (route === "POST /auth/saml/acs") {
+      const form = await request.formData().catch(() => null);
+      const relayState = String(form?.get("RelayState") ?? "");
+      const r = await call("saml-acs", { samlResponse: String(form?.get("SAMLResponse") ?? ""), relayState });
+      if (!r.ok) return back(r.data.error?.code ?? "SSO_FAILED");
+      return new Response(null, { status: 303, headers: { location: "/auth/sso/callback?state=" + encodeURIComponent(relayState), "cache-control": "no-store" } });
+    }
+    const start = route === "GET /auth/sso";
+    // Starting is from this site (or typed in); the return comes from the provider's site.
+    if (start) assert(["same-origin", "none", ""].includes(request.headers.get("sec-fetch-site") ?? ""), "SSO_EXPIRED", "Start from the sign-in page.", 403);
+    const r = start
+      ? await call("sso-start", { next: url.searchParams.get("next") ?? "" })
+      : await call("sso-finish", {
+          login: sessionCookie(request, SSO_COOKIE) ?? "",
+          state: url.searchParams.get("state") ?? "",
+          code: url.searchParams.get("code") ?? "",
+          error: url.searchParams.get("error") ?? "",
+        });
+    const data = r.data as { url?: string; login?: string; token?: string; expiresAt?: string; next?: string; error?: { code?: string } };
+    if (!r.ok) return back(data.error?.code ?? "SSO_FAILED");
     const headers = new Headers({ "cache-control": "no-store" });
     if (start) {
       if (typeof data.url !== "string" || typeof data.login !== "string" || !/^https?:\/\//.test(data.url)) return back("SSO_FAILED");

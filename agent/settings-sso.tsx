@@ -7,14 +7,19 @@ import { Card, Frame, message, type MenuState, type Page } from "./settings-ui";
  * `security.manage`, behind `security_v1`: the OIDC connection (the address to give the identity
  * provider, its issuer, client ID and secret, which is never shown again), turning it on and
  * enforcing it, the email domains it signs in (verified by a DNS TXT record), and which groups get
- * which role (the first match wins; no match, no access).
+ * which role (the first match wins; no match, no access). C4b: or SAML 2.0 instead (the provider's
+ * SSO URL, entity ID and certificate), with Relay's entity ID, ACS and metadata to give it.
  */
 type Sso = {
   redirectUri: string | null;
+  serviceProvider: { entityId: string; acsUrl: string; metadataUrl: string } | null;
   connection: {
+    protocol: "oidc" | "saml";
+    entryPoint: string | null;
+    idpCert: string | null;
     name: string;
     issuer: string;
-    clientId: string;
+    clientId: string | null;
     hasSecret: boolean;
     groupsClaim: string;
     enabled: boolean;
@@ -35,13 +40,25 @@ export function SsoPage({ menu, page }: { menu: MenuState; page: Page }) {
   const [data, setData] = useState<Sso | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [form, setForm] = useState({ name: "", issuer: "", clientId: "", clientSecret: "", groupsClaim: "groups" });
+  const [form, setForm] = useState({ protocol: "oidc" as "oidc" | "saml", name: "", issuer: "", clientId: "", clientSecret: "", groupsClaim: "groups", entryPoint: "", idpIssuer: "", idpCert: "" });
   const [domain, setDomain] = useState("");
   const [mappings, setMappings] = useState<{ group: string; roleId: string }[]>([]);
   const take = (d: Sso) => {
     setData(d);
     setMappings(d.mappings);
-    if (d.connection) setForm({ name: d.connection.name, issuer: d.connection.issuer, clientId: d.connection.clientId, clientSecret: "", groupsClaim: d.connection.groupsClaim });
+    const c = d.connection;
+    if (c)
+      setForm({
+        protocol: c.protocol,
+        name: c.name,
+        issuer: c.protocol === "oidc" ? c.issuer : "",
+        clientId: c.clientId ?? "",
+        clientSecret: "",
+        groupsClaim: c.groupsClaim,
+        entryPoint: c.entryPoint ?? "",
+        idpIssuer: c.protocol === "saml" ? c.issuer : "",
+        idpCert: c.idpCert ?? "",
+      });
   };
   const load = useCallback(
     () =>
@@ -66,7 +83,8 @@ export function SsoPage({ menu, page }: { menu: MenuState; page: Page }) {
     }
   };
   const c = data?.connection;
-  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+  const set = (k: Exclude<keyof typeof form, "protocol">) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+  const saml = form.protocol === "saml";
   const verified = data?.domains.some((d) => d.verified) ?? false;
   return (
     <Frame menu={menu} page={page}>
@@ -82,45 +100,91 @@ export function SsoPage({ menu, page }: { menu: MenuState; page: Page }) {
       )}
       {data && (
         <>
-          <Card title="Connection" description="Relay signs people in with your identity provider using OpenID Connect (Okta, Microsoft Entra ID, Google Workspace and others).">
-            {data.redirectUri && (
+          <Card title="Connection" description="Relay signs people in with your identity provider (Okta, Microsoft Entra ID, Google Workspace and others), using OpenID Connect or SAML 2.0.">
+            <fieldset className="pg-settings-checks" aria-label="Protocol">
+              <label>
+                <input type="radio" name="sso-protocol" checked={!saml} onChange={() => setForm({ ...form, protocol: "oidc" })} /> OpenID Connect
+              </label>
+              <label>
+                <input type="radio" name="sso-protocol" checked={saml} onChange={() => setForm({ ...form, protocol: "saml" })} /> SAML 2.0
+              </label>
+            </fieldset>
+            {!saml && data.redirectUri && (
               <p className="pg-muted">
                 Give your identity provider this sign-in redirect address: <code aria-label="Redirect address">{data.redirectUri}</code>
               </p>
+            )}
+            {saml && data.serviceProvider && (
+              <dl className="pg-saml-sp" aria-label="Relay as a service provider">
+                <dt>Entity ID (audience)</dt>
+                <dd>
+                  <code>{data.serviceProvider.entityId}</code>
+                </dd>
+                <dt>Assertion consumer service (HTTP-POST)</dt>
+                <dd>
+                  <code>{data.serviceProvider.acsUrl}</code>
+                </dd>
+                <dt>Metadata, to import</dt>
+                <dd>
+                  <code>{data.serviceProvider.metadataUrl}</code>
+                </dd>
+              </dl>
             )}
             <form
               className="pg-signin-settings"
               aria-label="Single sign-on connection"
               onSubmit={(e) => {
                 e.preventDefault();
-                void act({ action: "connection", ...form }, "Connection saved.", "The connection couldn't be saved.");
+                const fields = saml
+                  ? { protocol: "saml", name: form.name, entryPoint: form.entryPoint, idpIssuer: form.idpIssuer, idpCert: form.idpCert, groupsClaim: form.groupsClaim }
+                  : { protocol: "oidc", name: form.name, issuer: form.issuer, clientId: form.clientId, clientSecret: form.clientSecret, groupsClaim: form.groupsClaim };
+                void act({ action: "connection", ...fields }, "Connection saved.", "The connection couldn't be saved.");
               }}
             >
               <label className="pg-settings-field">
                 <span className="pg-settings-label">Name people see</span>
                 <input value={form.name} maxLength={80} placeholder="Okta" onChange={set("name")} />
               </label>
+              {saml ? (
+                <>
+                  <label className="pg-settings-field">
+                    <span className="pg-settings-label">Identity provider’s SSO URL</span>
+                    <input type="url" required value={form.entryPoint} placeholder="https://your-company.okta.com/app/…/sso/saml" onChange={set("entryPoint")} />
+                  </label>
+                  <label className="pg-settings-field">
+                    <span className="pg-settings-label">Identity provider’s entity ID</span>
+                    <input required value={form.idpIssuer} onChange={set("idpIssuer")} />
+                  </label>
+                  <label className="pg-settings-field">
+                    <span className="pg-settings-label">Signing certificate</span>
+                    <textarea required rows={5} spellCheck={false} value={form.idpCert} placeholder="-----BEGIN CERTIFICATE-----" onChange={set("idpCert")} />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="pg-settings-field">
+                    <span className="pg-settings-label">Issuer URL</span>
+                    <input type="url" required value={form.issuer} placeholder="https://your-company.okta.com" onChange={set("issuer")} />
+                  </label>
+                  <label className="pg-settings-field">
+                    <span className="pg-settings-label">Client ID</span>
+                    <input required value={form.clientId} onChange={set("clientId")} />
+                  </label>
+                  <label className="pg-settings-field">
+                    <span className="pg-settings-label">Client secret</span>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      required={!(c?.hasSecret && c.protocol === "oidc")}
+                      value={form.clientSecret}
+                      placeholder={c?.hasSecret && c.protocol === "oidc" ? "Saved. Leave empty to keep it." : ""}
+                      onChange={set("clientSecret")}
+                    />
+                  </label>
+                </>
+              )}
               <label className="pg-settings-field">
-                <span className="pg-settings-label">Issuer URL</span>
-                <input type="url" required value={form.issuer} placeholder="https://your-company.okta.com" onChange={set("issuer")} />
-              </label>
-              <label className="pg-settings-field">
-                <span className="pg-settings-label">Client ID</span>
-                <input required value={form.clientId} onChange={set("clientId")} />
-              </label>
-              <label className="pg-settings-field">
-                <span className="pg-settings-label">Client secret</span>
-                <input
-                  type="password"
-                  autoComplete="off"
-                  required={!c?.hasSecret}
-                  value={form.clientSecret}
-                  placeholder={c?.hasSecret ? "Saved. Leave empty to keep it." : ""}
-                  onChange={set("clientSecret")}
-                />
-              </label>
-              <label className="pg-settings-field">
-                <span className="pg-settings-label">Groups claim</span>
+                <span className="pg-settings-label">{saml ? "Groups attribute" : "Groups claim"}</span>
                 <input value={form.groupsClaim} onChange={set("groupsClaim")} />
               </label>
               <button type="submit" className="pg-primary">

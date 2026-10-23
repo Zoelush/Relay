@@ -229,7 +229,7 @@ import { changeAudit, readAudit } from "./audit";
 import { acceptInvitation, changeAccount, changeInvitations, changeSessions, completeTwoFactor, readAccount, readInvitation, readInvitations, readSessions, resolveSession, sessionLive, signIn, signInAllowed, signOut, twoFactorSetup } from "./accounts";
 import { assertPlatformAllowed, changeAccess, readAccess } from "./two-factor";
 import { assertNetwork, notAllowed } from "./allowlists";
-import { changeSso, discover, finishSso, readSso, ssoInfo, startSso } from "./sso";
+import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
 import { memoryRateLimiter, type RateLimiter } from "./rate-limit";
@@ -427,12 +427,15 @@ async function handleAuth(req: Request, env: ApiEnvironment): Promise<Response> 
     } catch {
       throw new DomainError("FORBIDDEN", "Sign-in must come through Relay's own pages.", 401);
     }
-    const body = (await readBody(req, 4000)) as Record<string, unknown>;
+    // Phase 16 C4b: a SAML response is larger than any other sign-in step.
+    const body = (await readBody(req, action === "saml-acs" ? 310_000 : 4000)) as Record<string, unknown>;
     assert(typeof c.workspace === "string" && c.action === action && c.digest === (await digest(body)), "FORBIDDEN", "Request signature does not match.", 401);
     const client = { ip: typeof c.ip === "string" ? c.ip : null, userAgent: typeof c.ua === "string" ? c.ua : null, origin: typeof c.origin === "string" ? c.origin : null };
     const w = c.workspace;
     // Phase 16 C4a: whether the sign-in page offers single sign-on is read on every page view: not an attempt.
     if (action === "sso-info") return reply(await ssoInfo(env.connect, w));
+    // Phase 16 C4b: Relay's SAML metadata, for the identity provider's administrator: public, not an attempt.
+    if (action === "saml-metadata") return reply(await ssoMetadata(env.connect, w, client));
     const taken = (env.rateLimiter ?? authLimiter).take("auth:" + (client.ip ?? "unknown"), { capacity: 20, perSecond: 1 / 3 });
     assert(taken.ok, "RATE_LIMITED", "Too many attempts from here. Wait a minute and try again.", 429);
     const keys = { key: env.connectors?.key ?? env.webhooks?.key };
@@ -442,6 +445,7 @@ async function handleAuth(req: Request, env: ApiEnvironment): Promise<Response> 
     if (action === "two-factor") return reply(await completeTwoFactor(env.connect, w, keys, body, client));
     // Phase 16 C4a: single sign-on: where to send the browser, and its return.
     if (action === "sso-start") return reply(await startSso(env.connect, w, body, client));
+    if (action === "saml-acs") return reply(await samlAcs(env.connect, w, body));
     if (action === "sso-finish") return reply(await finishSso(env.connect, w, { ...keys, policy: env.sso?.policy }, body, client));
     if (action === "accept") return reply(await acceptInvitation(env.connect, w, body, client));
     if (action === "signout") return reply(await signOut(env.connect, w, String(body.token ?? "")));
@@ -1997,8 +2001,10 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/sso-settings") {
           // Phase 16 C4a: the SSO connection (its issuer's discovery read before the transaction), domains, group roles, enforcement.
           const ssoEnv = { key: env.connectors?.key ?? env.webhooks?.key, policy: env.sso?.policy };
-          if (p.action === "connection") await tenant(env.connect, workspace, (db) => authorize(db, workspace, principal, "security.manage"));
-          const discovered = p.action === "connection" ? await discover(ssoEnv, p.issuer) : null;
+          // OIDC only: SAML (C4b) has no discovery document; its fields are checked by `changeSso`.
+          const oidc = p.action === "connection" && p.protocol !== "saml";
+          if (oidc) await tenant(env.connect, workspace, (db) => authorize(db, workspace, principal, "security.manage"));
+          const discovered = oidc ? await discover(ssoEnv, p.issuer) : null;
           return json(await tenant(env.connect, workspace, (db) => changeSso(db, workspace, principal, ssoEnv, client, p, discovered)));
         }
         if (url.pathname === "/v1/agent/security-access")
