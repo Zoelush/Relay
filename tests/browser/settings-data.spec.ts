@@ -82,6 +82,8 @@ test("tags added, renamed and archived (and gone from pickers); a list attribute
   // Edited: the type is fixed, saved options can't be removed, a new one is added.
   await page.getByRole("button", { name: "Edit Delivery method" }).click();
   editor = page.getByRole("form", { name: "Edit Delivery method" });
+  // The earlier "Saved" notice is gone while editing, so it can't stand for this save.
+  await expect(notice(page)).toHaveCount(0);
   await expect(editor.getByLabel(/^Text/)).toBeDisabled();
   await expect(
     editor.getByRole("button", { name: "Remove option Courier" }),
@@ -90,6 +92,10 @@ test("tags added, renamed and archived (and gone from pickers); a list attribute
   await editor.getByLabel("New option").press("Enter");
   await editor.getByRole("button", { name: "Save attribute" }).click();
   await expect(notice(page)).toContainText("Saved Delivery method.");
+  // The list shows the new option only once the save has finished: read the database after that.
+  await expect(
+    page.getByRole("list", { name: "Attributes", exact: true }),
+  ).toContainText("List: Courier, Pickup, Locker");
   const [attribute] = await sql<{ id: string; options: string[] }>(
     "SELECT id,value_type,options FROM attribute_definitions WHERE name='Delivery method'",
   );
@@ -164,9 +170,11 @@ test("tags added, renamed and archived (and gone from pickers); a list attribute
   // Edited: a state renamed keeps its key, so tickets in it stay put.
   await page.getByRole("button", { name: "Edit Returns" }).click();
   const edit = page.getByRole("form", { name: "Edit Returns" });
+  await expect(notice(page)).toHaveCount(0);
   await edit.getByLabel("State 2 name").fill("Inspecting");
   await edit.getByRole("button", { name: "Save ticket type" }).click();
   await expect(notice(page)).toContainText("Saved Returns.");
+  await expect(edit).toHaveCount(0);
   expect(
     (
       await sql("SELECT name FROM ticket_states WHERE id=$1", [

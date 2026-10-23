@@ -289,7 +289,12 @@ export function AttributesPage({
 }) {
   const { items, error, notice, busy, run, load, setNotice } =
     useList<Attribute>("attributes", "attributes");
-  const [editing, setEditing] = useState<Attribute | "new" | null>(null);
+  const [editing, setEditingState] = useState<Attribute | "new" | null>(null);
+  // Opening an editor clears the last notice, so "Saved …" never describes an earlier save.
+  const setEditing = (next: Attribute | "new" | null) => {
+    if (next) setNotice("");
+    setEditingState(next);
+  };
   const active = (items ?? []).filter((a) => !a.archived);
   const archived = (items ?? []).filter((a) => a.archived);
   return (
@@ -625,7 +630,12 @@ export function TicketTypesPage({
 }) {
   const { items, error, notice, busy, run, load, setNotice } =
     useList<TicketType>("ticket-types", "types");
-  const [editing, setEditing] = useState<TicketType | "new" | null>(null);
+  const [editing, setEditingState] = useState<TicketType | "new" | null>(null);
+  // Opening an editor clears the last notice, so "Saved …" never describes an earlier save.
+  const setEditing = (next: TicketType | "new" | null) => {
+    if (next) setNotice("");
+    setEditingState(next);
+  };
   const [attributes, setAttributes] = useState<Attribute[]>([]);
   const [reload, setReload] = useState(0);
   useEffect(() => {

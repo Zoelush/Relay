@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased: Settings › Attributes and Ticket types no longer show a stale "Saved" notice
+
+- **Opening an attribute or ticket type to edit clears the last "Saved …" notice,** so it can't read as if the edit was already saved.
+- **A flaky browser test fixed:** `tests/browser/settings-data.spec.ts` could read the database before an edit was saved, because the earlier save's notice already matched. It now waits for the saved result, and checks that no stale notice shows while editing.
+
 ## Unreleased: Single sign-on with OpenID Connect (phase 16, C4a)
 
 - **Sign in with your identity provider** (Okta, Microsoft Entra ID, Google Workspace and others) from Settings › Security › Single sign-on.
