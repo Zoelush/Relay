@@ -96,6 +96,11 @@ export const EXPLICIT_ACTIONS = {
   "two_factor.recovery_codes_replaced": { label: "Recovery codes replaced", area: "Security" },
   "two_factor.recovery_code_used": { label: "Recovery code used", area: "Security" },
   "session.sso_refused": { label: "Single sign-on refused", area: "Security" },
+  "data.subject_export_requested": { label: "Export of a person's data requested", area: "Data" },
+  "data.subject_exported": { label: "Person's data exported", area: "Data" },
+  "data.subject_export_downloaded": { label: "Person's data export downloaded", area: "Data" },
+  "data.erasure_requested": { label: "Deletion of a person requested", area: "Data" },
+  "data.erased": { label: "Person deleted (certificate issued)", area: "Data" },
   "session.break_glass": { label: "Owner signed in with a password (single sign-on enforced)", area: "Security" },
   "invitation.accepted": { label: "Invitation accepted", area: "People and roles" },
 } as const satisfies Record<string, { label: string; area: Area }>;

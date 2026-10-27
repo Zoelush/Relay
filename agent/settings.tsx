@@ -22,6 +22,7 @@ import {
   UserCog,
   ShieldCheck,
   Fingerprint,
+  UserX,
   LogIn,
   Store,
   MessageCircle,
@@ -75,6 +76,7 @@ import { AuditPage } from "./settings-audit";
 import { SessionsPage, SignInSettingsPage } from "./settings-signin";
 import { AccessPage } from "./settings-access";
 import { SsoPage } from "./settings-sso";
+import { DataRequestsPage } from "./settings-data-requests";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -319,6 +321,14 @@ const PAGES: Page[] = [
     label: "Single sign-on",
     description: "Sign in with your identity provider, with roles from its groups.",
     icon: LogIn,
+    group: "Security",
+  },
+  {
+    // Phase 16 C5a: a person's data exported, or deleted with a signed certificate.
+    id: "data-requests",
+    label: "Data requests",
+    description: "Export everything about one customer, or delete it, when they ask.",
+    icon: UserX,
     group: "Security",
   },
   {
@@ -656,6 +666,8 @@ export function Settings({
             <AccessPage menu={menu} page={current} />
           ) : current.id === "sso" ? (
             <SsoPage menu={menu} page={current} />
+          ) : current.id === "data-requests" ? (
+            <DataRequestsPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (
