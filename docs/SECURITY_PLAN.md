@@ -237,6 +237,34 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **The acceptance test** seeds one person across every feature that stores customer data, deletes them, then scans every column of every table for their identifiers and a marker in their messages. Nothing may remain, except the stripped ledger and audit rows with their counts. Another customer's data is untouched.
     - **Not in C5a:** the analytical store, embeddings, the processors and backups (C5b), and the REST API (asked for later if wanted).
 
+19. **C5b choices** (27 October 2026):
+    - **The analytical store keeps the counts and unlinks the person.**
+      - **Unchanged:** their conversations stay counted in past reports.
+      - **Unlinked:** each conversation gets a new random ID everywhere in the store (consistently, so a report's joins still hold), and their contact IDs and profile snapshots are removed.
+      - **This matches** the choice for Zoe's ledger in C5a.
+    - **Third-party services:** Relay deletes the person's call recordings and SMS records at Twilio through its API, as part of the deletion. Every other service is listed with what it receives and how long it keeps it, on the Data requests page and in the certificate.
+
+20. **C5b decisions** (27 October 2026):
+    - **The analytical store has its own catalog** (`server/erasure-analytics.ts`), held to its schema by a test, as `server/erasure.ts` is to PostgreSQL's.
+      - **When it runs:** after the PostgreSQL transaction, from the IDs the deletion kept on the request. Those are cleared once every store is done.
+      - **Safe to retry:** a conversation that already has its new ID is left alone.
+    - **Embeddings:** the vector store only ever holds knowledge content (articles, synced pages, files), never conversations. Zoe's memory reads PostgreSQL directly.
+      - **The certificate says so.**
+      - **The acceptance test proves it** by searching the vector store for the person.
+    - **Twilio:**
+      - **What's deleted:** recordings (`voice_calls.recording_sid`), and texts sent and received (`channel_deliveries.provider_id` and `channel_messages.external_id` on SMS). Their IDs are kept on the request before the rows go.
+      - **How:** through the Twilio port (`deleteRecording`, `deleteMessage`). One already gone counts as deleted.
+      - **When Twilio refuses:** a refusal for good (a 4xx other than 404) is recorded in the certificate with the reason, rather than retried forever. Other failures retry with the job.
+    - **The processor list** is one registry (`lib/processors.ts`). Each entry has what the service receives, when (which feature), how long it keeps it, and how deletion works:
+      - **Deleted by Relay:** Twilio.
+      - **Not kept:** Cloudflare Workers AI.
+      - **Kept by the provider under its own policy:** model providers, Amazon SES, Meta.
+      - **A destination the workspace chose:** webhooks, data connectors, apps, Slack and Discord.
+    - **The registry appears in two places:** shown on the Data requests page, and copied into each certificate.
+    - **Backups:** PostgreSQL's point-in-time history keeps a deleted person for at most its window. `RELAY_BACKUP_DAYS` sets it (7 by default), and the certificate states the date by which backups no longer hold them. The window is documented in `docs/SECURITY_STEP8.md` until Neon is provisioned.
+    - **The certificate drops `notYetCovered`.** It now covers PostgreSQL, files, the analytical store, embeddings, Twilio, the other processors, and the backup date.
+    - **The acceptance test grows to every store:** PostgreSQL, storage, the analytical store (projected first, then scanned, with the counts checked), the vector store, and the Twilio stand-in.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Card, Frame, message, type MenuState, type Page } from "./settings-ui";
+import { DELETION_LABEL, PROCESSORS } from "../lib/processors";
 
 /**
  * Settings › Security › Data requests (phase 16, step C5a; docs/SECURITY_STEP7.md), for
  * `security.manage`, behind `security_v1`: find one person, export everything about them (a zip,
  * ready to download for seven days) or delete it (confirmed by typing their email, or "delete"),
- * and each request's progress, with the deletion's signed certificate to keep.
+ * and each request's progress, with the deletion's signed certificate to keep. C5b: where customer
+ * data goes outside Relay, and what a deletion does there (`lib/processors.ts`).
  */
 type Found = { contactId: string; name: string | null; externalId: string | null; emails: string[]; phones: string[]; conversations: number; takesPartIn: number; mergedContacts: number };
 type Request = {
@@ -217,6 +219,34 @@ export function DataRequestsPage({ menu, page }: { menu: MenuState; page: Page }
         ) : (
           <p className="pg-muted">No requests yet.</p>
         )}
+      </Card>
+      <Card
+        title="Where customer data goes"
+        description="The services outside Relay that receive customer data, and what a deletion does there. Every deletion certificate includes this list, and the date by which Relay's backups no longer hold the person."
+      >
+        <table className="pg-email-records pg-people-table" aria-label="Where customer data goes">
+          <thead>
+            <tr>
+              <th scope="col">Service</th>
+              <th scope="col">Receives</th>
+              <th scope="col">Keeps</th>
+              <th scope="col">On deletion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PROCESSORS.map((p) => (
+              <tr key={p.id}>
+                <th scope="row">
+                  {p.name}
+                  <small className="pg-muted"> · {p.when}</small>
+                </th>
+                <td>{p.receives}</td>
+                <td>{p.keeps}</td>
+                <td>{DELETION_LABEL[p.deletion]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </Card>
     </Frame>
   );

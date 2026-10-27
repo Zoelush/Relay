@@ -145,6 +145,8 @@ interface Env extends Partial<StorageEnv> {
   IDENTITY_MASTER: string;
   /** Encrypts data connectors' credentials (phase 09 D1); connectors are unavailable without it. */
   RELAY_CONNECTOR_KEY?: string;
+  /** Phase 16 C5b: how long PostgreSQL's point-in-time backups keep a deleted person (days; 7 unless set). */
+  RELAY_BACKUP_DAYS?: string;
   BRIDGE_SECRET: string;
   RELAY_ENABLED?: string;
   ATTACHMENTS_ENABLED?: string;
@@ -596,7 +598,12 @@ const relayWorker = {
         runtime.attachments ? auditExportJob(runtime.connect, runtime.attachments, job) : Promise.resolve({ done: true, result: { skipped: "No storage." } }),
       // Phase 16 C5a: a person's data exported (to the attachments bucket), or deleted with a signed certificate.
       "dsr.export": (job) => dataExportJob(runtime.connect, { storage: runtime.attachments, key: env.RELAY_CONNECTOR_KEY }, job),
-      "dsr.delete": (job) => dataDeleteJob(runtime.connect, { storage: runtime.attachments, key: env.RELAY_CONNECTOR_KEY }, job),
+      "dsr.delete": (job) =>
+        dataDeleteJob(
+          runtime.connect,
+          { storage: runtime.attachments, key: env.RELAY_CONNECTOR_KEY, analytics: runtime.analytics, sms: twilioApi(), backupDays: Number(env.RELAY_BACKUP_DAYS ?? 7) },
+          job,
+        ),
       // Phase 14 R1: reporting's store fed from the application (also its backfill).
       "analytics.project": (job) =>
         runtime.analytics ? projectJob(runtime.connect, runtime.analytics, job) : Promise.resolve({ done: true, result: { skipped: "No analytical store." } }),

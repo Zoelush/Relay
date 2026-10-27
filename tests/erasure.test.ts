@@ -1,14 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
-import { testDatabase } from "./database";
+import { analyticsDatabase, testDatabase } from "./database";
 import { tenant, type Sql } from "../server/db";
 import { getIdentity, seedFoundation } from "../server/people";
 import { command } from "../server/conversations";
 import { checkEvent, recordEvent } from "../server/events";
 import { recordContactView } from "../server/audit";
 import { ERASURE, NO_PERSONAL_DATA } from "../server/erasure";
+import { ANALYTICS_ERASURE, ANALYTICS_NO_PERSONAL_DATA } from "../server/erasure-analytics";
+import { projectJob, type AnalyticsStore } from "../server/analytics";
+import { seal } from "../server/connectors";
+import { localSms, LOCAL_TWILIO } from "../scripts/local-sms";
+import { PROCESSORS } from "../lib/processors";
 import { changeDataRequests, dataDeleteJob, dataExportJob, expireDataExports, readDataRequests, verifyCertificate } from "../server/data-requests";
 import { localAttachmentStorage } from "../scripts/local-storage";
 import type { Job } from "../server/jobs";
@@ -21,6 +26,9 @@ import type { Job } from "../server/jobs";
  * exported (a zip of person.json and her files, no internal notes), then deleted. Every column of
  * every table is then searched for her: nothing remains but the ledger and audit rows that others
  * rely on, stripped of her. Bob is untouched, the certificate verifies, and nothing crosses workspaces.
+ * C5b: every store. The analytical store (projected first) keeps its counts with nothing of her;
+ * Twilio is asked to delete her recording and texts; the vector store is only ever written with
+ * knowledge; the certificate lists every processor and when backups stop holding her.
  */
 test("the erasure catalog covers every table, once", async () => {
   const db = await testDatabase();
@@ -37,11 +45,36 @@ test("the erasure catalog covers every table, once", async () => {
   }
 });
 
+test("the analytical store's catalog covers every table, once; only the knowledge index writes vectors", async () => {
+  const store = await analyticsDatabase();
+  try {
+    const c = await store.connect();
+    const tables = (await c.query<{ t: string }>("SELECT table_name AS t FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")).rows.map((r) => r.t);
+    await c.close();
+    const steps = new Set(ANALYTICS_ERASURE.map((s) => s.table));
+    const none = new Set(Object.keys(ANALYTICS_NO_PERSONAL_DATA));
+    assert.deepEqual(tables.filter((t) => !steps.has(t) && !none.has(t)), [], "every table is erased or says why it holds no one's data");
+    assert.deepEqual([...steps].filter((t) => none.has(t)), []);
+    assert.deepEqual([...steps, ...none].filter((t) => !tables.includes(t)), []);
+  } finally {
+    await store.close();
+  }
+  // Embeddings hold no customer data: the vector store is written only by the knowledge index.
+  const writers: string[] = [];
+  for (const dir of ["server", "workers", "scripts", "app"])
+    for (const f of await readdir(dir, { recursive: true }))
+      if (/\.tsx?$/.test(String(f)) && /vectors\.upsert\(/.test(await readFile(`${dir}/${f}`, "utf8"))) writers.push(`${dir}/${f}`);
+  assert.deepEqual(writers, ["server/knowledge-index.ts"]);
+});
+
 test("a person exported, then deleted: no trace in any PostgreSQL table, files gone, the certificate signed, others untouched", async () => {
   const db = await testDatabase();
   const storage = localAttachmentStorage().storage;
   const KEY = "k".repeat(64);
-  const env = { storage, key: KEY };
+  const analyticsStore = await analyticsDatabase();
+  const analytics: AnalyticsStore = { connect: analyticsStore.connect };
+  const twilio = localSms();
+  const env = { storage, key: KEY, analytics, sms: twilio.api, backupDays: 7 };
   const q = <T = Record<string, unknown>>(w: string, sql: string, values: unknown[] = []) => tenant(db.connect, w, async (x) => (await x.query<T>(sql, values)).rows);
   const MARK = "kumquat-marmalade-7731";
   const ADA = { email: "ada.vexley@customer.example", phone: "+447700900731", external: "ada-ext-7731", name: "Ada Vexley" };
@@ -117,6 +150,21 @@ test("a person exported, then deleted: no trace in any PostgreSQL table, files g
       await x.query("SELECT set_config('relay.actor_id','owner',true)");
       await recordContactView(x, "a", contactId, { where: "inbox", personalData: true });
     });
+    // C5b: Twilio holds her texts and a call's recording; the analytical store has her conversations.
+    await q("a", "INSERT INTO sms_accounts(workspace_id,account_sid,token_sealed,created_by) VALUES('a',$1,$2,'owner')", [LOCAL_TWILIO.sid, await seal(KEY, "a", "sms:account", "token", LOCAL_TWILIO.token)]);
+    const firstPart = (await q<{ id: string }>("a", "SELECT id FROM conversation_parts WHERE conversation_id=$1 ORDER BY seq LIMIT 1", [c1]))[0].id;
+    await q("a", "INSERT INTO channel_messages(workspace_id,channel,external_id,part_id,conversation_id) VALUES('a','sms','SMada7731',$1,$2)", [firstPart, c1]);
+    await q("a", "INSERT INTO sms_numbers(workspace_id,id,brand_id,phone,calling_code,created_by) VALUES('a','num','default','+441000000000','44','owner')");
+    await q("a", "INSERT INTO voice_calls(workspace_id,id,call_sid,conversation_id,number_id,from_phone,to_phone,status,recording_sid) VALUES('a',$1,'CAada7731',$2,'num',$3,'+441000000000','completed','REada7731')", [
+      crypto.randomUUID(),
+      c2,
+      ADA.phone,
+    ]);
+    await projectJob(db.connect, analytics, { workspace_id: "a", payload: {}, result: null } as never);
+    const aq = <T = Record<string, unknown>>(sql: string, values: unknown[] = []) => tenant(analyticsStore.connect, "a", async (x) => (await x.query<T>(sql, values)).rows);
+    const reported = await aq<{ n: number }>("SELECT count(*)::int AS n FROM a_conversations");
+    assert.ok(reported[0].n >= 3, "her conversations and Bob's are in the analytical store");
+    assert.ok((await aq("SELECT 1 FROM a_conversations WHERE conversation_id=$1", [c1])).length);
     const counts = async () => Object.fromEntries((await q<{ t: string; n: number }>("a", "SELECT 'parts' t,count(*)::int n FROM conversation_parts UNION ALL SELECT 'contacts',count(*)::int FROM contacts")).map((r) => [r.t, r.n]));
     const before = await counts();
 
@@ -160,6 +208,31 @@ test("a person exported, then deleted: no trace in any PostgreSQL table, files g
     assert.ok(!(await verifyCertificate("x".repeat(64), certificate)), "nor with another key");
     assert.ok(certificate.stores.postgresql.conversations === 2 && certificate.stores.postgresql.contacts >= 1 && certificate.stores.files.objects >= 2);
     assert.ok(!JSON.stringify(certificate).includes(ADA.email) && !JSON.stringify(certificate).includes(contactId), "the certificate names nobody");
+    // C5b: every store in the certificate; the processors; the backup date.
+    const c5b = certificate as unknown as {
+      stores: { analyticalStore: Record<string, number>; embeddings: string; twilio: { recordings: number; messages: number; refused: string[] } };
+      processors: { id: string; deletion: string }[];
+      backups: { windowDays: number; clearBy: string };
+      notYetCovered?: unknown;
+    };
+    assert.ok(c5b.stores.analyticalStore.a_conversations >= 2, "her conversations unlinked in the analytical store");
+    assert.match(c5b.stores.embeddings, /no customer data/);
+    assert.deepEqual(c5b.stores.twilio, { recordings: 1, messages: 1, refused: [] });
+    assert.deepEqual(twilio.deleted.map((d) => `${d.kind}:${d.sid}`).sort(), ["message:SMada7731", "recording:REada7731"]);
+    assert.deepEqual(c5b.processors.map((p) => p.id), PROCESSORS.map((p) => p.id));
+    assert.equal(c5b.backups.windowDays, 7);
+    assert.ok(Math.abs(new Date(c5b.backups.clearBy).getTime() - Date.now() - 7 * 86_400_000) < 60_000);
+    assert.equal(c5b.notYetCovered, undefined);
+    // The analytical store: the same counts, and nothing of her.
+    assert.deepEqual(await aq<{ n: number }>("SELECT count(*)::int AS n FROM a_conversations"), reported, "past reports keep their counts");
+    const aTables = (await aq<{ t: string }>("SELECT DISTINCT table_name AS t FROM information_schema.columns WHERE table_schema='public' AND column_name='workspace_id'")).map((r) => r.t);
+    const aNeedles = [ADA.email, ADA.phone, ADA.external, "Vexley", contactId, ada.identityId, c1, c2].map((n) => `%${n}%`);
+    const aTraces: string[] = [];
+    for (const t of aTables) {
+      const n = (await aq<{ n: number }>(`SELECT count(*)::int AS n FROM ${t} x WHERE workspace_id='a' AND to_jsonb(x)::text ILIKE ANY($1)`, [aNeedles]))[0].n;
+      if (n) aTraces.push(`${t}: ${n}`);
+    }
+    assert.deepEqual(aTraces, [], "no trace of her in the analytical store");
     assert.equal(storage.getQuarantine && (await storage.getQuarantine("q/ada-raw.eml")), null, "the raw email is gone");
     assert.equal((await storage.readClean!("c/ada-receipt.txt")).status, 404, "her file is gone");
 
@@ -219,6 +292,55 @@ test("a person exported, then deleted: no trace in any PostgreSQL table, files g
       }),
       /append-only/,
     );
+  } finally {
+    await analyticsStore.close();
+    await db.close();
+  }
+});
+
+test("Twilio: a recording or text already gone counts as deleted; a refusal for good is reported, not retried", async () => {
+  const { twilioApi, SmsRejected } = await import("../server/sms-api");
+  const asked: string[] = [];
+  const answer = (status: number) => async (url: string | URL | Request, init?: RequestInit) => {
+    asked.push(`${init?.method} ${String(url).replace(/^.*\/Accounts\/[^/]+/, "")}`);
+    return status === 204 ? new Response(null, { status }) : Response.json(status >= 400 ? { message: "Not allowed", code: 20003 } : {}, { status });
+  };
+  const c = { sid: "AC1", token: "t" };
+  await twilioApi({ fetch: answer(204) as typeof fetch }).deleteRecording(c, "RE1");
+  await twilioApi({ fetch: answer(404) as typeof fetch }).deleteMessage(c, "SM1");
+  await assert.rejects(twilioApi({ fetch: answer(403) as typeof fetch }).deleteMessage(c, "SM2"), (e) => e instanceof SmsRejected);
+  await assert.rejects(twilioApi({ fetch: answer(503) as typeof fetch }).deleteMessage(c, "SM3"), (e) => !(e instanceof SmsRejected), "a passing failure is retried by the job");
+  assert.deepEqual(asked, ["DELETE /Recordings/RE1.json", "DELETE /Messages/SM1.json", "DELETE /Messages/SM2.json", "DELETE /Messages/SM3.json"]);
+
+  // Through a deletion: Twilio refusing one text is recorded in the certificate; the request still finishes.
+  const db = await testDatabase();
+  const q = <T = Record<string, unknown>>(w: string, sql: string, values: unknown[] = []) => tenant(db.connect, w, async (x) => (await x.query<T>(sql, values)).rows);
+  const KEY = "k".repeat(64);
+  try {
+    await tenant(db.connect, "a", (x) => seedFoundation(x, "a", "owner-a", { origins: [], master: "m".repeat(40), identitySecret: new TextEncoder().encode("i".repeat(32)), enable: true }));
+    await q("a", "UPDATE workspace_features SET enabled=true");
+    const sam = await tenant(db.connect, "a", (x) => getIdentity(x, "a", "user", "sam-1", { name: "Sam", email: "sam@customer.example" }));
+    const conversation = (
+      (await tenant(db.connect, "a", (x) =>
+        command(x, "a", { type: "contact", identityId: sam.identityId, brandId: "default" }, crypto.randomUUID(), { action: "start", text: "Hi" } as unknown as Parameters<typeof command>[4]),
+      )) as { conversationId: string }
+    ).conversationId;
+    const part = (await q<{ id: string }>("a", "SELECT id FROM conversation_parts WHERE conversation_id=$1 LIMIT 1", [conversation]))[0].id;
+    await q("a", "INSERT INTO sms_accounts(workspace_id,account_sid,token_sealed,created_by) VALUES('a','AC1',$1,'owner')", [await seal(KEY, "a", "sms:account", "token", "t")]);
+    await q("a", "INSERT INTO channel_messages(workspace_id,channel,external_id,part_id,conversation_id) VALUES('a','sms','SMgone',$1,$2),('a','sms','SMkept',$1,$2)", [part, conversation]);
+    const contactId = (await q<{ contact_id: string }>("a", "SELECT contact_id FROM identity_contact_mappings WHERE identity_id=$1", [sam.identityId]))[0].contact_id;
+    const sms = twilioApi({ fetch: (async (url: string | URL | Request, init?: RequestInit) => answer(String(url).includes("SMkept") ? 403 : 204)(url, init)) as typeof fetch });
+    const env = { key: KEY, sms };
+    const asked2 = (await tenant(db.connect, "a", (x) => changeDataRequests(x, "a", "owner-a", env, null, { action: "delete", contactId, confirm: "delete" }))) as { requestId: string };
+    const job = (await q<Job>("a", "SELECT * FROM jobs WHERE kind='dsr.delete' ORDER BY created_at DESC LIMIT 1"))[0];
+    await dataDeleteJob(db.connect, env, job);
+    const r = (await tenant(db.connect, "a", (x) => readDataRequests(x, "a", "owner-a"))).requests.find((x) => x.id === asked2.requestId)!;
+    assert.equal(r.state, "done");
+    assert.match(r.error!, /Twilio refused 1/);
+    const twilio = (r.certificate as { stores: { twilio: { recordings: number; messages: number; refused: string[] } } }).stores.twilio;
+    assert.deepEqual([twilio.messages, twilio.refused.length], [1, 1]);
+    assert.match(twilio.refused[0], /^message SMkept: Not allowed/);
+    assert.ok(await verifyCertificate(KEY, r.certificate as Record<string, unknown>));
   } finally {
     await db.close();
   }

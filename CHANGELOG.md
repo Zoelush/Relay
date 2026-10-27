@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased: Deleting a person everywhere: reports, Twilio, backups (phase 16, C5b)
+
+- **Reports keep their numbers, without the person:** a deleted person's conversations stay counted in past reports, under new IDs, with nothing that leads back to them.
+- **Twilio:** their call recordings and text message records are deleted at Twilio too.
+- **Where customer data goes:** Settings › Security › Data requests lists every outside service that receives customer data, what it keeps, and what a deletion does there.
+- **The deletion certificate now covers every store** (the database, files, reports, embeddings, Twilio), lists those services, and gives the date by which backups no longer hold the person.
+- **Details:** `docs/SECURITY_STEP8.md`.
+
 ## Unreleased: Data subject requests: export and delete a person (phase 16, C5a)
 
 - **Settings › Security › Data requests:** find a customer by email, phone, external ID or contact ID.
