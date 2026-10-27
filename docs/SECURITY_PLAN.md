@@ -177,6 +177,28 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **Break-glass:** owners keep their password (and two-factor), and each such sign-in is recorded as break-glass.
     - **Deprovisioning without SCIM** happens at the next sign-in (groups are checked each time), or when a manager ends the sessions. SCIM stays deferred.
 
+16. **C4b decisions** (23 October 2026):
+    - **The library, checked first:** `@node-saml/node-saml` 5.1.0 (pinned; signatures by `xml-crypto` 6.4).
+      - **How it was checked:** in workerd through `wrangler dev`, with Relay's compatibility date and `nodejs_compat`. It validated a signed response and refused tampered, wrong-key, unsigned and signature-wrapping responses, exactly as in Node.
+      - **Cost:** about 200 KiB gzipped in the Worker.
+      - **Where it lives:** only in `server/saml.ts`, so the app's host bundle doesn't carry it.
+    - **One connection per workspace, OIDC or SAML,** keeping C4a's domains, group mappings, identities, enforcement and break-glass. Only the protocol's step (proving who the person is) differs.
+    - **Relay as the service provider:**
+      - **Its values:** the entity ID is its metadata address (`/auth/saml/metadata`, served as XML); the ACS is `/auth/saml/acs` (HTTP-POST). Requests go by HTTP-Redirect.
+      - **Unsigned requests:** AuthnRequests aren't signed (Relay holds no SAML key), which identity providers accept by default.
+      - **What's required:** signed assertions; the response, the audience, the issuer, `InResponseTo` (the request's ID, kept on the login) and the time limits are all checked.
+    - **The browser binding survives the cross-site POST:**
+      - **Why it's needed:** the provider's POST can't carry the Lax login cookie.
+      - **How:** the ACS parks the response on the login found by its RelayState (a random secret, used once), then sends the browser on with a 303 to `/auth/sso/callback`. That GET carries the cookie, and only that browser can finish.
+      - **Unread until then:** the parked response is validated only at that step, then cleared.
+    - **Who it is:** the subject is the NameID, refused when it's transient (it would make a new person each time). The email is the NameID when it's one, else the `email`/`mail` attribute. Groups come from the named attribute.
+    - **Verified email:** SAML has no "email verified" flag. The verified domain stands for it: only emails at domains the workspace proved it owns sign in.
+    - **Settings:**
+      - **Fields:** the provider's SSO URL, entity ID and signing certificate (PEM, public, kept as text).
+      - **Shown for the provider:** Relay's entity ID, ACS and metadata address.
+      - **Re-proving:** changing the provider or its certificate clears "has worked", so enforcement waits for a new sign-in.
+    - **The stand-in provider gains SAML,** with a fixed test key and certificate in `tests/fixtures/saml/` (test only, clearly marked).
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).
