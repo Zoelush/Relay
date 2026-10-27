@@ -18,6 +18,7 @@ export function localSms() {
   const voiceConfigured = new Map<string, { voiceUrl: string; statusUrl: string }>();
   const bought: { phone: string; sid: string; urls: { smsUrl: string; voiceUrl: string; statusUrl: string } }[] = [];
   const recordings: { callSid: string; callback: string; sid: string }[] = [];
+  const deleted: { kind: "recording" | "message"; sid: string }[] = [];
   // The account's numbers: this stand-in's own, so a number bought here isn't another's.
   const numbers = [...LOCAL_TWILIO.numbers];
   const media = new Map<string, { bytes: Uint8Array; mime: string }>();
@@ -92,9 +93,22 @@ export function localSms() {
       recordings.push({ callSid, callback, sid });
       return { sid };
     },
+    // Phase 16 C5b: what a deletion asked Twilio to delete.
+    async deleteRecording(c, sid) {
+      reachable();
+      authorised(c);
+      deleted.push({ kind: "recording", sid });
+    },
+    async deleteMessage(c, sid) {
+      reachable();
+      authorised(c);
+      deleted.push({ kind: "message", sid });
+    },
   };
   return {
     api,
+    /** Phase 16 C5b: recordings and messages deleted at the stand-in's Twilio. */
+    deleted,
     sent,
     configured,
     voiceConfigured,

@@ -32,20 +32,26 @@ export interface SmsApi {
   buyNumber(c: SmsCredentials, phone: string, urls: { smsUrl: string; voiceUrl: string; statusUrl: string }): Promise<{ sid: string }>;
   /** E9: records a call in progress (both sides, on two channels), reporting to `callback`. */
   startRecording(c: SmsCredentials, callSid: string, callback: string): Promise<{ sid: string }>;
+  /** Phase 16 C5b: a recording deleted at Twilio (one already gone counts as deleted). */
+  deleteRecording(c: SmsCredentials, sid: string): Promise<void>;
+  /** Phase 16 C5b: a text's record deleted at Twilio (one already gone counts as deleted). */
+  deleteMessage(c: SmsCredentials, sid: string): Promise<void>;
 }
 
 const auth = (c: SmsCredentials) => "Basic " + btoa(`${c.sid}:${c.token}`);
 export function twilioApi(options: { fetch?: typeof fetch; base?: string } = {}): SmsApi {
   const f = options.fetch ?? fetch;
   const base = options.base ?? "https://api.twilio.com/2010-04-01";
-  const call = async (c: SmsCredentials, path: string, form?: Record<string, string>) => {
+  const call = async (c: SmsCredentials, path: string, form?: Record<string, string>, method?: "DELETE") => {
     const r = await f(`${base}/Accounts/${encodeURIComponent(c.sid)}${path}`, {
-      method: form ? "POST" : "GET",
+      method: method ?? (form ? "POST" : "GET"),
       headers: { authorization: auth(c), ...(form ? { "content-type": "application/x-www-form-urlencoded" } : {}) },
       ...(form ? { body: new URLSearchParams(form).toString() } : {}),
     });
     const json = (await r.json().catch(() => ({}))) as Record<string, unknown>;
     if (r.ok) return json;
+    // Deleting something already gone is what was asked.
+    if (method === "DELETE" && r.status === 404) return {};
     const message = String(json.message ?? `Twilio answered ${r.status}.`);
     if (r.status >= 400 && r.status < 500 && r.status !== 429) throw new SmsRejected(message, Number(json.code ?? 0));
     throw new Error(message);
@@ -90,6 +96,12 @@ export function twilioApi(options: { fetch?: typeof fetch; base?: string } = {})
         StatusCallbackMethod: "POST",
       });
       return { sid: String(j.sid) };
+    },
+    async deleteRecording(c, sid) {
+      await call(c, `/Recordings/${encodeURIComponent(sid)}.json`, undefined, "DELETE");
+    },
+    async deleteMessage(c, sid) {
+      await call(c, `/Messages/${encodeURIComponent(sid)}.json`, undefined, "DELETE");
     },
     async startRecording(c, callSid, callback) {
       const j = await call(c, `/Calls/${encodeURIComponent(callSid)}/Recordings.json`, {

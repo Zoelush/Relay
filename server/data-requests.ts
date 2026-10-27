@@ -6,17 +6,31 @@ import { recordAudit } from "./audit";
 import type { AttachmentStorage } from "./attachments";
 import { securityOn } from "./two-factor";
 import { erase, findSubject, objectsOf, type Subject } from "./erasure";
+import { eraseAnalytics } from "./erasure-analytics";
+import type { AnalyticsStore } from "./analytics";
+import { SmsRejected, type SmsApi } from "./sms-api";
+import { credentials as smsCredentials } from "./sms";
+import { PROCESSORS } from "../lib/processors";
 
 /**
  * Data subject requests (phase 16, step C5a; docs/SECURITY_STEP7.md): Settings › Security › Data
  * requests (`security.manage`, behind `security_v1`). Find one person; export everything about them
  * (`dsr.export`: a zip of `person.json` and their files, behind a signed link for seven days), or
- * delete it (`dsr.delete`: `server/erasure.ts`'s cascade, their files, then a signed certificate).
+ * delete it (`dsr.delete`: `server/erasure.ts`'s cascade, their files, and, from C5b, the
+ * analytical store (`server/erasure-analytics.ts`) and Twilio; then a signed certificate that also
+ * lists every processor (`lib/processors.ts`) and when backups stop holding them).
  *
  * A request is in the audit log by its id only. Once a deletion finishes (or an export expires)
  * the request keeps no personal data: only its kind, counts and certificate.
  */
-export type DataRequestEnvironment = { storage?: AttachmentStorage; key?: string };
+export type DataRequestEnvironment = {
+  storage?: AttachmentStorage;
+  key?: string;
+  /** C5b: the analytical store, Twilio, and how long PostgreSQL's backups keep someone (days). */
+  analytics?: AnalyticsStore;
+  sms?: SmsApi;
+  backupDays?: number;
+};
 const EXPORT_DAYS = 7;
 const EXPORT_FILE_BYTES = 50 * 1024 * 1024;
 type Ref = { contactId?: string; email?: string; phone?: string; externalId?: string };
@@ -282,65 +296,142 @@ export async function verifyCertificate(master: string, certificate: Record<stri
   return crypto.subtle.verify("HMAC", await certificateKey(master), bytes, new TextEncoder().encode(canonical(body)));
 }
 
+type Pending = {
+  quarantine: string[];
+  clean: string[];
+  /** C5b: the ids the analytical store knows them by. */
+  analytics?: { conversations: string[]; contacts: string[]; identities: string[] };
+  /** C5b: what Twilio holds of them. */
+  twilio?: { recordings: string[]; messages: string[] };
+  /** Each later stage's result, kept as it finishes so a retry carries on. */
+  done?: { files?: number; analytics?: Record<string, number> | null; twilio?: { recordings: number; messages: number; refused: string[] } | null };
+};
+const twilioOf = async (db: Sql, w: string, s: Subject) => ({
+  recordings: (
+    await db.query<{ sid: string }>(
+      `SELECT recording_sid AS sid FROM voice_calls WHERE workspace_id=$1 AND recording_sid IS NOT NULL AND (conversation_id=ANY($2) OR lower(from_phone)=ANY($3) OR lower(to_phone)=ANY($3))
+       UNION SELECT payload->>'RecordingSid' FROM voice_inbound WHERE workspace_id=$1 AND payload ? 'RecordingSid'
+         AND call_sid IN (SELECT call_sid FROM voice_calls WHERE workspace_id=$1 AND (conversation_id=ANY($2) OR lower(from_phone)=ANY($3) OR lower(to_phone)=ANY($3)))`,
+      [w, s.conversations, s.addresses],
+    )
+  ).rows.map((r) => r.sid),
+  messages: (
+    await db.query<{ sid: string }>(
+      `SELECT provider_id AS sid FROM channel_deliveries WHERE workspace_id=$1 AND channel='sms' AND provider_id IS NOT NULL AND (conversation_id=ANY($2) OR lower(address)=ANY($3))
+       UNION SELECT external_id FROM channel_messages WHERE workspace_id=$1 AND channel='sms' AND conversation_id=ANY($2)`,
+      [w, s.conversations, s.addresses],
+    )
+  ).rows.map((r) => r.sid),
+});
+const save = (connect: Connect, w: string, id: string, pending: Pending) =>
+  tenant(connect, w, (db) => db.query("UPDATE data_requests SET pending_objects=$3 WHERE workspace_id=$1 AND id=$2", [w, id, JSON.stringify(pending)]));
+
 export async function dataDeleteJob(connect: Connect, env: DataRequestEnvironment, job: Job) {
   const w = job.workspace_id;
   const { requestId } = job.payload as { requestId: string };
   assert(env.key, "UNAVAILABLE", "Relay has no key to sign the certificate with.", 503);
   // 1. Every row, in one transaction: the person is either wholly erased from PostgreSQL or not at all.
+  //    What the later stages need (storage keys, the analytical store's ids, Twilio's ids) is kept first.
   const step = await tenant(connect, w, async (db) => {
     const r = (
-      await db.query<{ subject: { contactId: string } | null; state: string; created_at: Date; pending_objects: { quarantine: string[]; clean: string[] } | null; counts: Record<string, number> | null }>(
-        "SELECT subject,state,created_at,pending_objects,counts FROM data_requests WHERE workspace_id=$1 AND id=$2 FOR UPDATE",
+      await db.query<{ subject: { contactId: string } | null; state: string; created_at: Date; pending_objects: Pending | null; counts: Record<string, number> | null; certificate: { identifiersDigest?: string } | null }>(
+        "SELECT subject,state,created_at,pending_objects,counts,certificate FROM data_requests WHERE workspace_id=$1 AND id=$2 FOR UPDATE",
         [w, requestId],
       )
     ).rows[0];
     if (!r || r.state === "done") return null;
-    if (r.pending_objects) return { objects: r.pending_objects, counts: r.counts ?? {}, digest: null as string | null, createdAt: r.created_at };
+    if (r.pending_objects) return { pending: r.pending_objects, counts: r.counts ?? {}, digest: r.certificate?.identifiersDigest ?? null, createdAt: r.created_at };
     const s = r.subject ? await findSubject(db, w, { contactId: r.subject.contactId }) : null;
     if (!s) {
       await db.query("UPDATE data_requests SET state='failed',error='They are no longer here.',finished_at=now(),subject=NULL,label=NULL WHERE workspace_id=$1 AND id=$2", [w, requestId]);
       return null;
     }
-    const objects = await objectsOf(db, w, s);
+    const pending: Pending = {
+      ...(await objectsOf(db, w, s)),
+      analytics: { conversations: s.conversations, contacts: s.contacts, identities: s.identities },
+      twilio: await twilioOf(db, w, s),
+      done: {},
+    };
     const counts = await erase(db, w, s);
     const digest = await sha256(canonical([...s.contacts, ...s.identities, ...s.addresses, ...s.externalIds].sort()));
     await db.query("UPDATE data_requests SET state='running',subject=NULL,pending_objects=$3,counts=$4,certificate=jsonb_build_object('identifiersDigest',$5::text) WHERE workspace_id=$1 AND id=$2", [
       w,
       requestId,
-      JSON.stringify(objects),
+      JSON.stringify(pending),
       JSON.stringify(counts),
       digest,
     ]);
-    return { objects, counts, digest, createdAt: r.created_at };
+    return { pending, counts, digest, createdAt: r.created_at };
   });
   if (!step) return { done: true, result: { skipped: true } };
+  const pending = step.pending;
+  pending.done ??= {};
   // 2. Their files (the rows that named them are gone; the keys were kept for this).
-  let removed = 0;
-  if (env.storage) {
-    for (const k of step.objects.quarantine) await env.storage.deleteQuarantine(k).then(() => removed++);
-    for (const k of step.objects.clean) if (env.storage.deleteClean) await env.storage.deleteClean(k).then(() => removed++);
+  if (pending.done.files === undefined) {
+    let removed = 0;
+    if (env.storage) {
+      for (const k of pending.quarantine) await env.storage.deleteQuarantine(k).then(() => removed++);
+      for (const k of pending.clean) if (env.storage.deleteClean) await env.storage.deleteClean(k).then(() => removed++);
+    }
+    pending.done.files = removed;
+    await save(connect, w, requestId, pending);
   }
-  // 3. The certificate, signed, and the request left with nothing about them.
+  // 3. C5b: the analytical store keeps its counts and loses them.
+  if (pending.done.analytics === undefined) {
+    pending.done.analytics = env.analytics && pending.analytics ? await eraseAnalytics(env.analytics, w, pending.analytics) : null;
+    await save(connect, w, requestId, pending);
+  }
+  // 4. C5b: Twilio's recordings and text records. A refusal for good is recorded, not retried forever.
+  if (pending.done.twilio === undefined) {
+    const sids = pending.twilio ?? { recordings: [], messages: [] };
+    const account = sids.recordings.length + sids.messages.length && env.sms ? await tenant(connect, w, (db) => smsCredentials(db, w, env.key!)) : null;
+    if (account && env.sms) {
+      const result = { recordings: 0, messages: 0, refused: [] as string[] };
+      for (const [kind, list] of [["recording", sids.recordings], ["message", sids.messages]] as const)
+        for (const sid of list)
+          try {
+            await (kind === "recording" ? env.sms.deleteRecording(account, sid) : env.sms.deleteMessage(account, sid));
+            result[kind === "recording" ? "recordings" : "messages"]++;
+          } catch (e) {
+            if (!(e instanceof SmsRejected)) throw e;
+            result.refused.push(`${kind} ${sid}: ${e.message.slice(0, 120)}`);
+          }
+      pending.done.twilio = result;
+    } else pending.done.twilio = null;
+    await save(connect, w, requestId, pending);
+  }
+  // 5. The certificate, signed, and the request left with nothing about them.
+  const done = pending.done;
+  const completedAt = new Date();
+  const backupDays = env.backupDays ?? 7;
   await tenant(connect, w, async (db) => {
-    const prior = (await db.query<{ certificate: { identifiersDigest?: string } | null }>("SELECT certificate FROM data_requests WHERE workspace_id=$1 AND id=$2", [w, requestId])).rows[0];
     const certificate = await signCertificate(env.key!, {
       kind: "relay-deletion-certificate/1",
       request: requestId,
       workspace: w,
       requestedAt: new Date(step.createdAt).toISOString(),
-      completedAt: new Date().toISOString(),
-      identifiersDigest: step.digest ?? prior?.certificate?.identifiersDigest ?? null,
-      stores: { postgresql: step.counts, files: { objects: removed } },
-      // TODO(phase 16 C5b): the analytical store, embeddings and third-party processors join this certificate.
-      notYetCovered: ["analytical store", "embeddings", "third-party processors"],
+      completedAt: completedAt.toISOString(),
+      identifiersDigest: step.digest,
+      stores: {
+        postgresql: step.counts,
+        files: { objects: done.files ?? 0 },
+        analyticalStore: done.analytics ?? "not in use in this workspace",
+        embeddings: "holds no customer data: only knowledge content is embedded",
+        twilio: done.twilio ?? "nothing held there",
+      },
+      processors: PROCESSORS.map((p) => ({ id: p.id, name: p.name, deletion: p.deletion, keeps: p.keeps })),
+      backups: { windowDays: backupDays, clearBy: new Date(completedAt.getTime() + backupDays * 86_400_000).toISOString() },
     });
+    const total: Record<string, number> = { ...step.counts, "files (storage)": done.files ?? 0 };
+    for (const [t, n] of Object.entries(done.analytics ?? {})) total[`${t} (analytical store, unlinked)`] = n;
+    if (done.twilio) total["Twilio recordings and messages"] = done.twilio.recordings + done.twilio.messages;
     await db.query(
-      "UPDATE data_requests SET state='done',finished_at=now(),pending_objects=NULL,label=NULL,subject=NULL,certificate=$3,counts=$4 WHERE workspace_id=$1 AND id=$2",
-      [w, requestId, JSON.stringify(certificate), JSON.stringify({ ...step.counts, "files (storage)": removed })],
+      "UPDATE data_requests SET state='done',finished_at=now(),pending_objects=NULL,label=NULL,subject=NULL,certificate=$3,counts=$4,error=$5 WHERE workspace_id=$1 AND id=$2",
+      [w, requestId, JSON.stringify(certificate), JSON.stringify(total), done.twilio?.refused.length ? `Twilio refused ${done.twilio.refused.length}: see the certificate.` : null],
     );
-    await recordAudit(db, w, "data.erased", { type: "data_request", id: requestId }, { tables: Object.keys(step.counts).length, files: removed });
+    await recordAudit(db, w, "data.erased", { type: "data_request", id: requestId }, { tables: Object.keys(step.counts).length, files: done.files ?? 0, twilio: done.twilio ? done.twilio.recordings + done.twilio.messages : 0 });
   });
-  return { done: true, result: { tables: Object.keys(step.counts).length, files: removed } };
+  return { done: true, result: { tables: Object.keys(step.counts).length, files: done.files ?? 0 } };
 }
 
 /** From the sweep: exports past their seven days are deleted, and their requests forget who they were for. */

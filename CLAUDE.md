@@ -59,8 +59,11 @@ two-factor and IP allowlists (`server/totp.ts`, `server/two-factor.ts`, `server/
 locally (`docs/SECURITY_STEP3.md`, `STEP4.md`), and C4a, OIDC single sign-on (`server/sso.ts`, `#settings/sso`, `/auth/sso`,
 the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_STEP5.md`), and C4b, SAML 2.0 (`server/saml.ts`, the only user of
 `@node-saml/node-saml`, checked on workerd), is done locally (`docs/SECURITY_STEP6.md`), and C5a, data subject requests (`server/erasure.ts`, `server/data-requests.ts`,
-`#settings/data-requests`), is done locally (`docs/SECURITY_STEP7.md`); next is C5b (the analytical store, embeddings, processors,
-backups). Every table is in `server/erasure.ts`'s `ERASURE` cascade or in `NO_PERSONAL_DATA` with why (`tests/erasure.test.ts` fails
+`#settings/data-requests`), is done locally (`docs/SECURITY_STEP7.md`), and C5b, deletion beyond PostgreSQL (`server/erasure-analytics.ts`,
+`lib/processors.ts`, Twilio's `deleteRecording`/`deleteMessage`), is done locally (`docs/SECURITY_STEP8.md`); next is C6. The
+analytical store's tables are each in `ANALYTICS_ERASURE` (rekeyed, never deleted: reports keep their counts) or
+`ANALYTICS_NO_PERSONAL_DATA` (a test compares them); only the knowledge index writes vectors (a test fails on another writer);
+a new outside service that receives customer data gets its entry in `lib/processors.ts`. Every table is in `server/erasure.ts`'s `ERASURE` cascade or in `NO_PERSONAL_DATA` with why (`tests/erasure.test.ts` fails
 otherwise): a new table that holds anything about a customer gets its step. Only `erase` sets `relay.erasure`, the one thing that lets
 append-only tables lose a person's rows; ledgers and the audit log are scrubbed, never deleted. A deletion's certificate never names
 the person, and a finished request keeps nothing about them. Both protocols end in

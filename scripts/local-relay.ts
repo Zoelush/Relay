@@ -964,7 +964,8 @@ export async function startLocalRelay(
   if (env.attachments) handlers["audit.export"] = (job) => auditExportJob(db.connect, env.attachments!, job);
   // Phase 16 C5a: a person's data exported, or deleted with a signed certificate.
   handlers["dsr.export"] = (job) => dataExportJob(db.connect, { storage: env.attachments, key: keys.connector }, job);
-  handlers["dsr.delete"] = (job) => dataDeleteJob(db.connect, { storage: env.attachments, key: keys.connector }, job);
+  // C5b: and from the analytical store and the Twilio stand-in.
+  handlers["dsr.delete"] = (job) => dataDeleteJob(db.connect, { storage: env.attachments, key: keys.connector, analytics: env.analytics, sms: sms.api }, job);
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
       attachmentScan(db.connect, env.attachments!, job);
