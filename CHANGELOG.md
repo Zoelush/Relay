@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased: Settings › Attributes and Ticket types no longer show a stale "Saved" notice
+
+- **Opening an attribute or ticket type to edit clears the last "Saved …" notice,** so it can't read as if the edit was already saved.
+- **A flaky browser test fixed:** `tests/browser/settings-data.spec.ts` could read the database before an edit was saved, because the earlier save's notice already matched. It now waits for the saved result, and checks that no stale notice shows while editing.
+
 ## Unreleased: Single sign-on with SAML 2.0 (phase 16, C4b)
 
 - **SAML 2.0 as well as OpenID Connect:** choose it in Settings › Security › Single sign-on, paste your identity provider's SSO URL, entity ID and signing certificate, and give it Relay's entity ID, sign-in address or metadata link, all shown there.
