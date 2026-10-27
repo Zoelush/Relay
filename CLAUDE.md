@@ -57,8 +57,10 @@ and C2, roles and the permissions matrix (`lib/permissions.ts`, role `scope`), a
 `STEP2.md`), and C3a, Relay's own sign-in (`server/accounts.ts`, `server/passwords.ts`, `/signin`, `/invite`, `/auth/*`), and C3b,
 two-factor and IP allowlists (`server/totp.ts`, `server/two-factor.ts`, `server/allowlists.ts`, `#settings/access`), are done
 locally (`docs/SECURITY_STEP3.md`, `STEP4.md`), and C4a, OIDC single sign-on (`server/sso.ts`, `#settings/sso`, `/auth/sso`,
-the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_STEP5.md`); next is C4b (SAML 2.0, with a
-maintained library confirmed on Workers first). An SSO identity is found only by connection and subject (`sso_identities`),
+the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_STEP5.md`), and C4b, SAML 2.0 (`server/saml.ts`, the only user of
+`@node-saml/node-saml`, checked on workerd), is done locally (`docs/SECURITY_STEP6.md`); next is C5. Both protocols end in
+`admit`; never give one its own way into Relay. A SAML response is read only at `/auth/sso/callback` (the browser holding
+the login's cookie), never at the ACS, which only parks it; signed assertions and InResponseTo are always required. An SSO identity is found only by connection and subject (`sso_identities`),
 never by email after the first link; only verified emails at verified domains sign in; the role comes only from the first
 mapped group, never the owner role, and an owner is never changed by groups. With SSO enforced, every way in other than SSO
 is for owners only (`assertNotSsoOnly`, `assertPlatformAllowed`); a new way to sign in or join checks it. A Relay session's token lives only in the

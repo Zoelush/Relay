@@ -1406,6 +1406,9 @@ export async function startLocalRelay(
             ? LOCAL_UPLOAD_LIMIT
             : req.url === "/dev/email"
               ? 25 * 1024 * 1024 + 4096
+            // Phase 16 C4b: a SAML response posted by the identity provider.
+            : req.url === "/auth/saml/acs"
+              ? 320_000
             : agentRoute
               ? Math.max(24000, bodyLimit(agentRoute[1]) + 4096)
               : 24000;
@@ -1622,8 +1625,8 @@ export async function startLocalRelay(
         sessionCookie(req),
       );
     }
-    // Phase 16 C4a: single sign-on's start and the provider's return.
-    if (url.pathname === "/auth/sso" || url.pathname === "/auth/sso/callback")
+    // Phase 16 C4a: single sign-on's start and the provider's return; C4b: SAML's ACS and metadata.
+    if (["/auth/sso", "/auth/sso/callback", "/auth/saml/acs", "/auth/saml/metadata"].includes(url.pathname))
       return bridgeSsoRequest(req, { RELAY_WORKSPACE_ID: "demo", RELAY_API_ORIGIN: apiOrigin, RELAY_BRIDGE_SECRET: keys.bridge }, (upstream) => handleApi(upstream, env));
     // Phase 16 C3a: Relay's own sign-in, sign-out and invitations.
     if (url.pathname.startsWith("/auth/"))
