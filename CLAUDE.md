@@ -58,7 +58,12 @@ and C2, roles and the permissions matrix (`lib/permissions.ts`, role `scope`), a
 two-factor and IP allowlists (`server/totp.ts`, `server/two-factor.ts`, `server/allowlists.ts`, `#settings/access`), are done
 locally (`docs/SECURITY_STEP3.md`, `STEP4.md`), and C4a, OIDC single sign-on (`server/sso.ts`, `#settings/sso`, `/auth/sso`,
 the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_STEP5.md`), and C4b, SAML 2.0 (`server/saml.ts`, the only user of
-`@node-saml/node-saml`, checked on workerd), is done locally (`docs/SECURITY_STEP6.md`); next is C5. Both protocols end in
+`@node-saml/node-saml`, checked on workerd), is done locally (`docs/SECURITY_STEP6.md`), and C5a, data subject requests (`server/erasure.ts`, `server/data-requests.ts`,
+`#settings/data-requests`), is done locally (`docs/SECURITY_STEP7.md`); next is C5b (the analytical store, embeddings, processors,
+backups). Every table is in `server/erasure.ts`'s `ERASURE` cascade or in `NO_PERSONAL_DATA` with why (`tests/erasure.test.ts` fails
+otherwise): a new table that holds anything about a customer gets its step. Only `erase` sets `relay.erasure`, the one thing that lets
+append-only tables lose a person's rows; ledgers and the audit log are scrubbed, never deleted. A deletion's certificate never names
+the person, and a finished request keeps nothing about them. Both protocols end in
 `admit`; never give one its own way into Relay. A SAML response is read only at `/auth/sso/callback` (the browser holding
 the login's cookie), never at the ACS, which only parks it; signed assertions and InResponseTo are always required. An SSO identity is found only by connection and subject (`sso_identities`),
 never by email after the first link; only verified emails at verified domains sign in; the role comes only from the first

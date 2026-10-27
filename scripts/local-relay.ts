@@ -77,6 +77,7 @@ import { projectJob, scheduleProjection } from "../server/analytics";
 import { exportJob } from "../server/rest-more";
 import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
 import { auditExportJob, pruneAudit } from "../server/audit";
+import { dataDeleteJob, dataExportJob, expireDataExports } from "../server/data-requests";
 import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -961,6 +962,9 @@ export async function startLocalRelay(
   // Phase 15 D2: the API's data exports, in parts.
   if (env.attachments) handlers["api.export"] = (job) => exportJob(db.connect, env.attachments!, job);
   if (env.attachments) handlers["audit.export"] = (job) => auditExportJob(db.connect, env.attachments!, job);
+  // Phase 16 C5a: a person's data exported, or deleted with a signed certificate.
+  handlers["dsr.export"] = (job) => dataExportJob(db.connect, { storage: env.attachments, key: keys.connector }, job);
+  handlers["dsr.delete"] = (job) => dataDeleteJob(db.connect, { storage: env.attachments, key: keys.connector }, job);
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
       attachmentScan(db.connect, env.attachments!, job);
@@ -1269,6 +1273,8 @@ export async function startLocalRelay(
         await scheduleWebhooks(db.connect, w);
         // The audit log (phase 16 C1): events past the workspace's retention.
         await pruneAudit(db.connect, w);
+        // Data requests (phase 16 C5a): exports past their seven days.
+        await expireDataExports(db.connect, w, env.attachments);
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
         // and sending domains due a check.
         await releaseDeferred(db.connect, w);

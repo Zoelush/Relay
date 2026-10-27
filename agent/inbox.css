@@ -2025,3 +2025,8 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-saml-sp { display:grid; grid-template-columns:max-content 1fr; gap:4px 12px; margin:8px 0 12px; font-size:13px; }
 .pg-saml-sp dt { color:var(--pg-text-3); }
 .pg-saml-sp dd { margin:0; overflow-wrap:anywhere; }
+/* Phase 16 C5a: Settings › Data requests. A permanent deletion's button reads as danger in both themes. */
+.pg-dsr-found { margin-top:12px; padding:12px 14px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-sunken); }
+.pg-dsr-found h4 { margin:0 0 4px; font-size:14px; }
+.pg-dsr-found p { margin:4px 0 10px; font-size:13px; line-height:1.5; }
+.pg-primary.pg-danger { background:var(--pg-danger-bg); color:var(--pg-danger-text); border:1px solid var(--pg-danger-border); }

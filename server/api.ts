@@ -229,6 +229,7 @@ import { changeAudit, readAudit } from "./audit";
 import { acceptInvitation, changeAccount, changeInvitations, changeSessions, completeTwoFactor, readAccount, readInvitation, readInvitations, readSessions, resolveSession, sessionLive, signIn, signInAllowed, signOut, twoFactorSetup } from "./accounts";
 import { assertPlatformAllowed, changeAccess, readAccess } from "./two-factor";
 import { assertNetwork, notAllowed } from "./allowlists";
+import { changeDataRequests, readDataRequests } from "./data-requests";
 import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
@@ -1480,6 +1481,7 @@ export async function handleApi(
             "/v1/agent/security-sessions",
             "/v1/agent/security-access",
             "/v1/agent/sso-settings",
+            "/v1/agent/data-requests",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -1586,6 +1588,7 @@ export async function handleApi(
               "/v1/agent/security-sessions",
               "/v1/agent/security-access",
               "/v1/agent/sso-settings",
+              "/v1/agent/data-requests",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -1998,6 +2001,9 @@ export async function handleApi(
           if ("refused" in r) throw r.refused;
           return json(r);
         }
+        if (url.pathname === "/v1/agent/data-requests")
+          // Phase 16 C5a: find a person; export or delete everything about them (each a job); an export's signed link.
+          return json(await tenant(env.connect, workspace, (db) => changeDataRequests(db, workspace, principal, { storage: env.attachments }, url.origin, p)));
         if (url.pathname === "/v1/agent/sso-settings") {
           // Phase 16 C4a: the SSO connection (its issuer's discovery read before the transaction), domains, group roles, enforcement.
           const ssoEnv = { key: env.connectors?.key ?? env.webhooks?.key, policy: env.sso?.policy };
@@ -2691,6 +2697,7 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/account") return json(await tenant(env.connect, workspace, (db) => readAccount(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
+      if (url.pathname === "/v1/agent/data-requests") return json(await tenant(env.connect, workspace, (db) => readDataRequests(db, workspace, principal)));
       if (url.pathname === "/v1/agent/sso-settings") return json(await tenant(env.connect, workspace, (db) => readSso(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/invitations") return json(await tenant(env.connect, workspace, (db) => readInvitations(db, workspace, principal)));
       if (url.pathname === "/v1/agent/audit") {

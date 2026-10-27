@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: Data subject requests: export and delete a person (phase 16, C5a)
+
+- **Settings › Security › Data requests:** find a customer by email, phone, external ID or contact ID.
+- **Export their data:** a zip of everything about them (their profile, conversations, messages, tickets, events and files) to download for seven days. Internal notes are left out.
+- **Delete everything about them,** after typing their email to confirm: their records, conversations, messages, files, and every copy kept elsewhere in Relay. Records others rely on, such as Zoe's billing ledger and the audit log, keep their counts with nothing that identifies them.
+- **A signed deletion certificate** to keep, listing what was removed without naming the person.
+- **Tested:** after a deletion, every column of every table is searched for the person and nothing is found.
+- **Not yet covered:** the analytical store, embeddings and third-party providers come in the next step.
+- **Migration:** 0087, with rollback.
+- **Details:** `docs/SECURITY_STEP7.md`.
+
 ## Unreleased: Settings › Attributes and Ticket types no longer show a stale "Saved" notice
 
 - **Opening an attribute or ticket type to edit clears the last "Saved …" notice,** so it can't read as if the edit was already saved.

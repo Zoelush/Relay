@@ -199,6 +199,44 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **Re-proving:** changing the provider or its certificate clears "has worked", so enforcement waits for a new sign-in.
     - **The stand-in provider gains SAML,** with a fixed test key and certificate in `tests/fixtures/saml/` (test only, clearly marked).
 
+17. **C5 choices** (27 October 2026, asked because C5 was larger than one step):
+    - **Before C5:** C4b and the settings-data fix were merged first, so C5 starts from `main`.
+    - **Split:**
+      - **C5a:** the request workflow, the export, the deletion cascade across PostgreSQL, the deletion certificate, and an acceptance test over PostgreSQL.
+      - **C5b:** the analytical store, embeddings, the third-party processor list, the backup window, and the acceptance test over every store.
+    - **Records built to be permanent:** the person is erased, the counts are kept.
+      - **Deleted:** their messages and conversations.
+      - **Kept, stripped of anything that identifies them:** ledger and audit rows that others rely on (Zoe's resolution ledger, the connector call log, the audit log).
+      - **Only during a recorded deletion:** the append-only rules allow either, never otherwise.
+
+18. **C5a decisions** (27 October 2026):
+    - **Settings › Security › Data requests** (`security.manage`, behind `security_v1`):
+      - **Finding the person:** by email, phone, external ID or contact ID.
+      - **Export,** or **delete** after typing their email (or "delete") to confirm.
+      - **Each request** is a row (`data_requests`) and a job, with a status the page reads, and it's in the audit log by its request ID only.
+    - **The export** (`dsr.export` job) is a zip: one `person.json` (their profile, emails, phones, identities, subscriptions, events, conversations and tickets with every customer-visible message) plus their files.
+      - **Left out:** internal notes, teammates' private data and Zoe's internal records. They aren't the person's own data, so the zip doesn't include them.
+      - **Download:** a signed link, valid for seven days, after which the sweep deletes the file.
+      - **Large files:** beyond 50 MB of files, the rest are listed by name rather than included.
+      - **One new dependency,** `fflate` (pinned 0.8.3, no dependencies, works on Workers), builds the zip.
+    - **The deletion** (`dsr.delete` job) works from one catalog, `server/erasure.ts`. Every table in the schema is listed with what happens to it: deleted by contact, identity, conversation, ticket or address; scrubbed; or "holds no one's data", with why.
+      - **Kept honest by a test:** a table missing from the catalog fails it, as `TABLE_ACTIONS` does for the audit log.
+      - **Who the person is:** the contact, contacts merged into it, their identities, conversations where they are the customer, those conversations' tickets, and every email address, phone and external ID they have.
+      - **Conversations someone else leads,** where they only took part (an email copy): their participation, their own messages and their addresses are removed, and the rest stays.
+      - **Opt-outs and consents** for their addresses go too: nothing about them remains. If they write again, they're someone new.
+      - **Files** (attachments, inline images, raw emails) are deleted from storage in the same job. A row going would otherwise lose the key to its file, so this can't wait for C5b.
+    - **Append-only records under a recorded deletion** (`relay.erasure`, set only by the deletion, in its own transaction): the triggers allow:
+      - **Deleting rows:** messages, delivery events, snapshots, subscription changes, job events and workflow run steps.
+      - **Scrubbing only:** the resolution ledger (the conversation link and text cleared; its kind, agent and time kept, so billing's counts hold), the connector call log (conversation, inputs and outputs cleared), and the audit log (target and details cleared from rows about the person; actors kept).
+      - **Anything else is still refused.**
+    - **The deletion certificate:**
+      - **Contents:** the request ID, the workspace, when it was asked and finished, counts per table and store, and a SHA-256 digest of the identifiers erased (never the identifiers themselves).
+      - **Signature:** HMAC-SHA-256 with a key derived from the connector key, so Relay can confirm a certificate it issued (`verifyCertificate`).
+      - **Where it's kept:** in the workspace, downloadable as JSON.
+    - **After the deletion,** the request keeps no personal data: only its ID, its kind, its counts and the certificate.
+    - **The acceptance test** seeds one person across every feature that stores customer data, deletes them, then scans every column of every table for their identifiers and a marker in their messages. Nothing may remain, except the stripped ledger and audit rows with their counts. Another customer's data is untouched.
+    - **Not in C5a:** the analytical store, embeddings, the processors and backups (C5b), and the REST API (asked for later if wanted).
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).
