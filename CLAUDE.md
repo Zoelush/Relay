@@ -60,7 +60,11 @@ locally (`docs/SECURITY_STEP3.md`, `STEP4.md`), and C4a, OIDC single sign-on (`s
 the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_STEP5.md`), and C4b, SAML 2.0 (`server/saml.ts`, the only user of
 `@node-saml/node-saml`, checked on workerd), is done locally (`docs/SECURITY_STEP6.md`), and C5a, data subject requests (`server/erasure.ts`, `server/data-requests.ts`,
 `#settings/data-requests`), is done locally (`docs/SECURITY_STEP7.md`), and C5b, deletion beyond PostgreSQL (`server/erasure-analytics.ts`,
-`lib/processors.ts`, Twilio's `deleteRecording`/`deleteMessage`), is done locally (`docs/SECURITY_STEP8.md`); next is C6. The
+`lib/processors.ts`, Twilio's `deleteRecording`/`deleteMessage`), is done locally (`docs/SECURITY_STEP8.md`), and C6a, retention policies (`server/retention.ts`,
+`#settings/retention`, the `retention.apply` job), is done locally (`docs/SECURITY_STEP9.md`); next is C6b (content redaction,
+logs and error reports, model-provider controls). Retention deletes conversations only through `erase` and
+`outsideStores` (never its own cascade); only `retentionJob` sets `relay.retention`, which lets append-only logs (never the audit
+log) lose rows past their period. The
 analytical store's tables are each in `ANALYTICS_ERASURE` (rekeyed, never deleted: reports keep their counts) or
 `ANALYTICS_NO_PERSONAL_DATA` (a test compares them); only the knowledge index writes vectors (a test fails on another writer);
 a new outside service that receives customer data gets its entry in `lib/processors.ts`. Every table is in `server/erasure.ts`'s `ERASURE` cascade or in `NO_PERSONAL_DATA` with why (`tests/erasure.test.ts` fails

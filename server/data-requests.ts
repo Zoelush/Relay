@@ -296,7 +296,7 @@ export async function verifyCertificate(master: string, certificate: Record<stri
   return crypto.subtle.verify("HMAC", await certificateKey(master), bytes, new TextEncoder().encode(canonical(body)));
 }
 
-type Pending = {
+export type Pending = {
   quarantine: string[];
   clean: string[];
   /** C5b: the ids the analytical store knows them by. */
@@ -306,7 +306,7 @@ type Pending = {
   /** Each later stage's result, kept as it finishes so a retry carries on. */
   done?: { files?: number; analytics?: Record<string, number> | null; twilio?: { recordings: number; messages: number; refused: string[] } | null };
 };
-const twilioOf = async (db: Sql, w: string, s: Subject) => ({
+export const twilioOf = async (db: Sql, w: string, s: Subject) => ({
   recordings: (
     await db.query<{ sid: string }>(
       `SELECT recording_sid AS sid FROM voice_calls WHERE workspace_id=$1 AND recording_sid IS NOT NULL AND (conversation_id=ANY($2) OR lower(from_phone)=ANY($3) OR lower(to_phone)=ANY($3))
@@ -325,6 +325,50 @@ const twilioOf = async (db: Sql, w: string, s: Subject) => ({
 });
 const save = (connect: Connect, w: string, id: string, pending: Pending) =>
   tenant(connect, w, (db) => db.query("UPDATE data_requests SET pending_objects=$3 WHERE workspace_id=$1 AND id=$2", [w, id, JSON.stringify(pending)]));
+
+/**
+ * After PostgreSQL's transaction: files, the analytical store, then Twilio, each stage's result
+ * kept (`persist`) as it finishes so a retry carries on. Shared by a data request's deletion and
+ * C6a's retention runs.
+ */
+export async function outsideStores(connect: Connect, env: DataRequestEnvironment, w: string, pending: Pending, persist: (p: Pending) => Promise<unknown>) {
+  pending.done ??= {};
+  // Files (the rows that named them are gone; the keys were kept for this).
+  if (pending.done.files === undefined) {
+    let removed = 0;
+    if (env.storage) {
+      for (const k of pending.quarantine) await env.storage.deleteQuarantine(k).then(() => removed++);
+      for (const k of pending.clean) if (env.storage.deleteClean) await env.storage.deleteClean(k).then(() => removed++);
+    }
+    pending.done.files = removed;
+    await persist(pending);
+  }
+  // C5b: the analytical store keeps its counts and loses them.
+  if (pending.done.analytics === undefined) {
+    pending.done.analytics = env.analytics && pending.analytics ? await eraseAnalytics(env.analytics, w, pending.analytics) : null;
+    await persist(pending);
+  }
+  // C5b: Twilio's recordings and text records. A refusal for good is recorded, not retried forever.
+  if (pending.done.twilio === undefined) {
+    const sids = pending.twilio ?? { recordings: [], messages: [] };
+    const account = sids.recordings.length + sids.messages.length && env.sms ? await tenant(connect, w, (db) => smsCredentials(db, w, env.key!)) : null;
+    if (account && env.sms) {
+      const result = { recordings: 0, messages: 0, refused: [] as string[] };
+      for (const [kind, list] of [["recording", sids.recordings], ["message", sids.messages]] as const)
+        for (const sid of list)
+          try {
+            await (kind === "recording" ? env.sms.deleteRecording(account, sid) : env.sms.deleteMessage(account, sid));
+            result[kind === "recording" ? "recordings" : "messages"]++;
+          } catch (e) {
+            if (!(e instanceof SmsRejected)) throw e;
+            result.refused.push(`${kind} ${sid}: ${e.message.slice(0, 120)}`);
+          }
+      pending.done.twilio = result;
+    } else pending.done.twilio = null;
+    await persist(pending);
+  }
+  return pending.done;
+}
 
 export async function dataDeleteJob(connect: Connect, env: DataRequestEnvironment, job: Job) {
   const w = job.workspace_id;
@@ -366,40 +410,7 @@ export async function dataDeleteJob(connect: Connect, env: DataRequestEnvironmen
   if (!step) return { done: true, result: { skipped: true } };
   const pending = step.pending;
   pending.done ??= {};
-  // 2. Their files (the rows that named them are gone; the keys were kept for this).
-  if (pending.done.files === undefined) {
-    let removed = 0;
-    if (env.storage) {
-      for (const k of pending.quarantine) await env.storage.deleteQuarantine(k).then(() => removed++);
-      for (const k of pending.clean) if (env.storage.deleteClean) await env.storage.deleteClean(k).then(() => removed++);
-    }
-    pending.done.files = removed;
-    await save(connect, w, requestId, pending);
-  }
-  // 3. C5b: the analytical store keeps its counts and loses them.
-  if (pending.done.analytics === undefined) {
-    pending.done.analytics = env.analytics && pending.analytics ? await eraseAnalytics(env.analytics, w, pending.analytics) : null;
-    await save(connect, w, requestId, pending);
-  }
-  // 4. C5b: Twilio's recordings and text records. A refusal for good is recorded, not retried forever.
-  if (pending.done.twilio === undefined) {
-    const sids = pending.twilio ?? { recordings: [], messages: [] };
-    const account = sids.recordings.length + sids.messages.length && env.sms ? await tenant(connect, w, (db) => smsCredentials(db, w, env.key!)) : null;
-    if (account && env.sms) {
-      const result = { recordings: 0, messages: 0, refused: [] as string[] };
-      for (const [kind, list] of [["recording", sids.recordings], ["message", sids.messages]] as const)
-        for (const sid of list)
-          try {
-            await (kind === "recording" ? env.sms.deleteRecording(account, sid) : env.sms.deleteMessage(account, sid));
-            result[kind === "recording" ? "recordings" : "messages"]++;
-          } catch (e) {
-            if (!(e instanceof SmsRejected)) throw e;
-            result.refused.push(`${kind} ${sid}: ${e.message.slice(0, 120)}`);
-          }
-      pending.done.twilio = result;
-    } else pending.done.twilio = null;
-    await save(connect, w, requestId, pending);
-  }
+  await outsideStores(connect, env, w, pending, (p) => save(connect, w, requestId, p));
   // 5. The certificate, signed, and the request left with nothing about them.
   const done = pending.done;
   const completedAt = new Date();

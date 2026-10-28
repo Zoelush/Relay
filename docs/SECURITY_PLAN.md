@@ -265,6 +265,30 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **The certificate drops `notYetCovered`.** It now covers PostgreSQL, files, the analytical store, embeddings, Twilio, the other processors, and the backup date.
     - **The acceptance test grows to every store:** PostgreSQL, storage, the analytical store (projected first, then scanned, with the counts checked), the vector store, and the Twilio stand-in.
 
+21. **C6 choices** (28 October 2026, asked because C6 was larger than one step):
+    - **Split:**
+      - **C6a:** retention policies per kind of data, including deleting conversations after a period.
+      - **C6b:** content redaction rules, personal data kept out of logs and error reports, and per-workspace controls over what reaches the model provider.
+    - **Redaction (C6b) applies to all conversation text as it's stored:** customer messages, teammate replies, internal notes, Zoe's replies, and email subjects and bodies. Everyone, the customer included, sees the redacted text, and the original is never kept.
+    - **Raw emails (C6b):** while any redaction rule is on, an email's raw message is deleted as soon as Relay has read it. Attachments are kept and aren't scanned for patterns.
+
+22. **C6a decisions** (28 October 2026):
+    - **Settings › Security › Retention** (`security.manage`, behind `security_v1`) has one policy per kind of data. Each is "keep" (the default) or a period from 30 days to 7 years.
+      - **Conversations:** closed and untouched for the period, they're deleted with everything in them through C5's cascade (`erase` with only those conversations). Their files and Twilio records go too, and reports keep their counts (`eraseAnalytics`). The customer's contact record stays. Open and snoozed conversations are never touched.
+      - **Attachments:** files older than the period are deleted from storage and marked expired. The message stays, saying the file has expired.
+      - **Call recordings:** their audio, and the recording at Twilio. The transcript, if any, stays as text.
+      - **Events:** contacts' events older than the period.
+      - **Logs:**
+        - **What it covers:** records of model calls (still never kept beyond 90 days), the connector call log, webhook deliveries and their attempts, raw inbound payloads (email, SMS, WhatsApp, Meta, Slack/Discord, voice; the raw email files too), email delivery events, finished workflow runs, finished jobs, and published outbox entries.
+        - **Excluded:** the audit log keeps its own retention (C1).
+    - **One registry,** `server/retention.ts`'s `RETENTION`: what each kind covers, its shortest period and how it's applied. The page and the job both read it.
+    - **When it runs:** the sweep queues `retention.apply` at most once an hour per workspace that has a policy, and a manager can run it now.
+      - **Batches:** each run takes a bounded batch per kind (200 conversations, 1,000 rows), so a large backlog clears over several runs.
+      - **Each run** is in the audit log with its counts (`data.retention_applied`). The page shows the last run.
+    - **Append-only logs** accept a retention deletion only during a run (`relay.retention`, set only by the job), as `relay.erasure` works for C5: the connector call log, workflow run steps, delivery events and job events. The audit log isn't among them.
+    - **Lowering a policy deletes on the next run,** so the page says how much the new period would delete before it's saved, for conversations especially.
+    - **Contacts aren't a kind of data here:** they're deleted only by a data request (C5).
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).
