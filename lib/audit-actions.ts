@@ -76,6 +76,7 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   sso: { noun: "Single sign-on", area: "Security" },
   sso_domain: { noun: "Single sign-on domain", area: "Security" },
   sso_role: { noun: "Single sign-on group role", area: "Security" },
+  retention: { noun: "Retention policies", area: "Data" },
 };
 
 /** Actions written by `recordAudit`: what isn't a row change. */
@@ -101,6 +102,7 @@ export const EXPLICIT_ACTIONS = {
   "data.subject_export_downloaded": { label: "Person's data export downloaded", area: "Data" },
   "data.erasure_requested": { label: "Deletion of a person requested", area: "Data" },
   "data.erased": { label: "Person deleted (certificate issued)", area: "Data" },
+  "data.retention_applied": { label: "Retention policies applied", area: "Data" },
   "session.break_glass": { label: "Owner signed in with a password (single sign-on enforced)", area: "Security" },
   "invitation.accepted": { label: "Invitation accepted", area: "People and roles" },
 } as const satisfies Record<string, { label: string; area: Area }>;

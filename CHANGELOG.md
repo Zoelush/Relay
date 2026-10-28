@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased: Retention policies (phase 16, C6a)
+
+- **Choose how long Relay keeps each kind of data** in Settings › Security › Retention: conversations, attachments, call recordings, events and logs. Each can be kept, or deleted after 30 days to 7 years.
+- **Old closed conversations can be deleted automatically,** with their messages and files. Reports keep their numbers, and the customer's record stays. Open conversations are never touched.
+- **See what a change would delete before saving it,** run the policies now, and see what the last run deleted. Every run is in the audit log.
+- **Migration:** 0088, with rollback.
+- **Details:** `docs/SECURITY_STEP9.md`.
+
 ## Unreleased: Deleting a person everywhere: reports, Twilio, backups (phase 16, C5b)
 
 - **Reports keep their numbers, without the person:** a deleted person's conversations stay counted in past reports, under new IDs, with nothing that leads back to them.

@@ -78,6 +78,7 @@ import { exportJob } from "../server/rest-more";
 import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
 import { auditExportJob, pruneAudit } from "../server/audit";
 import { dataDeleteJob, dataExportJob, expireDataExports } from "../server/data-requests";
+import { retentionJob, scheduleRetention } from "../server/retention";
 import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -965,6 +966,8 @@ export async function startLocalRelay(
   // Phase 16 C5a: a person's data exported, or deleted with a signed certificate.
   handlers["dsr.export"] = (job) => dataExportJob(db.connect, { storage: env.attachments, key: keys.connector }, job);
   // C5b: and from the analytical store and the Twilio stand-in.
+  // Phase 16 C6a: retention policies applied (the same later stages as a deletion).
+  handlers["retention.apply"] = (job) => retentionJob(db.connect, { storage: env.attachments, key: keys.connector, analytics: env.analytics, sms: sms.api }, job);
   handlers["dsr.delete"] = (job) => dataDeleteJob(db.connect, { storage: env.attachments, key: keys.connector, analytics: env.analytics, sms: sms.api }, job);
   if (env.attachments)
     handlers["attachment.scan"] = (job) =>
@@ -1276,6 +1279,8 @@ export async function startLocalRelay(
         await pruneAudit(db.connect, w);
         // Data requests (phase 16 C5a): exports past their seven days.
         await expireDataExports(db.connect, w, env.attachments);
+        // Retention (phase 16 C6a): a run at most hourly where a policy is set.
+        await scheduleRetention(db.connect, w);
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
         // and sending domains due a check.
         await releaseDeferred(db.connect, w);

@@ -22,6 +22,7 @@ import {
   UserCog,
   ShieldCheck,
   Fingerprint,
+  Hourglass,
   UserX,
   LogIn,
   Store,
@@ -77,6 +78,7 @@ import { SessionsPage, SignInSettingsPage } from "./settings-signin";
 import { AccessPage } from "./settings-access";
 import { SsoPage } from "./settings-sso";
 import { DataRequestsPage } from "./settings-data-requests";
+import { RetentionPage } from "./settings-retention";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -329,6 +331,14 @@ const PAGES: Page[] = [
     label: "Data requests",
     description: "Export everything about one customer, or delete it, when they ask.",
     icon: UserX,
+    group: "Security",
+  },
+  {
+    // Phase 16 C6a: how long each kind of data is kept.
+    id: "retention",
+    label: "Retention",
+    description: "How long Relay keeps conversations, files, recordings, events and logs.",
+    icon: Hourglass,
     group: "Security",
   },
   {
@@ -668,6 +678,8 @@ export function Settings({
             <SsoPage menu={menu} page={current} />
           ) : current.id === "data-requests" ? (
             <DataRequestsPage menu={menu} page={current} />
+          ) : current.id === "retention" ? (
+            <RetentionPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

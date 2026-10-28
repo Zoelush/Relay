@@ -102,6 +102,7 @@ import { exportJob } from "../server/rest-more";
 import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
 import { auditExportJob, pruneAudit } from "../server/audit";
 import { dataDeleteJob, dataExportJob, expireDataExports } from "../server/data-requests";
+import { retentionJob, scheduleRetention } from "../server/retention";
 import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
 import { hyperdriveConnection } from "../server/postgres";
@@ -598,6 +599,9 @@ const relayWorker = {
         runtime.attachments ? auditExportJob(runtime.connect, runtime.attachments, job) : Promise.resolve({ done: true, result: { skipped: "No storage." } }),
       // Phase 16 C5a: a person's data exported (to the attachments bucket), or deleted with a signed certificate.
       "dsr.export": (job) => dataExportJob(runtime.connect, { storage: runtime.attachments, key: env.RELAY_CONNECTOR_KEY }, job),
+      // Phase 16 C6a: retention policies applied.
+      "retention.apply": (job) =>
+        retentionJob(runtime.connect, { storage: runtime.attachments, key: env.RELAY_CONNECTOR_KEY, analytics: runtime.analytics, sms: twilioApi() }, job),
       "dsr.delete": (job) =>
         dataDeleteJob(
           runtime.connect,
@@ -719,6 +723,8 @@ const relayWorker = {
           await pruneAudit(runtime.connect, work.workspace);
           // Data requests (phase 16 C5a): exports past their seven days.
           await expireDataExports(runtime.connect, work.workspace, runtime.attachments);
+          // Retention (phase 16 C6a): a run at most hourly where a policy is set.
+          await scheduleRetention(runtime.connect, work.workspace);
           // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
           // and sending domains due a check.
           await releaseDeferred(runtime.connect, work.workspace);

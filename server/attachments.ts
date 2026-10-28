@@ -396,6 +396,8 @@ export async function downloadAttachment(
       "Attachment unavailable.",
       404,
     );
+  // Phase 16 C6a: deleted under the workspace's retention policy.
+  assert(a.status !== "expired", "ATTACHMENT_EXPIRED", "This file was deleted under the workspace's retention policy.", 410);
   assert(
     a.status === "clean",
     "ATTACHMENT_NOT_READY",
