@@ -77,6 +77,7 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   sso_domain: { noun: "Single sign-on domain", area: "Security" },
   sso_role: { noun: "Single sign-on group role", area: "Security" },
   retention: { noun: "Retention policies", area: "Data" },
+  redaction_rule: { noun: "Redaction rule", area: "Data" },
 };
 
 /** Actions written by `recordAudit`: what isn't a row change. */

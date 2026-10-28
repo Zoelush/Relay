@@ -5,6 +5,7 @@ import { deliveryReport, receiveInbound, registerChannel, type ChannelAdapter, t
 import { seal, unseal } from "./connectors";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { MetaRejected, type MetaApi, type Platform } from "./meta-api";
+import { scrubPayload } from "./redaction";
 
 /**
  * Instagram and Facebook Messenger (phase 12, step E7; docs/OMNICHANNEL_STEP7.md), behind
@@ -355,6 +356,8 @@ export async function receiveMetaJob(connect: Connect, env: MetaEnvironment, job
         }
     }
     await db.query("UPDATE meta_inbound SET status='read',read_at=now() WHERE workspace_id=$1 AND id=$2", [w, inboundId]);
+    // Phase 16 C6b: read, so its text is redacted (the original isn't kept).
+    await scrubPayload(db, w, "meta_inbound", inboundId);
   });
   return { done: true, result: { read: true } };
 }

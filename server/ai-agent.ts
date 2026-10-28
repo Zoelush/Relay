@@ -449,9 +449,10 @@ async function agentOf(db: Sql, w: string) {
       redact_personal_data: boolean;
       memory: boolean;
       email_mode: "off" | "approve" | "answer";
+      history_messages: number;
     }>(
       `SELECT id,name,enabled,confidence_threshold,handover_team_id,answer_hours,out_of_hours,failed_limit,escalate_on_sentiment,never_handle,escalation_guidance,resolution_window_hours,version::text AS version,
-         tone,answer_length,formality,answer_guidance,guidance_version,languages,other_languages,redact_personal_data,memory,email_mode FROM ai_agents WHERE workspace_id=$1 AND id=$2`,
+         tone,answer_length,formality,answer_guidance,guidance_version,languages,other_languages,redact_personal_data,memory,email_mode,history_messages FROM ai_agents WHERE workspace_id=$1 AND id=$2`,
       [w, DEFAULT_AGENT],
     )
   ).rows[0];
@@ -574,8 +575,9 @@ async function context(
     .map((p) => p.body.trim())
     .filter(Boolean)
     .join("\n");
+  // Phase 16 C6b: how many earlier messages go with the question is the workspace's (10 unless set).
   const history = parts
-    .slice(Math.max(0, from - HISTORY), from)
+    .slice(Math.max(0, from - Math.min(HISTORY, agent.history_messages ?? HISTORY)), from)
     .map((p): Turn => ({
       from: p.kind === "customer_message" ? "customer" : "agent",
       text: p.body,

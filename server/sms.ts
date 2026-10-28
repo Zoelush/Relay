@@ -6,6 +6,7 @@ import { seal, unseal } from "./connectors";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { SmsRejected, type SmsApi, type SmsCredentials } from "./sms-api";
 import { callingCode, DEFAULT_PRICES, MAX_SEGMENTS, segmentsOf } from "../lib/sms";
+import { scrubPayload } from "./redaction";
 
 /**
  * SMS (phase 12, step E6; docs/OMNICHANNEL_STEP6.md), behind `channels_v1` and `channel_sms_v1`,
@@ -265,6 +266,8 @@ export async function receiveSmsJob(connect: Connect, env: SmsEnvironment, job: 
       }
     }
     await db.query("UPDATE sms_inbound SET status='read',read_at=now() WHERE workspace_id=$1 AND id=$2", [w, inboundId]);
+    // Phase 16 C6b: read, so its text is redacted (the original isn't kept).
+    await scrubPayload(db, w, "sms_inbound", inboundId);
   });
   return { done: true, result: { read: true } };
 }

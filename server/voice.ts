@@ -8,6 +8,7 @@ import type { AttachmentStorage } from "./attachments";
 import type { TranscriptionPort } from "./voice-transcribe";
 import { callingCode } from "../lib/sms";
 import { speakable, SPEECH_LANGUAGE } from "../lib/voice";
+import { scrubPayload } from "./redaction";
 
 /**
  * Voice (phase 12, step E9; docs/OMNICHANNEL_STEP9.md), behind `channels_v1` and
@@ -455,6 +456,8 @@ export async function readRecordingJob(connect: Connect, env: VoiceEnvironment, 
       for (const s of transcript.segments)
         await append(db, w, c, { type: "system", id: "voice" }, "system_event", s.text, { event: "call_transcript", callSid: row.call_sid, start: s.start, end: s.end, text: s.text }, "internal");
     await db.query("UPDATE voice_inbound SET status='read',read_at=now() WHERE workspace_id=$1 AND id=$2", [w, inboundId]);
+    // Phase 16 C6b: read, so its text is redacted (the original isn't kept).
+    await scrubPayload(db, w, "voice_inbound", inboundId);
   });
   return { done: true, result: { stored: true, transcribed: !!transcript } };
 }

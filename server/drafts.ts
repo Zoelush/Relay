@@ -2,6 +2,7 @@ import { assert, DomainError, tenant, type Sql, type Connect } from "./db";
 import { authorize } from "./policy";
 import { access, conversation } from "./conversations";
 import { validTimeZone } from "./snooze";
+import { workspaceRedactor } from "./redaction";
 import {
   normalizeDoc,
   plainText,
@@ -97,6 +98,9 @@ export async function saveDraft(
       throw new DomainError(e.code, e.message, 400);
     throw e;
   }
+  // Phase 16 C6b: a draft is stored text too; the workspace's redaction rules apply.
+  const red = await workspaceRedactor(db, w);
+  if (red.on) doc = red.doc(doc);
   const saved = (
     await db.query<{ version: string }>(
       `INSERT INTO conversation_drafts(workspace_id,conversation_id,teammate_id,mode,doc,body,origin_timezone) VALUES($1,$2,$3,$4,$5,$6,$7)

@@ -46,6 +46,7 @@ import {
   ScrollText,
   LockKeyhole,
   MonitorSmartphone,
+  EyeOff,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -79,6 +80,7 @@ import { AccessPage } from "./settings-access";
 import { SsoPage } from "./settings-sso";
 import { DataRequestsPage } from "./settings-data-requests";
 import { RetentionPage } from "./settings-retention";
+import { DataProtectionPage } from "./settings-data-protection";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -339,6 +341,14 @@ const PAGES: Page[] = [
     label: "Retention",
     description: "How long Relay keeps conversations, files, recordings, events and logs.",
     icon: Hourglass,
+    group: "Security",
+  },
+  {
+    // Phase 16 C6b: card numbers and other patterns redacted as text is stored; what reaches the model.
+    id: "data-protection",
+    label: "Data protection",
+    description: "Redact card numbers and other sensitive patterns, and choose what Zoe sends to the model.",
+    icon: EyeOff,
     group: "Security",
   },
   {
@@ -680,6 +690,8 @@ export function Settings({
             <DataRequestsPage menu={menu} page={current} />
           ) : current.id === "retention" ? (
             <RetentionPage menu={menu} page={current} />
+          ) : current.id === "data-protection" ? (
+            <DataProtectionPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

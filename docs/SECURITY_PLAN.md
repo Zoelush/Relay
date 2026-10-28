@@ -289,6 +289,37 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **Lowering a policy deletes on the next run,** so the page says how much the new period would delete before it's saved, for conversations especially.
     - **Contacts aren't a kind of data here:** they're deleted only by a data request (C5).
 
+23. **C6b choices** (28 October 2026):
+    - **Custom patterns are checked regular expressions:**
+      - **Limits:** up to 200 characters. Constructs that can run away are refused: nested repeats, back-references, look-arounds, and patterns that match nothing at all.
+      - **Timed at save:** each pattern is run against hostile input when it's saved.
+      - **Preview:** the editor shows what a pattern would replace in sample text.
+    - **Raw incoming payloads** (SMS, WhatsApp, Meta, Slack/Discord, voice) are scrubbed once Relay has read them: their text is replaced by the redacted text, and the IDs, times and statuses stay.
+    - **Model-provider controls in Settings › Security,** beside the redaction rules: Zoe's existing switches (redact personal data before the model, and memory), plus how many earlier messages she sends (none, 5, or 10 as today). Each model call record notes which controls applied.
+
+24. **C6b decisions** (28 October 2026):
+    - **Settings › Security › Data protection** (`security.manage`, behind `security_v1`):
+      - **Built-in rules,** off by default: card numbers (Luhn-checked), IBANs (mod-97-checked), US Social Security numbers and UK National Insurance numbers.
+      - **Custom patterns:** name, pattern and a sample to try it on.
+      - **The model controls.**
+    - **A match becomes asterisks,** as long as what it replaced. Everyone, the customer included, sees the redacted text. Rules apply to what's stored from then on; messages already stored are append-only and aren't rewritten (the page says so).
+    - **One redactor, `lib/redaction.ts`:**
+      - **The checks:** the built-in detectors, the custom-pattern checks (`checkPattern`), and `redact` for text, HTML text (tags untouched) and JSON (every string value).
+      - **Applied in the server** where text is stored:
+        - **`append`:** every message's body and subject.
+        - **Email in:** subject, text and HTML.
+        - **Drafts.**
+        - **Raw inbound payloads,** once read.
+      - **Everything derived from those** (search, notifications, webhooks, previews, the model) follows on its own.
+    - **Raw emails:** a read email's raw file is already deleted (C6a found this). While any rule is on, a failed email's raw file is deleted too, because it would otherwise keep the original.
+    - **Logs and error reports:**
+      - **The fix:** the two places that log a raw error (sign-in, the REST API) now log only `errorFingerprint` (class, SQLSTATE, file and line).
+      - **The guard:** a test fails on any server log call given an error or a request body.
+    - **The model controls:**
+      - **History length:** `ai_agents.history_messages` (0, 5 or 10; 10 by default, as today).
+      - **What was applied:** `ai_model_calls.controls` records the redaction, memory, history length and how many rules applied.
+    - **Out of scope here:** attachments aren't scanned for patterns (the C6 choice), and neither are knowledge articles (written by teammates, not customers).
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

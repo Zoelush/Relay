@@ -61,8 +61,11 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `@node-saml/node-saml`, checked on workerd), is done locally (`docs/SECURITY_STEP6.md`), and C5a, data subject requests (`server/erasure.ts`, `server/data-requests.ts`,
 `#settings/data-requests`), is done locally (`docs/SECURITY_STEP7.md`), and C5b, deletion beyond PostgreSQL (`server/erasure-analytics.ts`,
 `lib/processors.ts`, Twilio's `deleteRecording`/`deleteMessage`), is done locally (`docs/SECURITY_STEP8.md`), and C6a, retention policies (`server/retention.ts`,
-`#settings/retention`, the `retention.apply` job), is done locally (`docs/SECURITY_STEP9.md`); next is C6b (content redaction,
-logs and error reports, model-provider controls). Retention deletes conversations only through `erase` and
+`#settings/retention`, the `retention.apply` job), is done locally (`docs/SECURITY_STEP9.md`), and C6b, content redaction and model-provider controls (`lib/redaction.ts`,
+`server/redaction.ts`, `#settings/data-protection`), is done locally (`docs/SECURITY_STEP10.md`); next is C7 (security posture).
+Redaction happens only where text is stored, with `workspaceRedactor` (`append`, email in, drafts, `scrubPayload` when an
+inbound payload is marked read); a new place that stores customer-written text applies it there, never later. A custom pattern is
+used only after `checkPattern`. Never log a raw error or a request body: log `errorFingerprint(e)` (a test reads every `console` call). Retention deletes conversations only through `erase` and
 `outsideStores` (never its own cascade); only `retentionJob` sets `relay.retention`, which lets append-only logs (never the audit
 log) lose rows past their period. The
 analytical store's tables are each in `ANALYTICS_ERASURE` (rekeyed, never deleted: reports keep their counts) or

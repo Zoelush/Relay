@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased: Content redaction and model-provider controls (phase 16, C6b)
+
+- **Redact card numbers, IBANs, US Social Security numbers and UK National Insurance numbers** in Settings › Security › Data protection. Each is off until turned on, and numbers are checked (Luhn, mod 97) so order numbers aren't caught.
+- **Add your own patterns,** try them on sample text first. Patterns that could run slowly are refused, with the reason.
+- **Matches become asterisks as text is stored:** messages, emails, drafts and the raw payloads channels send. Search, previews, exports and Zoe only ever see the redacted text. Messages already stored aren't changed.
+- **Choose what Zoe sends to the model:** remove personal data, memory, and how many earlier messages go with each question (none, 5 or 10). Each model call records the settings that applied.
+- **Logs no longer include raw errors** from sign-in or the REST API, and a test keeps it that way.
+- **Migration:** 0089, with rollback.
+- **Details:** `docs/SECURITY_STEP10.md`.
+
 ## Unreleased: Retention policies (phase 16, C6a)
 
 - **Choose how long Relay keeps each kind of data** in Settings › Security › Retention: conversations, attachments, call recordings, events and logs. Each can be kept, or deleted after 30 days to 7 years.

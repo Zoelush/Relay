@@ -5,6 +5,7 @@ import { receiveInbound, registerChannel, type ChannelAdapter, type ChannelEnvir
 import { seal, unseal } from "./connectors";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { CommunityRejected, type DiscordApi, type SlackApi } from "./community-api";
+import { scrubPayload } from "./redaction";
 
 /**
  * Slack and Discord (phase 12, step E8; docs/OMNICHANNEL_STEP8.md), behind `channels_v1` and
@@ -324,7 +325,11 @@ export async function receiveCommunityJob(connect: Connect, env: CommunityEnviro
   });
   if (!ready?.c) return { done: true, result: { skipped: true } };
   const { row, c } = ready;
-  const done = () => tenant(connect, w, (db) => db.query("UPDATE community_inbound SET status='read',read_at=now() WHERE workspace_id=$1 AND id=$2", [w, inboundId]));
+  const done = () =>
+    tenant(connect, w, async (db) => {
+      await db.query("UPDATE community_inbound SET status='read',read_at=now() WHERE workspace_id=$1 AND id=$2", [w, inboundId]);
+      await scrubPayload(db, w, "community_inbound", inboundId);
+    });
   const token = env.key ? await unseal(env.key, w, sealId(c.id), "token", c.token_sealed) : null;
   let m: {
     externalId: string;
@@ -446,6 +451,8 @@ export async function receiveCommunityJob(connect: Connect, env: CommunityEnviro
         await db.query("UPDATE attachments SET job_id=$3 WHERE workspace_id=$1 AND id=$2", [w, id, jobId]);
       }
     await db.query("UPDATE community_inbound SET status='read',read_at=now() WHERE workspace_id=$1 AND id=$2", [w, inboundId]);
+    // Phase 16 C6b: read, so its text is redacted (the original isn't kept).
+    await scrubPayload(db, w, "community_inbound", inboundId);
   });
   return { done: true, result: { read: true } };
 }
