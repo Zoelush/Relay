@@ -6,6 +6,7 @@ import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { MAX_EMAIL_BYTES, readEmail, threadKeys } from "./email-read";
 import { receiveSideMail, sideFor } from "./email-side";
 import { emailReplyDetails, ensureDomain, prepareEmail, queueDomainCheck, readReputation, readSending, sendEmail } from "./email-out";
+import { workspaceRedactor } from "./redaction";
 
 /**
  * Email in (phase 12, step E2; docs/OMNICHANNEL_STEP2.md), behind `channels_v1` and
@@ -243,6 +244,8 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
         automatic: m.kind !== "message",
       });
       if (r.partId && !("duplicate" in r && r.duplicate)) {
+        // Phase 16 C6b: the workspace's redaction rules, applied as the email is stored.
+        const red = await workspaceRedactor(db, w);
         await db.query(
           `INSERT INTO email_messages(workspace_id,part_id,conversation_id,inbound_id,message_id,subject,from_address,from_name,to_addresses,cc_addresses,sent_at,
              text_full,html,stripped,forwarded,verified,kind,reason,remote_images,attachments,headers)
@@ -253,14 +256,14 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
             r.conversationId,
             inboundId,
             m.messageId,
-            m.subject.slice(0, 1000),
+            red.text(m.subject.slice(0, 1000)),
             m.from.address,
             m.from.name.slice(0, 200),
             m.to,
             m.cc,
             m.date,
-            m.fullText.slice(0, 1_000_000),
-            m.html ? m.html.slice(0, 5_000_000) : null,
+            red.text(m.fullText.slice(0, 1_000_000)),
+            m.html ? red.html(m.html.slice(0, 5_000_000)) : null,
             m.stripped,
             m.forwarded,
             m.verified,
@@ -268,7 +271,7 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
             m.reason,
             m.remoteImages,
             JSON.stringify(listed),
-            JSON.stringify(m.headers),
+            JSON.stringify(red.json(m.headers)),
           ],
         );
         // Each kept attachment: scanned, then published as the customer's attachment part.
@@ -287,6 +290,8 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
   } catch (e) {
     if (e instanceof DomainError) {
       await failed(e.message);
+      // Phase 16 C6b: with a redaction rule on, a failed email's raw file isn't kept either.
+      if ((await tenant(connect, w, (db) => workspaceRedactor(db, w))).on) await env.storage!.deleteQuarantine(inbound.raw_key);
       return { done: true, result: { failed: true } };
     }
     throw e;

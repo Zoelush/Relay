@@ -110,11 +110,22 @@ export async function recordModelCalls(
   questionPartId: string,
   calls: ModelCall[],
 ) {
+  if (!calls.length) return;
+  // Phase 16 C6b: which controls applied (Zoe's redaction, memory, history length, and the workspace's redaction rules).
+  const controls =
+    (
+      await db.query<{ controls: Record<string, unknown> }>(
+        `SELECT jsonb_build_object('redactPersonalData',a.redact_personal_data,'memory',a.memory,'historyMessages',a.history_messages,
+           'redactionRules',(SELECT count(*) FROM redaction_rules r WHERE r.workspace_id=a.workspace_id AND r.enabled)) AS controls
+         FROM ai_agents a WHERE a.workspace_id=$1 ORDER BY a.id='default' DESC LIMIT 1`,
+        [w],
+      )
+    ).rows[0]?.controls ?? {};
   for (const c of calls)
     await db.query(
-      `INSERT INTO ai_model_calls(workspace_id,id,conversation_id,question_part_id,kind,model,sent,redacted,redactions)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [w, crypto.randomUUID(), conversationId, questionPartId, c.kind, c.model, c.sent, c.redacted, JSON.stringify(c.redactions)],
+      `INSERT INTO ai_model_calls(workspace_id,id,conversation_id,question_part_id,kind,model,sent,redacted,redactions,controls)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [w, crypto.randomUUID(), conversationId, questionPartId, c.kind, c.model, c.sent, c.redacted, JSON.stringify(c.redactions), JSON.stringify(controls)],
     );
 }
 

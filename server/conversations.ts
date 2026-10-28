@@ -33,6 +33,7 @@ import { recordAudit } from "./audit";
 import { customerVisiblePart } from "./delivery-policy";
 import { confirmAiHelped, queueAiReply } from "./ai-agent";
 import { inboundRules } from "./messenger-config";
+import { workspaceRedactor } from "./redaction";
 
 export type Actor = (
   | { type: "teammate"; principal: string }
@@ -375,6 +376,18 @@ export async function append(
   /** Phase 12: the channel it arrived on; otherwise the conversation's current one. */
   channel: string | null = null,
 ): Promise<Part> {
+  // Phase 16 C6b: the workspace's redaction rules, applied as the text is stored (the original is never kept).
+  const r = await workspaceRedactor(db, w);
+  if (r.on) {
+    body = r.text(body);
+    const email = data.email as { subject?: unknown } | undefined;
+    data = {
+      ...data,
+      ...(typeof data.subject === "string" ? { subject: r.text(data.subject) } : {}),
+      ...(email && typeof email.subject === "string" ? { email: { ...email, subject: r.text(email.subject) } } : {}),
+      ...(data.doc ? { doc: r.doc(data.doc) } : {}),
+    };
+  }
   const version = (
     await db.query<{ next_seq: string; updated_at: string }>(
       "UPDATE conversations SET next_seq=next_seq+1,updated_at=GREATEST(clock_timestamp(),updated_at) WHERE workspace_id=$1 AND id=$2 RETURNING next_seq,updated_at",

@@ -5,6 +5,7 @@ import { deliveryReport, receiveInbound, registerChannel, suppress, type Channel
 import { seal, unseal } from "./connectors";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { WhatsAppRejected, type WhatsAppApi } from "./whatsapp-api";
+import { scrubPayload } from "./redaction";
 
 /**
  * WhatsApp Business (phase 12, step E5; docs/OMNICHANNEL_STEP5.md), behind `channels_v1` and
@@ -431,6 +432,8 @@ export async function receiveWhatsAppJob(connect: Connect, env: WhatsAppEnvironm
       }
     }
     await db.query("UPDATE whatsapp_inbound SET status='read',read_at=now() WHERE workspace_id=$1 AND id=$2", [w, inboundId]);
+    // Phase 16 C6b: read, so its text is redacted (the original isn't kept).
+    await scrubPayload(db, w, "whatsapp_inbound", inboundId);
   });
   return { done: true, result: { read: true } };
 }

@@ -10,6 +10,7 @@ import { MORE_HANDLERS } from "./rest-more";
 import { WEBHOOK_HANDLERS, type WebhookEnvironment } from "./webhooks";
 import { actingVia, recordContactView } from "./audit";
 import { networkAllowed, normalIp } from "./allowlists";
+import { errorFingerprint } from "./api";
 
 /**
  * The public REST API (phase 15, step D1; docs/DEVELOPER_PLATFORM_STEP1.md), behind
@@ -448,7 +449,8 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
     return reply(out, Number(status));
   } catch (e) {
     const f = failure(e);
-    if (f.status === 500) console.error("rest", requestId, e);
+    // Phase 16 C6b: never the error itself (it can carry what was sent); only where it came from.
+    if (f.status === 500) console.error("rest", requestId, errorFingerprint(e));
     return error(f.status, f.code, f.message, f.field);
   }
 }

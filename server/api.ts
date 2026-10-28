@@ -231,6 +231,7 @@ import { assertPlatformAllowed, changeAccess, readAccess } from "./two-factor";
 import { assertNetwork, notAllowed } from "./allowlists";
 import { changeDataRequests, readDataRequests } from "./data-requests";
 import { changeRetention, readRetention } from "./retention";
+import { changeDataProtection, readDataProtection } from "./redaction";
 import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
@@ -455,7 +456,8 @@ async function handleAuth(req: Request, env: ApiEnvironment): Promise<Response> 
     throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
   } catch (e) {
     const f = e instanceof DomainError ? e : null;
-    if (!f) console.error("auth", e);
+    // Phase 16 C6b: never the error itself (it can carry what was sent); only where it came from.
+    if (!f) console.error("auth", errorFingerprint(e));
     return reply({ error: { code: f?.code ?? "UNAVAILABLE", message: f?.message ?? "Sign-in is unavailable. Try again." } }, f?.status ?? 503);
   }
 }
@@ -1484,6 +1486,7 @@ export async function handleApi(
             "/v1/agent/sso-settings",
             "/v1/agent/data-requests",
             "/v1/agent/retention",
+            "/v1/agent/data-protection",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -1592,6 +1595,7 @@ export async function handleApi(
               "/v1/agent/sso-settings",
               "/v1/agent/data-requests",
               "/v1/agent/retention",
+              "/v1/agent/data-protection",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -2004,6 +2008,9 @@ export async function handleApi(
           if ("refused" in r) throw r.refused;
           return json(r);
         }
+        if (url.pathname === "/v1/agent/data-protection")
+          // Phase 16 C6b: redaction rules (a pattern tried, a built-in or custom rule changed) and what reaches the model.
+          return json(await tenant(env.connect, workspace, (db) => changeDataProtection(db, workspace, principal, p)));
         if (url.pathname === "/v1/agent/retention")
           // Phase 16 C6a: retention policies, what a change would delete, and a run now.
           return json(await tenant(env.connect, workspace, (db) => changeRetention(db, workspace, principal, p)));
@@ -2704,6 +2711,7 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/retention") return json(await tenant(env.connect, workspace, (db) => readRetention(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/data-protection") return json(await tenant(env.connect, workspace, (db) => readDataProtection(db, workspace, principal)));
       if (url.pathname === "/v1/agent/data-requests") return json(await tenant(env.connect, workspace, (db) => readDataRequests(db, workspace, principal)));
       if (url.pathname === "/v1/agent/sso-settings") return json(await tenant(env.connect, workspace, (db) => readSso(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/invitations") return json(await tenant(env.connect, workspace, (db) => readInvitations(db, workspace, principal)));
