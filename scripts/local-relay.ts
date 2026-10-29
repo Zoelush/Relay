@@ -18,7 +18,7 @@ import { parseEnv } from "node:util";
 import { WebSocketServer } from "ws";
 import { SignJWT, jwtVerify } from "jose";
 import { bodyLimit, bridgeAgentRequest, bridgeAuthRequest, bridgeSsoRequest, sessionCookie } from "../server/agent-bridge";
-import { startLocalIdp } from "./local-idp";
+import { LOCAL_IDP_CLIENT, LOCAL_SUPPORT_STAFF, startLocalIdp } from "./local-idp";
 import { checkSsoDomainJob } from "../server/sso";
 import {
   attachmentScan,
@@ -338,6 +338,16 @@ export async function startLocalRelay(
     emailSending: { sendingDomain: LOCAL_SENDING_DOMAIN, region: LOCAL_SES_REGION },
     // Phase 16 C4a: single sign-on reaches only the local stand-in provider.
     sso: { policy: { allowHosts: options.idpPort ? [`127.0.0.1:${options.idpPort}`] : [] } },
+    // Phase 16 C7b: Relay support signs in with the same stand-in provider (its staff list: Rae).
+    support: options.idpPort
+      ? {
+          issuer: `http://127.0.0.1:${options.idpPort}`,
+          clientId: LOCAL_IDP_CLIENT.id,
+          clientSecret: LOCAL_IDP_CLIENT.secret,
+          staff: LOCAL_SUPPORT_STAFF,
+          policy: { allowHosts: [`127.0.0.1:${options.idpPort}`] },
+        }
+      : undefined,
   };
   const emailEnv: EmailEnvironment = { storage: env.attachments, domain: LOCAL_EMAIL_DOMAIN, trustedAuthServ: [LOCAL_AUTHSERV] };
   // Email out (phase 12 E3): stand-in providers; nothing leaves the machine. SNS reports are
@@ -1643,7 +1653,7 @@ export async function startLocalRelay(
       );
     }
     // Phase 16 C4a: single sign-on's start and the provider's return; C4b: SAML's ACS and metadata.
-    if (["/auth/sso", "/auth/sso/callback", "/auth/saml/acs", "/auth/saml/metadata"].includes(url.pathname))
+    if (["/auth/sso", "/auth/sso/callback", "/auth/saml/acs", "/auth/saml/metadata", "/auth/support", "/auth/support/callback"].includes(url.pathname))
       return bridgeSsoRequest(req, { RELAY_WORKSPACE_ID: "demo", RELAY_API_ORIGIN: apiOrigin, RELAY_BRIDGE_SECRET: keys.bridge }, (upstream) => handleApi(upstream, env));
     // Phase 16 C3a: Relay's own sign-in, sign-out and invitations.
     if (url.pathname.startsWith("/auth/"))

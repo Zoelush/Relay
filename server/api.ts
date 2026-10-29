@@ -234,6 +234,8 @@ import { changeRetention, readRetention } from "./retention";
 import { changeDataProtection, readDataProtection } from "./redaction";
 import { changeLinks, linkVerdict, readLinks } from "./links";
 import type { LinkReputation } from "./link-reputation";
+import { changeSupport, finishSupport, isSupportToken, readSupport, recordSupportView, resolveSupportSession, signOutSupport, startSupport, type SupportEnvironment } from "./support";
+import { isSupport } from "./policy";
 import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
@@ -329,6 +331,8 @@ export interface ApiEnvironment {
   ai?: AiEnvironment;
   /** Phase 16 C7a: link reputation (Safe Browsing deployed, a stand-in locally); without it, only the checks in code. */
   linkReputation?: LinkReputation;
+  /** Phase 16 C7b: Relay support's sign-in (Relay's own identity provider and staff list); without it, staff can't sign in. */
+  support?: SupportEnvironment;
   /** The AI index (phase 07 C2a): embedding models and the vector store. */
   knowledgeIndex?: IndexEnvironment;
   /** Data connectors (phase 09 D1): RELAY_CONNECTOR_KEY and the fetch policy. */
@@ -454,8 +458,12 @@ async function handleAuth(req: Request, env: ApiEnvironment): Promise<Response> 
     if (action === "sso-start") return reply(await startSso(env.connect, w, body, client));
     if (action === "saml-acs") return reply(await samlAcs(env.connect, w, body));
     if (action === "sso-finish") return reply(await finishSso(env.connect, w, { ...keys, policy: env.sso?.policy }, body, client));
+    // Phase 16 C7b: Relay support's sign-in, only while the workspace has granted access.
+    if (action === "support-start") return reply(await startSupport(env.connect, w, env.support, client));
+    if (action === "support-finish") return reply(await finishSupport(env.connect, w, env.support, body, client));
     if (action === "accept") return reply(await acceptInvitation(env.connect, w, body, client));
-    if (action === "signout") return reply(await signOut(env.connect, w, String(body.token ?? "")));
+    if (action === "signout")
+      return reply(isSupportToken(String(body.token ?? "")) ? await signOutSupport(env.connect, w, String(body.token)) : await signOut(env.connect, w, String(body.token ?? "")));
     if (action === "invitation") return reply(await readInvitation(env.connect, w, body.token));
     throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
   } catch (e) {
@@ -1493,6 +1501,7 @@ export async function handleApi(
             "/v1/agent/data-protection",
             "/v1/agent/links",
             "/v1/agent/link-verdict",
+            "/v1/agent/support-access",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -1604,6 +1613,7 @@ export async function handleApi(
               "/v1/agent/data-protection",
               "/v1/agent/links",
               "/v1/agent/link-verdict",
+              "/v1/agent/support-access",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -1647,10 +1657,21 @@ export async function handleApi(
         userAgent: typeof c.ua === "string" ? c.ua : null,
         origin: typeof c.origin === "string" ? c.origin : null,
       };
-      const signedIn = typeof c.session === "string" ? await resolveSession(env.connect, c.workspace, c.session, client) : null;
+      // Phase 16 C7b: a Relay support session is its own kind (read-only, under a grant).
+      const signedIn =
+        typeof c.session === "string"
+          ? isSupportToken(c.session)
+            ? await resolveSupportSession(env.connect, c.workspace, c.session)
+            : await resolveSession(env.connect, c.workspace, c.session, client)
+          : null;
       const sessionId = signedIn?.sessionId ?? null;
       const workspace = c.workspace,
         principal = signedIn ? signedIn.principal : (c.principal as string);
+      // Phase 16 C7b: Relay support only reads (refused here, before any route), and each page it opens is audited.
+      if (isSupport(principal)) {
+        assert(req.method === "GET", "SUPPORT_READ_ONLY", "Relay support has read-only access to this workspace.", 403);
+        await recordSupportView(env.connect, workspace, principal, url);
+      }
       const inbox = c.inbox === true;
       const actor: Actor = {
         type: "teammate",
@@ -2016,6 +2037,9 @@ export async function handleApi(
           if ("refused" in r) throw r.refused;
           return json(r);
         }
+        if (url.pathname === "/v1/agent/support-access")
+          // Phase 16 C7b: read-only access for Relay support granted, or revoked.
+          return json(await tenant(env.connect, workspace, (db) => changeSupport(db, workspace, principal, p, !!env.support)));
         if (url.pathname === "/v1/agent/links")
           // Phase 16 C7a: a trusted or blocked domain added, or removed.
           return json(await tenant(env.connect, workspace, (db) => changeLinks(db, workspace, principal, p, env.linkReputation?.name ?? null)));
@@ -2725,6 +2749,7 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/retention") return json(await tenant(env.connect, workspace, (db) => readRetention(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/support-access") return json(await tenant(env.connect, workspace, (db) => readSupport(db, workspace, principal, !!env.support)));
       if (url.pathname === "/v1/agent/links") return json(await tenant(env.connect, workspace, (db) => readLinks(db, workspace, principal, env.linkReputation?.name ?? null)));
       if (url.pathname === "/v1/agent/link-verdict")
         return json(
@@ -3248,6 +3273,8 @@ export async function handleApi(
               role: account?.role ?? t.role_id,
               // Phase 16 C3a: signed in with a Relay session (its sign-out is Relay's).
               relaySession: !!sessionId,
+              // Phase 16 C7b: Relay support, read-only.
+              readOnly: isSupport(principal),
               workspace: {
                 id: workspace,
                 name: account?.workspace_name ?? workspace,

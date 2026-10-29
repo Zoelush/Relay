@@ -63,8 +63,12 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `lib/processors.ts`, Twilio's `deleteRecording`/`deleteMessage`), is done locally (`docs/SECURITY_STEP8.md`), and C6a, retention policies (`server/retention.ts`,
 `#settings/retention`, the `retention.apply` job), is done locally (`docs/SECURITY_STEP9.md`), and C6b, content redaction and model-provider controls (`lib/redaction.ts`,
 `server/redaction.ts`, `#settings/data-protection`), is done locally (`docs/SECURITY_STEP10.md`), and C7a, link safety and risky merges (`lib/links.ts`, `server/links.ts`,
-`server/link-policy.ts`, `#settings/links`, `/link`), is done locally (`docs/SECURITY_STEP11.md`); next is C7b (vendor support
-access, the health check, the subprocessor and encryption pages). A link's verdict is decided only by `verdictOf`, asked of the
+`server/link-policy.ts`, `#settings/links`, `/link`), is done locally (`docs/SECURITY_STEP11.md`), and C7b, vendor support access (`server/support.ts`,
+`#settings/support-access`, `/auth/support`), is done locally (`docs/SECURITY_STEP12.md`); next is C7c (the security health check,
+the subprocessor and encryption pages). Relay's support staff get in only through `admitSupport` (Relay's own OIDC provider, the
+deployment's staff list, an open grant); a support session is the principal `relay-support:<session>`, never a teammate row,
+and the agent API refuses everything but GET from it before any route runs: never add a way for it to write. Each page it opens
+is `support.viewed`; never record a query's values there. A link's verdict is decided only by `verdictOf`, asked of the
 server on each click (`link-verdict`, which judges only an address in that part); a customer's link reaches a teammate only
 through the gate (`LinkedText`, the email frame's `/link`); teammates' links pass `assertLinksAllowed` in `append`. Different
 people's conversations merge only with `merge_across_people` and `acrossPeople`; leads merge by email only through

@@ -33,12 +33,40 @@ export interface Teammate {
   /** Their teams, when restricted (otherwise empty: not needed). */
   teams?: string[];
 }
+/**
+ * Phase 16 C7b (docs/SECURITY_STEP12.md): a support session's principal, `relay-support:<session>`.
+ * It's a read-only teammate, "Relay support (email)", with every capability and no restricted scope,
+ * only while its session is live and its workspace's grant is open; it has no `teammates` row. The
+ * agent API refuses everything but reads from it (`SUPPORT_READ_ONLY`), before any route runs.
+ */
+export const SUPPORT_PREFIX = "relay-support:";
+export const isSupport = (principal: string) => principal.startsWith(SUPPORT_PREFIX);
+/** What the inbox shouldn't offer Relay support (writing): `can` says no; the API refuses them anyway. */
+const WRITES: Capability[] = ["conversations.reply", "conversations.note", "conversations.delete_reply", "conversations.delete_note", "macros.create", "macros.edit", "macros.delete", "conversations.assign", "reports.share", "data.export"];
+async function supportTeammate(db: Sql, workspace: string, principal: string): Promise<Teammate | null> {
+  const s = (
+    await db.query<{ email: string }>(
+      // The audit log's actor for this transaction: Relay support, by email, via support access.
+      `SELECT s.email,set_config('relay.actor_id','relay-support',true),set_config('relay.actor_name','Relay support ('||s.email||')',true),set_config('relay.actor_via','support',true)
+       FROM support_sessions s JOIN support_grants g ON g.workspace_id=s.workspace_id AND g.id=s.grant_id
+       WHERE s.workspace_id=$1 AND s.id=$2 AND s.revoked_at IS NULL AND s.expires_at>now() AND g.revoked_at IS NULL AND g.expires_at>now()`,
+      [workspace, principal.slice(SUPPORT_PREFIX.length)],
+    )
+  ).rows[0];
+  return s ? { id: "relay-support", name: `Relay support (${s.email})`, role_id: "relay-support", restricted: false, teams: [] } : null;
+}
+
 export async function authorize(
   db: Sql,
   workspace: string,
   principal: string,
   capability: Capability,
 ): Promise<Teammate> {
+  if (isSupport(principal)) {
+    const support = await supportTeammate(db, workspace, principal);
+    assert(support, "FORBIDDEN", "You do not have permission for this action.", 403);
+    return support!;
+  }
   const t = (
     await db.query<Teammate>(
       // Phase 16 C1: the teammate becomes this transaction's actor for the audit log (`relay.actor_*`).
@@ -63,6 +91,7 @@ export async function can(
   resource?: { workspace_id: string },
 ) {
   if (resource && resource.workspace_id !== workspace) return false;
+  if (isSupport(principal)) return !WRITES.includes(capability) && !!(await supportTeammate(db, workspace, principal));
   return !!(
     await db.query(
       `SELECT 1 FROM teammates t JOIN role_capabilities p ON p.workspace_id=t.workspace_id AND p.role_id=t.role_id WHERE t.workspace_id=$1 AND t.principal_id=$2 AND p.capability=$3`,

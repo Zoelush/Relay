@@ -24,7 +24,11 @@ export const LOCAL_IDP_PEOPLE: IdpPerson[] = [
   { id: "sam", name: "Sam Okafor", email: "sam@example.test", groups: ["Everyone", "Contractors"] },
   { id: "eve", name: "Eve Unverified", email: "eve@example.test", emailVerified: false, groups: ["Support"] },
   { id: "max", name: "Max Elsewhere", email: "max@elsewhere.test", groups: ["Support"] },
+  // Phase 16 C7b: one of Relay's own support staff (on the local relay's staff list).
+  { id: "rae", name: "Rae Support", email: "rae@relay-staff.test", groups: ["Relay support"] },
 ];
+/** Phase 16 C7b: the local relay's support staff list. */
+export const LOCAL_SUPPORT_STAFF = ["rae@relay-staff.test"];
 
 export async function startLocalIdp(options: { port: number; people?: IdpPerson[] }) {
   const origin = `http://127.0.0.1:${options.port}`;

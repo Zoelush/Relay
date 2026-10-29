@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: Relay support access (phase 16, C7b)
+
+- **Let Relay's support team look at your workspace** from Settings › Security › Support access: grant read-only access for 1, 7 or 14 days, and revoke it at any time.
+- **Read-only, for real:** support staff see what an owner sees but can't change, send or delete anything, and they work under a banner that says so.
+- **Recorded:** every grant, sign-in and page they open is in the audit log, and the page keeps the history of who signed in.
+- **Staff sign in with Relay's own identity provider,** and only staff on the deployment's list, only while access is granted.
+- **Migration:** 0091, with rollback.
+- **Details:** `docs/SECURITY_STEP12.md`.
+
 ## Unreleased: Link safety and risky merges (phase 16, C7a)
 
 - **Links customers send are checked before they open.**

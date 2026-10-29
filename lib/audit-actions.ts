@@ -79,6 +79,7 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   retention: { noun: "Retention policies", area: "Data" },
   redaction_rule: { noun: "Redaction rule", area: "Data" },
   link_policy: { noun: "Link domain", area: "Security" },
+  support_grant: { noun: "Relay support access", area: "Security" },
 };
 
 /** Actions written by `recordAudit`: what isn't a row change. */
@@ -99,6 +100,10 @@ export const EXPLICIT_ACTIONS = {
   "link.opened_despite_warning": { label: "Malicious link opened after a warning", area: "Security" },
   "conversation.merged_across_people": { label: "Conversations of different people merged", area: "Customer records" },
   "contact.lead_merged_by_email": { label: "Lead merged into a user by email", area: "Customer records" },
+  // Phase 16 C7b.
+  "support.signed_in": { label: "Relay support signed in", area: "Security" },
+  "support.sign_in_refused": { label: "Relay support sign-in refused", area: "Security" },
+  "support.viewed": { label: "Relay support opened a page", area: "Security" },
   "two_factor.reset": { label: "Two-factor turned off for a teammate", area: "Security" },
   "two_factor.recovery_codes_replaced": { label: "Recovery codes replaced", area: "Security" },
   "two_factor.recovery_code_used": { label: "Recovery code used", area: "Security" },

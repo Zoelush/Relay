@@ -413,6 +413,52 @@ export async function ssoMetadata(connect: Connect, w: string, client: ClientInf
   });
 }
 
+/**
+ * OIDC's authorization code swapped for an ID token, checked against the issuer's keys (issuer,
+ * audience, age, nonce). Shared by single sign-on and C7b's support sign-in (`server/support.ts`);
+ * a failure throws a plain Error for the caller to report.
+ */
+export async function exchangeCode(
+  provider: { issuer: string; tokenEndpoint: string; jwksUri: string; clientId: string; secret: string; redirectUri: string },
+  login: { code: string; verifier: string; nonce: string },
+  policy?: FetchPolicy,
+) {
+  const r = await safeRequest(
+    provider.tokenEndpoint,
+    policy ?? {},
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+        authorization: "Basic " + btoa(encodeURIComponent(provider.clientId) + ":" + encodeURIComponent(provider.secret)),
+      },
+      body: new URLSearchParams({ grant_type: "authorization_code", code: login.code, redirect_uri: provider.redirectUri, code_verifier: login.verifier }).toString(),
+    },
+    { maxBytes: 256_000, timeoutMs: TIMEOUT },
+  );
+  if (r.status !== 200) throw new Error(`The token endpoint answered ${r.status}.`);
+  const idToken = (JSON.parse(r.body) as { id_token?: string }).id_token;
+  if (!idToken) throw new Error("The token endpoint sent no ID token.");
+  const keys = await safeFetch(provider.jwksUri, policy, { accept: "application/json" }, { maxBytes: 256_000, timeoutMs: TIMEOUT });
+  if (keys.status !== 200) throw new Error(`The keys address answered ${keys.status}.`);
+  const { payload } = await jwtVerify(idToken, createLocalJWKSet(JSON.parse(keys.body) as JSONWebKeySet), {
+    issuer: provider.issuer,
+    audience: provider.clientId,
+    algorithms: ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA"],
+    maxTokenAge: "10 minutes",
+  });
+  if (payload.nonce !== login.nonce) throw new Error("The ID token's nonce doesn't match.");
+  return payload;
+}
+
+/** PKCE's verifier and its S256 challenge, a state and a nonce, for a new OIDC login. */
+export async function oidcLogin() {
+  const verifier = random(64);
+  const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+  return { state: random(32), nonce: random(32), verifier, challenge };
+}
+
 type Claims = { sub: string; email: string; name: string; groups: string[] };
 const FAILED = "Your identity provider didn't confirm the sign-in. Try again, or ask someone who manages security to check single sign-on.";
 
@@ -466,32 +512,11 @@ export async function finishSso(connect: Connect, w: string, env: SsoEnvironment
   // 2. The code swapped for tokens, and the ID token checked against the issuer's keys.
   try {
     const secret = await unseal(keyOf(env), w, ...sealedAs(c.id), c.client_secret_sealed ?? "");
-    const r = await safeRequest(
-      c.token_endpoint!,
-      env.policy ?? {},
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          accept: "application/json",
-          authorization: "Basic " + btoa(encodeURIComponent(c.client_id!) + ":" + encodeURIComponent(secret)),
-        },
-        body: new URLSearchParams({ grant_type: "authorization_code", code: String(p.code), redirect_uri: client.origin + callbackPath, code_verifier: login!.verifier }).toString(),
-      },
-      { maxBytes: 256_000, timeoutMs: TIMEOUT },
+    const payload = await exchangeCode(
+      { issuer: c.issuer, tokenEndpoint: c.token_endpoint!, jwksUri: c.jwks_uri!, clientId: c.client_id!, secret, redirectUri: client.origin + callbackPath },
+      { code: String(p.code), verifier: login!.verifier, nonce: login!.nonce },
+      env.policy,
     );
-    if (r.status !== 200) throw new Error(`The token endpoint answered ${r.status}.`);
-    const idToken = (JSON.parse(r.body) as { id_token?: string }).id_token;
-    if (!idToken) throw new Error("The token endpoint sent no ID token.");
-    const keys = await safeFetch(c.jwks_uri!, env.policy, { accept: "application/json" }, { maxBytes: 256_000, timeoutMs: TIMEOUT });
-    if (keys.status !== 200) throw new Error(`The keys address answered ${keys.status}.`);
-    const { payload } = await jwtVerify(idToken, createLocalJWKSet(JSON.parse(keys.body) as JSONWebKeySet), {
-      issuer: c.issuer,
-      audience: c.client_id!,
-      algorithms: ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA"],
-      maxTokenAge: "10 minutes",
-    });
-    if (payload.nonce !== login!.nonce) throw new Error("The ID token's nonce doesn't match.");
     const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
     const verified = payload.email_verified === true || payload.email_verified === "true";
     if (!payload.sub || !email || !verified) throw await refuse("SSO_EMAIL", "Your identity provider didn't share a verified email address.", 403, { reason: "email_unverified", subject: payload.sub ?? null });

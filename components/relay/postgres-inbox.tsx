@@ -127,7 +127,7 @@ type Snapshot = Directory & {
   conversations: Conversation[];
   teammate: { id: string; name: string; role_id?: string };
   /** The account menu: the teammate's role and the workspace's name. */
-  account?: { role: string; relaySession?: boolean; workspace: { id: string; name: string } };
+  account?: { role: string; relaySession?: boolean; workspace: { id: string; name: string }; readOnly?: boolean };
   storage: { engine: string; transport: string; workspaceId: string };
   capabilities: {
     reply: boolean;
@@ -601,6 +601,9 @@ export default function PostgresInbox({
 
   const report = useCallback(
     (reason: unknown) => {
+      // Phase 16 C7b: Relay support is read-only; the inbox's own background writes (reads, drafts)
+      // are refused, which the banner already says.
+      if (reason instanceof InboxError && reason.code === "SUPPORT_READ_ONLY") return;
       setError(
         reason instanceof Error ? reason.message : "Reconnect to continue.",
       );
@@ -643,10 +646,18 @@ export default function PostgresInbox({
     fatal.current = false;
     async function connect() {
       try {
-        const ticket = await api<{ ticket: string; url: string }>(
-          "realtime-ticket",
-          {},
-        );
+        let ticket: { ticket: string; url: string };
+        try {
+          ticket = await api<{ ticket: string; url: string }>("realtime-ticket", {});
+        } catch (e) {
+          // Phase 16 C7b: Relay support reads without live updates (a ticket is a write).
+          if (!(e instanceof InboxError && e.code === "SUPPORT_READ_ONLY")) throw e;
+          const data = await api<Snapshot>("inbox");
+          if (stopped) return;
+          adopt(data);
+          setConnection("Read-only");
+          return;
+        }
         const data = await api<Snapshot>("inbox");
         if (stopped) return;
         adopt(data);
@@ -1687,6 +1698,12 @@ export default function PostgresInbox({
           )
         }
       />
+      {/* Phase 16 C7b: Relay support's session is read-only, and says so. */}
+      {snapshot?.account?.readOnly && (
+        <p role="status" className="pg-support-banner">
+          Relay support · read-only access, granted by this workspace. Every page you open is recorded.
+        </p>
+      )}
       {area === "knowledge" && snapshot?.capabilities.knowledge && (
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}

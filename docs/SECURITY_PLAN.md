@@ -350,6 +350,35 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **Leads by email:** a lead's message merges the lead into the only user with that email (case-insensitive), through `mergeVisitorIdentity`, so it can be reversed. It's audited.
       - **What the lead's device sees:** it stays unverified, so it still sees only its own conversations, never the user's.
 
+27. **C7b choices** (29 October 2026):
+    - **C7b split again:** it was larger than expected. C7b is vendor support access. C7c is the security health check, and the subprocessor and encryption pages.
+    - **Staff sign in with Relay's own SSO (OIDC),** set by deployment config: the issuer, client, and the allowed staff emails. Relay stores no staff passwords. Locally, the stand-in identity provider.
+    - **Who grants, and what staff see:** only teammates with `security.manage` grant access, since it exposes the whole workspace. Staff see what an owner sees, read-only. Every write is refused in one place, and the pages they open are audited.
+
+28. **C7b decisions** (29 October 2026):
+    - **Settings › Security › Support access** (`security.manage`, behind `security_v1`):
+      - **A grant** lasts 1, 7 or 14 days, with one active at a time. A new grant replaces the old one.
+      - **Revoking** a grant ends it and every staff session under it.
+      - **History:** the page lists past grants (who, when, until, revoked) and the staff sessions under each (email, start, end).
+    - **Staff sign-in, through the workspace's own host:**
+      - **The routes:** `/auth/support` and `/auth/support/callback`.
+      - **The check:** the same OIDC checks as C4a (PKCE, nonce, state bound to the browser by the `relay_support` cookie, the ID token checked with `jose`), shared with `server/sso.ts` (`exchangeCode`).
+      - **Who's admitted:** only a verified email on the deployment's staff list, only while a grant is active.
+      - **The session:** `support_sessions`, in the same HttpOnly session cookie. It lasts at most 8 hours, and never beyond the grant.
+      - **Audit:** sign-ins and refusals are both audited.
+      - **The only way in:** this is staff's only way in (`admitSupport`). It never creates a teammate.
+    - **What a support session is:**
+      - **The principal:** `resolveSession` gives `relay-support:<session>`.
+      - **Its powers:** `authorize`, `can` and the capability list treat that principal as a read-only teammate, "Relay support (email)", with every capability and no restricted scope, but only while the session is live and the grant active.
+      - **No teammate row:** no `teammates` row exists, so staff never appear in assignment, routing, mentions or seats.
+      - **Unsupported pages:** a page that looks a teammate up directly doesn't load for staff.
+    - **Read-only, in one place:** the agent API refuses every request from a support principal that isn't a GET, before any route runs (`SUPPORT_READ_ONLY`, 403). The inbox shows a read-only banner.
+    - **Audited views:**
+      - **Each page staff open** is `support.viewed`: the path and its query's names, not their values. It's recorded at most once per session and path every 10 minutes.
+      - **Customer records** they open are recorded as `contact.viewed`, as for anyone.
+      - **The audit actor** is "Relay support (email)", via `support`.
+    - **The workspace's IP allowlist** applies to staff too.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).
