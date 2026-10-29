@@ -50,6 +50,8 @@ export const ERASURE: Step[] = [
   del("email_events", `delivery_id IN ${DELIVERIES}`),
   del("channel_deliveries", `id IN ${DELIVERIES}`),
   del("email_messages", "conversation_id=ANY($4) OR part_id=ANY($7)"),
+  // Phase 16 C7a: the links in a customer's parts, and what the reputation lookup found.
+  del("part_links", "conversation_id=ANY($4) OR part_id=ANY($7)"),
   // In conversations someone else leads, their addresses come off the messages' recipients.
   {
     table: "email_messages",
@@ -189,7 +191,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
       "portal_settings", "role_capabilities", "roles", "security_settings", "segments", "sla_policies", "sms_accounts", "sms_numbers", "sms_prices",
       "sso_connections", "sso_domains", "sso_role_mappings", "subscription_types", "tags", "teams", "ticket_states", "ticket_transitions",
       "ticket_type_attributes", "ticket_types", "voice_agents", "voice_settings", "webhook_subscriptions", "whatsapp_numbers", "whatsapp_templates",
-      "workflow_versions", "workflows", "workspace", "workspace_features", "oauth_apps", "retention_settings", "redaction_rules",
+      "workflow_versions", "workflows", "workspace", "workspace_features", "oauth_apps", "retention_settings", "redaction_rules", "link_policies",
     ].map((t) => [t, CONFIG]),
   ),
   ...Object.fromEntries(

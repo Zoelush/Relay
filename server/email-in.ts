@@ -7,6 +7,8 @@ import { MAX_EMAIL_BYTES, readEmail, threadKeys } from "./email-read";
 import { receiveSideMail, sideFor } from "./email-side";
 import { emailReplyDetails, ensureDomain, prepareEmail, queueDomainCheck, readReputation, readSending, sendEmail } from "./email-out";
 import { workspaceRedactor } from "./redaction";
+import { noteLinks } from "./link-policy";
+import { anchorsIn } from "../lib/links";
 
 /**
  * Email in (phase 12, step E2; docs/OMNICHANNEL_STEP2.md), behind `channels_v1` and
@@ -274,6 +276,8 @@ export async function receiveEmailJob(connect: Connect, env: EmailEnvironment, j
             JSON.stringify(red.json(m.headers)),
           ],
         );
+        // Phase 16 C7a: the HTML's links too, for the reputation lookup (the text's are noted by `append`).
+        if (m.html) await noteLinks(db, w, r.conversationId, r.partId, anchorsIn(m.html).map((x) => x.url));
         // Each kept attachment: scanned, then published as the customer's attachment part.
         if (m.kind === "message")
           for (const k of kept) {

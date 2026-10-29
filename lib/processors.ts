@@ -78,6 +78,15 @@ export const PROCESSORS: Processor[] = [
     deletion: "workspace-destination",
   },
   {
+    // Phase 16 C7a: link reputation (docs/SECURITY_STEP11.md).
+    id: "safe-browsing",
+    name: "Google Safe Browsing",
+    receives: "The web addresses in customers' messages and emails (nothing else)",
+    when: "Link safety, when Relay is deployed with a Safe Browsing key",
+    keeps: "Under Google's Safe Browsing terms",
+    deletion: "provider-policy",
+  },
+  {
     id: "hosting",
     name: "Cloudflare and Neon (Relay's hosting)",
     receives: "Everything Relay stores: the database, files and queued work",

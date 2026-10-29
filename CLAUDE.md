@@ -62,7 +62,13 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `#settings/data-requests`), is done locally (`docs/SECURITY_STEP7.md`), and C5b, deletion beyond PostgreSQL (`server/erasure-analytics.ts`,
 `lib/processors.ts`, Twilio's `deleteRecording`/`deleteMessage`), is done locally (`docs/SECURITY_STEP8.md`), and C6a, retention policies (`server/retention.ts`,
 `#settings/retention`, the `retention.apply` job), is done locally (`docs/SECURITY_STEP9.md`), and C6b, content redaction and model-provider controls (`lib/redaction.ts`,
-`server/redaction.ts`, `#settings/data-protection`), is done locally (`docs/SECURITY_STEP10.md`); next is C7 (security posture).
+`server/redaction.ts`, `#settings/data-protection`), is done locally (`docs/SECURITY_STEP10.md`), and C7a, link safety and risky merges (`lib/links.ts`, `server/links.ts`,
+`server/link-policy.ts`, `#settings/links`, `/link`), is done locally (`docs/SECURITY_STEP11.md`); next is C7b (vendor support
+access, the health check, the subprocessor and encryption pages). A link's verdict is decided only by `verdictOf`, asked of the
+server on each click (`link-verdict`, which judges only an address in that part); a customer's link reaches a teammate only
+through the gate (`LinkedText`, the email frame's `/link`); teammates' links pass `assertLinksAllowed` in `append`. Different
+people's conversations merge only with `merge_across_people` and `acrossPeople`; leads merge by email only through
+`mergeLeadByEmail`, and a merged lead's device stays unverified.
 Redaction happens only where text is stored, with `workspaceRedactor` (`append`, email in, drafts, `scrubPayload` when an
 inbound payload is marked read); a new place that stores customer-written text applies it there, never later. A custom pattern is
 used only after `checkPattern`. Never log a raw error or a request body: log `errorFingerprint(e)` (a test reads every `console` call). Retention deletes conversations only through `erase` and

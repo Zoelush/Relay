@@ -78,6 +78,7 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   sso_role: { noun: "Single sign-on group role", area: "Security" },
   retention: { noun: "Retention policies", area: "Data" },
   redaction_rule: { noun: "Redaction rule", area: "Data" },
+  link_policy: { noun: "Link domain", area: "Security" },
 };
 
 /** Actions written by `recordAudit`: what isn't a row change. */
@@ -94,6 +95,10 @@ export const EXPLICIT_ACTIONS = {
   "session.network_refused": { label: "Sign-in refused (address not allowed)", area: "Security" },
   "two_factor.enabled": { label: "Two-factor turned on", area: "Security" },
   "two_factor.disabled": { label: "Two-factor turned off", area: "Security" },
+  // Phase 16 C7a.
+  "link.opened_despite_warning": { label: "Malicious link opened after a warning", area: "Security" },
+  "conversation.merged_across_people": { label: "Conversations of different people merged", area: "Customer records" },
+  "contact.lead_merged_by_email": { label: "Lead merged into a user by email", area: "Customer records" },
   "two_factor.reset": { label: "Two-factor turned off for a teammate", area: "Security" },
   "two_factor.recovery_codes_replaced": { label: "Recovery codes replaced", area: "Security" },
   "two_factor.recovery_code_used": { label: "Recovery code used", area: "Security" },

@@ -26,7 +26,7 @@ import {
 } from "../lib/rich-doc";
 import { assert, once, DomainError, type Sql } from "./db";
 import { authorize, visibleTo, type Capability } from "./policy";
-import { resolveContact } from "./people";
+import { mergeLeadByEmail, resolveContact } from "./people";
 import { customerReply, refreshCustomerUnread } from "./unread";
 import { enqueueJob } from "./jobs";
 import { recordAudit } from "./audit";
@@ -34,6 +34,8 @@ import { customerVisiblePart } from "./delivery-policy";
 import { confirmAiHelped, queueAiReply } from "./ai-agent";
 import { inboundRules } from "./messenger-config";
 import { workspaceRedactor } from "./redaction";
+import { assertLinksAllowed, noteLinks } from "./link-policy";
+import { findLinks } from "../lib/links";
 
 export type Actor = (
   | { type: "teammate"; principal: string }
@@ -130,6 +132,8 @@ export interface Command {
   workflowData?: { options?: string[]; replyTime?: unknown; availability?: unknown; email?: { subject: string } };
   /** Phase 12, honoured only from a channel (`receiveInbound`): what the inbox shows beside it. */
   channelData?: Record<string, unknown>;
+  /** Phase 16 C7a: a merge of different people's conversations, confirmed (with the workspace's switch on). */
+  acrossPeople?: boolean;
   /** Phase 12 E4: a teammate's copies on a reply (email's Cc and Bcc). */
   email?: { cc?: unknown; bcc?: unknown };
   /** Phase 12 E5: a channel's template as the reply (WhatsApp's, the only thing outside its window). */
@@ -376,6 +380,8 @@ export async function append(
   /** Phase 12: the channel it arrived on; otherwise the conversation's current one. */
   channel: string | null = null,
 ): Promise<Part> {
+  // Phase 16 C7a: a teammate can't send a link to a domain the workspace blocks.
+  if (author.type === "teammate") await assertLinksAllowed(db, w, body, data.doc);
   // Phase 16 C6b: the workspace's redaction rules, applied as the text is stored (the original is never kept).
   const r = await workspaceRedactor(db, w);
   if (r.on) {
@@ -441,6 +447,8 @@ export async function append(
       "INSERT INTO conversation_search_documents(workspace_id,conversation_id,part_id,audience,document,revision) VALUES($1,$2,$3,$4,to_tsvector('simple',$5),$6)",
       [w, c.id, id, audience, body, version.next_seq],
     );
+  // Phase 16 C7a: a customer's links, kept for the reputation lookup (`links.check`).
+  if (author.type === "contact" && body) await noteLinks(db, w, c.id, id, findLinks(body).map((l) => l.url));
   c.next_seq = version.next_seq;
   // Phase 11: what this part triggers (a job per trigger a live workflow listens to).
   await workflowEvent(db, w, c, part);
@@ -630,7 +638,7 @@ export async function command(
       : actor.type === "workflow"
         ? "workflow:" + actor.runId
         : "teammate:" + actor.principal;
-  return once(db, w, scope, key, p, async () => {
+  const result = await once(db, w, scope, key, p, async () => {
     if (p.action === "start") {
       assert(
         actor.type === "contact",
@@ -797,13 +805,35 @@ export async function command(
         409,
       );
       assert(
-        source.brand_id === target.brand_id &&
-          (await identityContact(db, w, source.primary_identity_id)) ===
-            (await identityContact(db, w, target.primary_identity_id)),
+        source.brand_id === target.brand_id,
         "MERGE_CONTACT_MISMATCH",
         "Merge requires the same brand and primary contact.",
         409,
       );
+      const people = [
+        await identityContact(db, w, source.primary_identity_id),
+        await identityContact(db, w, target.primary_identity_id),
+      ];
+      if (people[0] !== people[1]) {
+        // Phase 16 C7a: different people's conversations merge only with the workspace's switch on,
+        // and only when the merge says it knows (both people then see the whole conversation).
+        const allowed = (
+          await db.query<{ on: boolean }>("SELECT merge_across_people AS on FROM security_settings WHERE workspace_id=$1", [w])
+        ).rows[0]?.on;
+        assert(
+          allowed,
+          "MERGE_CONTACT_MISMATCH",
+          "These conversations are with different people. A manager can allow such merges in Settings › Security › Data protection.",
+          409,
+        );
+        assert(
+          p.acrossPeople === true,
+          "MERGE_ACROSS_PEOPLE",
+          "These conversations are with different people. Merged, both become participants and each sees the whole conversation, the other's messages included. Confirm to merge.",
+          409,
+        );
+        await recordAudit(db, w, "conversation.merged_across_people", { type: "conversation", id: target.id }, { from: source.id, contacts: people });
+      }
       await append(db, w, source, who, "merge_marker", "", { into: target.id });
       await append(db, w, target, who, "merge_marker", "", { from: source.id });
       await db.query(
@@ -1559,6 +1589,10 @@ export async function command(
         : {};
     return { conversationId: c.id, ...warning };
   });
+  // Phase 16 C7a: with the switch on, a messenger lead whose email is exactly one user's joins that
+  // user. The device stays unverified, so it still sees only its own conversations.
+  if (actor.type === "contact" && !actor.verified && !actor.channel && (p.action === "start" || p.action === "reply")) await mergeLeadByEmail(db, w, actor.identityId);
+  return result;
 }
 
 export async function timeline(

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { api } from "./api";
+import { gateHref } from "./links";
 
 /**
  * "Show the full email" (phase 12, step E2; docs/OMNICHANNEL_STEP2.md): the whole of an email
@@ -25,8 +26,13 @@ type Email = {
 const size = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
 /** The frame's document: the safe HTML, under a policy that loads nothing (or images, when allowed). */
-function frameDoc(html: string, images: boolean) {
-  const body = images ? html.replace(/data-remote-src="/g, 'src="') : html;
+function frameDoc(html: string, images: boolean, partId: string) {
+  const shown = images ? html.replace(/data-remote-src="/g, 'src="') : html;
+  // Phase 16 C7a: every link opens through Relay's link gate, in a new tab.
+  const body = shown.replace(/(<a\b[^>]*?\bhref=")(https?:[^"]*)"/gi, (_, open: string, href: string) => {
+    const url = href.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    return `${open}${gateHref(partId, url).replace(/&/g, "&amp;")}"`;
+  });
   const policy = `default-src 'none'; style-src 'unsafe-inline'; img-src data:${images ? " https: http:" : ""}`;
   // The frame can't read the app's tokens, so their values are copied in.
   const tokens = getComputedStyle(document.documentElement);
@@ -104,7 +110,7 @@ export function EmailView({ partId, onClose }: { partId: string; onClose: () => 
               </p>
             )}
             {email.html ? (
-              <iframe className="pg-email-frame" title="Email content" sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameDoc(email.html, images)} />
+              <iframe className="pg-email-frame" title="Email content" sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameDoc(email.html, images, partId)} />
             ) : (
               <pre className="pg-email-text">{email.text}</pre>
             )}

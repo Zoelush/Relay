@@ -47,6 +47,7 @@ import {
   LockKeyhole,
   MonitorSmartphone,
   EyeOff,
+  Link2,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -81,6 +82,7 @@ import { SsoPage } from "./settings-sso";
 import { DataRequestsPage } from "./settings-data-requests";
 import { RetentionPage } from "./settings-retention";
 import { DataProtectionPage } from "./settings-data-protection";
+import { LinksPage } from "./settings-links";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -349,6 +351,14 @@ const PAGES: Page[] = [
     label: "Data protection",
     description: "Redact card numbers and other sensitive patterns, and choose what Zoe sends to the model.",
     icon: EyeOff,
+    group: "Security",
+  },
+  {
+    // Phase 16 C7a: trusted and blocked domains for the links customers send.
+    id: "links",
+    label: "Links",
+    description: "Trusted and blocked domains, and how links customers send are checked before they open.",
+    icon: Link2,
     group: "Security",
   },
   {
@@ -692,6 +702,8 @@ export function Settings({
             <RetentionPage menu={menu} page={current} />
           ) : current.id === "data-protection" ? (
             <DataProtectionPage menu={menu} page={current} />
+          ) : current.id === "links" ? (
+            <LinksPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

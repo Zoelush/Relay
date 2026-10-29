@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased: Link safety and risky merges (phase 16, C7a)
+
+- **Links customers send are checked before they open.**
+  - **Trusted links** open at once.
+  - **Untrusted ones** show their full address first.
+  - **Dangerous ones** need the risk confirmed. They're links on a phishing or malware list, or ones that use tricks like lookalike addresses, bare IP addresses or misleading link text.
+  - **Blocked ones** don't open.
+  - This covers links in emails too.
+- **Settings › Security › Links:** choose trusted and blocked domains. Your own websites are trusted by default. Teammates can't send links to blocked domains.
+- **Risky merges,** both off by default, in Settings › Security › Data protection:
+  - **Different people:** allow merging conversations of different people, with a warning that each will see the other's messages.
+  - **Leads by email:** merge a messenger lead into the user with the same email.
+  - **Recorded:** both kinds of merge are in the audit log.
+- **Migration:** 0090, with rollback.
+- **Details:** `docs/SECURITY_STEP11.md`.
+
 ## Unreleased: Content redaction and model-provider controls (phase 16, C6b)
 
 - **Redact card numbers, IBANs, US Social Security numbers and UK National Insurance numbers** in Settings › Security › Data protection. Each is off until turned on, and numbers are checked (Luhn, mod 97) so order numbers aren't caught.
