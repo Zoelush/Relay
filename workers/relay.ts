@@ -103,6 +103,8 @@ import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
 import { auditExportJob, pruneAudit } from "../server/audit";
 import { dataDeleteJob, dataExportJob, expireDataExports } from "../server/data-requests";
 import { retentionJob, scheduleRetention } from "../server/retention";
+import { linksJob } from "../server/links";
+import { safeBrowsing } from "../server/link-reputation";
 import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
 import { hyperdriveConnection } from "../server/postgres";
@@ -148,6 +150,8 @@ interface Env extends Partial<StorageEnv> {
   RELAY_CONNECTOR_KEY?: string;
   /** Phase 16 C5b: how long PostgreSQL's point-in-time backups keep a deleted person (days; 7 unless set). */
   RELAY_BACKUP_DAYS?: string;
+  /** Phase 16 C7a: Google Safe Browsing (link reputation); without it, only the checks in code. A secret. */
+  RELAY_SAFE_BROWSING_KEY?: string;
   BRIDGE_SECRET: string;
   RELAY_ENABLED?: string;
   ATTACHMENTS_ENABLED?: string;
@@ -275,6 +279,7 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     connect,
     attachments,
     knowledgeIndex: knowledgeIndex(env),
+    linkReputation: env.RELAY_SAFE_BROWSING_KEY ? safeBrowsing(env.RELAY_SAFE_BROWSING_KEY) : undefined,
     // Procedures (phase 09 D2) call connectors from the reply job.
     ai: (() => {
       const ai = aiAgent(env);
@@ -599,6 +604,8 @@ const relayWorker = {
         runtime.attachments ? auditExportJob(runtime.connect, runtime.attachments, job) : Promise.resolve({ done: true, result: { skipped: "No storage." } }),
       // Phase 16 C5a: a person's data exported (to the attachments bucket), or deleted with a signed certificate.
       "dsr.export": (job) => dataExportJob(runtime.connect, { storage: runtime.attachments, key: env.RELAY_CONNECTOR_KEY }, job),
+      // Phase 16 C7a: a customer's links looked up for known threats.
+      "links.check": (job) => linksJob(runtime.connect, { reputation: runtime.linkReputation }, job),
       // Phase 16 C6a: retention policies applied.
       "retention.apply": (job) =>
         retentionJob(runtime.connect, { storage: runtime.attachments, key: env.RELAY_CONNECTOR_KEY, analytics: runtime.analytics, sms: twilioApi() }, job),

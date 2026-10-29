@@ -2032,3 +2032,12 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-primary.pg-danger { background:var(--pg-danger-bg); color:var(--pg-danger-text); border:1px solid var(--pg-danger-border); }
 /* Phase 16 C6a: Settings › Retention. What a shorter period would delete, before it's saved. */
 .pg-retention-warning { margin:8px 0; padding:8px 12px; border:1px solid var(--pg-danger-border); border-radius:8px; background:var(--pg-danger-bg); color:var(--pg-danger-text); font-size:13px; }
+/* Phase 16 C7a: link safety (a customer's links, the gate dialog and the /link page). */
+.pg-customer-link { color:inherit; text-decoration:underline; text-underline-offset:2px; word-break:break-all; }
+.pg-link-verdict { display:flex; gap:8px; align-items:flex-start; margin:0 0 10px; font-size:13.5px; }
+.pg-link-verdict svg { flex:none; margin-top:2px; }
+.pg-link-verdict[data-verdict="blocked"], .pg-link-verdict[data-verdict="malicious"] { padding:8px 12px; border:1px solid var(--pg-danger-border); border-radius:8px; background:var(--pg-danger-bg); color:var(--pg-danger-text); }
+.pg-link-reasons { margin:0 0 10px; padding-left:20px; font-size:13px; }
+.pg-link-address { margin:0 0 12px; padding:8px 10px; border-radius:8px; background:var(--pg-sunken); font-size:12.5px; word-break:break-all; }
+.pg-link-page { min-height:100vh; display:grid; place-items:center; padding:16px; box-sizing:border-box; background:var(--pg-canvas); color:var(--pg-text); }
+.pg-link-page h1 { font-size:17px; margin:0 0 12px; }

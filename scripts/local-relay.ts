@@ -79,6 +79,8 @@ import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
 import { auditExportJob, pruneAudit } from "../server/audit";
 import { dataDeleteJob, dataExportJob, expireDataExports } from "../server/data-requests";
 import { retentionJob, scheduleRetention } from "../server/retention";
+import { linksJob } from "../server/links";
+import { standInReputation } from "../server/link-reputation";
 import { preferenceToken } from "../server/subscriptions";
 import { acceptEmail, receiveEmailJob, type EmailEnvironment } from "../server/email-in";
 /** Phase 12 E2: local inbound addresses (`<workspace>+<token>@` this), and the receiver believed. */
@@ -324,6 +326,8 @@ export async function startLocalRelay(
     notify: publish,
     sync: options.sync ?? {},
     knowledgeIndex: options.index ?? localIndex(options.directory),
+    // Phase 16 C7a: link reputation's stand-in (malware.test and phishing.test are flagged).
+    linkReputation: standInReputation(),
     // Data connectors (phase 09 D1): a local key; calls go only where the policy allows.
     connectors: { key: keys.connector, ...options.connectors },
     // Webhooks (phase 15 D3): secrets sealed with the same key; deliveries go only where the policy allows.
@@ -967,6 +971,7 @@ export async function startLocalRelay(
   handlers["dsr.export"] = (job) => dataExportJob(db.connect, { storage: env.attachments, key: keys.connector }, job);
   // C5b: and from the analytical store and the Twilio stand-in.
   // Phase 16 C6a: retention policies applied (the same later stages as a deletion).
+  handlers["links.check"] = (job) => linksJob(db.connect, { reputation: env.linkReputation }, job);
   handlers["retention.apply"] = (job) => retentionJob(db.connect, { storage: env.attachments, key: keys.connector, analytics: env.analytics, sms: sms.api }, job);
   handlers["dsr.delete"] = (job) => dataDeleteJob(db.connect, { storage: env.attachments, key: keys.connector, analytics: env.analytics, sms: sms.api }, job);
   if (env.attachments)
@@ -1648,7 +1653,7 @@ export async function startLocalRelay(
         (upstream) => handleApi(upstream, env),
       );
     // The sign-in and invitation pages: the agent app, with no development identity.
-    if (url.pathname === "/signin" || url.pathname === "/invite")
+    if (url.pathname === "/signin" || url.pathname === "/invite" || url.pathname === "/link")
       return new Response(
         `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relay</title><link rel="stylesheet" href="/agent/entry.css"></head><body style="margin:0"><div id="agent-root"></div><script src="/agent/entry.js" defer></script></body></html>`,
         {

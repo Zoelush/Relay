@@ -232,6 +232,8 @@ import { assertNetwork, notAllowed } from "./allowlists";
 import { changeDataRequests, readDataRequests } from "./data-requests";
 import { changeRetention, readRetention } from "./retention";
 import { changeDataProtection, readDataProtection } from "./redaction";
+import { changeLinks, linkVerdict, readLinks } from "./links";
+import type { LinkReputation } from "./link-reputation";
 import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
@@ -325,6 +327,8 @@ export interface ApiEnvironment {
   sync?: SyncEnvironment;
   /** The AI agent (phase 08): the answering model, the reranker and the AI index. */
   ai?: AiEnvironment;
+  /** Phase 16 C7a: link reputation (Safe Browsing deployed, a stand-in locally); without it, only the checks in code. */
+  linkReputation?: LinkReputation;
   /** The AI index (phase 07 C2a): embedding models and the vector store. */
   knowledgeIndex?: IndexEnvironment;
   /** Data connectors (phase 09 D1): RELAY_CONNECTOR_KEY and the fetch policy. */
@@ -1487,6 +1491,8 @@ export async function handleApi(
             "/v1/agent/data-requests",
             "/v1/agent/retention",
             "/v1/agent/data-protection",
+            "/v1/agent/links",
+            "/v1/agent/link-verdict",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -1596,6 +1602,8 @@ export async function handleApi(
               "/v1/agent/data-requests",
               "/v1/agent/retention",
               "/v1/agent/data-protection",
+              "/v1/agent/links",
+              "/v1/agent/link-verdict",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -2008,6 +2016,12 @@ export async function handleApi(
           if ("refused" in r) throw r.refused;
           return json(r);
         }
+        if (url.pathname === "/v1/agent/links")
+          // Phase 16 C7a: a trusted or blocked domain added, or removed.
+          return json(await tenant(env.connect, workspace, (db) => changeLinks(db, workspace, principal, p, env.linkReputation?.name ?? null)));
+        if (url.pathname === "/v1/agent/link-verdict")
+          // Phase 16 C7a: opening a customer's link (refused when blocked; acknowledged and audited when malicious).
+          return json(await tenant(env.connect, workspace, (db) => linkVerdict(db, workspace, principal, { ...p, open: true })));
         if (url.pathname === "/v1/agent/data-protection")
           // Phase 16 C6b: redaction rules (a pattern tried, a built-in or custom rule changed) and what reaches the model.
           return json(await tenant(env.connect, workspace, (db) => changeDataProtection(db, workspace, principal, p)));
@@ -2711,6 +2725,11 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/retention") return json(await tenant(env.connect, workspace, (db) => readRetention(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/links") return json(await tenant(env.connect, workspace, (db) => readLinks(db, workspace, principal, env.linkReputation?.name ?? null)));
+      if (url.pathname === "/v1/agent/link-verdict")
+        return json(
+          await tenant(env.connect, workspace, (db) => linkVerdict(db, workspace, principal, { partId: url.searchParams.get("part"), url: url.searchParams.get("url") })),
+        );
       if (url.pathname === "/v1/agent/data-protection") return json(await tenant(env.connect, workspace, (db) => readDataProtection(db, workspace, principal)));
       if (url.pathname === "/v1/agent/data-requests") return json(await tenant(env.connect, workspace, (db) => readDataRequests(db, workspace, principal)));
       if (url.pathname === "/v1/agent/sso-settings") return json(await tenant(env.connect, workspace, (db) => readSso(db, workspace, principal, client)));

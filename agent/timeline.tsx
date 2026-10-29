@@ -5,6 +5,7 @@ import { SideReply } from "./side-conversations";
 import { LockKeyhole, Paperclip, Sparkles } from "lucide-react";
 import { api } from "./api";
 import { RichText } from "../lib/rich-view";
+import { LinkedText } from "./links";
 import { initials } from "./card";
 import { hueOf, useAgentName, ZoeMark } from "./colour";
 import { languageName, type Voice } from "../lib/zoe-voice";
@@ -353,7 +354,10 @@ function Message({
           <RichText doc={p.data.doc} fallback={p.body} image={agentImage} />
         ) : (
           // An AI handover summary keeps its lines (phase 08 A2a).
-          <p className={p.data.aiHandover ? "pg-handover" : undefined}>{p.body}</p>
+          <p className={p.data.aiHandover ? "pg-handover" : undefined}>
+            {/* Phase 16 C7a: a customer's links go through the link gate. */}
+            {fromCustomer ? <LinkedText text={p.body} partId={p.id} /> : p.body}
+          </p>
         )}
         {p.kind === "ai_reply" && <AiReplyDetails p={p} />}
         {side?.automatic && <small className="pg-muted">An automatic reply ({side.automatic.replace("_", " ")}).</small>}

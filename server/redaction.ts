@@ -13,6 +13,7 @@ import { BUILT_INS, checkPattern, redactor, type BuiltIn, type Rule } from "../l
  *   from those follows. Rules apply from when they're turned on: stored messages are append-only.
  * - **What reaches the model:** Zoe's switches (redact personal data, memory) and how many earlier
  *   messages she sends (0, 5 or 10).
+ * - **Risky merges** (C7a): merging different people's conversations, and leads into users by email.
  */
 export async function rulesOf(db: Sql, w: string): Promise<Rule[]> {
   return (
@@ -47,10 +48,15 @@ export async function readDataProtection(db: Sql, w: string, principal: string) 
   const { agentRow } = await import("./ai-agent");
   const agent = await agentRow(db, w);
   const model = (await db.query<{ history_messages: number }>("SELECT history_messages FROM ai_agents WHERE workspace_id=$1 AND id=$2", [w, agent.id])).rows[0];
+  // Phase 16 C7a: the two risky-merge switches.
+  const merges = (
+    await db.query<{ merge_across_people: boolean; merge_leads_by_email: boolean }>("SELECT merge_across_people,merge_leads_by_email FROM security_settings WHERE workspace_id=$1", [w])
+  ).rows[0];
   return {
     builtIns: BUILT_INS.map((b) => ({ ...b, enabled: rows.some((r) => r.builtin === b.id && r.enabled) })),
     custom: rows.filter((r) => r.kind === "custom").map((r) => ({ id: r.id, name: r.name, pattern: r.pattern!, enabled: r.enabled })),
     model: { redactPersonalData: agent.redact_personal_data, memory: agent.memory, historyMessages: model?.history_messages ?? 10 },
+    merges: { acrossPeople: merges?.merge_across_people ?? false, leadsByEmail: merges?.merge_leads_by_email ?? false },
   };
 }
 
@@ -111,5 +117,14 @@ export async function changeDataProtection(db: Sql, w: string, principal: string
     ]);
     return done();
   }
-  throw new DomainError("INVALID_DATA_PROTECTION", "Choose try, builtin, custom-add, custom-toggle, custom-remove or model.");
+  if (p.action === "merges") {
+    // Phase 16 C7a: merging different people's conversations, and leads into users by email.
+    await db.query(
+      `INSERT INTO security_settings(workspace_id,merge_across_people,merge_leads_by_email,updated_by) VALUES($1,$2,$3,$4)
+       ON CONFLICT(workspace_id) DO UPDATE SET merge_across_people=EXCLUDED.merge_across_people,merge_leads_by_email=EXCLUDED.merge_leads_by_email,updated_by=EXCLUDED.updated_by,updated_at=now()`,
+      [w, p.acrossPeople === true, p.leadsByEmail === true, me.id],
+    );
+    return done();
+  }
+  throw new DomainError("INVALID_DATA_PROTECTION", "Choose try, builtin, custom-add, custom-toggle, custom-remove, model or merges.");
 }

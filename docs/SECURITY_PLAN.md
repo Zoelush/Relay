@@ -320,6 +320,36 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **What was applied:** `ai_model_calls.controls` records the redaction, memory, history length and how many rules applied.
     - **Out of scope here:** attachments aren't scanned for patterns (the C6 choice), and neither are knowledge articles (written by teammates, not customers).
 
+25. **C7 choices** (28 October 2026):
+    - **Split in two:** C7a is link safety and risky merges. C7b is vendor support access, the security health check, and the subprocessor and encryption pages. Each is merged before the next starts.
+    - **Malicious links:** checks in code, plus a reputation lookup behind a port (Google Safe Browsing when deployed, a stand-in locally), run as a job when a message arrives.
+    - **Risky merges:** both switches, off by default.
+      - **Different people:** conversations of different people may be merged, with a warning naming both.
+      - **Leads by email:** a messenger lead whose email matches exactly one user is merged into that user when the lead sends a message. It can be reversed, as merges are today.
+    - **Vendor support access (C7b):** a read-only staff sign-in. A teammate grants access for up to 14 days; it can be revoked and keeps a history. Staff named in deployment config can then open that workspace read-only, shown as "Relay support", with every view audited.
+
+26. **C7a decisions** (28 October 2026):
+    - **Settings › Security › Links** (`security.manage`, behind `security_v1`):
+      - **Trusted and blocked domains,** up to 200 each. A domain covers its subdomains.
+      - **Defaults,** shown apart and always trusted unless blocked: the hosts of every brand's allowed websites.
+    - **Four verdicts,** decided in `lib/links.ts`, in this order:
+      - **Blocked:** on the blocked list. It can't be opened.
+      - **Malicious:** the reputation lookup flagged it, or a check in code did. The checks are an IP address as the host, a punycode (lookalike) host, a user name in the address, link text naming a different domain, and an executable download. A teammate must acknowledge the risk before opening it, and opening it is audited.
+      - **Trusted:** on the trusted list or a default. It opens straight away.
+      - **Untrusted:** everything else. The full address is shown for review before opening.
+    - **Where:**
+      - **Customer text in the inbox:** addresses become links that go through the gate. Only `http` and `https` are linked.
+      - **Email HTML:** the frame's links point to Relay's gate page, `/link`.
+      - The verdict is asked of the server on each click (`link-verdict`), so a policy change applies at once. The server only judges an address that appears in that part, for a teammate who can read the conversation.
+    - **Outgoing:** a teammate's reply or note with a link to a blocked domain is refused.
+    - **The lookup:**
+      - **The job:** `links.check` is queued by `append` for a customer's part, or an email, that has links. Its results are kept in `part_links` (the part, the address, any threat), which is deleted with its conversation.
+      - **Google Safe Browsing** gets only the addresses, and is listed in `lib/processors.ts`. Without a key, only the checks in code apply.
+    - **Risky merges** (`security_settings.merge_across_people` and `merge_leads_by_email`), switched on the Data protection page:
+      - **Different people:** a merge of different people's conversations needs the switch and `acrossPeople: true` on the command. Otherwise it's refused with a reason that names the switch. The warning says what a merge does: both people become participants, so each sees the whole merged conversation in the messenger, the other's messages included. The brand must still match. It's audited with both contacts. The inbox has no merge action yet, so the warning is the API's.
+      - **Leads by email:** a lead's message merges the lead into the only user with that email (case-insensitive), through `mergeVisitorIdentity`, so it can be reversed. It's audited.
+      - **What the lead's device sees:** it stays unverified, so it still sees only its own conversations, never the user's.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

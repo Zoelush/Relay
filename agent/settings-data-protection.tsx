@@ -6,7 +6,8 @@ import { Card, Frame, message, type MenuState, type Page } from "./settings-ui";
  * Settings › Security › Data protection (phase 16, step C6b; docs/SECURITY_STEP10.md), for
  * `security.manage`, behind `security_v1`: built-in redaction rules, custom patterns (tried on a
  * sample before they're added; the server refuses unsafe ones with the reason), and what Zoe sends
- * to the model provider. Rules apply to text stored from then on.
+ * to the model provider. Rules apply to text stored from then on. C7a adds the two risky-merge
+ * switches (docs/SECURITY_STEP11.md).
  */
 type DataProtection = {
   builtIns: { id: string; label: string; example: string; enabled: boolean }[];
@@ -16,6 +17,7 @@ type DataProtection = {
     memory: boolean;
     historyMessages: number;
   };
+  merges: { acrossPeople: boolean; leadsByEmail: boolean };
 };
 
 export function DataProtectionPage({
@@ -334,6 +336,42 @@ export function DataProtectionPage({
                 </button>
               </span>
             </form>
+          </Card>
+          <Card title="Risky merges" description="Both are off unless you need them. Every merge they allow is in the audit log. A lead merged by email can be split again; merged conversations can't.">
+            <div role="group" aria-label="Risky merges">
+              <label className="pg-settings-check">
+                <input
+                  type="checkbox"
+                  checked={data.merges.acrossPeople}
+                  aria-describedby="merge-across-hint"
+                  onChange={(e) => {
+                    const merges = { ...data.merges, acrossPeople: e.target.checked };
+                    setData({ ...data, merges });
+                    void act({ action: "merges", ...merges }, "Merge settings saved.", "They couldn't be saved.");
+                  }}
+                />
+                <span>Allow merging conversations of different people</span>
+              </label>
+              <small id="merge-across-hint" className="pg-muted">
+                Both people become participants, so each sees the whole conversation, the other&apos;s messages included. Each merge asks for confirmation.
+              </small>
+              <label className="pg-settings-check">
+                <input
+                  type="checkbox"
+                  checked={data.merges.leadsByEmail}
+                  aria-describedby="merge-leads-hint"
+                  onChange={(e) => {
+                    const merges = { ...data.merges, leadsByEmail: e.target.checked };
+                    setData({ ...data, merges });
+                    void act({ action: "merges", ...merges }, "Merge settings saved.", "They couldn't be saved.");
+                  }}
+                />
+                <span>Merge a messenger lead into the user with the same email</span>
+              </label>
+              <small id="merge-leads-hint" className="pg-muted">
+                Anyone can type an email, so the person may not be who they say. When a lead writes, they join the only user with that email; their device still sees only its own conversations.
+              </small>
+            </div>
           </Card>
         </>
       )}

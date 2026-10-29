@@ -2,6 +2,7 @@ import { assert, digest, type Sql } from "./db";
 import { capabilities } from "./policy";
 import { wrapIdentityKey } from "./identity";
 import { refreshIdentityUnread } from "./unread";
+import { recordAudit } from "./audit";
 
 export async function seedFoundation(
   db: Sql,
@@ -339,6 +340,36 @@ export async function mergeVisitorIdentity(
   );
   await refreshIdentityUnread(db, workspace, identityId);
   return id;
+}
+
+/**
+ * Phase 16 C7a (docs/SECURITY_STEP11.md): with `security_settings.merge_leads_by_email` on, a
+ * messenger lead whose email is exactly one user's is merged into that user (reversible, as every
+ * contact merge is), and the merge is audited. Otherwise nothing happens.
+ */
+export async function mergeLeadByEmail(db: Sql, workspace: string, identityId: string) {
+  const on = (await db.query<{ on: boolean }>("SELECT merge_leads_by_email AS on FROM security_settings WHERE workspace_id=$1", [workspace])).rows[0]?.on;
+  if (!on) return null;
+  const lead = (
+    await db.query<{ contact_id: string; email: string }>(
+      `SELECT c.id AS contact_id,e.email FROM identity_contact_mappings m JOIN contacts c ON c.workspace_id=m.workspace_id AND c.id=m.contact_id
+       JOIN contact_emails e ON e.workspace_id=c.workspace_id AND e.contact_id=c.id
+       WHERE m.workspace_id=$1 AND m.identity_id=$2 AND c.role='lead' AND c.merged_into_contact_id IS NULL ORDER BY e.email LIMIT 1`,
+      [workspace, identityId],
+    )
+  ).rows[0];
+  if (!lead) return null;
+  const users = (
+    await db.query<{ id: string }>(
+      `SELECT DISTINCT c.id FROM contact_emails e JOIN contacts c ON c.workspace_id=e.workspace_id AND c.id=e.contact_id
+       WHERE e.workspace_id=$1 AND lower(e.email)=lower($2) AND c.role='user' AND c.merged_into_contact_id IS NULL LIMIT 2`,
+      [workspace, lead.email],
+    )
+  ).rows;
+  if (users.length !== 1) return null;
+  const merge = await mergeVisitorIdentity(db, workspace, identityId, users[0].id);
+  if (merge) await recordAudit(db, workspace, "contact.lead_merged_by_email", { type: "contact", id: users[0].id }, { lead: lead.contact_id, merge });
+  return merge;
 }
 
 /** No time limit: retained loser rows and the changelog make reversal non-destructive. */
