@@ -49,6 +49,8 @@ import {
   EyeOff,
   Link2,
   Headset,
+  Stethoscope,
+  FileLock2,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -85,6 +87,7 @@ import { RetentionPage } from "./settings-retention";
 import { DataProtectionPage } from "./settings-data-protection";
 import { LinksPage } from "./settings-links";
 import { SupportAccessPage } from "./settings-support";
+import { HealthCheckPage, TrustPage } from "./settings-health";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -369,6 +372,22 @@ const PAGES: Page[] = [
     label: "Support access",
     description: "Let Relay's support team see this workspace, read-only, for a few days.",
     icon: Headset,
+    group: "Security",
+  },
+  {
+    // Phase 16 C7c: the workspace's security settings, what needs attention first.
+    id: "health-check",
+    label: "Health check",
+    description: "Your security settings at a glance: what needs attention, most important first.",
+    icon: Stethoscope,
+    group: "Security",
+  },
+  {
+    // Phase 16 C7c: the subprocessors, how data is protected, and the keys.
+    id: "trust",
+    label: "Subprocessors and encryption",
+    description: "Which outside services receive customer data, and how Relay encrypts and protects it.",
+    icon: FileLock2,
     group: "Security",
   },
   {
@@ -716,6 +735,10 @@ export function Settings({
             <LinksPage menu={menu} page={current} />
           ) : current.id === "support-access" ? (
             <SupportAccessPage menu={menu} page={current} />
+          ) : current.id === "health-check" ? (
+            <HealthCheckPage menu={menu} page={current} />
+          ) : current.id === "trust" ? (
+            <TrustPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

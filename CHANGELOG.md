@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased: Security health check, subprocessors and encryption (phase 16, C7c)
+
+- **Settings › Security › Health check:** your security settings at a glance. What needs attention comes first, marked critical, recommended or optional, each with a link to the setting that fixes it.
+- **Settings › Security › Subprocessors and encryption:** every outside service that receives customer data, how Relay encrypts and protects data in transit and at rest, and the keys it uses and how they're rotated. The same is in `docs/TRUST.md`.
+- **No migration.**
+- **Details:** `docs/SECURITY_STEP13.md`.
+
 ## Unreleased: Relay support access (phase 16, C7b)
 
 - **Let Relay's support team look at your workspace** from Settings › Security › Support access: grant read-only access for 1, 7 or 14 days, and revoke it at any time.

@@ -74,6 +74,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET links": { needs: "security.manage" },
   "GET link-verdict": { needs: "teammate" },
   "GET support-access": { needs: "security.manage" },
+  "GET health-check": { needs: "security.manage" },
   "GET security-sessions": { needs: "security.manage" },
   "GET settings": { needs: "teammate" },
   "GET side-conversations": { needs: "teammate" },
