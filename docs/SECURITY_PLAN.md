@@ -456,6 +456,30 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **Each teammate's seat,** changed there and audited.
     - **Removing a teammate** isn't built yet. Moving one to a limited seat frees their full seat, and the People page says so.
 
+33. **C9 choices** (6 November 2026):
+    - **Split in two:** C9a is the meters and the traceable Usage page. C9b is alerts, limits that pause a feature, and the spend cap. Each is merged before the next starts.
+    - **Unit prices are placeholders,** like seats, kept in the plan policy. `check:plans` fails on them once billing is live.
+    - **What a limit or the spend cap pauses (C9b):** automated sends only. Zoe hands conversations to people, and outbound messages, workflow messages and away emails hold. Teammates' own replies on every channel, calls and the inbox always keep working, and are still metered.
+    - **Alerts (C9b):** billing managers are told in the app and by email (the alert email path), at the thresholds the workspace sets, once per threshold per period.
+
+34. **C9a decisions** (6 November 2026):
+    - **One meter registry,** `lib/meters.ts`.
+      - **Each meter:** its unit, its source, and what counts.
+      - **How it's read:** `server/meters.ts` reads each from its source record for a billing period (C8b's `periodOf`).
+      - **Meters never count:** nothing is written, and a test fails on a write or a counter in the meters module.
+    - **The meters:**
+      - **AI resolutions:** the phase 08 ledger, net, so a reversal is −1 in its own period.
+      - **Emails sent, WhatsApp messages sent:** channel deliveries that were sent (sent, delivered or read; failed and suppressed are free), at the time they were queued.
+      - **SMS segments:** the same deliveries, each counted in segments by `lib/sms.ts` from its message.
+      - **Phone minutes:** completed calls, each rounded up to the minute.
+      - **Outbound chats, outbound banners:** outbound entries sent, by type.
+      - **Connector calls:** calls Zoe or a workflow made that succeeded. Test calls and calls that were refused, invalid or rate-limited are free.
+    - **Every unit is traceable:** its id, time, quantity, and the conversation (or message, or contact) it came from, with a link that opens it.
+    - **Settings › Billing › Usage** (`billing.manage`):
+      - **What it shows:** this period or the last, each meter's units, unit price and amount (not shown while prices are placeholders), and the total.
+      - **Tracing:** each meter lists its units, 50 at a time, back to their conversations.
+    - **Migration `0094_meters`:** indexes for reading meters by period, and nothing else. Its rollback drops them.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

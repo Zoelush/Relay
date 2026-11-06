@@ -66,13 +66,28 @@ export const PLANS: Record<PlanId, { name: string; summary: string; monthlyCents
   enterprise: { name: "Enterprise", summary: "Single sign-on, allowlists and data controls, for regulated teams.", monthlyCents: null, annualMonthlyCents: null },
 };
 
+/**
+ * Phase 16 C9a: each meter's price per unit, in cents (USD), on every plan. `null` is a placeholder,
+ * set before launch (`check:plans`). Fractions of a cent are allowed (an SMS segment).
+ */
+export const UNIT_PRICES: Record<import("./meters").MeterId, number | null> = {
+  ai_resolutions: null,
+  emails: null,
+  whatsapp: null,
+  sms_segments: null,
+  phone_minutes: null,
+  outbound_chats: null,
+  outbound_banners: null,
+  connector_calls: null,
+};
+
 const RANK: Record<PlanId, number> = { starter: 0, pro: 1, enterprise: 2 };
 /** Whether a plan includes a feature. */
 export const includes = (plan: PlanId, feature: Feature) => RANK[plan] >= RANK[FEATURES[feature].plan];
 /** The plan's number for a limit; null is unlimited. */
 export const limitOf = (plan: PlanId, limit: Limit) => LIMITS[limit].of[plan];
 /** Prices still to be set before launch. */
-export const placeholders = () =>
-  PLAN_IDS.flatMap((id) => [PLANS[id].monthlyCents === null ? `${id}.monthlyCents` : null, PLANS[id].annualMonthlyCents === null ? `${id}.annualMonthlyCents` : null]).filter(
-    (x): x is string => !!x,
-  );
+export const placeholders = () => [
+  ...PLAN_IDS.flatMap((id) => [PLANS[id].monthlyCents === null ? `${id}.monthlyCents` : null, PLANS[id].annualMonthlyCents === null ? `${id}.annualMonthlyCents` : null]),
+  ...Object.entries(UNIT_PRICES).map(([meter, cents]) => (cents === null ? `UNIT_PRICES.${meter}` : null)),
+].filter((x): x is string => !!x);

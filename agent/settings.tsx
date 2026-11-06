@@ -53,6 +53,7 @@ import {
   FileLock2,
   CreditCard,
   Armchair,
+  Gauge,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -92,6 +93,7 @@ import { SupportAccessPage } from "./settings-support";
 import { HealthCheckPage, TrustPage } from "./settings-health";
 import { PlanPage } from "./settings-plan";
 import { SeatsPage } from "./settings-seats";
+import { UsagePage } from "./settings-usage";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -408,6 +410,14 @@ const PAGES: Page[] = [
     label: "Seats",
     description: "Who has a full or limited seat, and what this period's seats come to.",
     icon: Armchair,
+    group: "Billing",
+  },
+  {
+    // Phase 16 C9a: every metered unit this period, traced to its conversation.
+    id: "usage",
+    label: "Usage",
+    description: "AI resolutions, messages, minutes and calls this period, each traced to its conversation.",
+    icon: Gauge,
     group: "Billing",
   },
   {
@@ -765,6 +775,8 @@ export function Settings({
             <PlanPage menu={menu} page={current} />
           ) : current.id === "seats" ? (
             <SeatsPage menu={menu} page={current} />
+          ) : current.id === "usage" ? (
+            <UsagePage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

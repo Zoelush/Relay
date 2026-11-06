@@ -68,7 +68,11 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `server/health-check.ts`, `#settings/health-check`) and subprocessors and encryption (`lib/encryption.ts`, `#settings/trust`,
 `docs/TRUST.md`), is done locally (`docs/SECURITY_STEP13.md`): C7 is complete. C8a, plans (`lib/plans.ts`, `server/plans.ts`,
 `#settings/plan`), is done locally (`docs/SECURITY_STEP14.md`), and C8b, seats (`lib/seats.ts`, `server/seats.ts`, `#settings/seats`), is
-done locally (`docs/SECURITY_STEP15.md`): C8 is complete; next is C9 (metering, limits and the spend cap). A limited seat gets only
+done locally (`docs/SECURITY_STEP15.md`): C8 is complete. C9a, meters (`lib/meters.ts`, `server/meters.ts`,
+`#settings/usage`), is done locally (`docs/SECURITY_STEP16.md`); next is C9b (alerts, limits that pause automated sends, the spend
+cap). A meter is one query over its source record in `server/meters.ts`'s `SOURCES` (never a counter: a test fails on a write
+there), returning traceable units (id, time, quantity, conversation or contact); a new billable unit gets its entry in
+`lib/meters.ts`, its source query and a price slot in `UNIT_PRICES`. A limited seat gets only
 `LIMITED_CAPABILITIES` (in `authorize` and `can`) and lists nothing (`scopeSql` is false; views and counts are empty): a new list,
 count or search for teammates goes through `scopeSql`, and a new capability decides whether limited seats keep it. Seat changes are
 recorded only by migration 0093's trigger in `seat_changes` (append-only); proration is computed from it by `seatBill`, never counted. What a plan includes is only

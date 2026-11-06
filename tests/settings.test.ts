@@ -101,6 +101,8 @@ test("settings: off by default; your profile and notifications for everyone; Gen
       // Phase 16 C8a: the plan, for who manages billing; C8b: seats.
       "plan",
       "seats",
+      // Phase 16 C9a: metered usage.
+      "usage",
     ]);
     assert(!(await pages("agent-1-a")).includes("general"));
     assert(!(await pages("agent-1-a")).includes("plan"));

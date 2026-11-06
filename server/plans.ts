@@ -9,6 +9,7 @@ import {
   PLAN_IDS,
   PLANS,
   placeholders,
+  UNIT_PRICES,
   type Feature,
   type Limit,
   type PlanId,
@@ -144,3 +145,6 @@ export async function seatPrice(db: Sql, w: string) {
   const plan = row?.plan ?? "enterprise";
   return { plan, planName: PLANS[plan].name, monthlyCents: PLANS[plan].monthlyCents, anchor: row ? new Date(row.period_anchor) : new Date() };
 }
+
+/** Phase 16 C9a: each meter's price per unit (null while a placeholder). */
+export const unitPrices = () => ({ ...UNIT_PRICES });
