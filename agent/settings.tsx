@@ -48,6 +48,7 @@ import {
   MonitorSmartphone,
   EyeOff,
   Link2,
+  Headset,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -83,6 +84,7 @@ import { DataRequestsPage } from "./settings-data-requests";
 import { RetentionPage } from "./settings-retention";
 import { DataProtectionPage } from "./settings-data-protection";
 import { LinksPage } from "./settings-links";
+import { SupportAccessPage } from "./settings-support";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -359,6 +361,14 @@ const PAGES: Page[] = [
     label: "Links",
     description: "Trusted and blocked domains, and how links customers send are checked before they open.",
     icon: Link2,
+    group: "Security",
+  },
+  {
+    // Phase 16 C7b: read-only access for Relay's support team, time-limited and audited.
+    id: "support-access",
+    label: "Support access",
+    description: "Let Relay's support team see this workspace, read-only, for a few days.",
+    icon: Headset,
     group: "Security",
   },
   {
@@ -704,6 +714,8 @@ export function Settings({
             <DataProtectionPage menu={menu} page={current} />
           ) : current.id === "links" ? (
             <LinksPage menu={menu} page={current} />
+          ) : current.id === "support-access" ? (
+            <SupportAccessPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

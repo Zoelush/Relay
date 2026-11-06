@@ -134,6 +134,13 @@ const SSO_PROBLEMS: Record<string, string> = {
   NETWORK_NOT_ALLOWED: "Relay isn't available from this network.",
   RATE_LIMITED: "Too many attempts from here. Wait a minute and try again.",
   UNAVAILABLE: "Sign-in is unavailable. Try again.",
+  // Phase 16 C7b: Relay support's sign-in.
+  SUPPORT_UNAVAILABLE: "Support sign-in isn't set up for this deployment.",
+  SUPPORT_NOT_GRANTED: "This workspace hasn't given Relay support access.",
+  SUPPORT_NOT_STAFF: "That account isn't on Relay's support staff list.",
+  SUPPORT_EXPIRED: "That support sign-in took too long or was started elsewhere. Try again.",
+  SUPPORT_DENIED: "Relay's identity provider didn't let you sign in.",
+  SUPPORT_FAILED: "Relay's identity provider didn't confirm the sign-in. Try again.",
 };
 type SsoInfo = { sso: { name: string; enforced: boolean } | null };
 

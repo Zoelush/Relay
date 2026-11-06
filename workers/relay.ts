@@ -152,6 +152,12 @@ interface Env extends Partial<StorageEnv> {
   RELAY_BACKUP_DAYS?: string;
   /** Phase 16 C7a: Google Safe Browsing (link reputation); without it, only the checks in code. A secret. */
   RELAY_SAFE_BROWSING_KEY?: string;
+  /** Phase 16 C7b: Relay support's sign-in: Relay's own identity provider (OIDC) and the staff allowed. The secret is a secret. */
+  RELAY_SUPPORT_OIDC_ISSUER?: string;
+  RELAY_SUPPORT_OIDC_CLIENT_ID?: string;
+  RELAY_SUPPORT_OIDC_CLIENT_SECRET?: string;
+  /** Comma-separated staff emails. */
+  RELAY_SUPPORT_STAFF?: string;
   BRIDGE_SECRET: string;
   RELAY_ENABLED?: string;
   ATTACHMENTS_ENABLED?: string;
@@ -280,6 +286,15 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     attachments,
     knowledgeIndex: knowledgeIndex(env),
     linkReputation: env.RELAY_SAFE_BROWSING_KEY ? safeBrowsing(env.RELAY_SAFE_BROWSING_KEY) : undefined,
+    support:
+      env.RELAY_SUPPORT_OIDC_ISSUER && env.RELAY_SUPPORT_OIDC_CLIENT_ID && env.RELAY_SUPPORT_OIDC_CLIENT_SECRET && env.RELAY_SUPPORT_STAFF
+        ? {
+            issuer: env.RELAY_SUPPORT_OIDC_ISSUER,
+            clientId: env.RELAY_SUPPORT_OIDC_CLIENT_ID,
+            clientSecret: env.RELAY_SUPPORT_OIDC_CLIENT_SECRET,
+            staff: env.RELAY_SUPPORT_STAFF.split(",").map((s) => s.trim()).filter(Boolean),
+          }
+        : undefined,
     // Procedures (phase 09 D2) call connectors from the reply job.
     ai: (() => {
       const ai = aiAgent(env);

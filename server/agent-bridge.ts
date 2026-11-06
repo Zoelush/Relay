@@ -85,6 +85,7 @@ const routes = {
     "data-protection",
     "links",
     "link-verdict",
+    "support-access",
     "invitations",
     "developer-webhook-deliveries",
     "developer-webhook-delivery",
@@ -194,6 +195,7 @@ const routes = {
     "data-protection",
     "links",
     "link-verdict",
+    "support-access",
     "invitations",
     "email-settings",
     "help-centers",
@@ -473,7 +475,11 @@ export async function bridgeAuthRequest(request: Request, config: AgentBridgeCon
 /** Phase 16 C4a: the browser's single sign-on login, between `/auth/sso` and the provider's return (on `/auth` only). */
 export const SSO_COOKIE = "relay_sso";
 /** Errors the sign-in page explains in its own words (never text from the address). */
-export const SSO_ERRORS = ["SSO_OFF", "SSO_EXPIRED", "SSO_DENIED", "SSO_EMAIL", "SSO_DOMAIN", "SSO_NO_ROLE", "SSO_FAILED", "NETWORK_NOT_ALLOWED", "RATE_LIMITED", "UNAVAILABLE"];
+export const SSO_ERRORS = ["SSO_OFF", "SSO_EXPIRED", "SSO_DENIED", "SSO_EMAIL", "SSO_DOMAIN", "SSO_NO_ROLE", "SSO_FAILED", "NETWORK_NOT_ALLOWED", "RATE_LIMITED", "UNAVAILABLE",
+  // Phase 16 C7b: Relay support's sign-in.
+  "SUPPORT_UNAVAILABLE", "SUPPORT_NOT_GRANTED", "SUPPORT_NOT_STAFF", "SUPPORT_EXPIRED", "SUPPORT_DENIED", "SUPPORT_FAILED"];
+/** Phase 16 C7b: a staff sign-in in progress (OIDC), bound to the browser that started it. */
+export const SUPPORT_COOKIE = "relay_support";
 
 /**
  * Phase 16 C4a: single sign-on through the host. `GET /auth/sso` asks the API where to send the
@@ -490,12 +496,19 @@ export const SSO_ERRORS = ["SSO_OFF", "SSO_EXPIRED", "SSO_DENIED", "SSO_EMAIL", 
 export async function bridgeSsoRequest(request: Request, config: AgentBridgeConfig, send: (request: Request) => Promise<Response> = fetch) {
   const url = new URL(request.url);
   const secure = url.protocol === "https:" ? "; Secure" : "";
+  const route = `${request.method} ${url.pathname}`;
+  // Phase 16 C7b: Relay support's sign-in takes the same path, with its own cookie and actions.
+  const support = url.pathname.startsWith("/auth/support");
+  const loginCookie = support ? SUPPORT_COOKIE : SSO_COOKIE;
   const back = (code: string) =>
     new Response(null, {
       status: 302,
-      headers: { location: `/signin?sso=${SSO_ERRORS.includes(code) ? code : "SSO_FAILED"}`, "cache-control": "no-store", "set-cookie": `${SSO_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}` },
+      headers: {
+        location: `/signin?sso=${SSO_ERRORS.includes(code) ? code : support ? "SUPPORT_FAILED" : "SSO_FAILED"}`,
+        "cache-control": "no-store",
+        "set-cookie": `${loginCookie}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`,
+      },
     });
-  const route = `${request.method} ${url.pathname}`;
   const call = async (action: string, body: Record<string, unknown>) => {
     const client = clientOf(request);
     const proof = await new SignJWT({ workspace: config.RELAY_WORKSPACE_ID, action, digest: await digest(body), ip: client.ip, ua: client.ua, origin: url.origin })
@@ -513,7 +526,12 @@ export async function bridgeSsoRequest(request: Request, config: AgentBridgeConf
     return { ok: upstream.ok, status: upstream.status, data: (await upstream.json().catch(() => ({}))) as Record<string, unknown> & { error?: { code?: string } } };
   };
   try {
-    assert(["GET /auth/sso", "GET /auth/sso/callback", "POST /auth/saml/acs", "GET /auth/saml/metadata"].includes(route), "NOT_FOUND", "Endpoint unavailable.", 404);
+    assert(
+      ["GET /auth/sso", "GET /auth/sso/callback", "POST /auth/saml/acs", "GET /auth/saml/metadata", "GET /auth/support", "GET /auth/support/callback"].includes(route),
+      "NOT_FOUND",
+      "Endpoint unavailable.",
+      404,
+    );
     assert(config.RELAY_WORKSPACE_ID && config.RELAY_API_ORIGIN && (config.RELAY_BRIDGE_SECRET?.length ?? 0) >= 32, "UNAVAILABLE", "Sign-in is not configured.", 503);
     if (route === "GET /auth/saml/metadata") {
       const r = await call("saml-metadata", {});
@@ -527,13 +545,13 @@ export async function bridgeSsoRequest(request: Request, config: AgentBridgeConf
       if (!r.ok) return back(r.data.error?.code ?? "SSO_FAILED");
       return new Response(null, { status: 303, headers: { location: "/auth/sso/callback?state=" + encodeURIComponent(relayState), "cache-control": "no-store" } });
     }
-    const start = route === "GET /auth/sso";
+    const start = route === "GET /auth/sso" || route === "GET /auth/support";
     // Starting is from this site (or typed in); the return comes from the provider's site.
     if (start) assert(["same-origin", "none", ""].includes(request.headers.get("sec-fetch-site") ?? ""), "SSO_EXPIRED", "Start from the sign-in page.", 403);
     const r = start
-      ? await call("sso-start", { next: url.searchParams.get("next") ?? "" })
-      : await call("sso-finish", {
-          login: sessionCookie(request, SSO_COOKIE) ?? "",
+      ? await call(support ? "support-start" : "sso-start", support ? {} : { next: url.searchParams.get("next") ?? "" })
+      : await call(support ? "support-finish" : "sso-finish", {
+          login: sessionCookie(request, loginCookie) ?? "",
           state: url.searchParams.get("state") ?? "",
           code: url.searchParams.get("code") ?? "",
           error: url.searchParams.get("error") ?? "",
@@ -543,14 +561,14 @@ export async function bridgeSsoRequest(request: Request, config: AgentBridgeConf
     const headers = new Headers({ "cache-control": "no-store" });
     if (start) {
       if (typeof data.url !== "string" || typeof data.login !== "string" || !/^https?:\/\//.test(data.url)) return back("SSO_FAILED");
-      headers.append("set-cookie", `${SSO_COOKIE}=${data.login}; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
+      headers.append("set-cookie", `${loginCookie}=${data.login}; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
       headers.set("location", data.url);
       return new Response(null, { status: 302, headers });
     }
     if (typeof data.token !== "string") return back("SSO_FAILED");
     const maxAge = Math.max(60, Math.floor((new Date(data.expiresAt ?? Date.now()).getTime() - Date.now()) / 1000));
     headers.append("set-cookie", `${SESSION_COOKIE}=${data.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`);
-    headers.append("set-cookie", `${SSO_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+    headers.append("set-cookie", `${loginCookie}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
     headers.set("location", typeof data.next === "string" && /^\/(?!\/)/.test(data.next) ? data.next : "/agent");
     return new Response(null, { status: 302, headers });
   } catch (e) {

@@ -158,6 +158,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("data-protection");
   // Phase 16 C7a: trusted and blocked link domains.
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("links");
+  // Phase 16 C7b: read-only access for Relay support.
+  if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("support-access");
   // Phase 16 C1: the audit log, for who manages security (C2's permission).
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("audit");
   // TODO(phase 16 C3–C10): sign-in, sessions, data, usage and billing. TODO(phase 12): email and other channels. TODO(phase 08 B1): more AI agent pages.
