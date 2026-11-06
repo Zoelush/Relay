@@ -89,6 +89,8 @@ const routes = {
     "seats",
     "health-check",
     "plan",
+    "usage",
+    "usage-units",
     "invitations",
     "developer-webhook-deliveries",
     "developer-webhook-delivery",

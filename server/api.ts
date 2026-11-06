@@ -239,6 +239,7 @@ import { isSupport } from "./policy";
 import { readHealthCheck } from "./health-check";
 import { readPlan } from "./plans";
 import { changeSeat, readSeats } from "./seats";
+import { readUsage, readUsageUnits } from "./meters";
 import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
@@ -1508,6 +1509,8 @@ export async function handleApi(
             "/v1/agent/seats",
             "/v1/agent/health-check",
             "/v1/agent/plan",
+            "/v1/agent/usage",
+            "/v1/agent/usage-units",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -2759,6 +2762,9 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/retention") return json(await tenant(env.connect, workspace, (db) => readRetention(db, workspace, principal)));
+      // Phase 16 C9a: each meter's usage this period or the last, and its units traced to conversations.
+      if (url.pathname === "/v1/agent/usage") return json(await tenant(env.connect, workspace, (db) => readUsage(db, workspace, principal, url.searchParams.get("period"))));
+      if (url.pathname === "/v1/agent/usage-units") return json(await tenant(env.connect, workspace, (db) => readUsageUnits(db, workspace, principal, url.searchParams)));
       // Phase 16 C8b: who occupies each seat, and this period's seats.
       if (url.pathname === "/v1/agent/seats") return json(await tenant(env.connect, workspace, (db) => readSeats(db, workspace, principal)));
       // Phase 16 C8a: the plan, what each tier includes, and usage of its limits.

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: Usage (phase 16, C9a)
+
+- **Settings › Billing › Usage:** this period's (or last period's) AI resolutions, emails, WhatsApp messages, SMS segments, phone minutes, outbound chats and banners, and connector calls.
+- **Every unit traces to its conversation:** list a meter's units and open the conversation each came from.
+- **Only real use counts:** failed and suppressed messages, unanswered calls and test calls are free. A reversed AI resolution counts −1.
+- **Unit prices aren't set yet.**
+- **Migration:** 0094 (indexes), with rollback.
+- **Details:** `docs/SECURITY_STEP16.md`.
+
 ## Unreleased: Full and limited seats (phase 16, C8b)
 
 - **Limited seats are free:** teammates who only need to read and leave notes can have a limited seat. They open conversations from links, mentions and notifications, add internal notes and see reports, but don't reply, search or assign.
