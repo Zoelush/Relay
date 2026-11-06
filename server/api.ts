@@ -237,6 +237,7 @@ import type { LinkReputation } from "./link-reputation";
 import { changeSupport, finishSupport, isSupportToken, readSupport, recordSupportView, resolveSupportSession, signOutSupport, startSupport, type SupportEnvironment } from "./support";
 import { isSupport } from "./policy";
 import { readHealthCheck } from "./health-check";
+import { readPlan } from "./plans";
 import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
@@ -1504,6 +1505,7 @@ export async function handleApi(
             "/v1/agent/link-verdict",
             "/v1/agent/support-access",
             "/v1/agent/health-check",
+            "/v1/agent/plan",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -2751,6 +2753,8 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/retention") return json(await tenant(env.connect, workspace, (db) => readRetention(db, workspace, principal)));
+      // Phase 16 C8a: the plan, what each tier includes, and usage of its limits.
+      if (url.pathname === "/v1/agent/plan") return json(await tenant(env.connect, workspace, (db) => readPlan(db, workspace, principal)));
       // Phase 16 C7c: the security health check, computed from the settings on each visit.
       if (url.pathname === "/v1/agent/health-check") return json(await tenant(env.connect, workspace, (db) => readHealthCheck(db, workspace, principal, { lookup: !!env.linkReputation })));
       if (url.pathname === "/v1/agent/support-access") return json(await tenant(env.connect, workspace, (db) => readSupport(db, workspace, principal, !!env.support)));

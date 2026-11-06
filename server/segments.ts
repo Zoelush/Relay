@@ -3,6 +3,7 @@ import { authorize } from "./policy";
 import { effectiveSubscriptions } from "./subscriptions";
 import { recordContactView } from "./audit";
 import { PREDEFINED, segmentProblems, type ContactFacts, type Rule, type SegmentDefinition } from "../lib/segments";
+import { featureOn } from "./plans";
 
 /**
  * Segments and the People area (phase 13, step O1; docs/OUTBOUND_STEP1.md), behind `segments_v1`.
@@ -13,7 +14,8 @@ import { PREDEFINED, segmentProblems, type ContactFacts, type Rule, type Segment
 const DAY = 86_400_000;
 
 export async function segmentsOn(db: Sql, w: string) {
-  return (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='segments_v1' AND enabled", [w])).rows.length > 0;
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return featureOn(db, w, "segments_v1");
 }
 
 /** The definition as a WHERE clause over `contacts c`, its values appended to `params` (`$1` is the workspace). */

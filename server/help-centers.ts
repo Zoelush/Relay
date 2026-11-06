@@ -1,3 +1,4 @@
+import { assertWithinLimit } from "./plans";
 import { assert, DomainError, type Sql } from "./db";
 import { themeImage } from "./knowledge-files";
 import {
@@ -431,6 +432,8 @@ export async function changeHelpCenter(
         "This brand already has a help center.",
         409,
       );
+      // Phase 16 C8a: the plan's number of help centers.
+      await assertWithinLimit(db, w, "help_centers");
       const title = name(p.name);
       const defaultLocale = validLocale(p.defaultLocale ?? "en");
       const locales = validLocales(p.locales, [defaultLocale]);

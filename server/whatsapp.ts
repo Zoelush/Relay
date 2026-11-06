@@ -6,6 +6,7 @@ import { seal, unseal } from "./connectors";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { WhatsAppRejected, type WhatsAppApi } from "./whatsapp-api";
 import { scrubPayload } from "./redaction";
+import { featureOn } from "./plans";
 
 /**
  * WhatsApp Business (phase 12, step E5; docs/OMNICHANNEL_STEP5.md), behind `channels_v1` and
@@ -31,10 +32,8 @@ const STOP = /^\s*(stop|unsubscribe|opt[\s-]?out|cancel|quit|end|arrêt|arret|st
 const START = /^\s*(start|unstop|subscribe|opt[\s-]?in)\s*[.!]?\s*$/i;
 
 async function whatsappOn(db: Sql, w: string) {
-  return (
-    (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM workspace_features WHERE workspace_id=$1 AND enabled AND name IN ('channels_v1','channel_whatsapp_v1')", [w]))
-      .rows[0].n === 2
-  );
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return (await featureOn(db, w, "channels_v1")) && (await featureOn(db, w, "channel_whatsapp_v1"));
 }
 /** The customer's WhatsApp number on a conversation (the address they last wrote from). */
 async function customerPhone(db: Sql, w: string, conversationId: string) {

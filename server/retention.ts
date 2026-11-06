@@ -1,3 +1,4 @@
+import { assertGate } from "./plans";
 import { DomainError, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
 import { enqueueJob, type Job } from "./jobs";
@@ -97,6 +98,8 @@ export async function changeRetention(db: Sql, w: string, principal: string, p: 
   await securityOn(db, w);
   if (p.action === "preview") return { wouldDelete: await wouldDelete(db, w, readPolicies((p.policies ?? {}) as Record<string, unknown>)) };
   if (p.action === "policies") {
+    // Phase 16 C8a: retention is Enterprise's; beyond the plan, policies already set keep running.
+    await assertGate(db, w, "retention");
     const policies = readPolicies((p.policies ?? {}) as Record<string, unknown>);
     await db.query(
       `INSERT INTO retention_settings(workspace_id,conversations_days,attachments_days,recordings_days,events_days,logs_days,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7)

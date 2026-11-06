@@ -98,8 +98,11 @@ test("settings: off by default; your profile and notifications for everyone; Gen
       "messenger",
       "macros",
       "views",
+      // Phase 16 C8a: the plan, for who manages billing.
+      "plan",
     ]);
     assert(!(await pages("agent-1-a")).includes("general"));
+    assert(!(await pages("agent-1-a")).includes("plan"));
     assert((await pages("agent-1-a")).includes("profile"));
     // Knowledge pages follow knowledge.manage and each feature's flag.
     await sql(

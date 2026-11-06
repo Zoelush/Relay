@@ -23,6 +23,7 @@
     "test:postgres": "node --import tsx --test --test-timeout=600000 tests/postgres/*.test.ts",
     "metrics:doc": "node --import tsx scripts/metrics-doc.ts",
     "trust:doc": "node --import tsx scripts/trust-doc.ts",
+    "check:plans": "node --import tsx scripts/check-plans.ts",
     "api:doc": "node --import tsx scripts/api-doc.ts",
     "example:orders": "node --import tsx demo/order-lookup/serve.ts"
   },

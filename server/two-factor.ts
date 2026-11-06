@@ -1,3 +1,4 @@
+import { assertGate } from "./plans";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize } from "./policy";
 import { seal, unseal } from "./connectors";
@@ -272,6 +273,8 @@ export async function changeAccess(db: Sql, w: string, principal: string, client
     return readAccess(db, w, principal, client);
   }
   if (p.action === "allowlists") {
+    // Phase 16 C8a: IP allowlists are Enterprise's; beyond the plan, lists already set keep applying.
+    await assertGate(db, w, "ip_allowlists");
     const app = await normalAllowlist(db, readAllowlist(p.app, "app"), "app");
     const api = await normalAllowlist(db, readAllowlist(p.api, "api"), "api");
     if (app.length) {

@@ -1,3 +1,4 @@
+import { assertGate } from "./plans";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize, capabilities, type Capability } from "./policy";
 import { requireSettings } from "./settings";
@@ -256,6 +257,9 @@ export async function saveRole(
   if (scope === "assigned" && existing?.id === "owner") invalid("The owner role always sees every conversation.");
   const current = existing ? (await db.query<{ scope: string }>("SELECT scope FROM roles WHERE workspace_id=$1 AND id=$2", [w, existing.id])).rows[0].scope : "all";
   const finalScope = scope ?? current;
+  // Phase 16 C8a: a new role is Pro's; making one restricted is Enterprise's.
+  if (!existing) await assertGate(db, w, "custom_roles");
+  if (finalScope === "assigned" && current !== "assigned") await assertGate(db, w, "restricted_roles");
   if (finalScope === "assigned") {
     const beyond = [...wanted].filter((c) => !RESTRICTED_ALLOWED.includes(c));
     if (beyond.length) invalid(`A restricted role can't have: ${beyond.map((c) => PERMISSION_INFO[c]?.label ?? c).join(", ")}.`);

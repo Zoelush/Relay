@@ -1,3 +1,4 @@
+import { featureOn } from "./plans";
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
 import { zoeAccess } from "./zoe";
@@ -39,14 +40,8 @@ const SHOWN_BODY = 20_000;
 const MASK = "••••";
 
 export async function actionsEnabled(db: Sql, w: string) {
-  return (
-    (
-      await db.query(
-        "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='ai_actions_v1' AND enabled",
-        [w],
-      )
-    ).rows.length > 0
-  );
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return featureOn(db, w, "ai_actions_v1");
 }
 async function access(db: Sql, w: string, principal: string) {
   await zoeAccess(db, w, principal);

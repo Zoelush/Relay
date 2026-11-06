@@ -10,6 +10,7 @@ import { calendarVersion, resolveCalendar } from "./calendars";
 import { compileFilter, validateFilter, type ViewFilter } from "./inbox-views";
 import { enqueueJob, type Job } from "./jobs";
 import { append, type Conversation } from "./conversations";
+import { featureOn } from "./plans";
 
 /**
  * SLAs (phase 05, step B2). The first enabled policy, in order, whose conditions match a
@@ -68,14 +69,8 @@ const ms = (v: unknown) =>
 const PAUSED_SORT_BASE = Date.parse("3000-01-01T00:00:00Z");
 
 export async function slaEnabled(db: Sql, w: string) {
-  return (
-    (
-      await db.query(
-        "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='sla_v1' AND enabled",
-        [w],
-      )
-    ).rows.length > 0
-  );
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return featureOn(db, w, "sla_v1");
 }
 async function requireSla(db: Sql, w: string) {
   assert(

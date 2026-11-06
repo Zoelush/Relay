@@ -3,6 +3,7 @@ import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db"
 import { authorize } from "./policy";
 import { getIdentity, resolveContact } from "./people";
 import { identityIssuer, unwrapIdentityKey } from "./identity";
+import { featureOn } from "./plans";
 
 /**
  * Events (phase 13, step O1; docs/OUTBOUND_STEP1.md), behind `segments_v1`: what a contact did,
@@ -54,7 +55,8 @@ export function checkEvent(e: EventInput, now = Date.now()): Checked {
 }
 
 async function on(db: Sql, w: string) {
-  return (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='segments_v1' AND enabled", [w])).rows.length > 0;
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return featureOn(db, w, "segments_v1");
 }
 
 /** Kept once by `dedupeKey`: "kept", "duplicate", or "ignored" (its name archived). */

@@ -6,6 +6,7 @@ import { seal, unseal } from "./connectors";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { CommunityRejected, type DiscordApi, type SlackApi } from "./community-api";
 import { scrubPayload } from "./redaction";
+import { flagsOn } from "./plans";
 
 /**
  * Slack and Discord (phase 12, step E8; docs/OMNICHANNEL_STEP8.md), behind `channels_v1` and
@@ -29,7 +30,8 @@ const sealId = (id: string) => `community:${id}`;
 const KEPT = new Set(["image/png", "image/jpeg", "application/pdf", "text/plain"]);
 
 async function enabled(db: Sql, w: string, platform?: Platform) {
-  const on = (await db.query<{ name: string }>("SELECT name FROM workspace_features WHERE workspace_id=$1 AND enabled AND name LIKE 'channel%'", [w])).rows.map((r) => r.name);
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  const on = [...(await flagsOn(db, w))];
   if (!on.includes("channels_v1")) return false;
   return platform ? on.includes(`channel_${platform}_v1`) : on.includes("channel_slack_v1") || on.includes("channel_discord_v1");
 }

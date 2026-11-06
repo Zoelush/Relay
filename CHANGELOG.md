@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: Plans: Starter, Pro and Enterprise (phase 16, C8a)
+
+- **Three plans,** each with the features and limits it includes. Every workspace starts on Enterprise, so nothing changes for anyone today.
+- **Settings › Billing › Plan:** your plan, what each plan includes, and how many brands and help centers you use of your plan's limit. Prices aren't set yet.
+- **Beyond your plan:**
+  - **Features** are switched off.
+  - **Security settings** can't be changed, but what's already set keeps protecting you.
+  - **Brands and help centers** past your limit are refused, with the count.
+- **Migration:** 0092, with rollback.
+- **Details:** `docs/SECURITY_STEP14.md`.
+
 ## Unreleased: Security health check, subprocessors and encryption (phase 16, C7c)
 
 - **Settings › Security › Health check:** your security settings at a glance. What needs attention comes first, marked critical, recommended or optional, each with a link to the setting that fixes it.

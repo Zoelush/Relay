@@ -6,6 +6,7 @@ import { compileSegment, contactFacts } from "./segments";
 import { effectiveSubscriptions } from "./subscriptions";
 import { matches, PREDEFINED, type SegmentDefinition } from "../lib/segments";
 import { blankDefinition, bucket, goalReadout, inQuietHours, outboundProblems, sendTimeMatches, type OutboundDefinition, type PageContext } from "../lib/outbound";
+import { featureOn } from "./plans";
 
 /**
  * The outbound engine (phase 13, step O2; docs/OUTBOUND_STEP2.md), behind `outbound_v1` (and
@@ -31,9 +32,8 @@ type Live = { id: string; title: string; version: number; def: OutboundDefinitio
 type Settings = { cap_count: number; cap_days: number; quiet_start: string; quiet_end: string; timezone: string };
 
 export async function outboundOn(db: Sql, w: string) {
-  return (
-    (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM workspace_features WHERE workspace_id=$1 AND enabled AND name IN ('segments_v1','outbound_v1')", [w])).rows[0].n === 2
-  );
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return (await featureOn(db, w, "segments_v1")) && (await featureOn(db, w, "outbound_v1"));
 }
 async function settingsOf(db: Sql, w: string): Promise<Settings> {
   await db.query("INSERT INTO outbound_settings(workspace_id) VALUES($1) ON CONFLICT DO NOTHING", [w]);
