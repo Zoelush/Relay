@@ -64,8 +64,12 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `#settings/retention`, the `retention.apply` job), is done locally (`docs/SECURITY_STEP9.md`), and C6b, content redaction and model-provider controls (`lib/redaction.ts`,
 `server/redaction.ts`, `#settings/data-protection`), is done locally (`docs/SECURITY_STEP10.md`), and C7a, link safety and risky merges (`lib/links.ts`, `server/links.ts`,
 `server/link-policy.ts`, `#settings/links`, `/link`), is done locally (`docs/SECURITY_STEP11.md`), and C7b, vendor support access (`server/support.ts`,
-`#settings/support-access`, `/auth/support`), is done locally (`docs/SECURITY_STEP12.md`); next is C7c (the security health check,
-the subprocessor and encryption pages). Relay's support staff get in only through `admitSupport` (Relay's own OIDC provider, the
+`#settings/support-access`, `/auth/support`), is done locally (`docs/SECURITY_STEP12.md`), and C7c, the health check (`lib/health-check.ts`,
+`server/health-check.ts`, `#settings/health-check`) and subprocessors and encryption (`lib/encryption.ts`, `#settings/trust`,
+`docs/TRUST.md`), is done locally (`docs/SECURITY_STEP13.md`): C7 is complete; next is C8. A new security setting gets its
+health check (an entry in `CHECKS` and its decision in `readHealthCheck`; a test requires every check decided). How data is
+protected is stated only in `lib/encryption.ts`: a change to encryption, hashing or keys changes it, then `npm run trust:doc`
+(a test compares `docs/TRUST.md` and holds its figures to the code). Relay's support staff get in only through `admitSupport` (Relay's own OIDC provider, the
 deployment's staff list, an open grant); a support session is the principal `relay-support:<session>`, never a teammate row,
 and the agent API refuses everything but GET from it before any route runs: never add a way for it to write. Each page it opens
 is `support.viewed`; never record a query's values there. A link's verdict is decided only by `verdictOf`, asked of the

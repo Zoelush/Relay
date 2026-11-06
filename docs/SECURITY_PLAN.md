@@ -379,6 +379,36 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **The audit actor** is "Relay support (email)", via `support`.
     - **The workspace's IP allowlist** applies to staff too.
 
+29. **C7c decisions** (6 November 2026):
+    - **Settings › Security › Health check** (`security.manage`, behind `security_v1`):
+      - **What it shows:** each check's state in plain words, a severity, and a link to the setting that changes it.
+      - **Severity:** critical, recommended, optional, or fine.
+      - **Layout:** the checks needing attention are listed first, most severe first, then every check in its group.
+      - **Fresh each time:** it's computed from the workspace's settings on every visit, and nothing is stored.
+    - **The checks** (`lib/health-check.ts` names them; `server/health-check.ts` decides each):
+      - **Authentication and access:**
+        - **Two-factor required** for password sign-in, or SSO enforced. Critical when neither is on.
+        - **Teammates with a password and no two-factor.** Recommended while any exist.
+        - **Single sign-on:** recommended when connected but not enforced, optional when not set up.
+        - **Session limits:** idle at most 4 days and absolute at most 30 days, otherwise recommended. Those are the defaults.
+        - **An IP allowlist** for the app. Optional.
+        - **Relay support access:** recommended to review while a grant is open.
+      - **Messenger security:**
+        - **Identity verification enforced** on every brand. Recommended otherwise.
+        - **The legacy HMAC check** turned off. Recommended otherwise.
+        - **Allowed websites** listed for every brand. Recommended otherwise.
+      - **Data protection:**
+        - **A redaction rule** on. Recommended otherwise.
+        - **A retention policy** set. Optional.
+        - **The link reputation lookup:** optional, and set by the deployment.
+        - **Risky merges** off. Recommended to review while on.
+    - **Settings › Security › Subprocessors and encryption:**
+      - **Subprocessors:** `lib/processors.ts`'s list, the one the data-request page and deletion certificates use.
+      - **Encryption and key management:** `lib/encryption.ts`, one registry of how each kind of data is protected, with which key, and how that key is managed. That covers what isn't yet built, such as rotating the connector key.
+      - **`docs/TRUST.md`** is generated from both by `npm run trust:doc`, and a test compares them.
+      - **Code checks:** a test holds the registry's figures to the code (scrypt's cost, AES-GCM, the hashed tokens).
+    - **No migration:** nothing new is stored.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

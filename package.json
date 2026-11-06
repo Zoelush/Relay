@@ -22,6 +22,7 @@
     "eval": "node --import tsx scripts/eval.ts",
     "test:postgres": "node --import tsx --test --test-timeout=600000 tests/postgres/*.test.ts",
     "metrics:doc": "node --import tsx scripts/metrics-doc.ts",
+    "trust:doc": "node --import tsx scripts/trust-doc.ts",
     "api:doc": "node --import tsx scripts/api-doc.ts",
     "example:orders": "node --import tsx demo/order-lookup/serve.ts"
   },
