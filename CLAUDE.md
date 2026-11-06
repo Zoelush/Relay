@@ -67,7 +67,11 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `#settings/support-access`, `/auth/support`), is done locally (`docs/SECURITY_STEP12.md`), and C7c, the health check (`lib/health-check.ts`,
 `server/health-check.ts`, `#settings/health-check`) and subprocessors and encryption (`lib/encryption.ts`, `#settings/trust`,
 `docs/TRUST.md`), is done locally (`docs/SECURITY_STEP13.md`): C7 is complete. C8a, plans (`lib/plans.ts`, `server/plans.ts`,
-`#settings/plan`), is done locally (`docs/SECURITY_STEP14.md`); next is C8b (full and limited seats). What a plan includes is only
+`#settings/plan`), is done locally (`docs/SECURITY_STEP14.md`), and C8b, seats (`lib/seats.ts`, `server/seats.ts`, `#settings/seats`), is
+done locally (`docs/SECURITY_STEP15.md`): C8 is complete; next is C9 (metering, limits and the spend cap). A limited seat gets only
+`LIMITED_CAPABILITIES` (in `authorize` and `can`) and lists nothing (`scopeSql` is false; views and counts are empty): a new list,
+count or search for teammates goes through `scopeSql`, and a new capability decides whether limited seats keep it. Seat changes are
+recorded only by migration 0093's trigger in `seat_changes` (append-only); proration is computed from it by `seatBill`, never counted. What a plan includes is only
 `lib/plans.ts`, and only `server/plans.ts` reads it or a workspace's plan: a product feature's flag is read with `featureOn`
 (never `workspace_features` directly for a gated flag), a security setting's change with `assertGate`, a counted thing's creation
 with `assertWithinLimit`; `tests/plans.test.ts` fails otherwise. Beyond the plan, product features are off; security features

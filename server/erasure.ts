@@ -191,7 +191,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
       "portal_settings", "role_capabilities", "roles", "security_settings", "segments", "sla_policies", "sms_accounts", "sms_numbers", "sms_prices",
       "sso_connections", "sso_domains", "sso_role_mappings", "subscription_types", "tags", "teams", "ticket_states", "ticket_transitions",
       "ticket_type_attributes", "ticket_types", "voice_agents", "voice_settings", "webhook_subscriptions", "whatsapp_numbers", "whatsapp_templates",
-      "workflow_versions", "workflows", "workspace", "workspace_features", "oauth_apps", "retention_settings", "redaction_rules", "link_policies", "support_grants", "support_logins", "support_sessions", "workspace_plans",
+      "workflow_versions", "workflows", "workspace", "workspace_features", "oauth_apps", "retention_settings", "redaction_rules", "link_policies", "support_grants", "support_logins", "support_sessions", "workspace_plans", "seat_changes",
     ].map((t) => [t, CONFIG]),
   ),
   ...Object.fromEntries(

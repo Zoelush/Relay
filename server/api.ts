@@ -238,6 +238,7 @@ import { changeSupport, finishSupport, isSupportToken, readSupport, recordSuppor
 import { isSupport } from "./policy";
 import { readHealthCheck } from "./health-check";
 import { readPlan } from "./plans";
+import { changeSeat, readSeats } from "./seats";
 import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
@@ -1504,6 +1505,7 @@ export async function handleApi(
             "/v1/agent/links",
             "/v1/agent/link-verdict",
             "/v1/agent/support-access",
+            "/v1/agent/seats",
             "/v1/agent/health-check",
             "/v1/agent/plan",
             "/v1/agent/invitations",
@@ -1618,6 +1620,7 @@ export async function handleApi(
               "/v1/agent/links",
               "/v1/agent/link-verdict",
               "/v1/agent/support-access",
+              "/v1/agent/seats",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -2041,6 +2044,9 @@ export async function handleApi(
           if ("refused" in r) throw r.refused;
           return json(r);
         }
+        if (url.pathname === "/v1/agent/seats")
+          // Phase 16 C8b: a teammate's seat changed (the ledger and the audit log are written by the database).
+          return json(await tenant(env.connect, workspace, (db) => changeSeat(db, workspace, principal, p)));
         if (url.pathname === "/v1/agent/support-access")
           // Phase 16 C7b: read-only access for Relay support granted, or revoked.
           return json(await tenant(env.connect, workspace, (db) => changeSupport(db, workspace, principal, p, !!env.support)));
@@ -2753,6 +2759,8 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/security-sessions") return json(await tenant(env.connect, workspace, (db) => readSessions(db, workspace, principal, sessionId)));
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/retention") return json(await tenant(env.connect, workspace, (db) => readRetention(db, workspace, principal)));
+      // Phase 16 C8b: who occupies each seat, and this period's seats.
+      if (url.pathname === "/v1/agent/seats") return json(await tenant(env.connect, workspace, (db) => readSeats(db, workspace, principal)));
       // Phase 16 C8a: the plan, what each tier includes, and usage of its limits.
       if (url.pathname === "/v1/agent/plan") return json(await tenant(env.connect, workspace, (db) => readPlan(db, workspace, principal)));
       // Phase 16 C7c: the security health check, computed from the settings on each visit.
@@ -3247,7 +3255,7 @@ export async function handleApi(
               "SELECT view,count::int,version FROM inbox_counters WHERE workspace_id=$1 AND teammate_id=$2",
               [workspace, t.id],
             )
-          ).rows.filter((r) => !t.restricted || r.view === "mine" || r.view.startsWith("team:"));
+          ).rows.filter((r) => !t.limited && (!t.restricted || r.view === "mine" || r.view.startsWith("team:")));
           // Workspace directory for names in the timeline and targets in the command palette.
           const directory = async (table: "teammates" | "teams") =>
             (
@@ -3283,6 +3291,8 @@ export async function handleApi(
               relaySession: !!sessionId,
               // Phase 16 C7b: Relay support, read-only.
               readOnly: isSupport(principal),
+              // Phase 16 C8b: a limited seat opens conversations by link (it has no lists).
+              limitedSeat: !!t.limited,
               workspace: {
                 id: workspace,
                 name: account?.workspace_name ?? workspace,

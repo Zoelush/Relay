@@ -159,7 +159,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   // Phase 16 C7c: the security health check, and the subprocessors and how data is protected.
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("health-check", "trust");
   // Phase 16 C8a: the plan, for who manages billing.
-  if (await has("billing.manage")) pages.push("plan");
+  // Phase 16 C8b: and who occupies each seat.
+  if (await has("billing.manage")) pages.push("plan", "seats");
   // Phase 16 C1: the audit log, for who manages security (C2's permission).
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("audit");
   // TODO(phase 16 C3–C10): sign-in, sessions, data, usage and billing. TODO(phase 12): email and other channels. TODO(phase 08 B1): more AI agent pages.

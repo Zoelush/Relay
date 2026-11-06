@@ -127,7 +127,7 @@ type Snapshot = Directory & {
   conversations: Conversation[];
   teammate: { id: string; name: string; role_id?: string };
   /** The account menu: the teammate's role and the workspace's name. */
-  account?: { role: string; relaySession?: boolean; workspace: { id: string; name: string }; readOnly?: boolean };
+  account?: { role: string; relaySession?: boolean; workspace: { id: string; name: string }; readOnly?: boolean; limitedSeat?: boolean };
   storage: { engine: string; transport: string; workspaceId: string };
   capabilities: {
     reply: boolean;
@@ -296,7 +296,10 @@ export default function PostgresInbox({
   const keepCopies = useCallback((c: Copies) => {
     copies.current = c;
   }, []);
-  const [mode, setMode] = useState<"reply" | "note">("reply");
+  const [chosenMode, setMode] = useState<"reply" | "note">("reply");
+  // Phase 16 C8b: a limited seat writes internal notes only.
+  const noteOnly = !!snapshot && !snapshot.capabilities.reply && snapshot.capabilities.note;
+  const mode = noteOnly ? "note" : chosenMode;
   // Bumped per draft key when the composer must reload content (restore, conflict, send).
   const [seeds, setSeeds] = useState<Record<string, number>>({});
   const reseed = useCallback(
@@ -924,6 +927,23 @@ export default function PostgresInbox({
     // The teammate's own drafts for this conversation; failures leave the composer usable.
     void loadDrafts(id).catch(() => {});
   }
+  // Phase 16 C8b: a link to a conversation (#conversation/<id>) opens it, once the inbox has loaded:
+  // how a limited seat, which has no lists, reaches one.
+  const linked = useRef<string | null>(null);
+  const loaded = !!snapshot;
+  useEffect(() => {
+    const open = () => {
+      const id = /^#conversation\/([A-Za-z0-9-]{8,80})$/.exec(window.location.hash)?.[1];
+      if (!id || !loaded || linked.current === id) return;
+      linked.current = id;
+      setAreaState("inbox");
+      pick(id);
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pick is the component's own, current each render
+  }, [loaded]);
   const base =
     snapshot?.conversations.find((c) => c.id === selected) ??
     (pickedConversation?.id === selected ? pickedConversation : undefined);
@@ -1704,6 +1724,12 @@ export default function PostgresInbox({
           Relay support · read-only access, granted by this workspace. Every page you open is recorded.
         </p>
       )}
+      {/* Phase 16 C8b: a limited seat has no lists; it opens conversations by link. */}
+      {snapshot?.account?.limitedSeat && (
+        <p role="status" className="pg-seat-banner">
+          Limited seat · open conversations from a link, a mention or a notification. Ask a manager for a full seat to reply.
+        </p>
+      )}
       {area === "knowledge" && snapshot?.capabilities.knowledge && (
         <Suspense
           fallback={<section className="pg-workspace" aria-busy="true" />}
@@ -2215,13 +2241,15 @@ export default function PostgresInbox({
                   }}
                 >
                   <div className="pg-modes">
-                    <button
-                      type="button"
-                      aria-pressed={mode === "reply"}
-                      onClick={() => setMode("reply")}
-                    >
-                      <MessageSquare size={15} /> Reply
-                    </button>
+                    {!noteOnly && (
+                      <button
+                        type="button"
+                        aria-pressed={mode === "reply"}
+                        onClick={() => setMode("reply")}
+                      >
+                        <MessageSquare size={15} /> Reply
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-pressed={mode === "note"}

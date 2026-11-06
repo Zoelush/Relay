@@ -1,4 +1,5 @@
 import { assert, type Sql } from "./db";
+import { LIMITED_CAPABILITIES } from "../lib/seats";
 export const capabilities = [
   "conversations.reply",
   "conversations.note",
@@ -32,6 +33,8 @@ export interface Teammate {
   restricted?: boolean;
   /** Their teams, when restricted (otherwise empty: not needed). */
   teams?: string[];
+  /** Phase 16 C8b: a limited seat lists no conversations (it opens them by link). */
+  limited?: boolean;
 }
 /**
  * Phase 16 C7b (docs/SECURITY_STEP12.md): a support session's principal, `relay-support:<session>`.
@@ -72,12 +75,14 @@ export async function authorize(
       // Phase 16 C1: the teammate becomes this transaction's actor for the audit log (`relay.actor_*`).
       // Phase 16 C2: and the role's scope (with the teammate's teams when it's restricted).
       `SELECT t.id,t.name,t.role_id,set_config('relay.actor_id',t.id,true),set_config('relay.actor_name',t.name,true),
-       r.scope='assigned' AS restricted,
+       r.scope='assigned' AS restricted,t.seat='limited' AS limited,
        CASE WHEN r.scope='assigned' THEN COALESCE((SELECT array_agg(m.team_id) FROM teammate_teams m WHERE m.workspace_id=t.workspace_id AND m.teammate_id=t.id),'{}') ELSE '{}' END AS teams
     FROM teammates t JOIN roles r ON r.workspace_id=t.workspace_id AND r.id=t.role_id
     JOIN role_capabilities p ON p.workspace_id=t.workspace_id AND p.role_id=t.role_id
-    WHERE t.workspace_id=$1 AND t.principal_id=$2 AND p.capability=$3`,
-      [workspace, principal, capability],
+    WHERE t.workspace_id=$1 AND t.principal_id=$2 AND p.capability=$3
+      -- Phase 16 C8b: a limited seat keeps only its few capabilities, whatever its role.
+      AND (t.seat<>'limited' OR p.capability=ANY($4::text[]))`,
+      [workspace, principal, capability, LIMITED_CAPABILITIES],
     )
   ).rows[0];
   assert(t, "FORBIDDEN", "You do not have permission for this action.", 403);
@@ -94,8 +99,9 @@ export async function can(
   if (isSupport(principal)) return !WRITES.includes(capability) && !!(await supportTeammate(db, workspace, principal));
   return !!(
     await db.query(
-      `SELECT 1 FROM teammates t JOIN role_capabilities p ON p.workspace_id=t.workspace_id AND p.role_id=t.role_id WHERE t.workspace_id=$1 AND t.principal_id=$2 AND p.capability=$3`,
-      [workspace, principal, capability],
+      `SELECT 1 FROM teammates t JOIN role_capabilities p ON p.workspace_id=t.workspace_id AND p.role_id=t.role_id WHERE t.workspace_id=$1 AND t.principal_id=$2 AND p.capability=$3
+       AND (t.seat<>'limited' OR p.capability=ANY($4::text[]))`,
+      [workspace, principal, capability, LIMITED_CAPABILITIES],
     )
   ).rows.length;
 }
@@ -110,7 +116,9 @@ export function visibleTo(t: Pick<Teammate, "id" | "restricted" | "teams">, c: {
   return !t.restricted || c.assigned === t.id || (!!c.team_id && (t.teams ?? []).includes(c.team_id));
 }
 /** The same rule as SQL over a conversations alias, adding its values; "true" when unrestricted. */
-export function scopeSql(t: Pick<Teammate, "id" | "restricted" | "teams">, alias: string, values: unknown[]) {
+export function scopeSql(t: Pick<Teammate, "id" | "restricted" | "teams" | "limited">, alias: string, values: unknown[]) {
+  // Phase 16 C8b: a limited seat lists, counts and searches nothing; it opens conversations by link.
+  if (t.limited) return "false";
   if (!t.restricted) return "true";
   return `(${alias}.assigned=$${values.push(t.id)} OR ${alias}.team_id=ANY($${values.push(t.teams ?? [])}::text[]))`;
 }

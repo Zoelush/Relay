@@ -435,6 +435,27 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **`workspace_plans`,** audited, with every existing workspace set to Enterprise. A new workspace also starts on Enterprise until C10's trials.
       - **Its rollback** sets every workspace to Enterprise, so nothing is gated.
 
+32. **C8b choices and decisions** (6 November 2026):
+    - **Proration:**
+      - **A full seat added mid-period** is charged for the rest of the period, by the second.
+      - **One removed, or moved to limited,** stays paid until the period ends, with no credit.
+      - **No double charge:** a teammate already paid for this period isn't charged again when moved back to full.
+    - **New teammates get a full seat:** invited, joining through SSO, or made just in time. A manager moves them to limited.
+    - **Limited seats work from links only:**
+      - **Lists are empty:** no conversation lists, views, counts or search. `scopeSql` is `false` for them.
+      - **Opening one works:** they open a conversation from a link, a mention or a notification (`visibleTo` allows it).
+      - **What they keep:** reading conversations and contacts, internal notes (and deleting their own), and viewing reports.
+      - **Everything else is cut,** whatever their role: `authorize` and `can` grant a limited seat only `LIMITED_CAPABILITIES`.
+      - **The owner** always has a full seat.
+    - **The seat ledger:**
+      - **What's recorded:** `seat_changes` is append-only, written by a trigger on `teammates` when a teammate joins or their seat changes. It keeps the from and to seat, the time and the actor.
+      - **Proration** is computed from it by `lib/seats.ts` (`seatBill`) for a period. Meters read their source; nothing is counted.
+      - **The billing period** is monthly from `workspace_plans.period_anchor`, which C10's subscriptions will own.
+    - **Settings › Billing › Seats** (`billing.manage`):
+      - **This period:** full seats at its start, additions with their prorated share (the amount is "price not set" while prices are placeholders), and full seats for the next period.
+      - **Each teammate's seat,** changed there and audited.
+    - **Removing a teammate** isn't built yet. Moving one to a limited seat frees their full seat, and the People page says so.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).
