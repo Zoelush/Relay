@@ -1,3 +1,4 @@
+import { assertWithinLimit } from "./plans";
 import { DEFAULT_COLOR } from "../lib/brand-colours";
 import { isAssetRef } from "./brand-assets";
 import { assert, DomainError, type Sql } from "./db";
@@ -297,6 +298,8 @@ export async function saveBrand(
     );
     return { id: existing.id };
   }
+  // Phase 16 C8a: the plan's number of brands.
+  await assertWithinLimit(db, w, "brands");
   const base =
     name
       .toLowerCase()

@@ -1,3 +1,4 @@
+import { featureOn } from "./plans";
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { scopeSql, type Teammate } from "./policy";
 import { command } from "./conversations";
@@ -40,7 +41,8 @@ import {
  * as the token's teammate.
  */
 const on = async (db: Sql, w: string, flag: string, what: string) =>
-  assert((await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name=$2 AND enabled", [w, flag])).rows.length > 0, "NOT_FOUND", `${what} aren't enabled for this workspace.`, 404);
+  // Phase 16 C8a: the rollout flag and the plan.
+  assert(await featureOn(db, w, flag), "NOT_FOUND", `${what} aren't enabled for this workspace.`, 404);
 const page = <T>(rows: T[], n: number, next: (last: T) => unknown) => ({ rows: rows.slice(0, n), next: rows.length > n ? next(rows[n - 1]) : null });
 const readCursor = <T>(x: Context, check: (v: unknown) => boolean): T | null => {
   if (x.params.starting_after === undefined) return null;

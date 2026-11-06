@@ -1,3 +1,4 @@
+import { assertGate } from "./plans";
 import { assert, DomainError, type Sql } from "./db";
 import { authorize } from "./policy";
 import { securityOn } from "./two-factor";
@@ -76,6 +77,8 @@ export async function changeDataProtection(db: Sql, w: string, principal: string
     return { result: redactor([{ kind: "custom", pattern: String(p.pattern) }]).text(sample) };
   }
   if (p.action === "builtin") {
+    // Phase 16 C8a: redaction rules are Enterprise's; beyond the plan, rules already on keep applying.
+    await assertGate(db, w, "redaction");
     const b = BUILT_INS.find((x) => x.id === p.builtin);
     assert(b, "INVALID_FIELD", "Choose a built-in rule.");
     await db.query(
@@ -86,6 +89,8 @@ export async function changeDataProtection(db: Sql, w: string, principal: string
     return done();
   }
   if (p.action === "custom-add") {
+    // Phase 16 C8a: redaction rules are Enterprise's; beyond the plan, rules already on keep applying.
+    await assertGate(db, w, "redaction");
     const name = typeof p.name === "string" ? p.name.trim().slice(0, 80) : "";
     assert(name, "INVALID_FIELD", "Give the pattern a name.");
     const problem = checkPattern(p.pattern);
@@ -96,6 +101,8 @@ export async function changeDataProtection(db: Sql, w: string, principal: string
     return done();
   }
   if (p.action === "custom-toggle" || p.action === "custom-remove") {
+    // Phase 16 C8a: redaction rules are Enterprise's; beyond the plan, rules already on keep applying.
+    await assertGate(db, w, "redaction");
     const r =
       p.action === "custom-remove"
         ? await db.query("DELETE FROM redaction_rules WHERE workspace_id=$1 AND id=$2 AND kind='custom' RETURNING id", [w, String(p.id ?? "")])

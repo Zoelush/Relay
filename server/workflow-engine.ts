@@ -22,6 +22,7 @@ import {
   type ValueSource,
 } from "../lib/workflow-definition";
 import type { Definition as ConnectorDefinition } from "../lib/connector-definition";
+import { featureOn } from "./plans";
 
 /**
  * The workflow engine (phase 11, step W1; docs/WORKFLOWS_STEP1.md), behind `workflows_v1`.
@@ -48,10 +49,8 @@ export const MAX_RUNS_PER_HOUR = 20;
 export const MAX_CHAIN = 3;
 
 export async function workflowsEnabled(db: Sql, w: string) {
-  return (
-    (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='workflows_v1' AND enabled", [w])).rows
-      .length > 0
-  );
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return featureOn(db, w, "workflows_v1");
 }
 
 /* ------------------------------------------------------------------------------------------ */

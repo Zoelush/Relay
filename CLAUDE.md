@@ -66,7 +66,12 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `server/link-policy.ts`, `#settings/links`, `/link`), is done locally (`docs/SECURITY_STEP11.md`), and C7b, vendor support access (`server/support.ts`,
 `#settings/support-access`, `/auth/support`), is done locally (`docs/SECURITY_STEP12.md`), and C7c, the health check (`lib/health-check.ts`,
 `server/health-check.ts`, `#settings/health-check`) and subprocessors and encryption (`lib/encryption.ts`, `#settings/trust`,
-`docs/TRUST.md`), is done locally (`docs/SECURITY_STEP13.md`): C7 is complete; next is C8. A new security setting gets its
+`docs/TRUST.md`), is done locally (`docs/SECURITY_STEP13.md`): C7 is complete. C8a, plans (`lib/plans.ts`, `server/plans.ts`,
+`#settings/plan`), is done locally (`docs/SECURITY_STEP14.md`); next is C8b (full and limited seats). What a plan includes is only
+`lib/plans.ts`, and only `server/plans.ts` reads it or a workspace's plan: a product feature's flag is read with `featureOn`
+(never `workspace_features` directly for a gated flag), a security setting's change with `assertGate`, a counted thing's creation
+with `assertWithinLimit`; `tests/plans.test.ts` fails otherwise. Beyond the plan, product features are off; security features
+refuse changes but what's set keeps applying (never weaken security silently). A new security setting gets its
 health check (an entry in `CHECKS` and its decision in `readHealthCheck`; a test requires every check decided). How data is
 protected is stated only in `lib/encryption.ts`: a change to encryption, hashing or keys changes it, then `npm run trust:doc`
 (a test compares `docs/TRUST.md` and holds its figures to the code). Relay's support staff get in only through `admitSupport` (Relay's own OIDC provider, the

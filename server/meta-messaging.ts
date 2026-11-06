@@ -6,6 +6,7 @@ import { seal, unseal } from "./connectors";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { MetaRejected, type MetaApi, type Platform } from "./meta-api";
 import { scrubPayload } from "./redaction";
+import { flagsOn } from "./plans";
 
 /**
  * Instagram and Facebook Messenger (phase 12, step E7; docs/OMNICHANNEL_STEP7.md), behind
@@ -36,7 +37,8 @@ export const metaClock = { now: () => Date.now() };
 
 async function enabled(db: Sql, w: string, platform?: Platform) {
   const names = platform ? ["channels_v1", `channel_${platform}_v1`] : ["channels_v1"];
-  const on = (await db.query<{ name: string }>("SELECT name FROM workspace_features WHERE workspace_id=$1 AND enabled AND name LIKE 'channel%'", [w])).rows.map((r) => r.name);
+  // Phase 16 C8a: the rollout flags and the plan (`server/plans.ts`, the one gate).
+  const on = [...(await flagsOn(db, w))];
   if (!names.every((n) => on.includes(n))) return false;
   return platform ? true : on.includes("channel_facebook_v1") || on.includes("channel_instagram_v1");
 }

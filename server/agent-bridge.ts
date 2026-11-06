@@ -87,6 +87,7 @@ const routes = {
     "link-verdict",
     "support-access",
     "health-check",
+    "plan",
     "invitations",
     "developer-webhook-deliveries",
     "developer-webhook-delivery",

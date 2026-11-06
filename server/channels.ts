@@ -3,6 +3,7 @@ import { enqueueJob, type Job } from "./jobs";
 import { authorize } from "./policy";
 import { resolveContact } from "./people";
 import type { Capabilities, DeliveryStatus } from "../lib/channels";
+import { flagsOn } from "./plans";
 
 /**
  * The channel contract (phase 12, step E1; docs/OMNICHANNEL_STEP1.md). Every channel is an
@@ -127,9 +128,8 @@ export async function channelsEnabled(db: Sql, w: string) {
 /** The channels a workspace has on: the messenger, and each adapter whose flag is on. */
 export async function enabledChannels(db: Sql, w: string) {
   if (!(await channelsEnabled(db, w))) return [messenger];
-  const flags = new Set(
-    (await db.query<{ name: string }>("SELECT name FROM workspace_features WHERE workspace_id=$1 AND enabled", [w])).rows.map((r) => r.name),
-  );
+  // Phase 16 C8a: each channel's rollout flag and the plan (`server/plans.ts`).
+  const flags = await flagsOn(db, w);
   return channels().filter((a) => !a.flag || flags.has(a.flag));
 }
 

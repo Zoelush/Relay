@@ -1,6 +1,7 @@
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
 import { resolveContact } from "./people";
+import { featureOn } from "./plans";
 
 /**
  * Subscription types (phase 13, step O1; docs/OUTBOUND_STEP1.md), behind `segments_v1`: the kinds
@@ -15,7 +16,8 @@ export const SUBSCRIPTION_CHANNELS = ["email", "sms", "whatsapp", "in_app"] as c
 const CHANNEL_NAMES: Record<string, string> = { email: "Email", sms: "SMS", whatsapp: "WhatsApp", in_app: "In-app" };
 
 async function on(db: Sql, w: string) {
-  return (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='segments_v1' AND enabled", [w])).rows.length > 0;
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return featureOn(db, w, "segments_v1");
 }
 
 /** Each type's state for a contact: archived types and unsubscribing from everything are "out" (`ownChoices`: apart from the latter). */

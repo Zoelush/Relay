@@ -19,6 +19,8 @@ export async function seedFoundation(
     `INSERT INTO workspace(id,workspace_id,owner_id,brand,greeting,color,availability,timezone,locale) VALUES($1,$1,$2,'Relay','How can we help?','#087a57','', 'UTC','en') ON CONFLICT DO NOTHING`,
     [workspace, owner],
   );
+  // Phase 16 C8a: a new workspace starts on Enterprise until billing's trials (C10).
+  await db.query("INSERT INTO workspace_plans(workspace_id) VALUES($1) ON CONFLICT DO NOTHING", [workspace]);
   for (const role of ["owner", "admin", "agent"]) {
     await db.query(
       "INSERT INTO roles(workspace_id,id,name) VALUES($1,$2,$2) ON CONFLICT DO NOTHING",

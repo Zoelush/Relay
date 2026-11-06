@@ -7,6 +7,7 @@ import { MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./attachments";
 import { SmsRejected, type SmsApi, type SmsCredentials } from "./sms-api";
 import { callingCode, DEFAULT_PRICES, MAX_SEGMENTS, segmentsOf } from "../lib/sms";
 import { scrubPayload } from "./redaction";
+import { featureOn } from "./plans";
 
 /**
  * SMS (phase 12, step E6; docs/OMNICHANNEL_STEP6.md), behind `channels_v1` and `channel_sms_v1`,
@@ -36,10 +37,8 @@ const HELP = /^\s*(help|info|aide|hilfe|ayuda|aiuto)\s*[.!?]?\s*$/i;
 const KEPT = new Set(["image/png", "image/jpeg", "application/pdf", "text/plain"]);
 
 async function smsOn(db: Sql, w: string) {
-  return (
-    (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM workspace_features WHERE workspace_id=$1 AND enabled AND name IN ('channels_v1','channel_sms_v1')", [w])).rows[0]
-      .n === 2
-  );
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return (await featureOn(db, w, "channels_v1")) && (await featureOn(db, w, "channel_sms_v1"));
 }
 /** The workspace's Twilio account, unsealed (E9's calls use it too). */
 export async function credentials(db: Sql, w: string, key: string): Promise<(SmsCredentials & { status: string; helpReply: string }) | null> {

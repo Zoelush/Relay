@@ -1,5 +1,6 @@
 import { assert, DomainError, type Sql } from "./db";
 import { authorize, can, type Capability } from "./policy";
+import { featureOn } from "./plans";
 
 /**
  * Settings (S1; docs/SETTINGS_STEP1.md). One area for everything a teammate or a workspace
@@ -34,13 +35,8 @@ export async function requireSettings(db: Sql, w: string) {
     404,
   );
 }
-const flag = async (db: Sql, w: string, name: string) =>
-  (
-    await db.query(
-      "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name=$2 AND enabled",
-      [w, name],
-    )
-  ).rows.length > 0;
+// Phase 16 C8a: a page listed by its rollout flag is listed only when the plan has its feature too.
+const flag = (db: Sql, w: string, name: string) => featureOn(db, w, name);
 
 /** A valid IANA timezone, such as Europe/London. */
 export function validTimezone(value: unknown) {
@@ -162,6 +158,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("support-access");
   // Phase 16 C7c: the security health check, and the subprocessors and how data is protected.
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("health-check", "trust");
+  // Phase 16 C8a: the plan, for who manages billing.
+  if (await has("billing.manage")) pages.push("plan");
   // Phase 16 C1: the audit log, for who manages security (C2's permission).
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("audit");
   // TODO(phase 16 C3–C10): sign-in, sessions, data, usage and billing. TODO(phase 12): email and other channels. TODO(phase 08 B1): more AI agent pages.

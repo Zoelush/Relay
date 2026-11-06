@@ -9,6 +9,7 @@ import type { TranscriptionPort } from "./voice-transcribe";
 import { callingCode } from "../lib/sms";
 import { speakable, SPEECH_LANGUAGE } from "../lib/voice";
 import { scrubPayload } from "./redaction";
+import { featureOn } from "./plans";
 
 /**
  * Voice (phase 12, step E9; docs/OMNICHANNEL_STEP9.md), behind `channels_v1` and
@@ -39,10 +40,8 @@ const MAX_TURNS = 8;
 const ANSWER_WAIT_SECONDS = 10;
 
 async function voiceOn(db: Sql, w: string) {
-  return (
-    (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM workspace_features WHERE workspace_id=$1 AND enabled AND name IN ('channels_v1','channel_voice_v1')", [w])).rows[0].n ===
-    2
-  );
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return (await featureOn(db, w, "channels_v1")) && (await featureOn(db, w, "channel_voice_v1"));
 }
 type Settings = { zoe: boolean; recording_default: string; recording_overrides: Record<string, string>; transcription: boolean; voicemail_greeting: string; ring_seconds: number };
 async function settingsOf(db: Sql, w: string): Promise<Settings> {

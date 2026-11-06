@@ -1,3 +1,4 @@
+import { assertGate } from "./plans";
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { authorize, isSupport, SUPPORT_PREFIX } from "./policy";
 import { securityOn } from "./two-factor";
@@ -89,6 +90,8 @@ export async function changeSupport(db: Sql, w: string, principal: string, p: Re
   const endSessions = (reason: string) =>
     db.query("UPDATE support_sessions SET revoked_at=now(),revoked_reason=$2 WHERE workspace_id=$1 AND revoked_at IS NULL", [w, reason]);
   if (p.action === "grant") {
+    // Phase 16 C8a: support access is Enterprise's (revoking is always allowed).
+    await assertGate(db, w, "support_access");
     const days = Number(p.days);
     assert((SUPPORT_DAYS as readonly number[]).includes(days), "INVALID_FIELD", "Grant access for 1, 7 or 14 days.");
     await close(me);

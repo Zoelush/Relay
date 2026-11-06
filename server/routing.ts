@@ -2,6 +2,7 @@ import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { authorize, can } from "./policy";
 import { append, syncUnread, type Conversation } from "./conversations";
 import type { RoutingPort } from "./ports";
+import { featureOn } from "./plans";
 
 /**
  * Routing and workload (phase 06, step A).
@@ -133,14 +134,8 @@ function record(team: TeamState, assignee: string, item: { ticket: boolean }) {
 }
 
 export async function routingEnabled(db: Sql, w: string) {
-  return (
-    (
-      await db.query(
-        "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='routing_v1' AND enabled",
-        [w],
-      )
-    ).rows.length > 0
-  );
+  // Phase 16 C8a: the rollout flag and the plan (`server/plans.ts`, the one gate).
+  return featureOn(db, w, "routing_v1");
 }
 
 /**

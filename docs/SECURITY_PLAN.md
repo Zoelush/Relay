@@ -409,6 +409,32 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **Code checks:** a test holds the registry's figures to the code (scrypt's cost, AES-GCM, the hashed tokens).
     - **No migration:** nothing new is stored.
 
+30. **C8 choices** (6 November 2026):
+    - **Split in two:** C8a is the plan policy, the one gating module and the Plan page. C8b is full and limited seats, their limits, prorated seat changes, and who occupies each. Each is merged before the next starts.
+    - **Three tiers: Starter, Pro and Enterprise.** Existing workspaces start on Enterprise, so nothing they use switches off. Trials and changing plan come with billing (C10).
+      - **Starter:** the inbox, messenger, email, one help center, tickets, macros, reports, Zoe (billed per resolution), the API, and data requests (every plan has them: they're a legal duty).
+      - **Pro adds:** workflows, SLAs, routing and workload, outbound and segments, every other channel (WhatsApp, SMS, Meta, voice, Slack and Discord), custom roles, data connectors, and up to 3 brands and 3 help centers.
+      - **Enterprise adds:** SSO and SAML, IP allowlists, restricted roles, retention and redaction, support access, and unlimited brands and help centers.
+      - **Every plan:** two-factor, the audit log and the health check.
+    - **Prices are placeholders,** kept as data in `lib/plans.ts` and set before launch. While any placeholder remains with `RELAY_BILLING_LIVE=true`, `npm run check:plans` and `npm test` fail. They aren't part of `npm run build`, because the build runner is the hosting platform's; C10's go-live runs them.
+    - **Limited seats** are free on every plan, in any number. They read conversations opened by link, write internal notes and mentions, and see reports. They can't reply, search the inbox or assign. (C8b.)
+
+31. **C8a decisions** (6 November 2026):
+    - **`lib/plans.ts` is the plan policy:** the tiers, the features beyond Starter, the limits (brands, help centers), the placeholder prices, and which rollout flag each gated feature has.
+    - **`server/plans.ts` is the only gate:**
+      - **The functions:** `planOf`, `gate` and `assertGate` (refused with `PLAN_REQUIRED`, 403, naming the plan that has it), `featureOn` (the rollout flag and the plan), and `limit` and `assertWithinLimit`.
+      - **The test:** it fails on a read of `workspace_plans`, an import of the plan policy, or a raw read of a plan-gated flag anywhere else (the UI's Plan page aside).
+    - **Product features beyond the plan are off,** as if their flag were off: workflows, SLAs, routing, outbound and segments, other channels, data connectors. They aren't listed in Settings, their routes refuse, and they don't run. Every place that read one of their flags now asks `featureOn`.
+    - **Security features beyond the plan:** changes are refused, but what's already configured keeps applying. Never weaken security silently. This covers SSO, IP allowlists, restricted roles, retention, redaction and support access. What a downgrade does with data over a lower plan's limits is C10's.
+    - **Custom roles:** creating a role is Pro's. Making a role restricted is Enterprise's.
+    - **Limits:** creating a brand or a help center beyond the plan's number is refused, with the count.
+    - **Settings › Billing › Plan** (`billing.manage`):
+      - **What it shows:** the current plan, what each tier includes, how much of each limit is used, and the prices (marked as not set yet).
+      - **No plan changes:** changing plan comes with billing (C10).
+    - **Migration `0092_plans`:**
+      - **`workspace_plans`,** audited, with every existing workspace set to Enterprise. A new workspace also starts on Enterprise until C10's trials.
+      - **Its rollback** sets every workspace to Enterprise, so nothing is gated.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

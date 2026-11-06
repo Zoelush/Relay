@@ -51,6 +51,7 @@ import {
   Headset,
   Stethoscope,
   FileLock2,
+  CreditCard,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -88,6 +89,7 @@ import { DataProtectionPage } from "./settings-data-protection";
 import { LinksPage } from "./settings-links";
 import { SupportAccessPage } from "./settings-support";
 import { HealthCheckPage, TrustPage } from "./settings-health";
+import { PlanPage } from "./settings-plan";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -391,6 +393,14 @@ const PAGES: Page[] = [
     group: "Security",
   },
   {
+    // Phase 16 C8a: the workspace's plan, what each tier includes, and its limits.
+    id: "plan",
+    label: "Plan",
+    description: "Your plan, what each plan includes, and how much of its limits you use.",
+    icon: CreditCard,
+    group: "Billing",
+  },
+  {
     // Phase 16 C1: every administrative and sensitive action, searchable and exportable.
     id: "audit",
     label: "Audit log",
@@ -512,6 +522,7 @@ const GROUPS = [
   "Personal",
   "Workspace",
   "Security",
+  "Billing",
   "Helpdesk",
   "Channels",
   "Outbound",
@@ -533,6 +544,7 @@ const GROUP_HUES: Record<string, Hue> = {
   "Knowledge & AI": "rose",
   Developers: "slate",
   Security: "rose",
+  Billing: "amber",
 };
 const hueFor = (p: Page): Hue =>
   p.id === "ai-agent" ? "zoe" : (GROUP_HUES[p.group] ?? "slate");
@@ -739,6 +751,8 @@ export function Settings({
             <HealthCheckPage menu={menu} page={current} />
           ) : current.id === "trust" ? (
             <TrustPage menu={menu} page={current} />
+          ) : current.id === "plan" ? (
+            <PlanPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

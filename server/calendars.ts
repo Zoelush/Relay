@@ -1,3 +1,4 @@
+import { featureOn } from "./plans";
 import { channels, channelsEnabled, enabledChannels } from "./channels";
 import { channelLabel } from "../lib/channels";
 import { assert, DomainError, type Sql } from "./db";
@@ -26,12 +27,7 @@ export type ResolvedCalendar = {
 
 async function requireSla(db: Sql, w: string) {
   assert(
-    (
-      await db.query(
-        "SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='sla_v1' AND enabled",
-        [w],
-      )
-    ).rows.length,
+    await featureOn(db, w, "sla_v1"),
     "SLA_DISABLED",
     "Business hours and SLAs are not enabled for this workspace.",
     404,

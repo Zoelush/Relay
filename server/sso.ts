@@ -1,3 +1,4 @@
+import { assertGate } from "./plans";
 import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose";
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
@@ -166,6 +167,8 @@ export type Discovered = Awaited<ReturnType<typeof discover>>;
 export async function changeSso(db: Sql, w: string, principal: string, env: SsoEnvironment, client: ClientInfo, p: Record<string, unknown>, discovered?: Discovered | null) {
   const me = await authorize(db, w, principal, "security.manage");
   await securityOn(db, w);
+  // Phase 16 C8a: SSO is Enterprise's; beyond the plan, a connection already set up keeps working.
+  await assertGate(db, w, "sso");
   const c = await connectionOf(db, w);
   const done = () => readSso(db, w, principal, client);
   if (p.action === "connection" && p.protocol === "saml") {
