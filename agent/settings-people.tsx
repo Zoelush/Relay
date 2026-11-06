@@ -193,7 +193,8 @@ export function TeammatesPage({ menu, page }: { menu: MenuState; page: Page }) {
           })}
         </ul>
         <p className="pg-muted pg-settings-small">
-          Removing teammates, and seats, arrive with billing.
+          Seats are managed in <a href="#settings/seats">Billing › Seats</a>. Removing a teammate isn&apos;t
+          available yet: moving them to a limited seat frees their full seat.
         </p>
       </Card>
       {data && <Invitations roles={data.roles} />}

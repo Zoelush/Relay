@@ -52,6 +52,7 @@ import {
   Stethoscope,
   FileLock2,
   CreditCard,
+  Armchair,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -90,6 +91,7 @@ import { LinksPage } from "./settings-links";
 import { SupportAccessPage } from "./settings-support";
 import { HealthCheckPage, TrustPage } from "./settings-health";
 import { PlanPage } from "./settings-plan";
+import { SeatsPage } from "./settings-seats";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -398,6 +400,14 @@ const PAGES: Page[] = [
     label: "Plan",
     description: "Your plan, what each plan includes, and how much of its limits you use.",
     icon: CreditCard,
+    group: "Billing",
+  },
+  {
+    // Phase 16 C8b: full and limited seats, who occupies each, and this period's seats.
+    id: "seats",
+    label: "Seats",
+    description: "Who has a full or limited seat, and what this period's seats come to.",
+    icon: Armchair,
     group: "Billing",
   },
   {
@@ -753,6 +763,8 @@ export function Settings({
             <TrustPage menu={menu} page={current} />
           ) : current.id === "plan" ? (
             <PlanPage menu={menu} page={current} />
+          ) : current.id === "seats" ? (
+            <SeatsPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

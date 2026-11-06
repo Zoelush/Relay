@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased: Full and limited seats (phase 16, C8b)
+
+- **Limited seats are free:** teammates who only need to read and leave notes can have a limited seat. They open conversations from links, mentions and notifications, add internal notes and see reports, but don't reply, search or assign.
+- **Settings › Billing › Seats:** who has which seat, and this period's seats. A full seat added mid-period is charged for the rest of the period. One removed stays paid until the period ends.
+- **Links to conversations:** `/agent#conversation/<id>` opens a conversation in the inbox.
+- **Migration:** 0093, with rollback.
+- **Details:** `docs/SECURITY_STEP15.md`.
+
 ## Unreleased: Plans: Starter, Pro and Enterprise (phase 16, C8a)
 
 - **Three plans,** each with the features and limits it includes. Every workspace starts on Enterprise, so nothing changes for anyone today.

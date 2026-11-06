@@ -438,6 +438,8 @@ async function seedAiView(db: Sql, w: string, t: Teammate) {
     );
 }
 export async function viewSnapshot(db: Sql, w: string, t: Teammate) {
+  // Phase 16 C8b: a limited seat has no views or counts; it opens conversations by link.
+  if (t.limited) return { views: [], folders: [], teams: [], ai: await aiOn(db, w) };
   const views = (
     await db.query(
       `SELECT ${viewColumns},${countColumns} FROM ${withSet} WHERE v.workspace_id=$1 AND NOT v.archived AND (v.owner_id=$2 OR v.shared)${restrictedViews(t, "$2")} ORDER BY v.position,v.created_at,v.id`,
@@ -1017,7 +1019,7 @@ export async function viewPage(
     dir,
     status,
     // The status picker's counts, with the first page of a list.
-    counts: q.get("cursor") ? null : await statusCounts(db, w, view.set_id),
+    counts: q.get("cursor") || t.limited ? null : await statusCounts(db, w, view.set_id),
     nextCursor:
       rows.length > 100 && last
         ? btoa(

@@ -137,3 +137,10 @@ export async function readPlan(db: Sql, w: string, principal: string) {
     pricesSet: placeholders().length === 0,
   };
 }
+
+/** Phase 16 C8b: the workspace's plan, its full seat's monthly price (null while a placeholder), and its billing period's anchor. */
+export async function seatPrice(db: Sql, w: string) {
+  const row = (await db.query<{ plan: PlanId; period_anchor: Date }>("SELECT plan,period_anchor FROM workspace_plans WHERE workspace_id=$1", [w])).rows[0];
+  const plan = row?.plan ?? "enterprise";
+  return { plan, planName: PLANS[plan].name, monthlyCents: PLANS[plan].monthlyCents, anchor: row ? new Date(row.period_anchor) : new Date() };
+}

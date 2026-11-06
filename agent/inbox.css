@@ -2058,5 +2058,7 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-trust-list dt { font-weight:700; margin-bottom:2px; }
 .pg-trust-list dd { margin:0; }
 @media (max-width:640px) { .pg-health-row { grid-template-columns:1fr; } }
+/* Phase 16 C8b: a limited seat's banner (it has no conversation lists). */
+.pg-seat-banner { position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:30; margin:0; padding:6px 14px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-info-bg); color:var(--pg-text); font-size:12.5px; font-weight:600; box-shadow:0 4px 16px var(--pg-shadow-soft); max-width:calc(100vw - 32px); }
 /* Phase 16 C7b: Relay support's read-only banner. */
 .pg-support-banner { position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:30; margin:0; padding:6px 14px; border:1px solid var(--pg-danger-border); border-radius:999px; background:var(--pg-danger-bg); color:var(--pg-danger-text); font-size:12.5px; font-weight:600; box-shadow:0 4px 16px var(--pg-shadow-soft); max-width:calc(100vw - 32px); }
