@@ -64,7 +64,7 @@ export async function meterTotal(db: Sql, w: string, meter: MeterId, period: Per
   return Number((await db.query<{ q: string | null }>(`SELECT sum(u.quantity) AS q FROM (${SOURCES[meter]}) u`, values)).rows[0].q ?? 0);
 }
 
-async function periodFor(db: Sql, w: string, which: unknown, now: Date) {
+export async function periodFor(db: Sql, w: string, which: unknown, now: Date) {
   const { anchor } = await seatPrice(db, w);
   const current = periodOf(anchor, now);
   return which === "previous" ? periodOf(anchor, new Date(current.start.getTime() - 1)) : current;

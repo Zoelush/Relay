@@ -480,6 +480,22 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **Tracing:** each meter lists its units, 50 at a time, back to their conversations.
     - **Migration `0094_meters`:** indexes for reading meters by period, and nothing else. Its rollback drops them.
 
+35. **C9b choices and decisions** (7 November 2026):
+    - **Split again:** C9b is limits, the spend cap and pausing. C9c is alerts (in the app and by email, once per threshold per period). Each is merged before the next starts.
+    - **Checked exactly at each automated send:** `pausedFor(meter)` reads the meter's total for the period, and the spend cap's total when one is set. Two sends at the same moment can both pass; that's accepted and documented.
+    - **The spend cap covers metered usage only,** since seats are fixed and known.
+      - **Until prices are set,** the cap can be saved but isn't applied (amounts can't be known), and the page says so.
+      - **Reaching it** pauses every automated sender, as if each meter's limit were reached.
+    - **Limits:** each meter can have a number of units per period (none by default). They're set on Settings › Billing › Usage (`billing.manage`) and audited.
+    - **What pauses:** automated sends only. Teammates' own replies, calls and the inbox always work, and are still metered.
+      - **Zoe** (AI resolutions; on a call, phone minutes too) doesn't answer. She leaves the team an internal note saying why, and the conversation is handed to the team (`ai_state` escalated, so she stays out).
+      - **Outbound** chats and banners wait: `admit` returns "later" with the reason, and the engine tries again.
+      - **Automated channel messages** (Zoe's, workflows' and away emails on email, WhatsApp and SMS) are held. Each is deferred to the period's end and marked `limit_held`; raising or removing the limit releases them at once through the sweep's existing release of deferred deliveries.
+      - **Connector calls** by Zoe or a workflow are refused with the reason. Refused calls are free.
+    - **Migration `0095_limits`:**
+      - **New:** `usage_limits` and `usage_settings` (the spend cap), both audited, and `channel_deliveries.limit_held`.
+      - **Its rollback** removes every limit and the cap. Held deliveries are released for the sweep, and the earlier code sends them when due.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

@@ -81,6 +81,8 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   link_policy: { noun: "Link domain", area: "Security" },
   support_grant: { noun: "Relay support access", area: "Security" },
   plan: { noun: "Plan", area: "Workspace" },
+  usage_limit: { noun: "Usage limit", area: "Workspace" },
+  spend_cap: { noun: "Spend cap", area: "Workspace" },
 };
 
 /** Actions written by `recordAudit`: what isn't a row change. */

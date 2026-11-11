@@ -240,6 +240,7 @@ import { readHealthCheck } from "./health-check";
 import { readPlan } from "./plans";
 import { changeSeat, readSeats } from "./seats";
 import { readUsage, readUsageUnits } from "./meters";
+import { changeLimits, readLimits } from "./limits";
 import { changeSso, discover, finishSso, readSso, samlAcs, ssoInfo, ssoMetadata, startSso } from "./sso";
 import type { FetchPolicy } from "./safe-fetch";
 import { apiReferenceHtml } from "../lib/api-reference";
@@ -1624,6 +1625,7 @@ export async function handleApi(
               "/v1/agent/link-verdict",
               "/v1/agent/support-access",
               "/v1/agent/seats",
+              "/v1/agent/usage",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -2047,6 +2049,14 @@ export async function handleApi(
           if ("refused" in r) throw r.refused;
           return json(r);
         }
+        if (url.pathname === "/v1/agent/usage")
+          // Phase 16 C9b: limits per meter and the spend cap (held messages released when no longer over).
+          return json(
+            await tenant(env.connect, workspace, async (db) => {
+              const limits = await changeLimits(db, workspace, principal, p);
+              return { ...(await readUsage(db, workspace, principal, "current")), limits };
+            }),
+          );
         if (url.pathname === "/v1/agent/seats")
           // Phase 16 C8b: a teammate's seat changed (the ledger and the audit log are written by the database).
           return json(await tenant(env.connect, workspace, (db) => changeSeat(db, workspace, principal, p)));
@@ -2763,7 +2773,11 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/security-access") return json(await tenant(env.connect, workspace, (db) => readAccess(db, workspace, principal, client)));
       if (url.pathname === "/v1/agent/retention") return json(await tenant(env.connect, workspace, (db) => readRetention(db, workspace, principal)));
       // Phase 16 C9a: each meter's usage this period or the last, and its units traced to conversations.
-      if (url.pathname === "/v1/agent/usage") return json(await tenant(env.connect, workspace, (db) => readUsage(db, workspace, principal, url.searchParams.get("period"))));
+      if (url.pathname === "/v1/agent/usage")
+        // C9b: with each meter's limit, the spend cap, and what's paused.
+        return json(
+          await tenant(env.connect, workspace, async (db) => ({ ...(await readUsage(db, workspace, principal, url.searchParams.get("period"))), limits: await readLimits(db, workspace) })),
+        );
       if (url.pathname === "/v1/agent/usage-units") return json(await tenant(env.connect, workspace, (db) => readUsageUnits(db, workspace, principal, url.searchParams)));
       // Phase 16 C8b: who occupies each seat, and this period's seats.
       if (url.pathname === "/v1/agent/seats") return json(await tenant(env.connect, workspace, (db) => readSeats(db, workspace, principal)));

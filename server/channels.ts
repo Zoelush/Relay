@@ -1,3 +1,5 @@
+import { CHANNEL_METER, pausedFor } from "./limits";
+import { periodFor } from "./meters";
 import { assert, digest, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { enqueueJob, type Job } from "./jobs";
 import { authorize } from "./policy";
@@ -440,6 +442,17 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
       await setStatus(db, w, d.id, gate.status, gate.reason);
       return null;
     }
+    // Phase 16 C9b: an automated message (Zoe's, a workflow's, an away email) over its channel's limit
+    // or the spend cap waits until the period ends, or until the limit is raised. A teammate's never.
+    const meter = CHANNEL_METER[d.channel];
+    if (meter && (d.kind === "ai_reply" || d.kind === "workflow_message" || d.purpose === "away")) {
+      const limited = await pausedFor(db, w, meter);
+      if (limited) {
+        const { end } = await periodFor(db, w, "current", new Date());
+        await db.query("UPDATE channel_deliveries SET not_before=$3,limit_held=true,error=$4,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, d.id, end.toISOString(), limited]);
+        return null;
+      }
+    }
     const a = adapterOf(d.channel);
     // A channel that can receive but not send: said once, not retried.
     if (!a.send) {
@@ -497,7 +510,7 @@ export async function releaseDeferred(connect: Connect, w: string) {
   await tenant(connect, w, async (db) => {
     const due = (
       await db.query<{ id: string }>(
-        "UPDATE channel_deliveries SET not_before=NULL,updated_at=now() WHERE workspace_id=$1 AND status='queued' AND not_before<=now() RETURNING id",
+        "UPDATE channel_deliveries SET not_before=NULL,limit_held=false,updated_at=now() WHERE workspace_id=$1 AND status='queued' AND not_before<=now() RETURNING id",
         [w],
       )
     ).rows;

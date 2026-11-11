@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased: Usage limits and a spend cap (phase 16, C9b)
+
+- **Set a limit for each kind of usage,** and a spend cap per period, in Settings › Billing › Usage.
+- **Reaching a limit pauses automated sending only, never Relay itself:**
+  - **Zoe** hands conversations to your team, with a note saying why.
+  - **Outbound messages** wait.
+  - **Automated emails, WhatsApp and SMS** are held until the period ends, or until you raise the limit.
+  - **Zoe's and workflows' connector calls** stop.
+  - **Your team's own replies and calls** always go through.
+- **The spend cap** applies once prices are set.
+- **Migration:** 0095, with rollback.
+- **Details:** `docs/SECURITY_STEP17.md`.
+
 ## Unreleased: Usage (phase 16, C9a)
 
 - **Settings › Billing › Usage:** this period's (or last period's) AI resolutions, emails, WhatsApp messages, SMS segments, phone minutes, outbound chats and banners, and connector calls.

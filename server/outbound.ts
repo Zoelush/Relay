@@ -1,3 +1,4 @@
+import { pausedFor } from "./limits";
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { enqueueJob, type Job } from "./jobs";
 import { authorize } from "./policy";
@@ -126,6 +127,9 @@ export async function admit(db: Sql, w: string, m: Live, def: OutboundDefinition
     if (existing) await db.query("UPDATE outbound_entries SET reason=$3 WHERE workspace_id=$1 AND id=$2", [w, entryId, reason]);
     return { status: "later", reason };
   };
+  // Phase 16 C9b: over this period's limit for its type (or the spend cap), it waits.
+  const limited = await pausedFor(db, w, def.type === "banner" ? "outbound_banners" : "outbound_chats", now);
+  if (limited) return later(limited);
   if (def.quietHours) {
     const tz = (await db.query<{ origin_timezone: string | null }>("SELECT origin_timezone FROM contacts WHERE workspace_id=$1 AND id=$2", [w, contactId])).rows[0]?.origin_timezone || s.timezone;
     if (inQuietHours(now, tz, s.quiet_start, s.quiet_end)) return later("Quiet hours where they are.");
