@@ -4,7 +4,14 @@
  * meters never count (nothing is written). Unit prices are in the plan policy (`lib/plans.ts`).
  */
 export const METERS = {
-  ai_resolutions: { label: "AI resolutions", noun: "AI resolutions", unit: "resolution", source: "Zoe's resolution ledger, net of reversals" },
+  ai_resolutions: { label: "AI resolutions", noun: "AI resolutions", unit: "resolution", source: "Zoe's resolution ledger, net of reversals, answered with Relay's AI" },
+  // Phase 16 C9d: answered with the workspace's own AI provider, at their own price.
+  ai_resolutions_own_key: {
+    label: "AI resolutions on your own AI key",
+    noun: "AI resolutions on your own AI key",
+    unit: "resolution",
+    source: "Zoe's resolution ledger, net of reversals, answered with the workspace's own AI provider",
+  },
   emails: { label: "Emails sent", noun: "emails", unit: "email", source: "Email deliveries sent (failed and suppressed are free)" },
   whatsapp: { label: "WhatsApp messages sent", noun: "WhatsApp messages", unit: "message", source: "WhatsApp deliveries sent" },
   sms_segments: { label: "SMS segments sent", noun: "SMS segments", unit: "segment", source: "SMS deliveries sent, counted in segments" },

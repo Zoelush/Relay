@@ -89,6 +89,8 @@ import {
   scheduleDuplicateCheck,
 } from "../server/knowledge-health";
 import { runAiReply, runProcedureResume, type AiEnvironment } from "../server/ai-agent";
+import { runProviderTest } from "../server/ai-providers";
+import { failingModels } from "../server/ai-adapters";
 import {
   claudeAnswerModel,
   claudeClassifier,
@@ -176,7 +178,8 @@ interface Env extends Partial<StorageEnv> {
   KNOWLEDGE_VECTORS?: VectorizeIndex;
   /**
    * The AI agent's answering model (phase 08): Claude through Anthropic's API. A Worker secret
-   * (`wrangler secret put ANTHROPIC_API_KEY`), never in config. Without it the agent can't run.
+   * (`wrangler secret put ANTHROPIC_API_KEY`), never in config. Without it, only workspaces that
+   * connected their own AI provider (phase 16 C9d) get answers.
    */
   ANTHROPIC_API_KEY?: string;
   /**
@@ -207,18 +210,27 @@ const knowledgeIndex = (env: Env): IndexEnvironment | undefined =>
         vectors: vectorizeStore(env.KNOWLEDGE_VECTORS),
       }
     : undefined;
-/** The AI agent's models, when the index and the answering model's key both exist. */
+/**
+ * The AI agent's models, when the index exists. Relay's AI is Claude with the deployment's key;
+ * phase 16 C9d: a workspace with its own provider answers with that (its key sealed with
+ * RELAY_CONNECTOR_KEY), so without Relay's key, only those workspaces' Zoe can answer.
+ */
 const aiAgent = (env: Env): AiEnvironment | undefined => {
   const index = knowledgeIndex(env);
-  return index && env.AI && env.ANTHROPIC_API_KEY
+  if (!index || !env.AI) return undefined;
+  const relay = env.ANTHROPIC_API_KEY
     ? {
         model: claudeAnswerModel(env.ANTHROPIC_API_KEY),
-        rerank: workersAiReranker(env.AI),
         // Handover triggers (phase 08 A2a): Claude Haiku, with the same key.
         classify: claudeClassifier(env.ANTHROPIC_API_KEY),
-        index,
       }
-    : undefined;
+    : { model: failingModels("Relay's AI isn't set up here. Connect your own AI provider on Settings › AI providers.", "relay").model };
+  return {
+    ...relay,
+    rerank: workersAiReranker(env.AI),
+    index,
+    providers: env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined,
+  };
 };
 async function scheduleClock(env: Env, w: string, id: string) {
   const row = await tenant(
@@ -674,6 +686,10 @@ const relayWorker = {
     if (runtime.connectors)
       handlers["connector.test"] = (job) =>
         runConnectorTest(runtime.connect, runtime.connectors!, job);
+    // Phase 16 C9d: Save and test on Settings › AI providers, with the same key.
+    if (runtime.connectors)
+      handlers["ai.provider.test"] = (job) =>
+        runProviderTest(runtime.connect, { key: runtime.connectors!.key }, job);
     // Content health's near-duplicate check (phase 07, C2b) reads the same vector store.
     if (runtime.knowledgeIndex)
       handlers["knowledge.duplicates"] = (job) =>

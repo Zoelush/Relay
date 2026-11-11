@@ -305,6 +305,7 @@ import {
   type AttachmentStorage,
 } from "./attachments";
 import { readJob, enqueueJob } from "./jobs";
+import { changeProviders, readProviders, type ProviderEnvironment } from "./ai-providers";
 import { searchConversations } from "./search";
 import {
   viewCounts,
@@ -314,6 +315,11 @@ import {
   viewPage,
 } from "./inbox-views";
 
+/** Phase 16 C9d: the key that seals workspaces' AI provider keys (the connector key), and how calls reach providers. */
+const providerEnvironment = (env: ApiEnvironment): ProviderEnvironment | undefined =>
+  env.ai?.providers ?? (env.connectors ? { key: env.connectors.key } : undefined);
+/** Relay's own AI here: the answering model's name, or null when the deployment has none. */
+const relayAi = (env: ApiEnvironment) => ({ model: env.ai && env.ai.model.model !== "unavailable" ? env.ai.model.model : null });
 export interface ApiEnvironment {
   connect: Connect;
   /** Phase 15 D1: the public API's rate limits (in memory unless a deployment provides its own). */
@@ -1512,6 +1518,7 @@ export async function handleApi(
             "/v1/agent/plan",
             "/v1/agent/usage",
             "/v1/agent/usage-units",
+            "/v1/agent/ai-providers",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -1626,6 +1633,7 @@ export async function handleApi(
               "/v1/agent/support-access",
               "/v1/agent/seats",
               "/v1/agent/usage",
+              "/v1/agent/ai-providers",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -2049,6 +2057,9 @@ export async function handleApi(
           if ("refused" in r) throw r.refused;
           return json(r);
         }
+        if (url.pathname === "/v1/agent/ai-providers")
+          // Phase 16 C9d: a provider's key and model saved (Save and test queues its test), tested, removed; the primary and fallback.
+          return json(await tenant(env.connect, workspace, (db) => changeProviders(db, workspace, principal, p, providerEnvironment(env), relayAi(env))));
         if (url.pathname === "/v1/agent/usage")
           // Phase 16 C9b: limits per meter and the spend cap (held messages released when no longer over).
           return json(
@@ -2779,6 +2790,8 @@ export async function handleApi(
           await tenant(env.connect, workspace, async (db) => ({ ...(await readUsage(db, workspace, principal, url.searchParams.get("period"))), limits: await readLimits(db, workspace) })),
         );
       if (url.pathname === "/v1/agent/usage-units") return json(await tenant(env.connect, workspace, (db) => readUsageUnits(db, workspace, principal, url.searchParams)));
+      // Phase 16 C9d: the workspace's own AI providers (never their keys), and Relay's AI.
+      if (url.pathname === "/v1/agent/ai-providers") return json(await tenant(env.connect, workspace, (db) => readProviders(db, workspace, principal, relayAi(env))));
       // Phase 16 C8b: who occupies each seat, and this period's seats.
       if (url.pathname === "/v1/agent/seats") return json(await tenant(env.connect, workspace, (db) => readSeats(db, workspace, principal)));
       // Phase 16 C8a: the plan, what each tier includes, and usage of its limits.

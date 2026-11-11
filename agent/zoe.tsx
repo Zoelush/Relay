@@ -61,6 +61,7 @@ import {
   voiceSummary,
 } from "./zoe-labels";
 import { languageName, type Voice } from "../lib/zoe-voice";
+import { servedWords } from "../lib/ai-providers";
 
 /**
  * Zoe, Relay's AI agent, in the agent app (phase 08, step Z1; docs/AI_STEP5.md). She has her own
@@ -1334,6 +1335,14 @@ function Playground({ menu, page, name }: PageProps & { page: Page }) {
                     <dt>Sent to the model</dt>
                     <dd>
                       {redactionWords(result.sent[result.sent.length - 1].redactions, result.sent[0].redacted)}
+                      {result.sent
+                        .filter((c) => c.kind === "answer")
+                        .map((c, i) => (
+                          <span key={i} className="pg-zoe-served">
+                            {" "}
+                            {servedWords(c)}
+                          </span>
+                        ))}
                       <details className="pg-zoe-sent">
                         <summary>Show exactly what would be sent</summary>
                         {result.sent.map((c, i) => (

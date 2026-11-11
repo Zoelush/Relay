@@ -623,42 +623,59 @@ test("the prompt keeps customer and article text as data, and model replies are 
   });
   assert.equal(stand.kind, "answer");
 
-  // Claude: the request carries the prompt and starts the reply with "{"; replies are parsed.
+  // Claude (phase 16 C9d: Anthropic's SDK): the prompt, no prefill and no temperature (current
+  // models reject both), JSON constrained by structured outputs, medium effort, and the API's own
+  // refusal fallback on the models that have it; replies are parsed, and who served it is told.
   let sentBody: any;
+  let sentHeaders: Headers | null = null;
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   const claude = claudeAnswerModel("test-key", {
     fetch: (async (_url: string, init: RequestInit) => {
       sentBody = JSON.parse(String(init.body));
-      return new Response(
-        JSON.stringify({
-          content: [
-            {
-              type: "text",
-              text: '"kind":"answer","sentences":[{"text":"Five days.","sources":["p1"]}]}',
-            },
-          ],
-        }),
-      );
+      sentHeaders = new Headers(init.headers);
+      return json({
+        model: "claude-sonnet-5-5",
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: '{"kind":"answer","sentences":[{"text":"Five days.","sources":["p1"]}],"question":"","options":[]}' }],
+      });
     }) as typeof fetch,
   });
-  assert.deepEqual(await claude.answer(hostile), {
+  let served: unknown = null;
+  assert.deepEqual(await claude.answer(hostile, (s) => (served = s)), {
     kind: "answer",
     sentences: [{ text: "Five days.", sources: ["p1"] }],
   });
+  assert.deepEqual(served, { provider: "anthropic", model: "claude-sonnet-5-5", keySource: "relay", failover: null });
   assert.equal(sentBody.model, "claude-sonnet-5-5");
-  assert.equal(sentBody.temperature, 0);
-  assert.deepEqual(sentBody.messages.at(-1), {
-    role: "assistant",
-    content: "{",
+  assert.equal(sentBody.temperature, undefined);
+  assert.equal(sentBody.messages.length, 1);
+  assert.equal(sentBody.messages[0].role, "user");
+  assert.equal(sentBody.output_config.effort, "medium");
+  assert.equal(sentBody.output_config.format.type, "json_schema");
+  assert.equal(sentBody.fallbacks, "default");
+  assert.match(sentHeaders!.get("anthropic-beta") ?? "", /server-side-fallback-2026-07-01/);
+  // A model the adapter doesn't know gets the plain request (no effort, format or fallbacks).
+  const plain = claudeAnswerModel("test-key", {
+    model: "claude-something-new",
+    fetch: (async (_url: string, init: RequestInit) => {
+      sentBody = JSON.parse(String(init.body));
+      return json({ content: [{ type: "text", text: '```json\n{"kind":"unknown"}\n```' }], stop_reason: "end_turn" });
+    }) as typeof fetch,
   });
+  assert.deepEqual(await plain.answer(hostile), { kind: "unknown" });
+  assert.equal(sentBody.output_config, undefined);
+  assert.equal(sentBody.fallbacks, undefined);
+  // A refusal left standing is a failure (a workspace's fallback takes over).
+  const declined = claudeAnswerModel("test-key", {
+    fetch: (async () => json({ content: [], stop_reason: "refusal" })) as typeof fetch,
+  });
+  await assert.rejects(declined.answer(hostile), /declined/);
   const broken = claudeAnswerModel("test-key", {
-    fetch: (async () =>
-      new Response(
-        JSON.stringify({ content: [{ type: "text", text: "sure!" }] }),
-      )) as typeof fetch,
+    fetch: (async () => json({ content: [{ type: "text", text: "sure!" }], stop_reason: "end_turn" })) as typeof fetch,
   });
   await assert.rejects(broken.answer(hostile), /expected form/);
   const refused = claudeAnswerModel("test-key", {
-    fetch: (async () => new Response("{}", { status: 529 })) as typeof fetch,
+    fetch: (async () => json({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, 529)) as typeof fetch,
   });
   await assert.rejects(refused.answer(hostile), /returned 529/);
 });

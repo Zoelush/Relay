@@ -9,7 +9,8 @@ Every outside service that receives customer data, what it receives, and what a 
 | Service | Receives | When | Keeps | On deletion |
 |---|---|---|---|---|
 | Twilio | Text messages sent and received, and calls (their recordings when recording is on) | SMS and voice channels | Message records and recordings, until deleted | Deleted by Relay |
-| Anthropic (Claude) | Customer messages Zoe answers, with personal data redacted when the setting is on | Zoe, the AI agent | Under Anthropic's API data retention terms | Kept by the provider under its own terms |
+| Anthropic (Claude) | Customer messages Zoe answers, with personal data redacted when the setting is on | Zoe, the AI agent, with Relay's AI (unless the workspace connects its own provider) | Under Anthropic's API data retention terms | Kept by the provider under its own terms |
+| The workspace's own AI providers (Claude, OpenAI, Gemini, DeepSeek or an OpenAI-compatible endpoint) | Customer messages Zoe answers, with personal data redacted when the setting is on | Zoe, when the workspace connects its own provider on Settings › AI providers | Under the workspace's own terms with that provider | The workspace's own destination |
 | Cloudflare Workers AI | Knowledge content to embed, customers' questions to search it with, and call audio to transcribe | Zoe's knowledge search, and call transcription | Nothing after answering | Not kept |
 | Amazon SES | Emails Relay sends to customers | Email channel | Sending and delivery events under Amazon's terms (not the email's content once delivered) | Kept by the provider under its own terms |
 | Meta (WhatsApp, Instagram, Messenger) | Messages sent and received on those channels | WhatsApp, Instagram and Facebook Messenger channels | Under Meta's terms; messages stay in the customer's own app | Kept by the provider under its own terms |
@@ -25,7 +26,7 @@ Every outside service that receives customer data, what it receives, and what a 
 |---|---|
 | Everything in transit | Every connection to Relay uses HTTPS (TLS). Relay reaches its database through Cloudflare Hyperdrive over TLS, and calls providers and your systems only at https addresses. |
 | Stored data | The database (PostgreSQL at Neon) and files (Cloudflare R2) are encrypted at rest by those providers, with keys they manage. |
-| Credentials and secrets you give Relay | Channel and connector credentials, app and webhook secrets, single sign-on client secrets, two-factor secrets and invitation links are sealed with AES-256-GCM: a new random 96-bit nonce each time, bound to the workspace and purpose (so a sealed value can't be moved elsewhere), under RELAY_CONNECTOR_KEY. The API never returns them. |
+| Credentials and secrets you give Relay | Channel and connector credentials, AI provider keys, app and webhook secrets, single sign-on client secrets, two-factor secrets and invitation links are sealed with AES-256-GCM: a new random 96-bit nonce each time, bound to the workspace and purpose (so a sealed value can't be moved elsewhere), under RELAY_CONNECTOR_KEY. The API never returns them. |
 | Messenger identity keys | Each workspace's keys for verifying signed-in users are wrapped with AES-256-GCM under IDENTITY_MASTER, bound to the workspace and key id. |
 | Teammates' passwords | Kept only as scrypt hashes (N=2^15, r=8, p=1) with a random 16-byte salt per password, and compared in constant time. |
 | Session, API and sign-in tokens | Kept only as SHA-256 hashes: teammate and support sessions, API and app tokens, invitations, two-factor and single sign-on logins, and workflow webhook secrets. A token is shown once and can't be read back. |

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bell,
   Building2,
@@ -54,6 +54,7 @@ import {
   CreditCard,
   Armchair,
   Gauge,
+  BrainCircuit,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -94,6 +95,7 @@ import { HealthCheckPage, TrustPage } from "./settings-health";
 import { PlanPage } from "./settings-plan";
 import { SeatsPage } from "./settings-seats";
 import { UsagePage } from "./settings-usage";
+import { AiProvidersPage } from "./settings-ai-providers";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
@@ -519,6 +521,14 @@ const PAGES: Page[] = [
     link: true,
   },
   {
+    // Phase 16 C9d: the workspace's own AI providers for Zoe (docs/SECURITY_STEP19.md).
+    id: "ai-providers",
+    label: "AI providers",
+    description: "Connect Claude, OpenAI, Gemini, DeepSeek or any OpenAI-compatible model with your own key, for Zoe.",
+    icon: BrainCircuit,
+    group: "Knowledge & AI",
+  },
+  {
     // Zoe has her own area now (phase 08 Z1); Settings links to it.
     id: "ai-agent",
     label: "Zoe, AI agent",
@@ -635,6 +645,16 @@ export function Settings({
   const visible = PAGES.filter((p) => allowed?.includes(p.id));
   const current = visible.find((p) => p.id === page);
   const open = (p: Page) => (p.link ? onLink(p.id as Link) : onPage(p.id));
+  // A link entry reached by its address (#settings/websites) opens where it's managed, as a click
+  // does, rather than an empty page.
+  const linked = current?.link ? (current.id as Link) : null;
+  const follow = useRef(onLink);
+  useEffect(() => {
+    follow.current = onLink;
+  });
+  useEffect(() => {
+    if (linked) follow.current(linked);
+  }, [linked]);
   return (
     <section className="pg-workspace pg-settings" aria-label="Settings">
       <div className="pg-area">
@@ -777,6 +797,8 @@ export function Settings({
             <SeatsPage menu={menu} page={current} />
           ) : current.id === "usage" ? (
             <UsagePage menu={menu} page={current} />
+          ) : current.id === "ai-providers" ? (
+            <AiProvidersPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (
             <OutboundPage menu={menu} page={current} />
           ) : current.id === "events" ? (

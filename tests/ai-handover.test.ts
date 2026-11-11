@@ -533,14 +533,14 @@ test("classification keeps the message as data, and only its exact shape parses"
     (await c.classify({ message: "How long do refunds take?", history: [], locale: "en" })).wantsHuman,
     false,
   );
-  // Claude Haiku's request: the model, temperature 0 and the prefill; a bad reply is refused.
+  // Claude Haiku's request (phase 16 C9d: Anthropic's SDK): the model, no temperature and no
+  // prefill, JSON constrained by structured outputs (Haiku 4.5 takes no effort); a bad reply is refused.
   let sent: any;
+  const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
   const haiku = claudeClassifier("k".repeat(20), {
     fetch: (async (_url: string, init: RequestInit) => {
       sent = JSON.parse(String(init.body));
-      return new Response(
-        JSON.stringify({ content: [{ type: "text", text: '"wants_human":true,"sentiment":"neutral"}' }] }),
-      );
+      return json({ content: [{ type: "text", text: '{"wants_human":true,"sentiment":"neutral","topic":null,"guidance":null,"spam":null,"specialist":null}' }], stop_reason: "end_turn" });
     }) as typeof fetch,
   });
   assert.deepEqual(await haiku.classify({ message: "human please", history: [], locale: "en" }), {
@@ -552,11 +552,12 @@ test("classification keeps the message as data, and only its exact shape parses"
     specialist: null,
   });
   assert.equal(sent.model, "claude-haiku-4-5-20251001");
-  assert.equal(sent.temperature, 0);
-  assert.deepEqual(sent.messages.at(-1), { role: "assistant", content: "{" });
+  assert.equal(sent.temperature, undefined);
+  assert.deepEqual(sent.messages.map((m: { role: string }) => m.role), ["user"]);
+  assert.equal(sent.output_config.format.type, "json_schema");
+  assert.equal(sent.output_config.effort, undefined);
   const broken = claudeClassifier("k".repeat(20), {
-    fetch: (async () =>
-      new Response(JSON.stringify({ content: [{ type: "text", text: "nope" }] }))) as unknown as typeof fetch,
+    fetch: (async () => json({ content: [{ type: "text", text: "nope" }], stop_reason: "end_turn" })) as unknown as typeof fetch,
   });
   await assert.rejects(broken.classify({ message: "x", history: [], locale: "en" }), /expected form/);
 });

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased: AI providers (phase 16, C9d)
+
+- **Choose the AI behind Zoe:** connect Claude, OpenAI, Gemini, DeepSeek or any OpenAI-compatible endpoint with your own API key and model, in Settings › Knowledge & AI › AI providers.
+- **Save and test:** checks the key and model with one fixed question, and tells you plainly if the provider refuses it.
+- **A primary and a fallback:** the fallback answers only when the primary fails or doesn't answer in time. Relay's AI stays the default until you choose your own.
+- **See who answered:** "Why this reply" names the provider, model and key that answered each message.
+- **Billing:** resolutions on your own key are their own line, at their own price.
+- **Keys are encrypted on the server** and never shown again: the page shows only their last 4 characters.
+- **Zoe's Claude requests** now use Anthropic's SDK and work with current Claude models.
+- **Every page uses the full width** beside its menu. Before, Settings and other areas stopped in a column with empty space beside it.
+- **A Settings shortcut opened by its address** (such as `#settings/websites`) now opens where that thing is managed, instead of an empty page.
+- **Migration:** 0097, with rollback.
+- **Details:** `docs/SECURITY_STEP19.md`.
+
 ## Unreleased: Usage alerts (phase 16, C9c)
 
 - **Get told before a limit is reached:** when usage passes a percentage of a limit or of the spend cap (80% and 100% by default), everyone who manages billing gets a notification in Relay and an email, once per period.

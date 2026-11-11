@@ -21,6 +21,8 @@ export type Resolution = {
   rule: "confirmed" | "quiet_window";
   recorded_at: string;
   window_hours: number;
+  /** Phase 16 C9d: whose AI key answered (a reversal carries its resolution's). */
+  key_source: "relay" | "workspace";
 };
 
 /** The conversation's resolution that hasn't been reversed, if any. */
@@ -32,7 +34,7 @@ export async function standing(
   return (
     (
       await db.query<Resolution>(
-        `SELECT r.id,r.rule,r.recorded_at,r.window_hours FROM ai_resolutions r
+        `SELECT r.id,r.rule,r.recorded_at,r.window_hours,r.key_source FROM ai_resolutions r
          WHERE r.workspace_id=$1 AND r.conversation_id=$2 AND r.kind='resolution'
            AND NOT EXISTS(SELECT 1 FROM ai_resolutions x WHERE x.workspace_id=r.workspace_id AND x.kind='reversal' AND x.resolution_id=r.id)
          ORDER BY r.recorded_at DESC LIMIT 1`,
@@ -45,14 +47,16 @@ export async function standing(
 /** The answers from content the resolution rests on: every one in the conversation so far. */
 async function answersOf(db: Sql, w: string, conversationId: string) {
   const rows = (
-    await db.query<{ id: string; reply_part_id: string }>(
-      "SELECT id,reply_part_id FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 AND outcome='answered' AND reply_part_id IS NOT NULL ORDER BY created_at",
+    await db.query<{ id: string; reply_part_id: string; key_source: string | null }>(
+      "SELECT id,reply_part_id,key_source FROM ai_answers WHERE workspace_id=$1 AND conversation_id=$2 AND outcome='answered' AND reply_part_id IS NOT NULL ORDER BY created_at",
       [w, conversationId],
     )
   ).rows;
   return {
     answerIds: rows.map((r) => r.id),
     replyPartIds: rows.map((r) => r.reply_part_id),
+    // C9d: billed at the own-key price only when every answer it rests on used the workspace's key.
+    keySource: rows.length && rows.every((r) => r.key_source === "workspace") ? "workspace" : "relay",
   };
 }
 
@@ -71,11 +75,11 @@ export async function recordResolution(
   },
 ) {
   if (await standing(db, w, c.id)) return null;
-  const { answerIds, replyPartIds } = await answersOf(db, w, c.id);
+  const { answerIds, replyPartIds, keySource } = await answersOf(db, w, c.id);
   const id = crypto.randomUUID();
   await db.query(
-    `INSERT INTO ai_resolutions(workspace_id,id,kind,conversation_id,agent_id,rule,answer_ids,reply_part_ids,window_hours,detail)
-     VALUES($1,$2,'resolution',$3,$4,$5,$6,$7,$8,$9)`,
+    `INSERT INTO ai_resolutions(workspace_id,id,kind,conversation_id,agent_id,rule,answer_ids,reply_part_ids,window_hours,detail,key_source)
+     VALUES($1,$2,'resolution',$3,$4,$5,$6,$7,$8,$9,$10)`,
     [
       w,
       id,
@@ -88,6 +92,7 @@ export async function recordResolution(
       r.rule === "confirmed"
         ? "The customer said the answer helped."
         : `No reply from the customer within ${r.windowHours} hours of the answer.`,
+      keySource,
     ],
   );
   await db.query(
@@ -125,8 +130,8 @@ export async function reverseOnHandover(
     return null;
   const id = crypto.randomUUID();
   await db.query(
-    `INSERT INTO ai_resolutions(workspace_id,id,kind,resolution_id,conversation_id,agent_id,rule,window_hours,detail)
-     VALUES($1,$2,'reversal',$3,$4,$5,'handed_over',$6,$7)`,
+    `INSERT INTO ai_resolutions(workspace_id,id,kind,resolution_id,conversation_id,agent_id,rule,window_hours,detail,key_source)
+     VALUES($1,$2,'reversal',$3,$4,$5,'handed_over',$6,$7,$8)`,
     [
       w,
       id,
@@ -135,6 +140,7 @@ export async function reverseOnHandover(
       agentId,
       r.window_hours,
       `Handed to the team within ${r.window_hours} hours of the resolution.`,
+      r.key_source,
     ],
   );
   await append(

@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { DomainError } from "./db";
 import { normalize } from "./help-search";
 import {
@@ -7,14 +8,16 @@ import {
   TONES,
   type Voice,
 } from "../lib/zoe-voice";
+import { ANSWER_TIMEOUT_MS, CLASSIFY_TIMEOUT_MS, RELAY_AI, type KeySource } from "../lib/ai-providers";
 
 /**
  * The AI agent's models (phase 08; docs/AI_PLAN.md decision 2), behind ports like the AI index's:
  *
  * - `AnswerModel` turns a question, the conversation so far and retrieved passages into a
  *   structured reply: an answer whose every sentence cites passages, a clarifying question, or
- *   "unknown". Deployed: Claude through Anthropic's API (`claudeAnswerModel`). Locally and in
- *   tests: `standInAnswerModel`, deterministic and offline.
+ *   "unknown". Deployed: Claude through Anthropic's API (`claudeAnswerModel`), or (phase 16 C9d)
+ *   the workspace's own provider (`server/ai-adapters.ts`). Locally and in tests:
+ *   `standInAnswerModel`, deterministic and offline.
  * - `RerankPort` scores passages for a question from 0 to 1; the agent's confidence gate reads
  *   the best score. Deployed: Workers AI `bge-reranker-base`. Locally: `standInReranker`.
  *
@@ -93,10 +96,19 @@ export type ModelReply =
   | { kind: "answer"; sentences: { text: string; sources: string[] }[] }
   | { kind: "clarify"; question: string; options: string[] }
   | { kind: "unknown" };
+/**
+ * Who served a model call (phase 16 C9d): the provider and the model that answered, whose key,
+ * and, when a workspace's fallback answered, which primary failed first and why. A port calls
+ * `served` once it has answered; one that doesn't is recorded as its own `provider` and `model`.
+ */
+export type Served = { provider: string; model: string; keySource: KeySource; failover: string | null };
 export type AnswerModel = {
   /** Recorded on every answer. */
   model: string;
-  answer(request: AnswerRequest): Promise<ModelReply>;
+  /** C9d: whose model this is ("anthropic", "openai", …, "stand-in"), and whose key. */
+  provider?: string;
+  keySource?: KeySource;
+  answer(request: AnswerRequest, served?: (s: Served) => void): Promise<ModelReply>;
 };
 export type RerankPort = {
   model: string;
@@ -212,66 +224,136 @@ export function parseReply(raw: string): ModelReply | null {
 /* Claude (deployed)                                                                           */
 
 /**
- * Claude through Anthropic's Messages API. The key is a Worker secret (`ANTHROPIC_API_KEY`, in
- * `.dev.vars` locally), never in source. Temperature 0, and the reply is started with "{" so it
- * is JSON. TODO(phase 08 B2): redaction of personal data before sending, with an audit record.
+ * Claude through Anthropic's Messages API, with Anthropic's SDK. Relay's own key is a Worker
+ * secret (`ANTHROPIC_API_KEY`, in `.dev.vars` locally), never in source; a workspace's own key
+ * (phase 16 C9d) is sealed in `ai_providers`. C9d: no prefill and no temperature (Claude Sonnet
+ * 5.5 and later reject both): JSON is asked for in the prompt, and constrained with structured
+ * outputs where the model supports them; effort is set where it's accepted; on the models that
+ * have it, a refusal is retried by the API on another Claude model (`fallbacks: "default"`), and
+ * a refusal left standing is a failure (the workspace's fallback provider takes over).
  */
-export function claudeAnswerModel(
-  apiKey: string,
-  options: {
-    model?: string;
-    fetch?: typeof fetch;
-    endpoint?: string;
-    /** C1: the evaluation harness's deliberate prompt change (never used in production). */
-    adjustSystem?: (system: string) => string;
-  } = {},
-): AnswerModel {
-  const model = options.model ?? "claude-sonnet-5-5";
-  const send = options.fetch ?? fetch;
+export type ClaudeOptions = {
+  model?: string;
+  fetch?: typeof fetch;
+  /** Tests only: where the SDK sends requests. */
+  baseURL?: string;
+  timeoutMs?: number;
+  /** C9d: whose key this is, for the record of calls. */
+  keySource?: KeySource;
+  /** C1: the evaluation harness's deliberate prompt change (never used in production). */
+  adjustSystem?: (system: string) => string;
+};
+/** Claude models by what their requests accept (a date suffix ignored); any other gets the plain request. */
+const STRUCTURED = new Set([
+  "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-5", "claude-opus-4-1",
+  "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5",
+]);
+const EFFORT = new Set([
+  "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5",
+  "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-5-5",
+]);
+const REFUSAL_FALLBACK = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
+export function claudeFeatures(model: string) {
+  const id = model.replace(/-\d{8}$/, "");
+  return { structured: STRUCTURED.has(id), effort: EFFORT.has(id), refusalFallback: REFUSAL_FALLBACK.has(id) };
+}
+
+/** A provider's failure, in words that never quote what it sent back (C9d). */
+export function claudeError(e: unknown, what: string): DomainError {
+  if (e instanceof DomainError) return e;
+  if (e instanceof Anthropic.APIConnectionTimeoutError) return new DomainError("MODEL_TIMEOUT", `The ${what} didn't answer in time.`, 504);
+  if (e instanceof Anthropic.APIError && typeof e.status === "number") return new DomainError("MODEL_UNAVAILABLE", `The ${what} returned ${e.status}.`, 503, { status: e.status });
+  return new DomainError("MODEL_UNAVAILABLE", `The ${what} couldn't be reached.`, 503);
+}
+
+/** One request to Claude: the reply's text and the model that wrote it. */
+async function askClaude(
+  client: Anthropic,
+  r: { model: string; system: string; user: string; maxTokens: number; effort: "low" | "medium"; schema: Record<string, unknown>; what: string },
+) {
+  const f = claudeFeatures(r.model);
+  const output_config = {
+    ...(f.effort ? { effort: r.effort } : {}),
+    ...(f.structured ? { format: { type: "json_schema" as const, schema: r.schema } } : {}),
+  };
+  const params = {
+    model: r.model,
+    max_tokens: r.maxTokens,
+    system: r.system,
+    messages: [{ role: "user" as const, content: r.user }],
+    ...(Object.keys(output_config).length ? { output_config } : {}),
+  };
+  let reply: { content: { type: string; text?: string }[]; stop_reason: string | null; model?: string };
+  try {
+    reply = f.refusalFallback
+      ? await client.beta.messages.create({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" })
+      : await client.messages.create(params);
+  } catch (e) {
+    throw claudeError(e, r.what);
+  }
+  if (reply.stop_reason === "refusal") throw new DomainError("MODEL_REFUSED", `The ${r.what} declined to answer.`, 502);
+  return {
+    text: reply.content.map((b) => (b.type === "text" ? (b.text ?? "") : "")).join(""),
+    model: reply.model || r.model,
+  };
+}
+/** The reply's shape for structured outputs: one flat object, so every model that has them accepts it. */
+const REPLY_SCHEMA = {
+  type: "object",
+  properties: {
+    kind: { type: "string", enum: ["answer", "clarify", "unknown"] },
+    sentences: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { text: { type: "string" }, sources: { type: "array", items: { type: "string" } } },
+        required: ["text", "sources"],
+        additionalProperties: false,
+      },
+    },
+    question: { type: "string" },
+    options: { type: "array", items: { type: "string" } },
+  },
+  required: ["kind", "sentences", "question", "options"],
+  additionalProperties: false,
+};
+const INDEX = { anyOf: [{ type: "integer" }, { type: "null" }] };
+const CLASSIFY_SCHEMA = {
+  type: "object",
+  properties: {
+    wants_human: { type: "boolean" },
+    sentiment: { type: "string", enum: ["negative", "neutral", "positive"] },
+    topic: INDEX,
+    guidance: INDEX,
+    spam: INDEX,
+    specialist: INDEX,
+  },
+  required: ["wants_human", "sentiment", "topic", "guidance", "spam", "specialist"],
+  additionalProperties: false,
+};
+/** Room for a model's thinking as well as the reply. */
+export const ANSWER_MAX_TOKENS = 8000;
+export const CLASSIFY_MAX_TOKENS = 2000;
+// The address and credential are only what's given here: never the environment's ANTHROPIC_BASE_URL
+// or ANTHROPIC_AUTH_TOKEN, so a workspace's key can't be sent elsewhere or alongside another.
+const client = (apiKey: string, o: ClaudeOptions, timeout: number) =>
+  new Anthropic({ apiKey, authToken: null, baseURL: o.baseURL ?? "https://api.anthropic.com", fetch: o.fetch, maxRetries: 0, timeout: o.timeoutMs ?? timeout });
+
+export function claudeAnswerModel(apiKey: string, options: ClaudeOptions = {}): AnswerModel {
+  const model = options.model ?? RELAY_AI.answer;
+  const keySource = options.keySource ?? "relay";
+  const sdk = client(apiKey, options, ANSWER_TIMEOUT_MS);
   return {
     model,
-    async answer(request) {
+    provider: "anthropic",
+    keySource,
+    async answer(request, served) {
       const built = buildPrompt(request);
       const system = options.adjustSystem ? options.adjustSystem(built.system) : built.system;
-      const user = built.user;
-      const response = await send(
-        options.endpoint ?? "https://api.anthropic.com/v1/messages",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model,
-            max_tokens: 800,
-            temperature: 0,
-            system,
-            messages: [
-              { role: "user", content: user },
-              { role: "assistant", content: "{" },
-            ],
-          }),
-        },
-      );
-      if (!response.ok)
-        throw new DomainError(
-          "MODEL_UNAVAILABLE",
-          `The answering model returned ${response.status}.`,
-          503,
-        );
-      const body = (await response.json()) as {
-        content?: { type: string; text?: string }[];
-      };
-      const text = body.content?.find((c) => c.type === "text")?.text ?? "";
-      const reply = parseReply("{" + text);
-      if (!reply)
-        throw new DomainError(
-          "MODEL_REPLY_INVALID",
-          "The answering model's reply wasn't in the expected form.",
-          502,
-        );
+      const got = await askClaude(sdk, { model, system, user: built.user, maxTokens: ANSWER_MAX_TOKENS, effort: "medium", schema: REPLY_SCHEMA, what: "answering model" });
+      const reply = parseReply(got.text);
+      if (!reply) throw new DomainError("MODEL_REPLY_INVALID", "The answering model's reply wasn't in the expected form.", 502);
+      served?.({ provider: "anthropic", model: got.model, keySource, failover: null });
       return reply;
     },
   };
@@ -366,6 +448,7 @@ export function standInReranker(): RerankPort {
 export function standInAnswerModel(): AnswerModel {
   return {
     model: "stand-in",
+    provider: "stand-in",
     async answer(r) {
       const q = new Set(contentWords(r.question));
       const scored = r.passages.map((p) => {
@@ -460,7 +543,9 @@ export type ClassifyRequest = {
 };
 export type ClassifierPort = {
   model: string;
-  classify(request: ClassifyRequest): Promise<Classification>;
+  provider?: string;
+  keySource?: KeySource;
+  classify(request: ClassifyRequest, served?: (s: Served) => void): Promise<Classification>;
 };
 
 export function buildClassifyPrompt(r: ClassifyRequest) {
@@ -549,56 +634,21 @@ export function parseClassification(raw: string): Classification | null {
   }
 }
 
-/** Claude Haiku through Anthropic's Messages API, with the same key as the answering model. */
-export function claudeClassifier(
-  apiKey: string,
-  options: { model?: string; fetch?: typeof fetch; endpoint?: string } = {},
-): ClassifierPort {
-  const model = options.model ?? "claude-haiku-4-5-20251001";
-  const send = options.fetch ?? fetch;
+/** Claude through Anthropic's Messages API (Relay's: Claude Haiku 4.5, with the same key as the answering model). */
+export function claudeClassifier(apiKey: string, options: Omit<ClaudeOptions, "adjustSystem"> = {}): ClassifierPort {
+  const model = options.model ?? RELAY_AI.classify;
+  const keySource = options.keySource ?? "relay";
+  const sdk = client(apiKey, options, CLASSIFY_TIMEOUT_MS);
   return {
     model,
-    async classify(request) {
+    provider: "anthropic",
+    keySource,
+    async classify(request, served) {
       const { system, user } = buildClassifyPrompt(request);
-      const response = await send(
-        options.endpoint ?? "https://api.anthropic.com/v1/messages",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model,
-            max_tokens: 100,
-            temperature: 0,
-            system,
-            messages: [
-              { role: "user", content: user },
-              { role: "assistant", content: "{" },
-            ],
-          }),
-        },
-      );
-      if (!response.ok)
-        throw new DomainError(
-          "MODEL_UNAVAILABLE",
-          `The classifier returned ${response.status}.`,
-          503,
-        );
-      const body = (await response.json()) as {
-        content?: { type: string; text?: string }[];
-      };
-      const parsed = parseClassification(
-        "{" + (body.content?.find((c) => c.type === "text")?.text ?? ""),
-      );
-      if (!parsed)
-        throw new DomainError(
-          "MODEL_REPLY_INVALID",
-          "The classifier's reply wasn't in the expected form.",
-          502,
-        );
+      const got = await askClaude(sdk, { model, system, user, maxTokens: CLASSIFY_MAX_TOKENS, effort: "low", schema: CLASSIFY_SCHEMA, what: "classifier" });
+      const parsed = parseClassification(got.text);
+      if (!parsed) throw new DomainError("MODEL_REPLY_INVALID", "The classifier's reply wasn't in the expected form.", 502);
+      served?.({ provider: "anthropic", model: got.model, keySource, failover: null });
       return parsed;
     },
   };
@@ -636,6 +686,7 @@ export function standInClassifier(): ClassifierPort {
     " " + normalize(t).replace(/[^\p{L}\p{N}]+/gu, " ").trim() + " ";
   return {
     model: "stand-in-classify",
+    provider: "stand-in",
     async classify(r) {
       const text = normalize(r.message).replace(/[’']/g, " ");
       const said = words(r.message);

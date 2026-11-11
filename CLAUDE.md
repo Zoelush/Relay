@@ -71,7 +71,16 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 done locally (`docs/SECURITY_STEP15.md`): C8 is complete. C9a, meters (`lib/meters.ts`, `server/meters.ts`,
 `#settings/usage`), is done locally (`docs/SECURITY_STEP16.md`), and C9b, limits and the spend cap (`server/limits.ts`), is done locally
 (`docs/SECURITY_STEP17.md`), and C9c, usage alerts (`server/usage-alerts.ts`), is done locally (`docs/SECURITY_STEP18.md`): C9
-is complete; next is C10 (invoices and the billing lifecycle). An alert is recorded only by `checkUsageAlerts` in `usage_alerts`
+is complete. C9d, workspaces' own AI providers (`lib/ai-providers.ts`, `server/ai-adapters.ts`,
+`server/ai-providers.ts`, `#settings/ai-providers`, `ai_providers_v1`), asked for after C9c, is done locally
+(`docs/SECURITY_STEP19.md`); next is C10 (invoices and the billing lifecycle). Zoe's models for a workspace come only
+from `withWorkspaceModels` (its primary, the fallback only when the primary fails, else Relay's AI); with a primary,
+Relay's key is never used for it. A provider adapter only carries `buildPrompt`/`buildClassifyPrompt` there and the reply
+back to `parseReply`/`parseClassification`: redaction, `ai_model_calls` and `guardReply` stay the same for every provider,
+and every call reports who served it (`served`). Non-Claude providers are reached only through `safeRequest`; Claude
+only through Anthropic's SDK (no prefill, no temperature). Provider keys are sealed (`seal`, purpose `ai-provider`) and
+never returned; a failure is told by its status, never the provider's text. A test sends only `TEST_REQUEST`.
+Resolutions are billed by whose key answered (`ai_resolutions.key_source`; the `ai_resolutions_own_key` meter). An alert is recorded only by `checkUsageAlerts` in `usage_alerts`
 (unique per meter or cap, threshold and period, so it's told once) and told to billing managers on full seats; alerts never pause. Every automated sender asks `pausedFor(meter)` before
 sending (Zoe in `runAiReply`, outbound in `admit`, automated channel messages in `runDelivery`, connector calls in `runConnector`); a
 new automated sender asks it too. A limit never pauses a teammate's own reply, a call or the inbox. A meter is one query over its source record in `server/meters.ts`'s `SOURCES` (never a counter: a test fails on a write

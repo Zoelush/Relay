@@ -100,6 +100,10 @@ export type ModelCall = {
   sent: string;
   redacted: boolean;
   redactions: Partial<Record<RedactionKind, number>>;
+  /** Phase 16 C9d: who served it (filled in by the port's `served`), whose key, and the primary that failed first. */
+  provider?: string | null;
+  keySource?: "relay" | "workspace";
+  failover?: string | null;
 };
 
 /** Records the calls made for one customer message. */
@@ -123,9 +127,23 @@ export async function recordModelCalls(
     ).rows[0]?.controls ?? {};
   for (const c of calls)
     await db.query(
-      `INSERT INTO ai_model_calls(workspace_id,id,conversation_id,question_part_id,kind,model,sent,redacted,redactions,controls)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [w, crypto.randomUUID(), conversationId, questionPartId, c.kind, c.model, c.sent, c.redacted, JSON.stringify(c.redactions), JSON.stringify(controls)],
+      `INSERT INTO ai_model_calls(workspace_id,id,conversation_id,question_part_id,kind,model,sent,redacted,redactions,controls,provider,key_source,failover)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [
+        w,
+        crypto.randomUUID(),
+        conversationId,
+        questionPartId,
+        c.kind,
+        c.model,
+        c.sent,
+        c.redacted,
+        JSON.stringify(c.redactions),
+        JSON.stringify(controls),
+        c.provider ?? null,
+        c.keySource ?? "relay",
+        c.failover ?? null,
+      ],
     );
 }
 
