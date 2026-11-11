@@ -9,7 +9,15 @@ import { Card, Frame, message, type MenuState, type Page } from "./settings-ui";
  * C9b: each meter's limit and the spend cap, which pause automated sends only (docs/SECURITY_STEP17.md).
  */
 type Meter = { id: string; label: string; unit: string; source: string; quantity: number; priceCents: number | null; amountCents: number | null };
-type Limits = { limits: Record<string, number | null>; spendCapCents: number | null; capApplies: boolean; spentCents: number | null; paused: Record<string, string> };
+type Limits = {
+  limits: Record<string, number | null>;
+  spendCapCents: number | null;
+  capApplies: boolean;
+  spentCents: number | null;
+  paused: Record<string, string>;
+  /** C9c: when billing managers are told, as percentages. */
+  alertThresholds: number[];
+};
 type Usage = { period: { which: string; start: string; end: string }; meters: Meter[]; totalCents: number | null; pricesSet: boolean; limits: Limits };
 type Unit = { id: string; at: string; quantity: number; conversationId: string | null; contactId: string | null; detail: string };
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
@@ -78,10 +86,12 @@ export function UsagePage({ menu, page }: { menu: MenuState; page: Page }) {
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [cap, setCap] = useState("");
+  const [alerts, setAlerts] = useState("");
   const take = (u: Usage) => {
     setData(u);
     setDraft(Object.fromEntries(Object.entries(u.limits.limits).map(([m, v]) => [m, v === null ? "" : String(v)])));
     setCap(u.limits.spendCapCents === null ? "" : (u.limits.spendCapCents / 100).toFixed(2));
+    setAlerts(u.limits.alertThresholds.join(", "));
   };
   useEffect(() => {
     api<Usage>(`usage?period=${which}`)
@@ -94,7 +104,12 @@ export function UsagePage({ menu, page }: { menu: MenuState; page: Page }) {
     try {
       const limits = Object.fromEntries(Object.entries(draft).map(([m, v]) => [m, v.trim() === "" ? null : Number(v)]));
       const spendCapCents = cap.trim() === "" ? null : Math.round(Number(cap) * 100);
-      const u = await api<Usage>("usage", { action: "limits", limits, spendCapCents });
+      const alertThresholds = alerts
+        .split(",")
+        .map((x) => x.trim().replace(/%$/, ""))
+        .filter(Boolean)
+        .map(Number);
+      const u = await api<Usage>("usage", { action: "limits", limits, spendCapCents, alertThresholds });
       if (which === "current") take(u);
       else setWhich("current");
       setNotice("Limits saved.");
@@ -210,6 +225,13 @@ export function UsagePage({ menu, page }: { menu: MenuState; page: Page }) {
                   {data.limits.capApplies
                     ? `Spent so far this period: ${money(data.limits.spentCents)}.`
                     : "Prices haven't been set yet, so a spend cap can be saved but isn't applied."}
+                </small>
+              </label>
+              <label className="pg-settings-field">
+                <span className="pg-settings-label">Alert at (% of each limit and the cap)</span>
+                <input placeholder="No alerts" value={alerts} onChange={(e) => setAlerts(e.target.value)} aria-describedby="alerts-hint" />
+                <small id="alerts-hint" className="pg-muted">
+                  Everyone who manages billing gets a notification and an email once per threshold each period, such as 80, 100.
                 </small>
               </label>
               <span className="pg-settings-buttons">

@@ -644,9 +644,15 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
         inviter: string | null;
         workspace_name: string | null;
         invite_expires_at: string | null;
+        usage_subject: string | null;
+        usage_threshold: number | null;
+        usage_used: string | null;
+        usage_of: string | null;
       }>(
         `SELECT a.id,a.kind,a.address,a.status,i.metric,i.baseline,i.latest_value,i.opened_at,i.status AS incident_status,h.url,h.disabled_at,
-           a.link_sealed,m.name AS inviter,(SELECT brand FROM workspace WHERE id=a.workspace_id) AS workspace_name,v.expires_at AS invite_expires_at FROM email_alerts a
+           a.link_sealed,m.name AS inviter,(SELECT brand FROM workspace WHERE id=a.workspace_id) AS workspace_name,v.expires_at AS invite_expires_at,
+           u.subject AS usage_subject,u.threshold AS usage_threshold,u.used AS usage_used,u.of AS usage_of FROM email_alerts a
+         LEFT JOIN usage_alerts u ON u.workspace_id=a.workspace_id AND u.id=a.usage_alert_id
          LEFT JOIN ai_incidents i ON i.workspace_id=a.workspace_id AND i.id=a.incident_id
          LEFT JOIN webhook_subscriptions h ON h.workspace_id=a.workspace_id AND h.id=a.webhook_subscription_id
          LEFT JOIN teammate_invitations v ON v.workspace_id=a.workspace_id AND v.id=a.invitation_id
@@ -694,6 +700,25 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
       },
       quote: null,
       footer: "If you weren't expecting this, you can ignore it: nothing happens unless the link is used.",
+    });
+  } else if (ready.kind === "usage") {
+    // Phase 16 C9c: a usage threshold crossed this billing period (notify only).
+    const { alertText } = await import("./usage-alerts");
+    const text = alertText({
+      subject: ready.usage_subject as Parameters<typeof alertText>[0]["subject"],
+      threshold: Number(ready.usage_threshold),
+      used: Number(ready.usage_used),
+      of: Number(ready.usage_of),
+    });
+    subject = `Relay usage: ${ready.usage_threshold}% of a limit in ${ready.workspace_name ?? "your workspace"}`;
+    words = composeReply({
+      brand: "Relay",
+      said: {
+        author: "Relay",
+        body: `${text}\n\nWhen a limit is reached, Relay pauses automated sending (Zoe, outbound messages, automated emails and texts, connector calls) until the next period or until the limit is raised. Your team's own replies and calls always work.\n\nSee usage and change limits in Settings › Billing › Usage.`,
+      },
+      quote: null,
+      footer: "You get this because you manage billing for this Relay workspace.",
     });
   } else if (ready.kind === "webhook_disabled") {
     // Phase 15 D3: a webhook that failed for 24 hours was turned off.
