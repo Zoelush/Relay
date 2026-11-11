@@ -103,6 +103,7 @@ import { runWebhooks, scheduleWebhooks } from "../server/webhooks";
 import { auditExportJob, pruneAudit } from "../server/audit";
 import { dataDeleteJob, dataExportJob, expireDataExports } from "../server/data-requests";
 import { retentionJob, scheduleRetention } from "../server/retention";
+import { checkUsageAlerts } from "../server/usage-alerts";
 import { linksJob } from "../server/links";
 import { safeBrowsing } from "../server/link-reputation";
 import { DurableObject } from "cloudflare:workers";
@@ -747,6 +748,8 @@ const relayWorker = {
           await expireDataExports(runtime.connect, work.workspace, runtime.attachments);
           // Retention (phase 16 C6a): a run at most hourly where a policy is set.
           await scheduleRetention(runtime.connect, work.workspace);
+          // Usage alerts (phase 16 C9c): thresholds of a limit or the spend cap crossed this period.
+          await checkUsageAlerts(runtime.connect, work.workspace);
           // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
           // and sending domains due a check.
           await releaseDeferred(runtime.connect, work.workspace);

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased: Usage alerts (phase 16, C9c)
+
+- **Get told before a limit is reached:** when usage passes a percentage of a limit or of the spend cap (80% and 100% by default), everyone who manages billing gets a notification in Relay and an email, once per period.
+- **Choose the thresholds** in Settings › Billing › Usage, or turn alerts off.
+- **Migration:** 0096, with rollback.
+- **Details:** `docs/SECURITY_STEP18.md`.
+
 ## Unreleased: Usage limits and a spend cap (phase 16, C9b)
 
 - **Set a limit for each kind of usage,** and a spend cap per period, in Settings › Billing › Usage.

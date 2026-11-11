@@ -70,7 +70,9 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `#settings/plan`), is done locally (`docs/SECURITY_STEP14.md`), and C8b, seats (`lib/seats.ts`, `server/seats.ts`, `#settings/seats`), is
 done locally (`docs/SECURITY_STEP15.md`): C8 is complete. C9a, meters (`lib/meters.ts`, `server/meters.ts`,
 `#settings/usage`), is done locally (`docs/SECURITY_STEP16.md`), and C9b, limits and the spend cap (`server/limits.ts`), is done locally
-(`docs/SECURITY_STEP17.md`); next is C9c (usage alerts, in the app and by email). Every automated sender asks `pausedFor(meter)` before
+(`docs/SECURITY_STEP17.md`), and C9c, usage alerts (`server/usage-alerts.ts`), is done locally (`docs/SECURITY_STEP18.md`): C9
+is complete; next is C10 (invoices and the billing lifecycle). An alert is recorded only by `checkUsageAlerts` in `usage_alerts`
+(unique per meter or cap, threshold and period, so it's told once) and told to billing managers on full seats; alerts never pause. Every automated sender asks `pausedFor(meter)` before
 sending (Zoe in `runAiReply`, outbound in `admit`, automated channel messages in `runDelivery`, connector calls in `runConnector`); a
 new automated sender asks it too. A limit never pauses a teammate's own reply, a call or the inbox. A meter is one query over its source record in `server/meters.ts`'s `SOURCES` (never a counter: a test fails on a write
 there), returning traceable units (id, time, quantity, conversation or contact); a new billable unit gets its entry in

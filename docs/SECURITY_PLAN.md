@@ -496,6 +496,17 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **New:** `usage_limits` and `usage_settings` (the spend cap), both audited, and `channel_deliveries.limit_held`.
       - **Its rollback** removes every limit and the cap. Held deliveries are released for the sweep, and the earlier code sends them when due.
 
+36. **C9c decisions** (11 November 2026):
+    - **Thresholds:** a percentage of each meter's limit and of the spend cap. Up to 5, from 1 to 100, are set on the Usage page. The default is 80% and 100%.
+    - **Checked by the sweep:** `checkUsageAlerts`, on each run, only for meters with a limit (and the cap, once prices are set). It reads each meter's total, never counts, and records each crossing in `usage_alerts`. That ledger is unique per meter or cap, threshold and billing period, so each alert is sent once per period.
+    - **Who's told:** every teammate with `billing.manage` on a full seat.
+      - **In the app:** a `usage_alert` notification that links to the Usage page.
+      - **By email:** an `email.alert`, through the alert email path (`sendAlert`, kind `usage`), to their sign-in email (password or SSO).
+    - **Notify only:** an alert never pauses anything. Limits do (C9b).
+    - **Migration `0096_usage_alerts`:**
+      - **New:** `usage_alerts`, `usage_settings.alert_thresholds`, and the `usage_alert` kinds on notifications and alert emails.
+      - **Its rollback** clears every workspace's thresholds, so no alert is sent. The sent alerts stay.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

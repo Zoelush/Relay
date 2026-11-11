@@ -2453,6 +2453,7 @@ export default function PostgresInbox({
           onIncident={() => setArea("zoe", "incidents")}
           onWorkflowAlert={(id) => setArea("workflows", id ? `runs/${id}` : "runs")}
           onWebhook={() => setArea("settings", "webhooks")}
+          onUsage={() => setArea("settings", "usage")}
           onClose={() => setOverlay(null)}
           onError={report}
         />

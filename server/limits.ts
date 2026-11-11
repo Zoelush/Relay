@@ -35,7 +35,7 @@ export async function pausedFor(db: Sql, w: string, meter: MeterId, now = new Da
 }
 
 /** Metered spend this period, in cents; null while any price is a placeholder. */
-async function spent(db: Sql, w: string, period: Awaited<ReturnType<typeof periodFor>>) {
+export async function spent(db: Sql, w: string, period: Awaited<ReturnType<typeof periodFor>>) {
   const prices = unitPrices();
   if (METER_IDS.some((m) => prices[m] === null)) return null;
   let total = 0;
@@ -45,7 +45,8 @@ async function spent(db: Sql, w: string, period: Awaited<ReturnType<typeof perio
 
 export async function readLimits(db: Sql, w: string, now = new Date()) {
   const rows = (await db.query<{ meter: MeterId; units: number }>("SELECT meter,units FROM usage_limits WHERE workspace_id=$1", [w])).rows;
-  const cap = (await db.query<{ spend_cap_cents: number | null }>("SELECT spend_cap_cents FROM usage_settings WHERE workspace_id=$1", [w])).rows[0]?.spend_cap_cents ?? null;
+  const settings = (await db.query<{ spend_cap_cents: number | null; alert_thresholds: number[] }>("SELECT spend_cap_cents,alert_thresholds FROM usage_settings WHERE workspace_id=$1", [w])).rows[0];
+  const cap = settings?.spend_cap_cents ?? null;
   const paused: Partial<Record<MeterId, string>> = {};
   for (const m of METER_IDS) {
     const why = await pausedFor(db, w, m, now);
@@ -58,6 +59,8 @@ export async function readLimits(db: Sql, w: string, now = new Date()) {
     capApplies: Object.values(unitPrices()).every((p) => p !== null),
     spentCents: await spent(db, w, period),
     paused,
+    // C9c: when billing managers are told, as percentages of each limit and of the cap.
+    alertThresholds: settings?.alert_thresholds ?? [80, 100],
   };
 }
 
@@ -85,6 +88,17 @@ export async function changeLimits(db: Sql, w: string, principal: string, p: Rec
       `INSERT INTO usage_settings(workspace_id,spend_cap_cents,updated_by) VALUES($1,$2,$3)
        ON CONFLICT(workspace_id) DO UPDATE SET spend_cap_cents=EXCLUDED.spend_cap_cents,updated_by=EXCLUDED.updated_by,updated_at=now()`,
       [w, cap, me.id],
+    );
+  }
+  if ("alertThresholds" in p) {
+    // Phase 16 C9c: up to 5 percentages from 1 to 100 (none turns alerts off).
+    const list = Array.isArray(p.alertThresholds) ? p.alertThresholds.map(Number) : [];
+    if (!Array.isArray(p.alertThresholds) || list.length > 5 || list.some((n) => !Number.isInteger(n) || n < 1 || n > 100))
+      throw new DomainError("INVALID_FIELD", "Alert at up to 5 percentages, each a whole number from 1 to 100.", 400, { field: "alertThresholds" });
+    await db.query(
+      `INSERT INTO usage_settings(workspace_id,alert_thresholds,updated_by) VALUES($1,$2,$3)
+       ON CONFLICT(workspace_id) DO UPDATE SET alert_thresholds=EXCLUDED.alert_thresholds,updated_by=EXCLUDED.updated_by,updated_at=now()`,
+      [w, [...new Set(list)].sort((a, b) => a - b), me.id],
     );
   }
   // Messages a limit held go now (the sweep sends them) when their meter isn't paused any more.
