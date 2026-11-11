@@ -55,6 +55,7 @@ import {
   Armchair,
   Gauge,
   BrainCircuit,
+  ChevronDown,
 } from "lucide-react";
 import { api } from "./api";
 import { hueOf, type Hue } from "./colour";
@@ -562,6 +563,7 @@ const GROUPS = [
   "Developers",
 ];
 export const SETTINGS_PAGES = PAGES.map((p) => p.id);
+const GROUPS_KEY = "relay.settings.menu-groups";
 /** Each group's tint (Z1), on its pages' icons in the menu and on Settings home. */
 const GROUP_HUES: Record<string, Hue> = {
   Personal: "sky",
@@ -644,7 +646,29 @@ export function Settings({
   }, []);
   const visible = PAGES.filter((p) => allowed?.includes(p.id));
   const current = visible.find((p) => p.id === page);
-  const open = (p: Page) => (p.link ? onLink(p.id as Link) : onPage(p.id));
+  // Which menu groups are open or closed by choice (kept in this browser); the rest follow the page shown.
+  const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(GROUPS_KEY) ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+  const toggleGroup = (g: string, to: boolean) =>
+    setGroupsOpen((was) => {
+      const next = { ...was, [g]: to };
+      try {
+        localStorage.setItem(GROUPS_KEY, JSON.stringify(next));
+      } catch {
+        // Not kept: private browsing, or storage turned off.
+      }
+      return next;
+    });
+  const open = (p: Page) => {
+    // Opening a page (from Settings home too) opens its group in the menu.
+    if (groupsOpen[p.group] === false) toggleGroup(p.group, true);
+    return p.link ? onLink(p.id as Link) : onPage(p.id);
+  };
   // A link entry reached by its address (#settings/websites) opens where it's managed, as a click
   // does, rather than an empty page.
   const linked = current?.link ? (current.id as Link) : null;
@@ -660,7 +684,7 @@ export function Settings({
       <div className="pg-area">
         <SideMenu state={menu} title="Settings" label="Settings menu">
           <nav aria-label="Settings pages">
-            <ul className="pg-menu-entries">
+            <ul className="pg-menu-entries pg-settings-home-entry">
               <li>
                 <button
                   aria-current={!current ? "page" : undefined}
@@ -673,29 +697,31 @@ export function Settings({
             {GROUPS.map((g) => {
               const items = visible.filter((p) => p.group === g);
               if (!items.length) return null;
+              // Collapsed unless chosen open, or it holds the page being shown.
+              const expanded = groupsOpen[g] ?? current?.group === g;
+              const listId = "settings-group-" + g.toLowerCase().replace(/[^a-z]+/g, "-");
               return (
                 <section key={g} className="pg-menu-section">
-                  <h2 className="pg-settings-group">{g}</h2>
-                  <ul className="pg-menu-entries">
-                    {items.map((p) => (
-                      <li key={p.id} data-hue={hueFor(p)}>
-                        <button
-                          aria-current={
-                            current?.id === p.id ? "page" : undefined
-                          }
-                          onClick={() => open(p)}
-                        >
-                          <span
-                            className="pg-menu-entry-icon"
-                            aria-hidden="true"
-                          >
-                            <p.icon size={16} />
-                          </span>
-                          <span className="pg-menu-entry-name">{p.label}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  <h2 className="pg-settings-group">
+                    <button type="button" aria-expanded={expanded} aria-controls={listId} onClick={() => toggleGroup(g, !expanded)}>
+                      <span>{g}</span>
+                      <ChevronDown size={14} aria-hidden="true" className="pg-settings-group-chevron" />
+                    </button>
+                  </h2>
+                  {expanded && (
+                    <ul className="pg-menu-entries" id={listId}>
+                      {items.map((p) => (
+                        <li key={p.id} data-hue={hueFor(p)}>
+                          <button aria-current={current?.id === p.id ? "page" : undefined} onClick={() => open(p)}>
+                            <span className="pg-menu-entry-icon" aria-hidden="true">
+                              <p.icon size={16} />
+                            </span>
+                            <span className="pg-menu-entry-name">{p.label}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </section>
               );
             })}

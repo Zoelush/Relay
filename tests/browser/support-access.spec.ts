@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
+import { settingsMenu } from "./settings-menu";
 
 /**
  * Vendor support access (phase 16, C7b; docs/SECURITY_STEP12.md), end to end. Happy path: a manager
@@ -79,6 +80,6 @@ test("without a grant, staff are turned away with the reason; someone off the st
   const grace = await (await browser.newContext()).newPage();
   await grace.goto(relay.hostOrigin + "/agent?as=grace#settings");
   await expect(grace.getByRole("navigation", { name: "Settings pages" })).toBeVisible({ timeout: 15000 });
-  await expect(grace.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Support access" })).toHaveCount(0);
+  await expect((await settingsMenu(grace)).getByRole("button", { name: "Support access" })).toHaveCount(0);
   expect(await grace.evaluate(async () => (await fetch("/api/agent/support-access", { credentials: "same-origin" })).status)).toBe(403);
 });

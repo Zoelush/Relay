@@ -3,6 +3,7 @@ import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
 import { getIdentity } from "../../server/people";
 import { command } from "../../server/conversations";
+import { settingsMenu } from "./settings-menu";
 
 /**
  * Usage (phase 16, C9a; docs/SECURITY_STEP16.md), end to end. Happy path: a manager opens Settings ›
@@ -63,6 +64,6 @@ test("an unknown meter is refused with the reason; an agent can't reach Usage", 
   const grace = await (await browser.newContext()).newPage();
   await grace.goto(relay.hostOrigin + "/agent?as=grace#settings");
   await expect(grace.getByRole("navigation", { name: "Settings pages" })).toBeVisible({ timeout: 15000 });
-  await expect(grace.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Usage" })).toHaveCount(0);
+  await expect((await settingsMenu(grace)).getByRole("button", { name: "Usage" })).toHaveCount(0);
   expect(await grace.evaluate(async () => (await fetch("/api/agent/usage", { credentials: "same-origin" })).status)).toBe(403);
 });

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased: A shorter Settings menu
+
+- **Settings' menu groups fold open and closed:** they start folded, except the one holding the page you're on.
+- **Your choice is kept** in this browser, and opening a page from Settings home opens its group.
+
 ## Unreleased: AI providers (phase 16, C9d)
 
 - **Choose the AI behind Zoe:** connect Claude, OpenAI, Gemini, DeepSeek or any OpenAI-compatible endpoint with your own API key and model, in Settings › Knowledge & AI › AI providers.

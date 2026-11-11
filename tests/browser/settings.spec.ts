@@ -3,6 +3,7 @@ import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
 import { getIdentity } from "../../server/people";
 import { command } from "../../server/conversations";
+import { settingsMenu } from "./settings-menu";
 
 /** Settings (S1; docs/SETTINGS_STEP1.md). */
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
@@ -36,8 +37,6 @@ async function open(page: Page, hash = "", as = "") {
     );
 }
 const rail = (page: Page) => page.getByTestId("rail");
-const settingsNav = (page: Page) =>
-  page.getByRole("navigation", { name: "Settings pages" });
 const title = (page: Page) => page.locator("#settings-title");
 
 test("settings: the gear opens a home of cards; your profile and signature, General, notifications, appearance; links to macros and knowledge; every page has an address", async ({
@@ -164,7 +163,7 @@ test("settings: the gear opens a home of cards; your profile and signature, Gene
   await page.keyboard.press("Escape");
 
   // Notifications follow the account.
-  await settingsNav(page)
+  await (await settingsMenu(page))
     .getByRole("button", { name: "Notifications" })
     .click();
   await page.getByLabel(/Play a sound/).check();
@@ -178,7 +177,7 @@ test("settings: the gear opens a home of cards; your profile and signature, Gene
   ).toEqual({ desktop: false, sound: true });
 
   // Appearance switches the theme at once.
-  await settingsNav(page).getByRole("button", { name: "Appearance" }).click();
+  await (await settingsMenu(page)).getByRole("button", { name: "Appearance" }).click();
   await page.getByRole("radio", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-agent-theme",
@@ -201,14 +200,14 @@ test("settings: the gear opens a home of cards; your profile and signature, Gene
   ).toBeVisible();
 
   // Knowledge links open Knowledge on the right page; Saved views opens the inbox menu.
-  await settingsNav(page).getByRole("button", { name: "AI index" }).click();
+  await (await settingsMenu(page)).getByRole("button", { name: "AI index" }).click();
   await expect(
     page
       .getByRole("navigation", { name: "Knowledge areas" })
       .getByRole("button", { name: "AI index" }),
   ).toHaveAttribute("aria-current", "page");
   await rail(page).getByRole("button", { name: "Settings" }).click();
-  await settingsNav(page).getByRole("button", { name: "Saved views" }).click();
+  await (await settingsMenu(page)).getByRole("button", { name: "Saved views" }).click();
   await expect(
     page.getByRole("navigation", { name: "Inbox views" }),
   ).toBeVisible();
@@ -223,10 +222,10 @@ test("a teammate without workspace rights sees only the pages they may use, and 
 }) => {
   await open(page, "#settings", "?as=grace");
   await expect(
-    settingsNav(page).getByRole("button", { name: "Your profile" }),
+    (await settingsMenu(page)).getByRole("button", { name: "Your profile" }),
   ).toBeVisible();
   await expect(
-    settingsNav(page).getByRole("button", { name: "General" }),
+    (await settingsMenu(page)).getByRole("button", { name: "General" }),
   ).toHaveCount(0);
   // A link to a page they can't use lands on the overview instead.
   await open(page, "#settings/general", "?as=grace");
@@ -265,4 +264,30 @@ test("a teammate without workspace rights sees only the pages they may use, and 
   expect(
     (await sql("SELECT name FROM teammates WHERE id='grace'"))[0].name,
   ).toBe("Grace");
+});
+
+test("the settings menu's groups fold: closed by default but the shown page's, opened by a click, remembered, and opened by a page from home", async ({ page }) => {
+  await open(page, "#settings/usage");
+  const nav = page.getByRole("navigation", { name: "Settings pages" });
+  const group = (name: string) => nav.getByRole("button", { name, exact: true });
+  await expect(group("Billing")).toHaveAttribute("aria-expanded", "true");
+  await expect(nav.getByRole("button", { name: "Usage" })).toHaveAttribute("aria-current", "page");
+  await expect(group("Security")).toHaveAttribute("aria-expanded", "false");
+  await expect(nav.getByRole("button", { name: "Audit log" })).toHaveCount(0);
+
+  // A click unfolds a group, and another folds it; the choice is kept after a reload.
+  await group("Security").click();
+  await expect(nav.getByRole("button", { name: "Audit log" })).toBeVisible();
+  await page.reload();
+  await expect(group("Security")).toHaveAttribute("aria-expanded", "true");
+  await group("Security").click();
+  await expect(nav.getByRole("button", { name: "Audit log" })).toHaveCount(0);
+  await group("Billing").click();
+  await expect(nav.getByRole("button", { name: "Usage" })).toHaveCount(0);
+
+  // A page opened from Settings home unfolds its group.
+  await nav.getByRole("button", { name: "Overview" }).click();
+  await page.getByRole("button", { name: /^Audit log/ }).first().click();
+  await expect(group("Security")).toHaveAttribute("aria-expanded", "true");
+  await expect(nav.getByRole("button", { name: "Audit log" })).toHaveAttribute("aria-current", "page");
 });

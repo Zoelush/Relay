@@ -3,6 +3,7 @@ import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
 import { getIdentity } from "../../server/people";
 import { command } from "../../server/conversations";
+import { settingsMenu } from "./settings-menu";
 
 /**
  * Seats (phase 16, C8b; docs/SECURITY_STEP15.md), end to end. Happy path: a manager gives Grace a
@@ -73,7 +74,7 @@ test("the owner's seat can't be made limited; a limited seat can't reach the Sea
     const grace = await (await browser.newContext()).newPage();
     await grace.goto(relay.hostOrigin + "/agent?as=grace#settings");
     await expect(grace.getByRole("navigation", { name: "Settings pages" })).toBeVisible({ timeout: 15000 });
-    await expect(grace.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Seats" })).toHaveCount(0);
+    await expect((await settingsMenu(grace)).getByRole("button", { name: "Seats" })).toHaveCount(0);
     expect(await grace.evaluate(async () => (await fetch("/api/agent/seats", { credentials: "same-origin" })).status)).toBe(403);
   } finally {
     await tenant(relay.db.connect, "demo", (db) => db.query("UPDATE teammates SET seat='full' WHERE workspace_id='demo' AND id='grace'"));

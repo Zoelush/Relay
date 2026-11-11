@@ -1328,6 +1328,18 @@ h2 .pg-zoe-status { vertical-align:middle; margin-left:6px; }
 
 /* Settings (S1): the home page's cards, and each page's title, Save button and cards. */
 .pg-settings-group { margin:0 0 2px; padding:4px 10px; color:var(--pg-muted); font-size:11px; font-weight:600; letter-spacing:.8px; text-transform:uppercase; }
+/* Settings' menu groups fold open and closed (the chevron turns as the inbox menu's does). */
+.pg-menu-section .pg-settings-group { margin:0; padding:0; color:var(--pg-text); font-size:14px; font-weight:500; letter-spacing:normal; text-transform:none; }
+.pg-menu-section .pg-settings-group button { display:flex; align-items:center; justify-content:space-between; width:100%; margin:0; padding:8px 10px; border:0; border-radius:8px; background:none; color:var(--pg-text); font-family:inherit; font-size:14px; font-weight:500; letter-spacing:normal; text-transform:none; cursor:pointer; }
+/* Hovered, a group's name turns bold (no background, as in the reference). */
+.pg-menu-section .pg-settings-group button:hover { background:none; font-weight:700; }
+.pg-menu-section .pg-settings-group button:focus-visible { outline:2px solid var(--pg-focus); outline-offset:2px; }
+.pg-settings-group-chevron { flex:none; }
+/* Overview reads like the group names (bold on hover too). */
+.pg-settings-home-entry button { padding:8px 10px; color:var(--pg-text); font-size:14px; font-weight:500; }
+.pg-settings-home-entry button:hover { font-weight:700; }
+@media (prefers-reduced-motion: reduce) { .pg-menu-section h2 button svg { transition:none; } }
+
 .pg-settings-page { display:flex; flex-direction:column; flex:1; min-height:0; }
 .pg-settings-head { align-items:flex-start; padding:16px 24px; }
 .pg-settings-head > div:not(.pg-settings-save) { flex:1; min-width:0; }

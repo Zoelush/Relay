@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
+import { settingsMenu } from "./settings-menu";
 
 /** Settings › Helpdesk (S2a; docs/SETTINGS_STEP2.md). */
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
@@ -60,8 +61,7 @@ test("teams and limits, office hours and who uses them, SLAs created, ordered an
   ).toBe(2);
 
   // Office hours: a new calendar, a holiday, and a team that uses it.
-  await page
-    .getByRole("navigation", { name: "Settings pages" })
+  await (await settingsMenu(page))
     .getByRole("button", { name: "Office hours" })
     .click();
   await page.getByRole("button", { name: "New calendar" }).click();
@@ -99,8 +99,7 @@ test("teams and limits, office hours and who uses them, SLAs created, ordered an
   ).toBe("Weekend cover");
 
   // SLAs: a new policy for priority conversations, moved to the top, then archived.
-  await page
-    .getByRole("navigation", { name: "Settings pages" })
+  await (await settingsMenu(page))
     .getByRole("button", { name: "SLAs" })
     .click();
   await page.getByRole("button", { name: "New SLA" }).click();

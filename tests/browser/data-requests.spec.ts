@@ -6,6 +6,7 @@ import { tenant } from "../../server/db";
 import { getIdentity } from "../../server/people";
 import { command } from "../../server/conversations";
 import { projectJob } from "../../server/analytics";
+import { settingsMenu } from "./settings-menu";
 
 /**
  * Data requests (phase 16, C5a; docs/SECURITY_STEP7.md), end to end. Happy path: a customer, Ada,
@@ -112,7 +113,7 @@ test("a wrong confirmation deletes nothing; a teammate without the permission ca
   const grace = await (await browser.newContext()).newPage();
   await grace.goto(relay.hostOrigin + "/agent?as=grace#settings");
   await expect(grace.getByRole("navigation", { name: "Settings pages" })).toBeVisible({ timeout: 15000 });
-  await expect(grace.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Data requests" })).toHaveCount(0);
+  await expect((await settingsMenu(grace)).getByRole("button", { name: "Data requests" })).toHaveCount(0);
   const refused = await grace.evaluate(async () => (await fetch("/api/agent/data-requests", { credentials: "same-origin" })).status);
   expect(refused).toBe(403);
   expect(request).toBeTruthy();
