@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
+import { settingsMenu } from "./settings-menu";
 
 /**
  * The audit log (phase 16, C1; docs/SECURITY_STEP1.md), end to end: a tag added in Settings is in
@@ -23,7 +24,7 @@ test("a change in Settings is in the audit log with who made it; filtered, opene
   await expect(page.getByText("Added Audit trail check.")).toBeVisible();
 
   await page.goto(relay.hostOrigin + "/agent#settings/audit");
-  await expect(page.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Audit log" })).toBeVisible();
+  await expect((await settingsMenu(page)).getByRole("button", { name: "Audit log" })).toBeVisible();
   const log = page.getByRole("table", { name: "Audit log" });
   const row = log.getByRole("row", { name: /Tag created/ }).filter({ hasText: "Audit trail check" });
   await expect(row).toHaveCount(1);
@@ -61,7 +62,7 @@ test("a change in Settings is in the audit log with who made it; filtered, opene
 test("a teammate who doesn't manage the workspace has no audit log, and can't read it", async ({ page }) => {
   await page.goto(relay.hostOrigin + "/agent?as=grace#settings");
   await expect(page.getByRole("navigation", { name: "Settings pages" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Audit log" })).toHaveCount(0);
+  await expect((await settingsMenu(page)).getByRole("button", { name: "Audit log" })).toHaveCount(0);
   const status = await page.evaluate(async () => (await fetch("/api/agent/audit?as=grace")).status);
   expect(status).toBe(403);
   const exported = await page.evaluate(async () => {

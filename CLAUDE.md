@@ -313,7 +313,9 @@ teammate.
   `brands.settings` and are edited through `server/channel-settings.ts`, which keeps keys it doesn't
   own; allowed websites must be exact origins (`websiteOrigin`). Roles change only within the acting manager's own permissions, never their own, and always
   leaving an owner (`server/people-settings.ts`). Page
-  building blocks are in `agent/settings-ui.tsx`. Tags and attributes are archived, never deleted
+  building blocks are in `agent/settings-ui.tsx`. The menu's groups fold (closed but the shown page's,
+  remembered in the browser); browser tests reach menu entries through `tests/browser/settings-menu.ts`
+  (`settingsMenu`, which unfolds every group), so an absent entry means it isn't allowed, never folded. Tags and attributes are archived, never deleted
   (`server/workspace-data.ts`); pickers that add a tag use `activeTags` from `agent/timeline.tsx`.
 - List rows are cards (`agent/card.tsx`, fixed `CARD_HEIGHT` for the virtual list). Their preview
   line comes from `listPreviews` in `server/conversations.ts`, read after the page is chosen; never

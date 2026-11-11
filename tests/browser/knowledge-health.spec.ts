@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
+import { settingsMenu } from "./settings-menu";
 
 /** Content health (phase 07, C2b; docs/KNOWLEDGE_STEP8.md). */
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
@@ -39,8 +40,7 @@ async function built() {
 }
 async function go(page: Page) {
   await page.goto(relay.hostOrigin + "/agent#settings");
-  await page
-    .getByRole("navigation", { name: "Settings pages" })
+  await (await settingsMenu(page))
     .getByRole("button", { name: "Content health" })
     .click();
   await expect(

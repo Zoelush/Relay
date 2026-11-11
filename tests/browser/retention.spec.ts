@@ -3,6 +3,7 @@ import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
 import { getIdentity } from "../../server/people";
 import { command } from "../../server/conversations";
+import { settingsMenu } from "./settings-menu";
 
 /**
  * Retention (phase 16, C6a; docs/SECURITY_STEP9.md), end to end. Happy path: a manager sets
@@ -47,7 +48,7 @@ test("a manager shortens conversation retention, is warned what it deletes, save
   // The run that deleted it is in the audit log with what it deleted. (The sweep queues its own run as
   // soon as a policy is saved, so "Run now" may find nothing left: the page then shows that later run.)
   await expect
-    .poll(async () => (await tenant(relay.db.connect, "demo", (x) => x.query("SELECT details FROM audit_events WHERE workspace_id='demo' AND action='data.retention_applied'"))).rows.map((r) => r.details?.conversations ?? 0).reduce((a, b) => a + b, 0), { timeout: 20000 })
+    .poll(async () => (await tenant(relay.db.connect, "demo", (x) => x.query<{ details: { conversations?: number } | null }>("SELECT details FROM audit_events WHERE workspace_id='demo' AND action='data.retention_applied'"))).rows.map((r) => r.details?.conversations ?? 0).reduce((a, b) => a + b, 0), { timeout: 20000 })
     .toBe(1);
   await page.reload();
   await expect(page.getByRole("region", { name: "Last run" }).or(page.getByText("Nothing was old enough to delete.")).first()).toBeVisible();
@@ -74,6 +75,6 @@ test("a period below 30 days is refused with the reason; an agent can't reach re
   const grace = await (await browser.newContext()).newPage();
   await grace.goto(relay.hostOrigin + "/agent?as=grace#settings");
   await expect(grace.getByRole("navigation", { name: "Settings pages" })).toBeVisible({ timeout: 15000 });
-  await expect(grace.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Retention" })).toHaveCount(0);
+  await expect((await settingsMenu(grace)).getByRole("button", { name: "Retention" })).toHaveCount(0);
   expect(await grace.evaluate(async () => (await fetch("/api/agent/retention", { credentials: "same-origin" })).status)).toBe(403);
 });

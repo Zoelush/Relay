@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
+import { settingsMenu } from "./settings-menu";
 
 /** Settings › Teammates and Roles (S3a; docs/SETTINGS_STEP4.md). */
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
@@ -57,7 +58,7 @@ test("a teammate moved to a custom role, a new role created, and a role's permis
   // Grace, as a team lead, can manage ticket types.
   const grace = await (await browser.newContext()).newPage();
   await open(grace, "", "?as=grace");
-  const graceNav = grace.getByRole("navigation", { name: "Settings pages" });
+  const graceNav = await settingsMenu(grace);
   await expect(
     graceNav.getByRole("button", { name: "Ticket types" }),
   ).toBeVisible();

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
+import { settingsMenu } from "./settings-menu";
 
 /**
  * The security health check, and the subprocessors and encryption page (phase 16, C7c;
@@ -41,7 +42,7 @@ test("a manager follows a recommendation from the health check and sees it fixed
 test("an agent sees neither page, and the health check's API refuses them", async ({ browser }) => {
   const grace = await (await browser.newContext()).newPage();
   await grace.goto(relay.hostOrigin + "/agent?as=grace#settings");
-  const nav = grace.getByRole("navigation", { name: "Settings pages" });
+  const nav = await settingsMenu(grace);
   await expect(nav).toBeVisible({ timeout: 15000 });
   await expect(nav.getByRole("button", { name: "Health check" })).toHaveCount(0);
   await expect(nav.getByRole("button", { name: "Subprocessors and encryption" })).toHaveCount(0);

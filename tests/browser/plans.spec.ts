@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { startLocalRelay } from "../../scripts/local-relay";
 import { tenant } from "../../server/db";
+import { settingsMenu } from "./settings-menu";
 
 /**
  * Plans (phase 16, C8a; docs/SECURITY_STEP14.md), end to end. Happy path: an owner sees Enterprise
@@ -46,7 +47,7 @@ test("an owner sees their plan and every tier; on Starter, Pro's pages go and a 
     await page.reload();
     await expect(page.getByRole("heading", { name: "You're on Starter" })).toBeVisible();
     await expect(page.getByRole("list", { name: "Plan limits" })).toContainText("Brands: 1 of 1");
-    const nav = page.getByRole("navigation", { name: "Settings pages" });
+    const nav = await settingsMenu(page);
     await expect(nav.getByRole("button", { name: "Plan" })).toBeVisible();
     await expect(nav.getByRole("button", { name: "Workflows" })).toHaveCount(0);
     await page.goto(relay.hostOrigin + "/agent#settings/data-protection");
@@ -72,6 +73,6 @@ test("on Starter a second brand is refused with the count; an agent can't reach 
   const grace = await (await browser.newContext()).newPage();
   await grace.goto(relay.hostOrigin + "/agent?as=grace#settings");
   await expect(grace.getByRole("navigation", { name: "Settings pages" })).toBeVisible({ timeout: 15000 });
-  await expect(grace.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Plan" })).toHaveCount(0);
+  await expect((await settingsMenu(grace)).getByRole("button", { name: "Plan" })).toHaveCount(0);
   expect(await grace.evaluate(async () => (await fetch("/api/agent/plan", { credentials: "same-origin" })).status)).toBe(403);
 });
