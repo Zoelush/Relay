@@ -82,6 +82,8 @@ import {
 import { retrieveForAgent, searchable, type Retrieval } from "./ai-retrieval";
 import { APPROVAL_HOURS, procedureTurn, resumeTurn, type ProcedureTurn } from "./procedures";
 import type { ConnectorEnvironment } from "./connectors";
+import { keySourceOf, withWorkspaceModels, type ProviderEnvironment } from "./ai-providers";
+import type { KeySource } from "../lib/ai-providers";
 
 /**
  * The AI agent (phase 08, step A1; docs/AI_STEP1.md), behind `ai_agent_v1`: it answers customers
@@ -141,6 +143,12 @@ export type AiEnvironment = {
   classify?: ClassifierPort;
   /** Data connectors for procedures (phase 09 D2); without them a look-up fails and hands over. */
   connectors?: ConnectorEnvironment;
+  /**
+   * Phase 16 C9d: reading workspaces' own AI providers (the connector key, and how requests reach
+   * them). `model` and `classify` above are Relay's AI; a workspace with a primary provider answers
+   * with its own instead (`withWorkspaceModels`).
+   */
+  providers?: ProviderEnvironment;
 };
 export const DEFAULT_AGENT = "default";
 /** At most this many earlier messages go to the model. */
@@ -754,10 +762,12 @@ export function checkReply(
 /** The `ai.reply` job: one answer to one customer message (or the run of messages ending in it). */
 export async function runAiReply(
   connect: Connect,
-  env: AiEnvironment,
+  relayAi: AiEnvironment,
   job: Job,
 ): Promise<{ done: boolean; result: Record<string, unknown> }> {
   const w = job.workspace_id;
+  // Phase 16 C9d: the workspace's own AI providers, when it has a primary; Relay's AI otherwise.
+  const env = await withWorkspaceModels(connect, relayAi, w);
   const conversationId = String(job.payload.conversationId ?? "");
   const partId = String(job.payload.partId ?? "");
   const started = Date.now();
@@ -785,8 +795,10 @@ export async function runAiReply(
     }
     // Phase 16 C9b: over this period's AI limit (on a call, its minutes too) or the spend cap, Zoe
     // doesn't answer: a note tells the team why, and she stays out of the conversation.
+    // C9d: the meter for whose key she'd answer with.
+    const meter = (await keySourceOf(db, w)) === "workspace" ? "ai_resolutions_own_key" : "ai_resolutions";
     const limited =
-      (await pausedFor(db, w, "ai_resolutions")) ?? (c.current_channel === "voice" ? await pausedFor(db, w, "phone_minutes") : null);
+      (await pausedFor(db, w, meter)) ?? (c.current_channel === "voice" ? await pausedFor(db, w, "phone_minutes") : null);
     if (limited) {
       const agent = await agentOf(db, w);
       await append(db, w, c, { type: "ai", id: agent.id }, "internal_note", `${agent.name} didn't answer: ${limited} A teammate needs to reply.`, { aiUsageLimit: true }, "internal");
@@ -915,6 +927,7 @@ export async function runAiReply(
     targetedOut: decision.targetedOut,
     guard: decision.guard,
     remembered: decision.remembered,
+    keySource: decision.keySource,
   };
   const { trigger, outcome, reason } = decision;
   // Written only if nothing changed while the agent worked.
@@ -1092,8 +1105,9 @@ async function postProcedureTurn(
  * The `procedure.resume` job (phase 09 D3): a teammate decided on a write (or its approval
  * expired), so the procedure waiting on it moves on and what it says is posted.
  */
-export async function runProcedureResume(connect: Connect, env: AiEnvironment, job: Job) {
+export async function runProcedureResume(connect: Connect, relayAi: AiEnvironment, job: Job) {
   const w = job.workspace_id;
+  const env = await withWorkspaceModels(connect, relayAi, w);
   const resumed = await resumeTurn(connect, { connectors: env.connectors, classify: env.classify }, w, String(job.payload.approvalId ?? ""));
   if (!resumed) return { done: true, result: { skipped: true } };
   const written = await tenant(connect, w, async (db) => {
@@ -1177,6 +1191,8 @@ export type Decision = {
   targetedOut: string[];
   /** B2a: the guard that blocked the model's reply, if one did. */
   guard: Guard | null;
+  /** Phase 16 C9d: whose AI key answered (null: no model answered). */
+  keySource: KeySource | null;
   /** B2b: what was sent to model providers, and the conversations she remembered. */
   calls: ModelCall[];
   remembered: string[];
@@ -1274,15 +1290,19 @@ async function decide(
       // Z3a: only while no specialist has been chosen.
       specialists: specialist || input.routed ? [] : candidates.map((s) => ({ name: s.name, handles: s.handles })),
     };
-    calls.push({
+    const classifyCall: ModelCall = {
       kind: "classify",
       model: env.classify.model,
+      provider: env.classify.provider ?? null,
+      keySource: env.classify.keySource ?? "relay",
       sent: buildClassifyPrompt(request).user,
       redacted: r.on,
       redactions: {},
-    });
+    };
+    calls.push(classifyCall);
     try {
-      seen = await env.classify.classify(request);
+      // Phase 16 C9d: the record says who served it (a workspace's fallback, perhaps).
+      seen = await env.classify.classify(request, (served) => Object.assign(classifyCall, served));
     } catch {
       // Decision (docs/AI_STEP2.md): a failing classifier doesn't hand everything over. The agent
       // answers with A1's safeguards, and two failed answers still hand over.
@@ -1319,6 +1339,7 @@ async function decide(
   let data: Record<string, unknown> = {};
   let cited: string[] = [];
   let model: string | null = null;
+  let keySource: KeySource | null = null;
   let applied: string[] = [];
   let excluded: string[] = [];
   let guard: Guard | null = null;
@@ -1398,15 +1419,21 @@ async function decide(
         canary,
         memory: sentMemory,
       };
-      calls.push({
+      const answerCall: ModelCall = {
         kind: "answer",
         model: env.model.model,
+        provider: env.model.provider ?? null,
+        keySource: env.model.keySource ?? "relay",
         sent: buildPrompt(request).user,
         redacted: r.on,
         redactions: {},
-      });
+      };
+      calls.push(answerCall);
       try {
-        raw = await env.model.answer(request);
+        // Phase 16 C9d: the model that answered and whose key, for the answer's record and billing.
+        raw = await env.model.answer(request, (served) => Object.assign(answerCall, served));
+        model = answerCall.model;
+        keySource = answerCall.keySource ?? "relay";
       } catch (e) {
         // Retried by the job; after a few attempts the customer is told plainly instead.
         if (input.attempts < GIVE_UP_AFTER) throw e;
@@ -1511,6 +1538,7 @@ async function decide(
     handoverTeamId: team(),
     targetedOut: excluded,
     guard,
+    keySource,
     calls: calls.map((c) => ({ ...c, redactions: r.counts() })),
     remembered: model ? input.memory.map((m) => m.conversationId) : [],
   };
@@ -1622,7 +1650,8 @@ export async function previewAiReply(
   });
   const voice = prepared.draft?.voice ?? voiceOf(prepared.agent);
   const guidanceList = prepared.draft?.guidance ?? prepared.agent.answer_guidance;
-  const d = await decide(connect, env, {
+  // Phase 16 C9d: the Playground answers as customers would be answered: with the workspace's own provider, if it has one.
+  const d = await decide(connect, await withWorkspaceModels(connect, env, w), {
     w,
     agent: prepared.agent,
     question,
@@ -2151,12 +2180,14 @@ async function record(
     remembered?: string[];
     /** Phase 09 D2: the procedure run that took the message. */
     procedureRunId?: string | null;
+    /** Phase 16 C9d: whose AI key answered (null: no model answered). */
+    keySource?: KeySource | null;
   },
 ) {
   await db.query(
     `INSERT INTO ai_answers(workspace_id,id,agent_id,conversation_id,question_part_id,reply_part_id,outcome,reason,top_score,threshold,passages,cited,model,prompt_version,latency_ms,trigger,handover_team_id,
-       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out,guard,remembered,procedure_run_id)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
+       language,detected_language,guidance_version,guidance_applied,specialist_id,specialist_reason,targeted_out,guard,remembered,procedure_run_id,key_source)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) ON CONFLICT(workspace_id,question_part_id) DO NOTHING`,
     [
       w,
       crypto.randomUUID(),
@@ -2190,6 +2221,7 @@ async function record(
       a.guard ?? null,
       a.remembered ?? [],
       a.procedureRunId ?? null,
+      a.keySource ?? null,
     ],
   );
   if (a.retrieval?.passages.length && a.outcome !== "skipped")
@@ -2248,17 +2280,19 @@ export async function aiAnswers(
   ]);
   // B2b: what was sent to model providers, for managers only (it's the conversation's text).
   const manager = await can(db, w, principal, "workspace.manage");
-  const sent = new Map<string, { kind: string; model: string; sent: string; redacted: boolean; redactions: Record<string, number> }[]>();
+  type Sent = { kind: string; model: string; sent: string; redacted: boolean; redactions: Record<string, number>; provider: string | null; keySource: KeySource; failover: string | null };
+  const sent = new Map<string, Sent[]>();
   if (manager)
     for (const call of (
-      await db.query<{ question_part_id: string; kind: string; model: string; sent: string; redacted: boolean; redactions: Record<string, number> }>(
-        "SELECT question_part_id,kind,model,sent,redacted,redactions FROM ai_model_calls WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at",
+      await db.query<Omit<Sent, "keySource"> & { question_part_id: string; key_source: KeySource }>(
+        "SELECT question_part_id,kind,model,sent,redacted,redactions,provider,key_source,failover FROM ai_model_calls WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at",
         [w, c.id],
       )
     ).rows)
       sent.set(call.question_part_id, [
         ...(sent.get(call.question_part_id) ?? []),
-        { kind: call.kind, model: call.model, sent: call.sent, redacted: call.redacted, redactions: call.redactions },
+        // Phase 16 C9d: and who served it, whose key, and the primary that failed first.
+        { kind: call.kind, model: call.model, sent: call.sent, redacted: call.redacted, redactions: call.redactions, provider: call.provider, keySource: call.key_source, failover: call.failover },
       ]);
   // Z2: the voice and guideline titles of each guidance version an answer was given.
   const versions = new Map<number, Awaited<ReturnType<typeof guidanceAt>>>();

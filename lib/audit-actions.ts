@@ -55,6 +55,8 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   knowledge_source: { noun: "Knowledge source", area: "Zoe and AI" },
   connector: { noun: "Data connector", area: "Zoe and AI" },
   "connector.secret": { noun: "Connector credential", area: "Zoe and AI" },
+  // Phase 16 C9d: a workspace's own AI provider (its key only as "a secret was replaced").
+  ai_provider: { noun: "AI provider", area: "Zoe and AI" },
   procedure: { noun: "Procedure", area: "Zoe and AI" },
   workflow: { noun: "Workflow", area: "Automation" },
   outbound: { noun: "Outbound message", area: "Automation" },

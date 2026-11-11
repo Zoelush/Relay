@@ -21,7 +21,7 @@ export const PROTECTIONS: Protection[] = [
   {
     id: "secrets",
     what: "Credentials and secrets you give Relay",
-    how: "Channel and connector credentials, app and webhook secrets, single sign-on client secrets, two-factor secrets and invitation links are sealed with AES-256-GCM: a new random 96-bit nonce each time, bound to the workspace and purpose (so a sealed value can't be moved elsewhere), under RELAY_CONNECTOR_KEY. The API never returns them.",
+    how: "Channel and connector credentials, AI provider keys, app and webhook secrets, single sign-on client secrets, two-factor secrets and invitation links are sealed with AES-256-GCM: a new random 96-bit nonce each time, bound to the workspace and purpose (so a sealed value can't be moved elsewhere), under RELAY_CONNECTOR_KEY. The API never returns them.",
   },
   {
     id: "identity",

@@ -79,6 +79,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET seats": { needs: "billing.manage" },
   "GET usage": { needs: "billing.manage" },
   "GET usage-units": { needs: "billing.manage" },
+  // Phase 16 C9d: the workspace's own AI providers for Zoe.
+  "GET ai-providers": { needs: "workspace.manage" },
   "GET security-sessions": { needs: "security.manage" },
   "GET settings": { needs: "teammate" },
   "GET side-conversations": { needs: "teammate" },
@@ -156,6 +158,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "POST support-access": { needs: "security.manage" },
   "POST seats": { needs: "billing.manage" },
   "POST usage": { needs: "billing.manage" },
+  "POST ai-providers": { needs: "workspace.manage" },
   "POST security-sessions": { needs: "security.manage" },
   "POST settings": { needs: "workspace.manage", body: { section: "general", name: "Relay", timezone: "Europe/London", language: "en" } },
   "POST side-conversation": { needs: "conversations.reply" },

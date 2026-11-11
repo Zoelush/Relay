@@ -52,6 +52,7 @@ import { resolveQuiet } from "../server/ai-resolutions";
 import { sampleForReview } from "../server/zoe-review";
 import { checkMonitors } from "../server/zoe-monitors";
 import { runConnectorTest } from "../server/connectors";
+import { runProviderTest } from "../server/ai-providers";
 import { expireApprovals } from "../server/procedures";
 import { resumeDueWorkflows, resumeWorkflow, startWorkflows } from "../server/workflow-engine";
 import { changeWorkflow } from "../server/workflows";
@@ -176,6 +177,12 @@ export async function startLocalRelay(
     index?: IndexEnvironment;
     /** The AI agent's models (phase 08); stand-ins by default. */
     ai?: { model?: AnswerModel; rerank?: RerankPort; classify?: ClassifierPort };
+    /**
+     * Phase 16 C9d: how workspaces' own AI providers are reached (tests pass a stub `fetch`; by
+     * default, the real providers, with the key a manager enters), and their page's flag (on).
+     */
+    aiProviders?: { policy?: FetchPolicy };
+    aiProvidersFlag?: boolean;
     /** The AI agent (phase 08), likewise on locally unless turned off. */
     aiAgent?: boolean;
     /** Phase 16 C4a: a stand-in OpenID Connect provider on this loopback port, for single sign-on. */
@@ -394,6 +401,8 @@ export async function startLocalRelay(
     index: env.knowledgeIndex!,
     // Procedures (phase 09 D2) call connectors from the reply job.
     connectors: env.connectors,
+    // Phase 16 C9d: workspaces' own AI providers, their keys sealed with the same local key.
+    providers: { key: keys.connector, policy: options.aiProviders?.policy ?? {} },
   };
   for (const w of ["demo", "other"])
     await tenant(db.connect, w, (sql) =>
@@ -743,6 +752,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='security_v1'",
         [w, options.securityFlag !== false],
       );
+      // Phase 16 C9d: the workspace's own AI providers.
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='ai_providers_v1'",
+        [w, options.aiProvidersFlag !== false],
+      );
       // Reporting (phase 14, R1).
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='reports_v1'",
@@ -1001,6 +1015,8 @@ export async function startLocalRelay(
     runDuplicates(db.connect, env.knowledgeIndex!, job);
   handlers["ai.reply"] = (job) => runAiReply(db.connect, env.ai!, job);
   handlers["connector.test"] = (job) => runConnectorTest(db.connect, env.connectors!, job);
+  // Phase 16 C9d: Save and test on Settings › AI providers.
+  handlers["ai.provider.test"] = (job) => runProviderTest(db.connect, env.ai!.providers!, job);
   handlers["procedure.resume"] = (job) => runProcedureResume(db.connect, env.ai!, job);
   // Phase 11: workflows triggered, and waiting runs resumed.
   // W3: workflows call read connectors with the same key and fetch policy as Zoe.

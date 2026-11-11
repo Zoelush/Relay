@@ -72,6 +72,8 @@ export const PLANS: Record<PlanId, { name: string; summary: string; monthlyCents
  */
 export const UNIT_PRICES: Record<import("./meters").MeterId, number | null> = {
   ai_resolutions: null,
+  // Phase 16 C9d: lower than ai_resolutions (the workspace pays its provider); a placeholder too.
+  ai_resolutions_own_key: null,
   emails: null,
   whatsapp: null,
   sms_segments: null,

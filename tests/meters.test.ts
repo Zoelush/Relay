@@ -61,6 +61,8 @@ test("meters: each unit read from its source for a period, traced to its convers
     await reversal("r2x", "r2", c2.id, new Date(inPeriod.getTime() + 1000));
     await resolution("r0", c1.id, lastPeriod);
     await reversal("r0x", "r0", c1.id, inPeriod);
+    // Phase 16 C9d: one answered on the workspace's own AI key: its own meter, not Relay's.
+    await q("a", "INSERT INTO ai_resolutions(workspace_id,id,kind,conversation_id,agent_id,rule,window_hours,recorded_at,key_source) VALUES('a','r3','resolution',$1,'default','confirmed',24,$2,'workspace')", [c2.id, inPeriod]);
 
     // Deliveries: sent ones count (failed and suppressed are free).
     const delivery = (channel: string, conv: { id: string; part: string; identityId: string }, status: string, part = conv.part) =>
@@ -125,6 +127,7 @@ test("meters: each unit read from its source for a period, traced to its convers
     const totals = Object.fromEntries(now.meters.map((m) => [m.id, m.quantity]));
     assert.deepEqual(totals, {
       ai_resolutions: 0, // r1 and r2 (+2), r2's and r0's reversals (−2)
+      ai_resolutions_own_key: 1, // r3
       emails: 2,
       whatsapp: 1,
       sms_segments: segmentsOf(longText).segments + segmentsOf("Another").segments,

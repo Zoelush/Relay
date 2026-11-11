@@ -532,9 +532,19 @@ export async function procedureTurn(
   if (!wantsPerson && env.classify) {
     const r = redactor(input.redact, input.names);
     const request = { message: r.redact(input.question), history: [], locale: input.locale, topics: [], guidance: [], spam: [], specialists: [] };
-    calls.push({ kind: "classify", model: env.classify.model, sent: buildClassifyPrompt(request).user, redacted: r.on, redactions: {} });
+    const call: ModelCall = {
+      kind: "classify",
+      model: env.classify.model,
+      provider: env.classify.provider ?? null,
+      keySource: env.classify.keySource ?? "relay",
+      sent: buildClassifyPrompt(request).user,
+      redacted: r.on,
+      redactions: {},
+    };
+    calls.push(call);
     try {
-      wantsPerson = (await env.classify.classify(request)).wantsHuman;
+      // Phase 16 C9d: the record says who served it (a workspace's fallback, perhaps).
+      wantsPerson = (await env.classify.classify(request, (served) => Object.assign(call, served))).wantsHuman;
     } catch {
       // Without the classifier the procedure carries on; the button still hands over.
     }

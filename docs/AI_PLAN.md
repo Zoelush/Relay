@@ -29,6 +29,7 @@ Acceptance criteria (phase brief):
    - **Classification and grading:** Claude Haiku 4.5, from A2 and C1.
    - **Reranking:** Workers AI `bge-reranker-base`, behind `RerankPort`.
    - **The key:** `ANTHROPIC_API_KEY`, a Worker secret (`.dev.vars` locally), never committed.
+   - **A workspace's own provider** (phase 16, C9d; `docs/SECURITY_STEP19.md`): these are Relay's AI, the default. A workspace can instead connect Claude, OpenAI, Gemini, DeepSeek or an OpenAI-compatible endpoint with its own key and model, as a primary with an optional fallback.
    - **Locally and in tests:** deterministic stand-ins, so tests need no network.
    - **C1's acceptance demo** needs a real key to be meaningful. The user hasn't confirmed one yet; ask again at C1.
 3. **The "I don't know" gate is code:**

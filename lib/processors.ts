@@ -25,9 +25,18 @@ export const PROCESSORS: Processor[] = [
     id: "model-provider",
     name: "Anthropic (Claude)",
     receives: "Customer messages Zoe answers, with personal data redacted when the setting is on",
-    when: "Zoe, the AI agent",
+    when: "Zoe, the AI agent, with Relay's AI (unless the workspace connects its own provider)",
     keeps: "Under Anthropic's API data retention terms",
     deletion: "provider-policy",
+  },
+  {
+    // Phase 16 C9d: a workspace's own AI providers (docs/SECURITY_STEP19.md), instead of Relay's.
+    id: "workspace-model-providers",
+    name: "The workspace's own AI providers (Claude, OpenAI, Gemini, DeepSeek or an OpenAI-compatible endpoint)",
+    receives: "Customer messages Zoe answers, with personal data redacted when the setting is on",
+    when: "Zoe, when the workspace connects its own provider on Settings › AI providers",
+    keeps: "Under the workspace's own terms with that provider",
+    deletion: "workspace-destination",
   },
   {
     id: "workers-ai",

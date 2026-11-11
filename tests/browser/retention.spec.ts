@@ -44,8 +44,16 @@ test("a manager shortens conversation retention, is warned what it deletes, save
   await expect(page.getByRole("status").filter({ hasText: "Running now." })).toBeVisible();
   await expect.poll(() => exists(conversations.old), { timeout: 20000 }).toBe(false);
   expect(await exists(conversations.recent)).toBe(true);
+  // The run that deleted it is in the audit log with what it deleted. (The sweep queues its own run as
+  // soon as a policy is saved, so "Run now" may find nothing left: the page then shows that later run.)
+  await expect
+    .poll(async () => (await tenant(relay.db.connect, "demo", (x) => x.query("SELECT details FROM audit_events WHERE workspace_id='demo' AND action='data.retention_applied'"))).rows.map((r) => r.details?.conversations ?? 0).reduce((a, b) => a + b, 0), { timeout: 20000 })
+    .toBe(1);
   await page.reload();
-  await expect(page.getByRole("list", { name: "Deleted in the last run" })).toContainText("Conversations: 1");
+  await expect(page.getByRole("region", { name: "Last run" }).or(page.getByText("Nothing was old enough to delete.")).first()).toBeVisible();
+  const last = page.getByRole("list", { name: "Deleted in the last run" });
+  if (await last.count()) await expect(last).toContainText("Conversations: 1");
+  else await expect(page.getByText("Nothing was old enough to delete.")).toBeVisible();
 });
 
 test("a period below 30 days is refused with the reason; an agent can't reach retention", async ({ page, browser }) => {

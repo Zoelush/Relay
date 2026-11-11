@@ -11,6 +11,7 @@ import { hueOf, useAgentName, ZoeMark } from "./colour";
 import { languageName, type Voice } from "../lib/zoe-voice";
 import { voiceSummary } from "./zoe-labels";
 import { GUARD_NAMES, redactionWords } from "./zoe-guidance";
+import { servedWords } from "../lib/ai-providers";
 
 export type TimelinePart = {
   id: string;
@@ -436,7 +437,19 @@ type AiAnswer = {
    * managers, exactly what was sent to the model providers (null for others). */
   guard: string | null;
   remembered: number;
-  sent: { kind: string; model: string; sent: string; redacted: boolean; redactions: Record<string, number> }[] | null;
+  sent:
+    | {
+        kind: string;
+        model: string;
+        sent: string;
+        redacted: boolean;
+        redactions: Record<string, number>;
+        /** Phase 16 C9d: who served it, whose key, and the primary that failed first. */
+        provider?: string | null;
+        keySource?: "relay" | "workspace";
+        failover?: string | null;
+      }[]
+    | null;
 };
 const OUTCOMES: Record<string, string> = {
   answered: "Answered from content",
@@ -620,6 +633,14 @@ function AiReplyDetails({ p }: { p: TimelinePart }) {
                   <dt>Sent to the model</dt>
                   <dd>
                     {redactionWords(answer.sent[answer.sent.length - 1].redactions, answer.sent[0].redacted)}
+                    {answer.sent
+                      .filter((c) => c.kind === "answer")
+                      .map((c, i) => (
+                        <span key={i} className="pg-zoe-served">
+                          {" "}
+                          {servedWords(c)}
+                        </span>
+                      ))}
                     <details className="pg-zoe-sent">
                       <summary>Show exactly what was sent</summary>
                       {answer.sent.map((c, i) => (

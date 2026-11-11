@@ -127,6 +127,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if (manage && (await flag(db, w, "segments_v1")) && (await flag(db, w, "outbound_v1"))) pages.push("outbound");
   // The AI agent (phase 08 A2a): its handover choices, for workspace managers.
   if (manage && (await flag(db, w, "ai_agent_v1"))) pages.push("ai-agent");
+  // Phase 16 C9d: the workspace's own AI providers for Zoe.
+  if (manage && (await flag(db, w, "ai_providers_v1"))) pages.push("ai-providers");
   if (manageKnowledge) {
     pages.push("help-centers");
     if (await flag(db, w, "knowledge_sync_v1")) pages.push("websites");

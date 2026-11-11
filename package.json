@@ -28,6 +28,7 @@
     "example:orders": "node --import tsx demo/order-lookup/serve.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "^5.7.1",
     "@noble/hashes": "1.8.0",

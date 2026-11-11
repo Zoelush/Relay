@@ -21,11 +21,15 @@ const outbound = (type: "chat" | "banner") =>
   `SELECT e.id,COALESCE(e.entered_at,e.created_at) AS at,1 AS quantity,e.conversation_id,e.contact_id,m.title AS detail
    FROM outbound_entries e JOIN outbound_messages m ON m.workspace_id=e.workspace_id AND m.id=e.message_id
    WHERE e.workspace_id=$1 AND e.status='sent' AND m.type='${type}' AND COALESCE(e.entered_at,e.created_at)>=$2 AND COALESCE(e.entered_at,e.created_at)<$3`;
+// Phase 16 C9d: resolutions by whose AI key answered (the ledger's `key_source`; a reversal carries its resolution's).
+const resolutions = (key: "relay" | "workspace") =>
+  `SELECT r.id,r.recorded_at AS at,CASE r.kind WHEN 'resolution' THEN 1 ELSE -1 END AS quantity,r.conversation_id,NULL::text AS contact_id,
+     CASE r.kind WHEN 'resolution' THEN 'Resolved (' || replace(r.rule,'_',' ') || ')' ELSE 'Reversed' END AS detail
+     FROM ai_resolutions r WHERE r.workspace_id=$1 AND r.key_source='${key}' AND r.recorded_at>=$2 AND r.recorded_at<$3`;
 /** Each meter's units, as one query over its source ($1 workspace, $2 period start, $3 period end). */
 const SOURCES: Record<MeterId, string> = {
-  ai_resolutions: `SELECT r.id,r.recorded_at AS at,CASE r.kind WHEN 'resolution' THEN 1 ELSE -1 END AS quantity,r.conversation_id,NULL::text AS contact_id,
-     CASE r.kind WHEN 'resolution' THEN 'Resolved (' || replace(r.rule,'_',' ') || ')' ELSE 'Reversed' END AS detail
-     FROM ai_resolutions r WHERE r.workspace_id=$1 AND r.recorded_at>=$2 AND r.recorded_at<$3`,
+  ai_resolutions: resolutions("relay"),
+  ai_resolutions_own_key: resolutions("workspace"),
   emails: deliveries("email"),
   whatsapp: deliveries("whatsapp"),
   sms_segments: deliveries("sms", true),

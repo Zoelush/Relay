@@ -81,6 +81,7 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
 | **C7: Security posture** | **Link safety:** trusted and blocked domains, a warning on untrusted links, and malicious links a teammate must acknowledge.<br>**Risky merges:** switches for merging conversations across different people, and for merging unverified leads into users by email.<br>**Vendor support access:** time-limited and audited.<br>**A security health check** summarising the workspace's settings.<br>**In the product:** the subprocessor list, plus encryption and key management, documented.<br>*Deferrable:* the stricter regulated mode (no third-party model training, restricted attachment types, mandatory audit review, data region), and a test workspace paired with production (it also serves phase 15's D6 sandbox). |
 | **C8: Plans and seats** | **One plan policy document** (`lib/plans.ts`) maps features and limits to tiers. **One gating module** reads it, and a test fails on a feature check outside it.<br>**Seats:** full and limited, with prorated changes and a view of who occupies each. |
 | **C9: Metering, limits and the spend cap** | **Every billable unit is metered from its source record:** AI outcomes (the phase 08 ledger), SMS segments, email, WhatsApp, phone minutes, outbound messages by type, and connector calls. A usage page traces each unit back to its conversation or message.<br>**Alerts** (notify only) and **limits** that pause a feature, never the product. A full limit on Zoe sends conversations to people.<br>**A spend cap** the customer controls. |
+| **C9d: AI providers** (asked for after C9c; decision 37) | **Each workspace can connect its own AI provider for Zoe** (Claude, OpenAI, Gemini, DeepSeek, or any OpenAI-compatible endpoint) with its own key and model, as a primary with an optional fallback. Relay's AI stays the default.<br>**Resolutions on the workspace's own key** are their own meter, at their own price. |
 | **C10: Invoices and the billing lifecycle** | **Invoices** are computed from the meters, with each line tracing to its units. The reconciliation test covers them.<br>**A payment provider port:** Stripe deployed, a stand-in locally, and no real charges from tests.<br>**The lifecycle:** trials, upgrades, and downgrades with a defined behaviour for data over the lower plan's limits. Also dunning, and invoices in Settings › Billing. |
 
 ## Decisions (proposed)
@@ -506,6 +507,45 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **Migration `0096_usage_alerts`:**
       - **New:** `usage_alerts`, `usage_settings.alert_thresholds`, and the `usage_alert` kinds on notifications and alert emails.
       - **Its rollback** clears every workspace's thresholds, so no alert is sent. The sent alerts stay.
+
+37. **C9d, AI providers: choices and decisions** (11 November 2026). Asked for after C9c, built before C10 (docs/SECURITY_STEP19.md):
+    - **The choices:**
+      - **Providers:** Claude, OpenAI and Gemini, each with its own adapter; DeepSeek, an OpenAI-compatible adapter at DeepSeek's address; and any OpenAI-compatible endpoint (base URL, key and model).
+      - **Choosing:** one primary and an optional fallback, used only when the primary fails or times out. Each call records which one answered.
+      - **Billing:** a workspace on its own key is still billed per AI resolution, at a separate, lower price (a placeholder until prices are set).
+      - **Default:** Relay's deployment key (`ANTHROPIC_API_KEY`) with decision 2's models (Claude Sonnet 5.5 answers, Claude Haiku 4.5 classifies). A workspace that connects its own provider uses that instead.
+    - **A connection** is one per provider per workspace. It holds:
+      - **the key,** sealed with `seal()` (the connector key, bound to the workspace and provider). It's never returned; the page shows its last 4 characters.
+      - **the answering model,** and optionally a cheaper model for classifying messages (by default, the same one).
+      - **for a custom endpoint,** its https base URL. Relay calls `<base>/chat/completions` through `safeRequest`, so private addresses are refused.
+    - **Primary and fallback:** each is a connection, and the fallback must be a different one.
+      - **Failing** means an error, a refusal, a reply Relay can't read, or no answer in time (30 seconds to answer, 15 to classify).
+      - **With a primary set,** answering and classifying both go to the workspace's providers, and Relay's key is never used for that workspace, not even when both fail. The workspace chose where its customers' data goes, and the job's retries and Zoe's "talk to a person" handle a failure as before.
+      - **A key that can't be read** (the connector key changed) counts as a failure. It's never a silent switch.
+    - **Recording:** each model call in `ai_model_calls` records the provider, the model that served it, whose key (`relay` or `workspace`), and the primary that failed first, with its reason.
+      - Each answer (`ai_answers.key_source`) records whose key answered it.
+      - A resolution is "own key" when every answer it rests on was answered with the workspace's key. Its reversal carries the same.
+    - **Billing:** a new meter, `ai_resolutions_own_key`, with its own price slot (null for now). `ai_resolutions` now counts resolutions on Relay's key only.
+      - **Limits:** Zoe asks `pausedFor` of the meter for the key she'd use.
+      - **The spend cap** covers both meters.
+    - **Save and test:** saving the connection, then an `ai.provider.test` job, like the connector test console.
+      - **What it sends:** one fixed question with one fixed passage, and no customer data, to the answering model, and to the classifying model when it's different.
+      - **What's shown:** the result goes on the connection and the page shows it. A failure says why (by its status, never the provider's response body).
+    - **The page:** Settings › Knowledge & AI › AI providers (`workspace.manage`, which already covers Zoe). It's behind `ai_providers_v1`, off by default, on locally, and on every plan.
+    - **Privacy stays as it is:** redaction, the record of model calls, `guardReply`, and the hostile corpus apply to every provider; the adapters change only the transport.
+      - **Processors:** `lib/processors.ts` gains "The workspace's own AI providers", a workspace destination.
+      - **The page says where each provider processes data** (DeepSeek's API is run from China).
+    - **Fixing the Claude adapter for current models:**
+      - **The SDK:** it now uses Anthropic's official SDK (`@anthropic-ai/sdk`).
+      - **Removed:** the "{" prefill and temperature 0, which Claude Sonnet 5.5 and later reject.
+      - **JSON:** asked for by instruction, with structured outputs where the model supports them.
+      - **Effort:** medium for answers and low for classifying, on models that take it.
+      - **Refusals:** the server-side refusal fallback (`fallbacks: "default"`) on models that support it. A refusal is a failure, so the workspace's fallback takes over.
+      - **Other providers** get no temperature (reasoning models reject it). OpenAI gets `max_completion_tokens`, DeepSeek and custom endpoints get `max_tokens`, and OpenAI and DeepSeek get JSON mode.
+    - **Suggested models** (as of 11 November 2026, from each provider's documentation): the dialog's suggestions only. The field takes any name, and "Save and test" checks it.
+    - **Migration `0097_ai_providers`:**
+      - **New:** `ai_providers` (audited, the sealed key skipped), the recording columns, `key_source` on answers and resolutions, the new meter in the limit and alert checks, and the flag.
+      - **Its rollback** clears every primary and fallback and turns the flag off, so every workspace answers with Relay's key again. It removes limits on the new meter. The connections and their sealed keys stay, unused. The earlier code counts every resolution under `ai_resolutions`.
 
 ## Approved choices
 
