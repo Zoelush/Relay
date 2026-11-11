@@ -155,6 +155,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "POST link-verdict": { needs: "teammate" },
   "POST support-access": { needs: "security.manage" },
   "POST seats": { needs: "billing.manage" },
+  "POST usage": { needs: "billing.manage" },
   "POST security-sessions": { needs: "security.manage" },
   "POST settings": { needs: "workspace.manage", body: { section: "general", name: "Relay", timezone: "Europe/London", language: "en" } },
   "POST side-conversation": { needs: "conversations.reply" },

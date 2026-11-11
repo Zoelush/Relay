@@ -1,3 +1,4 @@
+import { pausedFor } from "./limits";
 import { featureOn } from "./plans";
 import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
@@ -260,7 +261,9 @@ export async function runConnector(
       w,
       new Date(Date.now() - 10 * 60_000).toISOString(),
     ]);
-    return { def, context, secrets, token, overLimit: calls > def.rateLimit, writesEnabled: c.writes_enabled, paused: c.paused };
+    // Phase 16 C9b: Zoe's and workflows' calls stop at this period's limit (or the spend cap); tests never do.
+    const usageLimited = run.source === "test" ? null : await pausedFor(db, w, "connector_calls");
+    return { def, context, secrets, token, overLimit: calls > def.rateLimit, writesEnabled: c.writes_enabled, paused: c.paused, usageLimited };
   });
   const { def } = prepared;
   const known: string[] = [];
@@ -279,6 +282,7 @@ export async function runConnector(
   // A write is retried only when the service can tell the attempts are one (an idempotency key).
   const retries = write && !(def.idempotencyHeader && run.idempotencyKey) ? 0 : def.retries;
   try {
+    if (prepared.usageLimited) throw new Stop("refused", prepared.usageLimited);
     if (write && prepared.paused) throw new Stop("refused", "Write actions are paused for this workspace.");
     // Phase 11 W3: workflows only read; writes stay with Zoe's procedures and their safeguards.
     if (write && run.source === "workflow") throw new Stop("refused", "Workflows call read connectors only.");

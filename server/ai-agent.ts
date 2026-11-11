@@ -1,3 +1,4 @@
+import { pausedFor } from "./limits";
 import { channels } from "./channels";
 
 /** Whether Zoe may answer on the conversation's channel, and (E4) this message on it. */
@@ -781,6 +782,18 @@ export async function runAiReply(
         threshold: agent.confidence_threshold,
       });
       return { skip: reason };
+    }
+    // Phase 16 C9b: over this period's AI limit (on a call, its minutes too) or the spend cap, Zoe
+    // doesn't answer: a note tells the team why, and she stays out of the conversation.
+    const limited =
+      (await pausedFor(db, w, "ai_resolutions")) ?? (c.current_channel === "voice" ? await pausedFor(db, w, "phone_minutes") : null);
+    if (limited) {
+      const agent = await agentOf(db, w);
+      await append(db, w, c, { type: "ai", id: agent.id }, "internal_note", `${agent.name} didn't answer: ${limited} A teammate needs to reply.`, { aiUsageLimit: true }, "internal");
+      await db.query("UPDATE conversations SET ai_state='escalated' WHERE workspace_id=$1 AND id=$2", [w, c.id]);
+      await syncUnread(db, w, c);
+      await record(db, w, { agentId: agent.id, conversationId: c.id, partId, outcome: "skipped", reason: limited, threshold: agent.confidence_threshold });
+      return { skip: limited };
     }
     return { context: await context(db, w, c, partId) };
   });

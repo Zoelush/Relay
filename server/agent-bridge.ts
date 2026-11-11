@@ -202,6 +202,7 @@ const routes = {
     "link-verdict",
     "support-access",
     "seats",
+    "usage",
     "invitations",
     "email-settings",
     "help-centers",

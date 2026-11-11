@@ -69,8 +69,10 @@ the stand-in provider `scripts/local-idp.ts`), is done locally (`docs/SECURITY_S
 `docs/TRUST.md`), is done locally (`docs/SECURITY_STEP13.md`): C7 is complete. C8a, plans (`lib/plans.ts`, `server/plans.ts`,
 `#settings/plan`), is done locally (`docs/SECURITY_STEP14.md`), and C8b, seats (`lib/seats.ts`, `server/seats.ts`, `#settings/seats`), is
 done locally (`docs/SECURITY_STEP15.md`): C8 is complete. C9a, meters (`lib/meters.ts`, `server/meters.ts`,
-`#settings/usage`), is done locally (`docs/SECURITY_STEP16.md`); next is C9b (alerts, limits that pause automated sends, the spend
-cap). A meter is one query over its source record in `server/meters.ts`'s `SOURCES` (never a counter: a test fails on a write
+`#settings/usage`), is done locally (`docs/SECURITY_STEP16.md`), and C9b, limits and the spend cap (`server/limits.ts`), is done locally
+(`docs/SECURITY_STEP17.md`); next is C9c (usage alerts, in the app and by email). Every automated sender asks `pausedFor(meter)` before
+sending (Zoe in `runAiReply`, outbound in `admit`, automated channel messages in `runDelivery`, connector calls in `runConnector`); a
+new automated sender asks it too. A limit never pauses a teammate's own reply, a call or the inbox. A meter is one query over its source record in `server/meters.ts`'s `SOURCES` (never a counter: a test fails on a write
 there), returning traceable units (id, time, quantity, conversation or contact); a new billable unit gets its entry in
 `lib/meters.ts`, its source query and a price slot in `UNIT_PRICES`. A limited seat gets only
 `LIMITED_CAPABILITIES` (in `authorize` and `can`) and lists nothing (`scopeSql` is false; views and counts are empty): a new list,
