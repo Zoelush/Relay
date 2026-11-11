@@ -87,6 +87,15 @@ export const PROCESSORS: Processor[] = [
     deletion: "workspace-destination",
   },
   {
+    // Phase 16 C10a: payments (docs/SECURITY_STEP20.md). It never receives a customer's data.
+    id: "stripe",
+    name: "Stripe",
+    receives: "The workspace's billing contact and invoice totals (never its customers' data); cards are entered on Stripe's own page",
+    when: "Billing, when Relay is deployed with Stripe",
+    keeps: "Under Stripe's terms",
+    deletion: "provider-policy",
+  },
+  {
     // Phase 16 C7a: link reputation (docs/SECURITY_STEP11.md).
     id: "safe-browsing",
     name: "Google Safe Browsing",

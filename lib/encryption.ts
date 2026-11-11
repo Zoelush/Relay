@@ -43,6 +43,12 @@ export const PROTECTIONS: Protection[] = [
     what: "What Relay signs",
     how: "Webhook deliveries and Canvas requests carry an HMAC-SHA-256 signature with a timestamp; deletion certificates are signed with HMAC-SHA-256 under a key derived from RELAY_CONNECTOR_KEY.",
   },
+  {
+    // Phase 16 C10a: cards never reach Relay.
+    id: "cards",
+    what: "Payment cards",
+    how: "Cards are entered on Stripe's own page and kept by Stripe; Relay keeps only a card's brand, last 4 digits and expiry, and charges it through Stripe. Stripe's webhooks are believed only when signed with the endpoint's secret within 5 minutes.",
+  },
 ];
 
 export type Key = { name: string; protects: string; rotation: string };
@@ -67,6 +73,17 @@ export const KEYS: Key[] = [
     name: "RELAY_BRIDGE_SECRET",
     protects: "Signs each request from Relay's web host to its API.",
     rotation: "Set the new value on the web host and the API together: a request signed with the old one is refused (each proof lasts 30 seconds).",
+  },
+  {
+    // Phase 16 C10a.
+    name: "STRIPE_SECRET_KEY",
+    protects: "Lets Relay create Stripe customers and card setups, and charge invoices. A live key is refused until RELAY_BILLING_LIVE=true.",
+    rotation: "Roll it in Stripe's dashboard and set the new one: nothing Relay keeps depends on it.",
+  },
+  {
+    name: "STRIPE_WEBHOOK_SECRET",
+    protects: "Checks that a payment webhook came from Stripe.",
+    rotation: "Roll it on the webhook endpoint in Stripe's dashboard and set the new one; events signed with the old one are refused.",
   },
 ];
 

@@ -17,6 +17,7 @@ Every outside service that receives customer data, what it receives, and what a 
 | Slack and Discord | Messages in the workspace's connected community spaces | Slack and Discord channels | In the workspace's own Slack or Discord | The workspace's own destination |
 | The workspace's webhooks | Event payloads for the topics each webhook subscribes to | Settings › Developers › Webhooks | In the workspace's own systems | The workspace's own destination |
 | The workspace's data connectors and apps | The inputs each connector declares, and what installed apps read through the API | Zoe's data connectors, Canvas and OAuth apps | In the workspace's own systems or the app's | The workspace's own destination |
+| Stripe | The workspace's billing contact and invoice totals (never its customers' data); cards are entered on Stripe's own page | Billing, when Relay is deployed with Stripe | Under Stripe's terms | Kept by the provider under its own terms |
 | Google Safe Browsing | The web addresses in customers' messages and emails (nothing else) | Link safety, when Relay is deployed with a Safe Browsing key | Under Google's Safe Browsing terms | Kept by the provider under its own terms |
 | Cloudflare and Neon (Relay's hosting) | Everything Relay stores: the database, files and queued work | Always | Deleted with the person; PostgreSQL's point-in-time backups keep them until the backup window passes | Deleted by Relay |
 
@@ -31,6 +32,7 @@ Every outside service that receives customer data, what it receives, and what a 
 | Teammates' passwords | Kept only as scrypt hashes (N=2^15, r=8, p=1) with a random 16-byte salt per password, and compared in constant time. |
 | Session, API and sign-in tokens | Kept only as SHA-256 hashes: teammate and support sessions, API and app tokens, invitations, two-factor and single sign-on logins, and workflow webhook secrets. A token is shown once and can't be read back. |
 | What Relay signs | Webhook deliveries and Canvas requests carry an HMAC-SHA-256 signature with a timestamp; deletion certificates are signed with HMAC-SHA-256 under a key derived from RELAY_CONNECTOR_KEY. |
+| Payment cards | Cards are entered on Stripe's own page and kept by Stripe; Relay keeps only a card's brand, last 4 digits and expiry, and charges it through Stripe. Stripe's webhooks are believed only when signed with the endpoint's secret within 5 minutes. |
 
 ## Keys
 
@@ -42,3 +44,5 @@ Each is a deployment secret, set with `wrangler secret put`: never in code, conf
 | `IDENTITY_MASTER` | Wraps each workspace's messenger identity keys. | Each workspace rotates its own identity keys through two slots without downtime. Changing IDENTITY_MASTER itself isn't automated yet. |
 | `SESSION_SECRET` | Signs the messenger's short-lived session tokens and preference links. | Changing it signs everyone out of the messenger, who then sign in again as before. |
 | `RELAY_BRIDGE_SECRET` | Signs each request from Relay's web host to its API. | Set the new value on the web host and the API together: a request signed with the old one is refused (each proof lasts 30 seconds). |
+| `STRIPE_SECRET_KEY` | Lets Relay create Stripe customers and card setups, and charge invoices. A live key is refused until RELAY_BILLING_LIVE=true. | Roll it in Stripe's dashboard and set the new one: nothing Relay keeps depends on it. |
+| `STRIPE_WEBHOOK_SECRET` | Checks that a payment webhook came from Stripe. | Roll it on the webhook endpoint in Stripe's dashboard and set the new one; events signed with the old one are refused. |

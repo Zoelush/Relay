@@ -57,6 +57,10 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   "connector.secret": { noun: "Connector credential", area: "Zoe and AI" },
   // Phase 16 C9d: a workspace's own AI provider (its key only as "a secret was replaced").
   ai_provider: { noun: "AI provider", area: "Zoe and AI" },
+  // Phase 16 C10a: billing details, the card on file (its last 4 only), and invoices issued and paid.
+  billing_profile: { noun: "Billing details", area: "Workspace" },
+  billing_card: { noun: "Card on file", area: "Workspace" },
+  invoice: { noun: "Invoice", area: "Workspace" },
   procedure: { noun: "Procedure", area: "Zoe and AI" },
   workflow: { noun: "Workflow", area: "Automation" },
   outbound: { noun: "Outbound message", area: "Automation" },

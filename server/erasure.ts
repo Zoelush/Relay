@@ -194,6 +194,9 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
       "workflow_versions", "workflows", "workspace", "workspace_features", "oauth_apps", "retention_settings", "redaction_rules", "link_policies", "support_grants", "support_logins", "support_sessions", "workspace_plans", "seat_changes", "usage_limits", "usage_settings", "usage_alerts",
       // Phase 16 C9d: a workspace's own AI providers (sealed keys and model names).
       "ai_providers",
+      // Phase 16 C10a: the workspace's billing: its invoices (units hold record ids, never a customer's
+      // details), billing contact, card on file (brand and last 4) and the provider's events.
+      "billing_profiles", "billing_customers", "invoices", "invoice_lines", "invoice_line_units", "payment_events",
     ].map((t) => [t, CONFIG]),
   ),
   ...Object.fromEntries(

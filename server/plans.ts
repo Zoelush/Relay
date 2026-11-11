@@ -1,3 +1,4 @@
+import type { PriceBook } from "../lib/invoices";
 import { DomainError, type Sql } from "./db";
 import { authorize } from "./policy";
 import {
@@ -148,3 +149,8 @@ export async function seatPrice(db: Sql, w: string) {
 
 /** Phase 16 C9a: each meter's price per unit (null while a placeholder). */
 export const unitPrices = () => ({ ...UNIT_PRICES });
+/** Phase 16 C10a: every price an invoice needs (a full seat on each plan, each meter's unit). */
+export const priceBook = (): PriceBook => ({
+  seat: Object.fromEntries(PLAN_IDS.map((id) => [id, PLANS[id].monthlyCents])) as PriceBook["seat"],
+  units: unitPrices(),
+});
