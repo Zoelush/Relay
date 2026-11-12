@@ -224,9 +224,7 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
     .getByRole("navigation", { name: "Knowledge areas" })
     .getByRole("button", { name: "Help centers" })
     .click();
-  await expect(
-    page.getByRole("region", { name: "Help center settings" }),
-  ).toBeVisible();
+  await expect(page.getByRole("region", { name: "Collections" })).toBeVisible();
   expect(await lowContrast(page)).toEqual([]);
 
   // Remembered in this browser.

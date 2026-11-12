@@ -176,6 +176,7 @@ test("public help center: server-rendered pages, metadata, redirects, access, si
       locale: "en",
       name: "Getting started",
       description: "First steps",
+      icon: "rocket",
     });
     await help({
       op: "node_update",
@@ -342,8 +343,14 @@ test("public help center: server-rendered pages, metadata, redirects, access, si
       /frame-src https:\/\/www.youtube-nocookie.com https:\/\/player.vimeo.com/,
     );
     assert.doesNotMatch(csp, /script-src/);
-    // A yellow theme gets dark header text.
-    assert.match(en.body, /--header-text:#111111/);
+    // The fonts are Relay's own files, so the pages may load them and nothing else.
+    assert.match(csp, /font-src 'self'/);
+    // The first design's theme still applies: its colour is the action colour and the hero's.
+    assert.match(en.body, /--action:#ffd400/);
+    assert.match(en.body, /--hero-bg:linear-gradient\(135deg,#ffd400,/);
+    // Yellow is too light for white text, on the hero or on a button.
+    assert.match(en.body, /--hero-text:#111111/);
+    assert.match(en.body, /--on-action:#111111/);
 
     // Spanish has no version: shown in English, with the English page as canonical and a notice.
     const es = await get("/help/a/acme/es/articles/reset-your-password");
@@ -383,6 +390,150 @@ test("public help center: server-rendered pages, metadata, redirects, access, si
       "de",
       "es",
       "x-default",
+    ]);
+    // The redesign (docs/HELP_CENTER_DESIGN.md): the hero's welcome line in the page's language,
+    // the search box in the hero, and each collection's icon on its card.
+    assert.match(home.body, /<h1 class="hero-line">Conseils et réponses de l&#x27;équipe Relay<\/h1>/);
+    assert.match(home.body, /class="hero hero-home"[\s\S]*role="search"/);
+    assert.match(home.body, /class="grid style-classic"[\s\S]*class="card-icon"[^>]*><svg[^>]*lucide-rocket/);
+    assert.match(home.body, /class="count">1 article</);
+    // The header sits inside the hero, and the footer says who it runs on.
+    assert.match(home.body, /class="hero hero-home"><header class="top">/);
+    assert.match(home.body, /<footer><div class="foot-inner">/);
+    assert.match(home.body, /class="powered">Propulsé par Relay</);
+    // A welcome line of the theme's, per language; French falls back to the default language's.
+    const centerVersion = async () =>
+      (await sql("SELECT version::text AS v FROM help_centers WHERE id=$1", [centerId]))[0].v;
+    await help({
+      op: "center_settings",
+      id: centerId,
+      version: await centerVersion(),
+      theme: { primaryColor: "#ffd400", welcome: { en: "Help for Acme customers" } },
+    });
+    assert.match((await get("/help/a/acme/en")).body, /<h1 class="hero-line">Help for Acme customers<\/h1>/);
+    assert.match((await get("/help/a/acme/fr")).body, /<h1 class="hero-line">Help for Acme customers<\/h1>/);
+    // A collection page: its icon, description and count above its rows.
+    const collection = await get("/help/a/acme/en/collections/getting-started");
+    assert.match(collection.body, /class="page-icon"[^>]*><svg[^>]*lucide-rocket/);
+    assert.match(collection.body, /<h1>Getting started<\/h1><p class="lead">First steps<\/p><p class="meta">1 article<\/p>/);
+    assert.match(collection.body, /<ul class="rows surface">/);
+    // An article: its related articles (the others where it's placed), then the three reactions.
+    const twofa = await article({ en: "Set up two-factor" }, rich);
+    await help({ op: "place", nodeId: accounts.id, recordId: twofa });
+    const reset2 = await get(pages.en);
+    assert.match(reset2.body, /<section class="related" aria-label="Related articles"><h2>Related articles<\/h2><ul class="rows surface"><li><a href="\/help\/a\/acme\/en\/articles\/set-up-two-factor">/);
+    assert.doesNotMatch(/<section class="related"[\s\S]*?<\/section>/.exec(reset2.body)![0], /reset-your-password/, "never itself");
+    assert.match(reset2.body, /<section id="feedback" class="feedback surface" aria-label="Did this answer your question\?">/);
+    for (const label of ["No, it didn&#x27;t", "Partly", "Yes, it did"]) assert.match(reset2.body, new RegExp(`aria-label="${label}"`), label);
+    // The sad and neutral reactions record "not helpful" (and ask for a comment); the happy one "helpful".
+    const vote = async (value: string) => {
+      const r = await helpSite(
+        new Request(OWN + pages.en + "/feedback", {
+          method: "POST",
+          headers: { origin: OWN, "content-type": "application/x-www-form-urlencoded" },
+          body: "helpful=" + value,
+        }),
+        db.connect,
+        OWN,
+        async () => new Response("static", { status: 299 }),
+      );
+      return r.headers.get("location") ?? "";
+    };
+    assert.match(await vote("no"), /\?feedback=[0-9a-f-]{36}#feedback$/);
+    assert.match(await vote("yes"), /\?feedback=thanks#feedback$/);
+    assert.deepEqual(
+      (await sql("SELECT helpful FROM knowledge_feedback WHERE record_id=$1 ORDER BY created_at", [reset])).map((r) => r.helpful),
+      [false, true],
+    );
+
+    // The rebuild (docs/HELP_CENTER_DESIGN.md): the modern template's navigation, the table of
+    // contents, the author, the article as Markdown, the homepage's sections and the footer.
+    const guide = await article({ en: "Two-factor guide" }, (title) =>
+      doc(p(`${title}: how it works.`), h2("Steps"), p("One."), h2("Troubleshooting"), p("Two.")),
+    );
+    await help({ op: "place", nodeId: start.id, recordId: guide });
+    const style = (theme: Record<string, unknown>, layout?: unknown) =>
+      centerVersion().then((version) =>
+        help({
+          op: "center_settings",
+          id: centerId,
+          version,
+          theme,
+          ...(layout === undefined ? {} : { layout }),
+        }),
+      );
+    await style({
+      template: "modern",
+      showAuthors: true,
+      markdown: true,
+      footerLayout: "multilevel",
+      footerText: { en: "Acme Inc." },
+      footerLinks: { en: [{ title: "Terms", url: "https://shop.test/terms", group: "Legal" }] },
+      socials: [{ platform: "x", url: "https://x.test/acme" }],
+    });
+    const guidePath = "/help/a/acme/en/articles/two-factor-guide";
+    const modern = await get(guidePath);
+    assert.equal(modern.status, 200);
+    // The modern template keeps the collections beside the page, with this article's own open.
+    assert.match(modern.body, /<div class="with-nav"><nav class="side" aria-label="All collections">/);
+    assert.match(modern.body, /class="group" href="\/help\/a\/acme\/en\/collections\/getting-started">Getting started<\/a>/);
+    assert.match(modern.body, /<a href="\/help\/a\/acme\/en\/articles\/two-factor-guide" aria-current="page">Two-factor guide<\/a>/);
+    // The table of contents is the article's own headings, and the body carries their ids.
+    assert.match(modern.body, /<nav class="toc" aria-label="On this page"><strong>On this page<\/strong>/);
+    assert.match(modern.body, /<li class="l2"><a href="#steps">Steps<\/a><\/li><li class="l2"><a href="#troubleshooting">Troubleshooting<\/a><\/li>/);
+    assert.match(modern.body, /<h2 id="steps"><span>Steps<\/span><\/h2>/);
+    // Who wrote it, and the link to the same article as Markdown.
+    assert.match(modern.body, /<p class="byline"><span class="avatar" aria-hidden="true">[A-Z]{1,2}<\/span><span>Written by /);
+    assert.match(modern.body, /<a href="\/help\/a\/acme\/en\/articles\/two-factor-guide.md">View as Markdown<\/a>/);
+    // The multi-level footer: its groups, the social link and "Powered by Relay".
+    assert.match(modern.body, /<footer class="foot-multilevel">/);
+    assert.match(modern.body, /<strong>Legal<\/strong><ul><li><a href="https:\/\/shop.test\/terms"/);
+    assert.match(modern.body, /class="socials"><li><a href="https:\/\/x.test\/acme"[^>]*>X<\/a>/);
+    assert.match(modern.body, /class="powered">Powered by Relay</);
+    // The article as Markdown: the document's own text, never HTML, and never indexed.
+    const md = await get(guidePath + ".md");
+    assert.equal(md.status, 200);
+    assert.equal(md.headers.get("content-type"), "text/markdown; charset=utf-8");
+    assert.equal(md.headers.get("x-robots-tag"), "noindex", "the page is the one to index");
+    assert.equal(md.body, "# Two-factor guide\n\nTwo-factor guide: how it works.\n\n## Steps\n\nOne.\n\n## Troubleshooting\n\nTwo.\n");
+    assert.equal((await get("/help/a/acme/en/articles/no-such-article.md")).status, 404);
+    // Offered only where the help center offers it.
+    await style({ markdown: false });
+    assert.equal((await get(guidePath + ".md")).status, 404);
+    assert.doesNotMatch((await get(guidePath)).body, /View as Markdown/);
+    // The homepage's sections: the articles section in columns, and a content section.
+    await style({ template: "classic", collectionStyle: "compact", collectionColumns: 2 }, [
+      { type: "featured", recordIds: [guide], title: { en: "Start here" }, columns: 2 },
+      { type: "collections" },
+      {
+        type: "content",
+        title: { en: "Talk to sales" },
+        description: { en: "We answer in a day." },
+        buttonLabel: { en: "Get in touch" },
+        buttonUrl: "https://shop.test/sales",
+        design: "card",
+        background: { type: "color", color: "#0b3d2c" },
+        textColor: "#ffffff",
+      },
+    ]);
+    const sectioned = await get("/help/a/acme/en");
+    assert.match(sectioned.body, /<h2>Start here<\/h2><ul class="rows surface columns">/);
+    assert.match(sectioned.body, /--article-cols:2/);
+    assert.match(sectioned.body, /class="grid style-compact"/);
+    assert.match(sectioned.body, /--cols:2/);
+    assert.match(sectioned.body, /<section class="content-block"><h2>Talk to sales<\/h2><p>We answer in a day.<\/p><a class="button" href="https:\/\/shop.test\/sales"/);
+    assert.match(sectioned.body, /--content-bg:#0b3d2c/);
+    // Not live: nothing of it is served, and the sitemap and files go with it.
+    const centerLive = async (live: boolean) =>
+      help({ op: "center_settings", id: centerId, version: await centerVersion(), live });
+    await centerLive(false);
+    for (const path of ["/help/a/acme/en", guidePath, "/help/a/acme/sitemap.xml"])
+      assert.equal((await get(path)).status, 404, path);
+    await centerLive(true);
+    assert.equal((await get("/help/a/acme/en")).status, 200);
+    await style({ template: "classic", showAuthors: false, footerLayout: "simple", footerText: {}, footerLinks: {}, socials: [] }, [
+      { type: "collections" },
+      { type: "contact" },
     ]);
 
     // Slug changes and unsupported languages: 301.

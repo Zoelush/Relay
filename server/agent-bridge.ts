@@ -128,6 +128,7 @@ const routes = {
     "help-centers",
     "help-center",
     "help-insights",
+    "help-preview",
   ]),
   POST: new Set([
     "command",

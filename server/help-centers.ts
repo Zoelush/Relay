@@ -1,6 +1,5 @@
 import { assertWithinLimit } from "./plans";
 import { assert, DomainError, type Sql } from "./db";
-import { themeImage } from "./knowledge-files";
 import {
   freeSlug,
   manager,
@@ -10,6 +9,20 @@ import {
   validSlug,
 } from "./knowledge";
 import { helpPath, resolveLocale, slugify } from "../lib/help-paths";
+import { startBrandImport } from "./help-brand";
+import { HELP_ICON_NAMES } from "../lib/help-icons";
+import {
+  checkContent,
+  checkTheme,
+  DEFAULT_HELP_THEME,
+  LIMITS,
+  sectionTitle,
+  themeFiles,
+  themeOf,
+  ThemeError,
+  type HelpTheme,
+  type LayoutBlock,
+} from "../lib/help-theme";
 
 /**
  * Help center structure (phase 07, step A2). At most one help center per brand, with its
@@ -43,75 +56,36 @@ const text = (value: unknown, max: number) => {
   return t;
 };
 
-export type Theme = {
-  primaryColor: string;
-  headerStyle: "solid" | "light";
-  font: "system" | "serif" | "rounded";
-  /** Uploaded, scanned images of this help center (knowledge files), or none. */
-  logoFileId?: string | null;
-  faviconFileId?: string | null;
-  socialImageFileId?: string | null;
-};
-const THEME_IMAGES = [
-  ["logoFileId", "theme_logo"],
-  ["faviconFileId", "theme_favicon"],
-  ["socialImageFileId", "social_image"],
-] as const;
-export type LayoutBlock =
-  | { type: "search" }
-  | { type: "collections" }
-  | { type: "featured"; recordIds: string[] }
-  | { type: "contact" };
-export const DEFAULT_THEME: Theme = {
-  primaryColor: "#087a57",
-  headerStyle: "solid",
-  font: "system",
-};
+export type Theme = HelpTheme;
+export type { LayoutBlock };
+export const DEFAULT_THEME: Theme = DEFAULT_HELP_THEME;
 export const DEFAULT_LAYOUT: LayoutBlock[] = [
-  { type: "search" },
   { type: "collections" },
   { type: "contact" },
 ];
 
+/** Theme input checked (`lib/help-theme.ts`), a refusal told as this module's. */
 function validTheme(input: unknown, current: Theme = DEFAULT_THEME): Theme {
-  if (input === undefined) return current;
-  const t = (input ?? {}) as Record<string, unknown>;
-  const theme = { ...current, ...t } as Theme;
-  if (!/^#[0-9a-f]{6}$/i.test(String(theme.primaryColor)))
-    invalid("Choose a colour such as #087a57.");
-  if (!["solid", "light"].includes(theme.headerStyle))
-    invalid("Choose a solid or light header.");
-  if (!["system", "serif", "rounded"].includes(theme.font))
-    invalid("Choose a font style.");
-  return {
-    primaryColor: theme.primaryColor.toLowerCase(),
-    headerStyle: theme.headerStyle,
-    font: theme.font,
-    // Images are checked against the help center's files (`themeImages`); kept as they were here.
-    ...Object.fromEntries(
-      THEME_IMAGES.filter(([field]) => current[field]).map(([field]) => [
-        field,
-        current[field],
-      ]),
-    ),
-  };
+  try {
+    return checkTheme(input, current);
+  } catch (e) {
+    if (e instanceof ThemeError) return invalid(e.message);
+    throw e;
+  }
 }
-/** The theme's images, each a ready upload of this help center for that purpose, or none. */
-async function themeImages(
-  db: Sql,
-  w: string,
-  centerId: string,
-  input: unknown,
-  theme: Theme,
-) {
-  const t = (input ?? {}) as Record<string, unknown>;
-  for (const [field, purpose] of THEME_IMAGES)
-    if (t[field] !== undefined) {
-      const id = await themeImage(db, w, centerId, purpose, t[field]);
-      if (id) theme[field] = id;
-      else delete theme[field];
-    }
-  return theme;
+/** Every image the theme and homepage use is a ready upload of this help center, for that use. */
+async function themeImages(db: Sql, w: string, centerId: string, theme: Theme, layout: LayoutBlock[]) {
+  const files = themeFiles(theme, layout);
+  if (!files.length) return;
+  const found = (
+    await db.query<{ id: string; purpose: string }>(
+      "SELECT id,purpose FROM knowledge_files WHERE workspace_id=$1 AND center_id=$2 AND status='ready' AND id=ANY($3::text[])",
+      [w, centerId, files.map((f) => f.id)],
+    )
+  ).rows;
+  for (const f of files)
+    if (!found.some((x) => x.id === f.id && f.purposes.includes(x.purpose)))
+      invalid("That image is not ready yet. Upload it again.");
 }
 async function validLayout(
   db: Sql,
@@ -119,26 +93,34 @@ async function validLayout(
   input: unknown,
 ): Promise<LayoutBlock[] | undefined> {
   if (input === undefined) return undefined;
-  if (!Array.isArray(input) || input.length > 4)
-    return invalid("The homepage has up to four blocks.");
+  if (!Array.isArray(input) || input.length > 5)
+    return invalid("The homepage has up to five sections.");
   const seen = new Set<string>();
   const out: LayoutBlock[] = [];
-  for (const raw of input as Record<string, unknown>[]) {
-    const type = raw?.type;
-    if (
-      !["search", "collections", "featured", "contact"].includes(String(type))
-    )
-      invalid("Unknown homepage block.");
-    if (seen.has(String(type))) invalid("Each homepage block can appear once.");
-    seen.add(String(type));
-    if (type === "featured") {
-      const ids = Array.isArray(raw.recordIds) ? raw.recordIds.map(String) : [];
-      if (ids.length < 1 || ids.length > 6)
-        invalid("Feature between one and six articles.");
-      for (const id of ids) await placeable(db, w, id);
-      out.push({ type: "featured", recordIds: [...new Set(ids)] });
-    } else out.push({ type } as LayoutBlock);
+  try {
+    for (const raw of input as Record<string, unknown>[]) {
+      const type = raw?.type;
+      if (!["search", "collections", "featured", "content", "contact"].includes(String(type)))
+        invalid("Unknown homepage block.");
+      if (seen.has(String(type))) invalid("Each homepage block can appear once.");
+      seen.add(String(type));
+      if (type === "featured") {
+        const ids = Array.isArray(raw.recordIds) ? raw.recordIds.map(String) : [];
+        if (ids.length < 1 || ids.length > LIMITS.articles)
+          invalid(`Choose between one and ${LIMITS.articles} articles for the articles section.`);
+        for (const id of ids) await placeable(db, w, id);
+        const columns = raw.columns === undefined ? 1 : Number(raw.columns);
+        if (![1, 2, 3].includes(columns)) invalid("The articles section has one, two or three columns.");
+        out.push({ type: "featured", recordIds: [...new Set(ids)], title: sectionTitle(raw.title), columns: columns as 1 | 2 | 3 });
+      } else if (type === "content") out.push(checkContent(raw));
+      else out.push({ type } as LayoutBlock);
+    }
+  } catch (e) {
+    if (e instanceof ThemeError) return invalid(e.message);
+    throw e;
   }
+  // The collections section can't be turned off.
+  if (!seen.has("collections")) out.push({ type: "collections" });
   return out;
 }
 function validLocales(input: unknown, fallback: string[]) {
@@ -190,10 +172,11 @@ type CenterRow = {
   layout: LayoutBlock[];
   noindex: boolean;
   access: "public" | "signed_in";
+  live: boolean;
   version: string;
 };
 const CENTER =
-  "SELECT id,brand_id,name,slug,default_locale,locales,theme,layout,noindex,access,version::text AS version FROM help_centers";
+  "SELECT id,brand_id,name,slug,default_locale,locales,theme,layout,noindex,access,live,version::text AS version FROM help_centers";
 async function center(db: Sql, w: string, id: unknown, lock = false) {
   const c = (
     await db.query<CenterRow>(
@@ -232,10 +215,11 @@ const centerView = (c: CenterRow) => ({
   slug: c.slug,
   defaultLocale: c.default_locale,
   locales: c.locales,
-  theme: { ...DEFAULT_THEME, ...c.theme },
+  theme: themeOf(c.theme),
   layout: c.layout,
   noindex: c.noindex,
   access: c.access,
+  live: c.live,
   version: c.version,
 });
 const freeCenterSlug = (db: Sql, w: string, base: string) =>
@@ -259,6 +243,62 @@ const nodeSlugTaken =
         [w, centerId, kind, locale, slug],
       )
     ).rows.length > 0;
+
+/**
+ * The editor's live preview: one of the help center's pages drawn with a draft look, before it's
+ * saved. The draft is base64url JSON (`{theme,layout}`) and is checked exactly as a save would
+ * check it, so the preview shows what saving would give; anything it can't use comes back as the
+ * reason, shown in the frame. Images are the editor's own address for an upload, so an image
+ * chosen a moment ago already appears. Nothing is written and no search is logged.
+ */
+export async function previewDraft(
+  db: Sql,
+  w: string,
+  principal: string,
+  params: URLSearchParams,
+) {
+  await manager(db, w, principal);
+  const c = await center(db, w, params.get("centerId"));
+  const brand = (
+    await db.query<{ name: string }>(
+      "SELECT name FROM brands WHERE workspace_id=$1 AND id=$2",
+      [w, c.brand_id],
+    )
+  ).rows[0];
+  let draft: Record<string, unknown> = {};
+  const raw = params.get("draft") ?? "";
+  if (raw) {
+    try {
+      const text = atob(raw.replace(/-/g, "+").replace(/_/g, "/"));
+      draft = JSON.parse(
+        new TextDecoder().decode(Uint8Array.from(text, (ch) => ch.charCodeAt(0))),
+      );
+    } catch {
+      invalid("The preview couldn't be drawn. Reload the page.");
+    }
+  }
+  const theme = validTheme(draft.theme, themeOf(c.theme));
+  const layout = (await validLayout(db, w, draft.layout)) ?? c.layout;
+  const page = params.get("page");
+  return {
+    page: page === "collection" || page === "article" ? (page as "collection" | "article") : ("home" as const),
+    locale: params.get("locale") || c.default_locale,
+    center: {
+      id: c.id,
+      brand_id: c.brand_id,
+      brand_name: brand?.name ?? c.name,
+      name: c.name,
+      slug: c.slug,
+      default_locale: c.default_locale,
+      locales: c.locales,
+      theme,
+      layout,
+      noindex: true,
+      access: c.access,
+      live: true,
+    },
+  };
+}
 
 /** Help centers and the brands that can have one (`knowledge.manage`). */
 export async function listHelpCenters(db: Sql, w: string, principal: string) {
@@ -455,7 +495,8 @@ export async function changeHelpCenter(
           slug,
           defaultLocale,
           locales,
-          JSON.stringify(validTheme(p.theme)),
+          // A new help center has no uploads yet, so its theme has no images.
+          JSON.stringify(validTheme({ ...((p.theme ?? {}) as object), logoFileId: null, faviconFileId: null, socialImageFileId: null })),
           JSON.stringify(
             (await validLayout(db, w, p.layout)) ?? DEFAULT_LAYOUT,
           ),
@@ -464,6 +505,9 @@ export async function changeHelpCenter(
       await moveSlug(db, w, "center", "", "", null, slug, id);
       return { id, slug };
     }
+    // "Import your brand": the fetch is a job, and the editor puts what it finds into the draft.
+    case "center_brand_import":
+      return startBrandImport(db, w, principal, { url: p.url });
     case "center_settings": {
       const c = await center(db, w, p.id, true);
       conflict(p.version, c.version);
@@ -483,8 +527,10 @@ export async function changeHelpCenter(
       const access = p.access === undefined ? c.access : String(p.access);
       if (access !== "public" && access !== "signed_in")
         invalid("Choose everyone or signed-in customers.");
+      const theme = validTheme(p.theme, themeOf(c.theme));
+      if (p.theme !== undefined || p.layout !== undefined) await themeImages(db, w, c.id, theme, layout);
       await db.query(
-        `UPDATE help_centers SET name=$3,slug=$4,default_locale=$5,locales=$6,theme=$7,layout=$8,noindex=$9,access=$10,version=version+1,updated_at=now()
+        `UPDATE help_centers SET name=$3,slug=$4,default_locale=$5,locales=$6,theme=$7,layout=$8,noindex=$9,access=$10,live=$11,version=version+1,updated_at=now()
         WHERE workspace_id=$1 AND id=$2`,
         [
           w,
@@ -493,18 +539,11 @@ export async function changeHelpCenter(
           slug,
           defaultLocale,
           locales,
-          JSON.stringify(
-            await themeImages(
-              db,
-              w,
-              c.id,
-              p.theme,
-              validTheme(p.theme, { ...DEFAULT_THEME, ...c.theme }),
-            ),
-          ),
+          JSON.stringify(theme),
           JSON.stringify(layout),
           p.noindex === undefined ? c.noindex : p.noindex === true,
           access,
+          p.live === undefined ? c.live : p.live === true,
         ],
       );
       if (slug !== c.slug)
@@ -702,7 +741,7 @@ const bump = (db: Sql, w: string, id: string) =>
   );
 const icon = (value: unknown) => {
   if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string" || !/^[a-z-]{1,40}$/.test(value))
+  if (typeof value !== "string" || !HELP_ICON_NAMES.includes(value))
     invalid("Choose an icon from the list.");
   return value as string;
 };

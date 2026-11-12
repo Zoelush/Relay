@@ -42,9 +42,14 @@ test("an article published in three languages is rendered by the server in each,
     .getByRole("navigation", { name: "Knowledge areas" })
     .getByRole("button", { name: "Help centers" })
     .click();
-  await page.getByLabel("Languages").fill("en, fr, de");
-  await page.getByRole("button", { name: "Save settings" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Settings saved.");
+  await page.getByRole("button", { name: "Configure and style" }).click();
+  await page.getByRole("button", { name: "General" }).click();
+  await page.getByRole("button", { name: "Languages" }).click();
+  await page.getByLabel("Supported languages").fill("en, fr, de");
+  await page.getByRole("button", { name: "Save and set live" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved and set live." }),
+  ).toBeVisible();
 
   // Write and publish in English, then French and German, each on its own.
   await page
@@ -87,6 +92,8 @@ test("an article published in three languages is rendered by the server in each,
     .getByRole("button", { name: "Help centers" })
     .click();
   const billing = page.getByRole("article", { name: "Collection Billing" });
+  await billing.getByRole("button", { name: "More for Billing" }).click();
+  await billing.getByRole("menuitem", { name: "Add articles" }).click();
   await billing
     .getByLabel("Article to add to Billing")
     .selectOption({ label: "Change your plan" });
@@ -198,6 +205,8 @@ test("a signed-in article asks an anonymous visitor to sign in without naming it
     .getByRole("button", { name: "Help centers" })
     .click();
   const billing = page.getByRole("article", { name: "Collection Billing" });
+  await billing.getByRole("button", { name: "More for Billing" }).click();
+  await billing.getByRole("menuitem", { name: "Add articles" }).click();
   await billing
     .getByLabel("Article to add to Billing")
     .selectOption({ label: "Enterprise discounts" });
@@ -242,8 +251,9 @@ test("a signed-in article asks an anonymous visitor to sign in without naming it
   ).toBeVisible();
   // The portal is a section of the help center: its link leads back.
   await customer.getByRole("link", { name: "Help center" }).click();
+  // The home page's heading is the hero's welcome line (docs/HELP_CENTER_DESIGN.md).
   await expect(customer.getByRole("heading", { level: 1 })).toHaveText(
-    "Relay Help",
+    "Advice and answers from the Relay team",
   );
   const opened = await customer.goto(url);
   expect(opened!.status()).toBe(200);

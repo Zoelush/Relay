@@ -40,6 +40,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET help-center": { needs: "knowledge.manage" },
   "GET help-centers": { needs: "knowledge.manage" },
   "GET help-insights": { needs: "knowledge.manage" },
+  "GET help-preview": { needs: "knowledge.manage" },
   "GET history": { needs: "teammate" },
   "GET inbox": { needs: "teammate" },
   "GET invitations": { needs: "teammates.manage" },

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased: The help center, rebuilt
+
+- **Style your help center properly:** Knowledge › Help centers now opens the collections manager beside a live preview of the real pages, with **Configure and style** for everything else.
+- **Two templates:** Classic, and Modern, which keeps your collections beside every page like documentation.
+- **Shared elements:** your page background, action colour, card or floating design, corner radius, and a primary and secondary font from 15 families Relay serves itself.
+- **The hero:** your welcome message per language, a colour, a gradient or an image behind it, its height, and the search box's length, alignment, position and corners.
+- **The homepage, in sections:** collection cards in one to three columns (classic, visual or compact; icons, images or text), a chosen-articles section, a content section with its own button, and the customer portal block — in the order you drag them into.
+- **Collections get icons and images,** picked or uploaded on the collection itself, and names and descriptions edited in place.
+- **Article pages:** a table of contents from your headings, related articles, the author's name when you want it, and an article offered as Markdown for readers who paste it into another tool.
+- **Three footers** — simple, classic or multi level — with your logo, text, grouped links, up to 16 social links, and the powered-by line you can switch off.
+- **Import your brand:** give us your website and Relay reads its colours into the draft.
+- **Live, or not:** a help center that isn't live serves nothing, and every save from "Save and set live" publishes it.
+- **"Did this answer your question?"** with three reactions replaces Yes and No, and collections keep the icons from the first redesign.
+- **Details:** `docs/HELP_CENTER_DESIGN.md`.
+
 ## Unreleased: A shorter Settings menu
 
 - **Settings' menu groups fold open and closed:** they start folded, except the one holding the page you're on.

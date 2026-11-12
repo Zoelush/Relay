@@ -7,7 +7,7 @@ import { resolvePath } from "../../server/help-centers";
 let relay: Awaited<ReturnType<typeof startLocalRelay>>;
 let loginHelp = "";
 let oldPolicy = "";
-test.use({ viewport: { width: 1440, height: 900 } });
+test.use({ viewport: { width: 1600, height: 1000 } });
 /** A published English article, created the way the editor does. */
 async function publish(title: string, forHelpCenter: boolean) {
   return tenant(relay.db.connect, "demo", async (db) => {
@@ -57,36 +57,42 @@ async function open(page: Page, as = "") {
   await page.getByRole("button", { name: "Knowledge" }).click();
   await expect(page.getByRole("heading", { name: "Knowledge" })).toBeVisible();
 }
-
-test("build the help center tree, rename slugs, add a language, and old links redirect", async ({
-  page,
-}) => {
-  await open(page);
+/** The help center editor: Knowledge › Help centers. */
+async function editor(page: Page) {
   await page
     .getByRole("navigation", { name: "Knowledge areas" })
     .getByRole("button", { name: "Help centers" })
     .click();
-  const tree = page.getByRole("region", { name: "Collections" });
-  await expect(
-    tree.getByRole("article", { name: "Collection Getting started" }),
-  ).toBeVisible();
-  await expect(
-    tree.getByRole("article", { name: "Section Your first conversation" }),
-  ).toContainText("Getting started with Relay");
+  await expect(page.getByRole("region", { name: "Collections" })).toBeVisible();
+}
+/** One collection or section in the manager, by the name shown on it. */
+const row = (page: Page, name: string) =>
+  page.getByRole("region", { name: "Collections" }).getByRole("article", { name });
 
-  // A new collection with a section, and an article placed in it.
-  await tree.getByLabel("Add collection").fill("Troubleshooting");
-  await tree.getByRole("button", { name: "Add collection" }).click();
-  const trouble = tree.getByRole("article", {
-    name: "Collection Troubleshooting",
-  });
+test("the collections manager: collections, sections, articles, order, addresses and languages", async ({
+  page,
+}) => {
+  await open(page);
+  await editor(page);
+  const tree = page.getByRole("region", { name: "Collections" });
+  await expect(tree.getByRole("textbox", { name: "Name in en" }).first()).toHaveValue("Getting started");
+
+  // A new collection, then a section inside it from the collection's own menu.
+  await tree.getByRole("button", { name: "New collection" }).click();
+  await tree.getByLabel("New collection name").fill("Troubleshooting");
+  await tree.getByRole("button", { name: "Create" }).click();
+  const trouble = row(page, "Collection Troubleshooting");
   await expect(trouble).toBeVisible();
-  await trouble
-    .getByLabel("Add section to Troubleshooting")
-    .fill("Login problems");
+  await trouble.getByRole("button", { name: "More for Troubleshooting" }).click();
+  await trouble.getByRole("menuitem", { name: "Add section" }).click();
+  await trouble.getByLabel("Section name in en").fill("Login problems");
   await trouble.getByRole("button", { name: "Add section" }).click();
-  const login = tree.getByRole("article", { name: "Section Login problems" });
+  const login = row(page, "Section Login problems");
   await expect(login).toBeVisible();
+
+  // An article placed in the section, from its menu.
+  await login.getByRole("button", { name: "More for Login problems" }).click();
+  await login.getByRole("menuitem", { name: "Add articles" }).click();
   await login
     .getByLabel("Article to add to Login problems")
     .selectOption({ label: "Can't sign in" });
@@ -99,11 +105,9 @@ test("build the help center tree, rename slugs, add a language, and old links re
     id: loginHelp,
   });
 
-  // Reorder: Troubleshooting moves above Billing.
-  await trouble
-    .getByRole("button", { name: "Move Troubleshooting up" })
-    .first()
-    .click();
+  // Reorder from the menu: Troubleshooting moves above Billing.
+  await trouble.getByRole("button", { name: "More for Troubleshooting" }).click();
+  await trouble.getByRole("menuitem", { name: "Move up" }).click();
   await expect
     .poll(async () =>
       (
@@ -115,31 +119,25 @@ test("build the help center tree, rename slugs, add a language, and old links re
     )
     .toEqual(["Getting started", "Troubleshooting", "Billing"]);
 
-  // Rename the section's address: the old one redirects, and the editor says so.
-  const loginNow = tree.getByRole("article", {
-    name: "Section Login problems",
-  });
+  // Renaming in place, and the address: the old one redirects, and the row says so.
+  const loginNow = row(page, "Section Login problems");
   await loginNow.getByLabel("Address in en").fill("sign-in-problems");
-  await loginNow.getByRole("button", { name: "Save" }).click();
-  await expect(
-    tree.getByRole("article", { name: "Section Login problems" }),
-  ).toContainText("Redirects from: login-problems");
+  await loginNow.getByRole("button", { name: "Save address" }).click();
+  await expect(row(page, "Section Login problems")).toContainText(
+    "Redirects from: login-problems",
+  );
   expect(await resolve("relay-help/en/sections/login-problems")).toEqual({
     type: "redirect",
     path: "relay-help/en/sections/sign-in-problems",
   });
 
-  // French: no name yet (English shows), then its own name and address.
-  await page.getByLabel("Language for names").selectOption("fr");
-  const troubleFr = tree.getByRole("article", {
-    name: "Collection Troubleshooting",
-  });
-  await expect(troubleFr).toContainText("(no fr name yet; shows en)");
-  await troubleFr.getByLabel("Name in fr").first().fill("Dépannage");
-  await troubleFr.getByRole("button", { name: "Add fr name" }).first().click();
-  await expect(
-    tree.getByRole("article", { name: "Collection Dépannage" }),
-  ).toBeVisible();
+  // French: no name yet (English shows), then its own name, with its own address.
+  await page.getByLabel("Language", { exact: true }).selectOption("fr");
+  const troubleFr = row(page, "Collection Troubleshooting");
+  await expect(troubleFr).toContainText("No fr name yet; shows en");
+  await troubleFr.getByLabel("Name in fr").fill("Dépannage");
+  await troubleFr.getByLabel("Name in fr").blur();
+  await expect(row(page, "Collection Dépannage")).toBeVisible();
   expect((await resolve("relay-help/fr/collections/depannage")).type).toBe(
     "collection",
   );
@@ -178,25 +176,104 @@ test("build the help center tree, rename slugs, add a language, and old links re
   ]);
 });
 
+test("configure and style: the live preview follows the draft, and saving sets it live", async ({
+  page,
+}) => {
+  await open(page);
+  await editor(page);
+  // The preview is the help center's own homepage, drawn by the server.
+  const preview = page.getByRole("region", { name: "Preview" });
+  const frame = page.frameLocator('iframe[title="Help center preview"]');
+  await expect(frame.locator("h1.hero-line")).toContainText(
+    "Advice and answers from the Relay team",
+  );
+  await expect(frame.locator("ul.grid li").first()).toContainText("Getting started");
+  // A collection page and a phone's width.
+  await preview.getByRole("radio", { name: "Collection" }).click();
+  await expect(frame.locator("nav.crumbs")).toContainText("Getting started");
+  await preview.getByRole("radio", { name: "Mobile" }).click();
+  await expect(page.locator('iframe[title="Help center preview"]')).toHaveJSProperty(
+    "offsetWidth",
+    390,
+  );
+  await preview.getByRole("radio", { name: "Desktop" }).click();
+  await preview.getByRole("radio", { name: "Homepage" }).click();
+
+  // Configure and style: the welcome line and the action colour, with the preview following.
+  await page.getByRole("button", { name: "Configure and style" }).click();
+  const editorPane = page.getByRole("button", { name: "Save and set live" });
+  await expect(editorPane).toBeVisible();
+  await page.getByRole("button", { name: "Hero block" }).click();
+  await page.getByLabel("Welcome message (en)").fill("How can we help?");
+  await page.getByRole("button", { name: "Shared elements" }).click();
+  await page.getByLabel("Action colour (hex)").fill("#7a0ba5");
+  await page.getByRole("radio", { name: "Floating" }).click();
+  await expect(frame.locator("h1.hero-line")).toContainText("How can we help?");
+  await expect(frame.locator("body")).toHaveClass(/floating/);
+  await expect
+    .poll(() =>
+      frame
+        .locator("html")
+        .evaluate((el) => getComputedStyle(el).getPropertyValue("--action").trim()),
+    )
+    .toBe("#7a0ba5");
+  // Nothing is saved until it is.
+  expect(
+    (await sql("SELECT theme->>'actionColor' AS c FROM help_centers"))[0].c,
+  ).not.toBe("#7a0ba5");
+
+  // The article page: the table of contents and the author, switched on here.
+  await page.getByRole("button", { name: "Article page" }).click();
+  await page.getByLabel("Offer the article as Markdown").check();
+  await page.getByRole("button", { name: "Shared elements" }).click();
+  await page.getByLabel("Show article authors").check();
+  await editorPane.click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved and set live." }),
+  ).toBeVisible();
+  await expect
+    .poll(async () =>
+      (await sql("SELECT theme->>'actionColor' AS c FROM help_centers"))[0].c,
+    )
+    .toBe("#7a0ba5");
+
+  // The public pages carry it, and the article is offered as Markdown.
+  const slug = (
+    await sql<{ slug: string }>(
+      "SELECT slug FROM knowledge_locales WHERE locale='en' AND slug IS NOT NULL AND published_title LIKE 'Getting started%'",
+    )
+  )[0].slug;
+  const reader = await page.context().newPage();
+  await reader.goto(relay.apiOrigin + "/help/demo/relay-help/en");
+  await expect(reader.locator("h1.hero-line")).toHaveText("How can we help?");
+  const article = `/help/demo/relay-help/en/articles/${slug}`;
+  await reader.goto(relay.apiOrigin + article);
+  await expect(reader.locator("p.byline")).toContainText("Written by");
+  await expect(reader.getByRole("link", { name: "View as Markdown" })).toBeVisible();
+  const markdown = await reader.request.get(relay.apiOrigin + article + ".md");
+  expect(markdown.headers()["content-type"]).toBe("text/markdown; charset=utf-8");
+  expect(await markdown.text()).toMatch(/^# /);
+  await reader.close();
+});
+
 test("an article not switched on for the help center is refused with the reason, and teammates without knowledge.manage have no help center editor", async ({
   page,
   browser,
 }) => {
   await open(page);
-  await page
-    .getByRole("navigation", { name: "Knowledge areas" })
-    .getByRole("button", { name: "Help centers" })
-    .click();
-  const billing = page
-    .getByRole("region", { name: "Collections" })
-    .getByRole("article", { name: "Collection Billing" });
+  await editor(page);
+  const billing = row(page, "Collection Billing");
+  await billing.getByRole("button", { name: "More for Billing" }).click();
+  await billing.getByRole("menuitem", { name: "Add articles" }).click();
   await billing
     .getByLabel("Article to add to Billing")
     .selectOption({ label: "Old refund policy" });
   await billing.getByRole("button", { name: "Add article" }).click();
   await expect(
-    page.getByRole("region", { name: "Collections" }).getByRole("alert"),
-  ).toHaveText('Turn on "Show in the help center" for this article first.');
+    page
+      .getByRole("status")
+      .filter({ hasText: 'Turn on "Show in the help center" for this article first.' }),
+  ).toBeVisible();
   await expect(
     billing.getByRole("list", { name: "Articles in Billing" }),
   ).not.toContainText("Old refund policy");

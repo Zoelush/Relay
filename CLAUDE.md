@@ -253,7 +253,19 @@ customers, so only sources and options go there (everything else in `ai_answers`
 `AnswerModel` and `RerankPort` (Claude and Workers AI deployed, stand-ins locally). Phase 07 (help
 center and knowledge store, `docs/KNOWLEDGE_PLAN.md`) is complete locally (`docs/KNOWLEDGE_STEP1.md`
 to `STEP8.md`). The public
-help center is at `/help/demo/relay-help` locally. Phase 06 (routing, teams and workload) is complete locally, planned in
+help center is at `/help/demo/relay-help` locally; it was rebuilt in November 2026
+(`docs/HELP_CENTER_DESIGN.md`). A help center's whole look is one model, `lib/help-theme.ts`: `checkTheme`
+refuses what it can't use (the editor shows the sentence) and `themeOf` reads anything stored, including the
+first design's `primaryColor`, `headerStyle` and `font` — never read `theme` fields directly, and a new
+setting of the look goes there, into `themeCss` (`server/help-style.ts`, CSS variables on one fixed
+stylesheet hashed into the CSP; no script, no inline styles) and into its section of `agent/help-centers.tsx`.
+Theme images are the help center's own knowledge files, checked on save by `themeImages`; a collection's icon
+is a name in `lib/help-icons.ts`. Fonts are Relay's own files at `/help-fonts/` (every host that serves a help
+center passes that path through). The editor's live preview is the real page: it frames
+`GET /api/agent/help-preview` with a base64url draft that the server checks exactly as a save would
+(`previewDraft`, `previewPage`), writes nothing and logs no search; an invalid draft comes back as the reason.
+A help center with `live` false serves nothing — no pages, no sitemap, no files — and the portal doesn't link
+to it. The three reactions post `helpful` yes or no as before. Phase 06 (routing, teams and workload) is complete locally, planned in
 `docs/ROUTING_PLAN.md`; its step docs are `docs/ROUTING_STEP1.md` to `STEP3.md`. Phase 05
 (tickets and SLAs; `docs/TICKETS_PLAN.md`, `TICKETS_STEP1.md` to `STEP5.md`) and phase 04
 (agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete locally. Open items from phases 04–06 were cleared in

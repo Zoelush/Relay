@@ -141,9 +141,9 @@ test("a customer finds an article despite a typo, says it didn't help, and talks
       "/help/demo/relay-help/en/articles/getting-started-with-relay",
   );
   // The vote works without scripts, too.
-  await reader.getByRole("button", { name: "Yes" }).click();
+  await reader.getByRole("button", { name: "Yes, it did" }).click();
   await expect(
-    reader.getByRole("region", { name: "Was this helpful?" }),
+    reader.getByRole("region", { name: "Did this answer your question?" }),
   ).toContainText("Thanks for letting us know.");
   await reader.context().close();
 });
@@ -193,6 +193,7 @@ test("with “search before contacting” on, the customer can't start until the
     .getByRole("navigation", { name: "Knowledge areas" })
     .getByRole("button", { name: "Help centers" })
     .click();
+  await page.getByRole("button", { name: "Insights" }).click();
   const report = page.getByRole("region", { name: "Search and feedback" });
   await expect(
     report.getByRole("table", { name: "Searches with no results" }),
