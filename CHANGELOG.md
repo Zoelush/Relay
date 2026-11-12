@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: Invoices (phase 16, C10a)
+
+- **Settings › Billing › Invoices:** every invoice Relay issues, line by line, with what each line counted — each unit traced back to its conversation — and a PDF of each.
+- **This period:** what the next invoice is building towards, before it is issued.
+- **One invoice per billing period:** your plan's full seats in advance, last period's prorated seat additions, last period's metered usage, and a line for tax (zero for now).
+- **A card on file:** added on the payment provider's own page, so card numbers never reach Relay. Relay keeps only the brand, last four digits and expiry.
+- **Charged once:** an invoice is charged when it's issued, and "Pay now" retries a failed one. A decline says why.
+- **Billing details:** the name, address, country and tax id your invoices are made out to.
+- **Prices aren't set yet,** so invoices are issued unpriced: they record what they counted and are never charged.
+- **Details:** `docs/SECURITY_STEP20.md`. Behind `billing_v1`, off by default.
+
 ## Unreleased: The help center, rebuilt
 
 - **Style your help center properly:** Knowledge › Help centers now opens the collections manager beside a live preview of the real pages, with **Configure and style** for everything else.

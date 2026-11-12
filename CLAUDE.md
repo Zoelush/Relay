@@ -73,7 +73,18 @@ done locally (`docs/SECURITY_STEP15.md`): C8 is complete. C9a, meters (`lib/mete
 (`docs/SECURITY_STEP17.md`), and C9c, usage alerts (`server/usage-alerts.ts`), is done locally (`docs/SECURITY_STEP18.md`): C9
 is complete. C9d, workspaces' own AI providers (`lib/ai-providers.ts`, `server/ai-adapters.ts`,
 `server/ai-providers.ts`, `#settings/ai-providers`, `ai_providers_v1`), asked for after C9c, is done locally
-(`docs/SECURITY_STEP19.md`); next is C10 (invoices and the billing lifecycle). Zoe's models for a workspace come only
+(`docs/SECURITY_STEP19.md`), and C10a, invoices and the payment port (`lib/invoices.ts`, `server/invoices.ts`,
+`server/payments.ts`, `server/invoice-pdf.ts`, `#settings/invoices`, `billing_v1`), is done locally
+(`docs/SECURITY_STEP20.md`); next is C10b (trials, upgrades and downgrades). An invoice is built only from
+records — seats from the seat ledger (`seatBill`), usage from the meters' sources (`meterUnits`) — never
+counted, and every line is frozen with what it counted (`invoice_line_units`); migration 0099's triggers
+refuse any change to an issued line or unit, and an invoice only ever changes its status and payment. One
+invoice per period (unique on its start); while any price it needs is a placeholder it is issued `unpriced`
+and never charged. Money moves only through `PaymentPort` (`server/payments.ts`): Stripe keeps the card
+(added in Checkout's setup mode, so card numbers never reach Relay) and Relay keeps only its brand, last 4
+and expiry; a charge is one `invoice.charge` job with the job's id in the idempotency key, and a result is
+taken from the charge or the signed webhook, whichever comes first — paid is never undone. A live Stripe key
+is refused unless `RELAY_BILLING_LIVE=true`; locally and in tests the stand-in moves no money. Zoe's models for a workspace come only
 from `withWorkspaceModels` (its primary, the fallback only when the primary fails, else Relay's AI); with a primary,
 Relay's key is never used for it. A provider adapter only carries `buildPrompt`/`buildClassifyPrompt` there and the reply
 back to `parseReply`/`parseClassification`: redaction, `ai_model_calls` and `guardReply` stay the same for every provider,

@@ -82,6 +82,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET usage-units": { needs: "billing.manage" },
   // Phase 16 C9d: the workspace's own AI providers for Zoe.
   "GET ai-providers": { needs: "workspace.manage" },
+  // Phase 16 C10a: invoices and billing details.
+  "GET invoices": { needs: "billing.manage" },
+  "GET invoice": { needs: "billing.manage" },
+  "GET invoice-units": { needs: "billing.manage" },
+  "GET invoice-pdf": { needs: "billing.manage" },
   "GET security-sessions": { needs: "security.manage" },
   "GET settings": { needs: "teammate" },
   "GET side-conversations": { needs: "teammate" },
@@ -160,6 +165,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "POST seats": { needs: "billing.manage" },
   "POST usage": { needs: "billing.manage" },
   "POST ai-providers": { needs: "workspace.manage" },
+  "POST invoices": { needs: "billing.manage" },
   "POST security-sessions": { needs: "security.manage" },
   "POST settings": { needs: "workspace.manage", body: { section: "general", name: "Relay", timezone: "Europe/London", language: "en" } },
   "POST side-conversation": { needs: "conversations.reply" },

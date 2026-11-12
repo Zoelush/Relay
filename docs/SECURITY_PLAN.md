@@ -547,6 +547,25 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
       - **New:** `ai_providers` (audited, the sealed key skipped), the recording columns, `key_source` on answers and resolutions, the new meter in the limit and alert checks, and the flag.
       - **Its rollback** clears every primary and fallback and turns the flag off, so every workspace answers with Relay's key again. It removes limits on the new meter. The connections and their sealed keys stay, unused. The earlier code counts every resolution under `ai_resolutions`.
 
+38. **C10 choices, and C10a decisions** (11 November 2026):
+    - **The split:** C10a is invoices and the payment port; C10b is trials, upgrades and downgrades; C10c is dunning. Each is merged before the next starts.
+    - **One invoice per billing period,** issued at the period's start:
+      - the plan's full seats for the new period, in advance;
+      - the previous period's prorated seat additions (from `seatBill`);
+      - the previous period's metered usage, one line per meter.
+    - **Every line is frozen when issued** with the records it counts (`invoice_line_units`: each source id, time and quantity), so a dispute is checked line by line. A reversal recorded later counts in the period it's recorded in, as the meters already do.
+    - **Relay invoices, Stripe charges:**
+      - **The invoice of record is Relay's.**
+      - **Cards:** Stripe keeps the card, which is added through Stripe Checkout in setup mode, so card numbers never reach Relay. Relay keeps only the brand, last 4 digits and expiry.
+      - **Charging:** each invoice's total is charged by an `invoice.charge` job with the invoice id as the idempotency key.
+      - **Results** arrive by Stripe's signed webhook (`/v1/hooks/stripe`, each event once).
+      - **The Stripe client is a small port over Stripe's REST API, with no SDK.** A live key (`sk_live_`) is refused unless `RELAY_BILLING_LIVE=true`. Locally and in tests a stand-in adds a card and charges, and no money moves.
+    - **Tax:** a tax line of zero, with a port for a tax provider before launch. The billing email, name, address and tax ID are collected now, on the Invoices page.
+    - **The invoice:** Settings › Billing › Invoices (`billing.manage`), with the upcoming invoice, past ones, each invoice's page (its lines and their units, linked to their conversations) and a PDF generated on the server. Invoices are numbered in one sequence for all of Relay (RLY-2026-000123). A number lost to a failed transaction leaves a gap, which is documented.
+    - **While prices are placeholders,** an invoice is issued `unpriced`: its quantities and units are frozen, it has no amounts, and it's never charged. Tests pass their own price book.
+    - **A failed charge** leaves the invoice `failed`, shown on the page. Retries and what follows are C10c's.
+    - **Invoices are append-only** once issued (a trigger refuses changes to lines and units). Only the status, payment fields and PDF can change, and those changes are audited.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

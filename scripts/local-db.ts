@@ -54,7 +54,7 @@ export async function localDatabase(directory?: string, migrations = "db/postgre
     }
   }
   await pg.exec(
-    "DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='relay_test_runtime') THEN CREATE ROLE relay_test_runtime NOLOGIN NOBYPASSRLS; END IF; END $$; GRANT USAGE ON SCHEMA public TO relay_test_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO relay_test_runtime;",
+    "DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='relay_test_runtime') THEN CREATE ROLE relay_test_runtime NOLOGIN NOBYPASSRLS; END IF; END $$; GRANT USAGE ON SCHEMA public TO relay_test_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO relay_test_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO relay_test_runtime;",
   );
   const timing = new AsyncLocalStorage<Timing>();
   const statements = new Map<

@@ -308,6 +308,8 @@ import {
 } from "./attachments";
 import { readJob, enqueueJob } from "./jobs";
 import { changeProviders, readProviders, type ProviderEnvironment } from "./ai-providers";
+import { changeBilling, readBilling, readInvoice, readInvoiceUnits, receivePaymentWebhook, type BillingEnvironment } from "./invoices";
+import { invoicePdf } from "./invoice-pdf";
 import { searchConversations } from "./search";
 import {
   viewCounts,
@@ -350,6 +352,8 @@ export interface ApiEnvironment {
   knowledgeIndex?: IndexEnvironment;
   /** Data connectors (phase 09 D1): RELAY_CONNECTOR_KEY and the fetch policy. */
   connectors?: ConnectorEnvironment;
+  /** Phase 16 C10a: invoices' payment provider (Stripe deployed, a stand-in locally) and, for tests, prices. */
+  billing?: BillingEnvironment;
   /** Email in (phase 12 E2): the domain brands' inbound addresses are on. */
   emailDomain?: string;
   /** Email out (phase 12 E3): Relay's own sending domain and the provider's region. */
@@ -1211,6 +1215,14 @@ export async function handleApi(
         ? new Response(EMPTY_TWIML, { status: 200, headers: { "content-type": "text/xml" } })
         : new Response(null, { status: r.status === 200 ? 204 : r.status });
     }
+    // Phase 16 C10a: the payment provider's events (signed; each once). The signature covers the exact bytes.
+    if (url.pathname === "/v1/hooks/stripe" && req.method === "POST") {
+      if (Number(req.headers.get("content-length") ?? 0) > 1_000_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const raw = await req.text();
+      if (raw.length > 1_000_000) throw new DomainError("BODY_TOO_LARGE", "Request is too large.", 413);
+      const r = await receivePaymentWebhook(env.connect, env.billing ?? {}, raw, req.headers.get("stripe-signature") ?? "");
+      return json(r.body, r.status);
+    }
     // Phase 12 E3: SES's deliveries, bounces and complaints, through SNS (signed; no session).
     if (url.pathname === "/v1/hooks/ses" && req.method === "POST") {
       if (!env.sesReports?.topicArn) throw new DomainError("NOT_FOUND", "Endpoint unavailable.", 404);
@@ -1521,6 +1533,10 @@ export async function handleApi(
             "/v1/agent/usage",
             "/v1/agent/usage-units",
             "/v1/agent/ai-providers",
+            "/v1/agent/invoices",
+            "/v1/agent/invoice",
+            "/v1/agent/invoice-units",
+            "/v1/agent/invoice-pdf",
             "/v1/agent/invitations",
             "/v1/agent/developer-webhook-deliveries",
             "/v1/agent/developer-webhook-delivery",
@@ -1637,6 +1653,7 @@ export async function handleApi(
               "/v1/agent/seats",
               "/v1/agent/usage",
               "/v1/agent/ai-providers",
+              "/v1/agent/invoices",
               "/v1/agent/invitations",
               "/v1/agent/email-settings",
               "/v1/agent/help-centers",
@@ -2060,6 +2077,9 @@ export async function handleApi(
           if ("refused" in r) throw r.refused;
           return json(r);
         }
+        if (url.pathname === "/v1/agent/invoices")
+          // Phase 16 C10a: billing details, adding a card (the provider's page; back with its session), paying an invoice now.
+          return json(await tenant(env.connect, workspace, (db) => changeBilling(db, workspace, principal, p, env.billing ?? {}, client.origin)));
         if (url.pathname === "/v1/agent/ai-providers")
           // Phase 16 C9d: a provider's key and model saved (Save and test queues its test), tested, removed; the primary and fallback.
           return json(await tenant(env.connect, workspace, (db) => changeProviders(db, workspace, principal, p, providerEnvironment(env), relayAi(env))));
@@ -2793,6 +2813,23 @@ export async function handleApi(
           await tenant(env.connect, workspace, async (db) => ({ ...(await readUsage(db, workspace, principal, url.searchParams.get("period"))), limits: await readLimits(db, workspace) })),
         );
       if (url.pathname === "/v1/agent/usage-units") return json(await tenant(env.connect, workspace, (db) => readUsageUnits(db, workspace, principal, url.searchParams)));
+      // Phase 16 C10a: billing details, the card, the upcoming invoice and those issued; one invoice, its units, its PDF.
+      if (url.pathname === "/v1/agent/invoices") return json(await tenant(env.connect, workspace, (db) => readBilling(db, workspace, principal, env.billing ?? {})));
+      if (url.pathname === "/v1/agent/invoice") return json(await tenant(env.connect, workspace, (db) => readInvoice(db, workspace, principal, url.searchParams.get("id") ?? "")));
+      if (url.pathname === "/v1/agent/invoice-units") return json(await tenant(env.connect, workspace, (db) => readInvoiceUnits(db, workspace, principal, url.searchParams)));
+      if (url.pathname === "/v1/agent/invoice-pdf") {
+        const data = await tenant(env.connect, workspace, (db) => readInvoice(db, workspace, principal, url.searchParams.get("id") ?? ""));
+        // A copy of the bytes, so the response carries a buffer of its own.
+        const pdf = (await invoicePdf(data)).slice().buffer as ArrayBuffer;
+        return new Response(pdf, {
+          headers: {
+            "content-type": "application/pdf",
+            "content-disposition": `attachment; filename="${data.invoice.number}.pdf"`,
+            "cache-control": "private, no-store",
+            "x-content-type-options": "nosniff",
+          },
+        });
+      }
       // Phase 16 C9d: the workspace's own AI providers (never their keys), and Relay's AI.
       if (url.pathname === "/v1/agent/ai-providers") return json(await tenant(env.connect, workspace, (db) => readProviders(db, workspace, principal, relayAi(env))));
       // Phase 16 C8b: who occupies each seat, and this period's seats.
