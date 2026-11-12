@@ -106,8 +106,9 @@ export async function portalContext(
   // the help center's colour and links back to it.
   const help = (
     await db.query<{ color: string | null; slug: string }>(
-      `SELECT c.theme->>'primaryColor' AS color,c.slug FROM help_centers c
-      WHERE c.workspace_id=$1 AND c.brand_id=$2 AND (SELECT count(*) FROM workspace_features f
+      // The action colour is the rebuild's name for it; `primaryColor` is the first design's.
+      `SELECT COALESCE(c.theme->>'actionColor',c.theme->>'primaryColor') AS color,c.slug FROM help_centers c
+      WHERE c.workspace_id=$1 AND c.brand_id=$2 AND c.live AND (SELECT count(*) FROM workspace_features f
         WHERE f.workspace_id=c.workspace_id AND f.name IN ('knowledge_v1','help_center_v1') AND f.enabled)=2`,
       [scope.workspace, scope.brand],
     )

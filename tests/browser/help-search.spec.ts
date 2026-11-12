@@ -193,6 +193,7 @@ test("with “search before contacting” on, the customer can't start until the
     .getByRole("navigation", { name: "Knowledge areas" })
     .getByRole("button", { name: "Help centers" })
     .click();
+  await page.getByRole("button", { name: "Insights" }).click();
   const report = page.getByRole("region", { name: "Search and feedback" });
   await expect(
     report.getByRole("table", { name: "Searches with no results" }),

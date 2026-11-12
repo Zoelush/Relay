@@ -19,6 +19,8 @@ export type Center = {
   layout: LayoutBlock[];
   noindex: boolean;
   access: "public" | "signed_in";
+  /** Not live: nothing is served. */
+  live: boolean;
 };
 export type Node = {
   id: string;
@@ -33,6 +35,8 @@ export type Article = {
   id: string;
   audience: "public" | "signed_in";
   faq: boolean;
+  /** Who wrote it (shown only when the help center shows authors). */
+  author: string;
   locales: Record<
     string,
     { title: string; slug: string; publishedAt: string; text: string }
@@ -58,7 +62,7 @@ export async function centerBy(
 ) {
   return (
     await db.query<Center>(
-      `SELECT c.id,c.brand_id,b.name AS brand_name,c.name,c.slug,c.default_locale,c.locales,c.theme,c.layout,c.noindex,c.access
+      `SELECT c.id,c.brand_id,b.name AS brand_name,c.name,c.slug,c.default_locale,c.locales,c.theme,c.layout,c.noindex,c.access,c.live
       FROM help_centers c JOIN brands b ON b.workspace_id=c.workspace_id AND b.id=c.brand_id
       WHERE c.workspace_id=$1 AND c.${column}=$2`,
       [w, value],
@@ -100,14 +104,16 @@ export async function loadCenter(db: Sql, w: string, c: Center) {
       id: string;
       audience: "public" | "signed_in";
       faq: boolean;
+      author: string;
       locale: string;
       title: string;
       slug: string;
       published_at: string;
       text: string;
     }>(
-      `SELECT r.id,r.audience,r.faq,l.locale,l.published_title AS title,l.slug,l.published_at,left(COALESCE(l.published_text,''),400) AS text
+      `SELECT r.id,r.audience,r.faq,t.name AS author,l.locale,l.published_title AS title,l.slug,l.published_at,left(COALESCE(l.published_text,''),400) AS text
       FROM knowledge_records r JOIN knowledge_locales l ON l.workspace_id=r.workspace_id AND l.record_id=r.id
+      JOIN teammates t ON t.workspace_id=r.workspace_id AND t.id=r.owner_id
       WHERE r.workspace_id=$1 AND r.id=ANY($2::text[]) AND r.source='article' AND r.for_help_center
         AND r.audience IN ('public','signed_in') AND l.status='published' AND l.slug IS NOT NULL AND l.locale=ANY($3::text[])`,
       [w, [...new Set([...ids, ...featured])], c.locales],
@@ -119,6 +125,7 @@ export async function loadCenter(db: Sql, w: string, c: Center) {
       id: r.id,
       audience: r.audience,
       faq: r.faq,
+      author: r.author,
       locales: {},
     };
     a.locales[r.locale] = {

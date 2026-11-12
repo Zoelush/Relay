@@ -114,6 +114,7 @@ import { hyperdriveConnection } from "../server/postgres";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
 import { helpSite } from "../server/help-site";
+import { runBrandImport } from "../server/help-brand";
 import {
   drainConversationOutbox,
   drainJobStatusOutbox,
@@ -670,6 +671,8 @@ const relayWorker = {
         processBrandAsset(runtime.connect, runtime.attachments!, job);
     // Website sync (phase 07, C1b). TODO(phase 17): a Browser Rendering renderer for JavaScript sites.
     handlers["knowledge.sync.run"] = (job) => runSync(runtime.connect, {}, job);
+    // The help center's "Import your brand": public https addresses only, like website sync.
+    handlers["help.brand.import"] = (job) => runBrandImport({}, job);
     // The AI index (phase 07, C2a), when its bindings exist.
     if (runtime.knowledgeIndex)
       handlers["knowledge.index"] = (job) =>

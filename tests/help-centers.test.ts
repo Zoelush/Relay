@@ -199,10 +199,10 @@ test("help centers: one per brand, collections and optional sections, placements
     let center = (await agent("help-center?id=" + centerId)).body.center;
     assert.deepEqual(center.locales, ["en", "fr", "fr-CA", "de"]);
     assert.deepEqual(center.layout, [
-      { type: "search" },
       { type: "collections" },
       { type: "contact" },
     ]);
+    assert.equal(center.live, true, "a new help center is served at once");
     const brands = (await agent("help-centers")).body.brands;
     assert.equal(
       brands.find((b: any) => b.id === "default").centerId,
@@ -220,7 +220,7 @@ test("help centers: one per brand, collections and optional sections, placements
       code(
         await settings({
           version: center.version,
-          theme: { primaryColor: "red" },
+          theme: { actionColor: "red" },
         }),
       ),
       "INVALID_HELP_CENTER",
@@ -244,6 +244,8 @@ test("help centers: one per brand, collections and optional sections, placements
       "INVALID_HELP_CENTER",
     );
     assert.equal(code(await settings({ version: center.version, theme: { welcome: ["hello"] } })), "INVALID_HELP_CENTER");
+    // The rebuild's theme (lib/help-theme.ts): the first design's three fields still mean what
+    // they meant, and everything else keeps its default.
     const themed = await settings({
       version: center.version,
       theme: { primaryColor: "#AA3300", headerStyle: "light" },
@@ -251,12 +253,112 @@ test("help centers: one per brand, collections and optional sections, placements
     });
     assert.equal(themed.status, 200, JSON.stringify(themed.body));
     center = (await agent("help-center?id=" + centerId)).body.center;
-    assert.deepEqual(center.theme, {
-      primaryColor: "#aa3300",
-      headerStyle: "light",
-      font: "system",
-    });
+    assert.equal(center.theme.actionColor, "#aa3300");
+    assert.equal(center.theme.iconColor, "#aa3300");
+    assert.deepEqual(center.theme.heroBackground, { type: "color", color: "#f6f7f8" });
+    assert.equal(center.theme.heroText, "#161a1d");
+    assert.equal(center.theme.template, "classic");
+    assert.equal(center.theme.designStyle, "card");
+    assert.equal(center.theme.fontPrimary, "system");
     assert.equal(center.noindex, true);
+    // Each field is checked on save, with the reason the editor shows.
+    for (const theme of [
+      { radius: 90 },
+      { heroHeight: 1200 },
+      { searchRadius: -1 },
+      { template: "fancy" },
+      { fontPrimary: "comic-sans" },
+      { actionColor: "green" },
+      { heroBackground: { type: "gradient", colors: ["#000000"] } },
+      { socials: Array.from({ length: 17 }, () => ({ platform: "x", url: "https://x.test/acme" })) },
+      { socials: [{ platform: "nowhere", url: "https://x.test" }] },
+      { headerLinks: { en: [1, 2, 3, 4].map(() => ({ title: "Shop", url: "https://shop.test" })) } },
+      { headerLinks: { en: [{ title: "Shop", url: "javascript:alert(1)" }] } },
+      { footerText: { en: "x".repeat(301) } },
+      { loginUrl: "http://insecure.test/login" },
+    ])
+      assert.equal(
+        code(await settings({ version: center.version, theme })),
+        "INVALID_HELP_CENTER",
+        JSON.stringify(theme),
+      );
+    const styled = await settings({
+      version: center.version,
+      theme: {
+        template: "modern",
+        designStyle: "floating",
+        radius: 4,
+        fontPrimary: "lora",
+        fontSecondary: "inter",
+        showAuthors: true,
+        markdown: true,
+        heroBackground: { type: "gradient", colors: ["#0b3d2c", "#087a57", "#12b886"] },
+        heroHeight: 420,
+        searchLength: "medium",
+        searchAlign: "center",
+        headerLinks: { en: [{ title: "Shop", url: "https://shop.test/" }] },
+        socials: [{ platform: "x", url: "https://x.test/acme" }],
+        footerLayout: "multilevel",
+        footerLinks: { en: [{ title: "Terms", url: "https://shop.test/terms", group: "Legal" }] },
+        poweredBy: false,
+      },
+      live: false,
+    });
+    assert.equal(styled.status, 200, JSON.stringify(styled.body));
+    center = (await agent("help-center?id=" + centerId)).body.center;
+    assert.equal(center.theme.template, "modern");
+    assert.equal(center.theme.fontPrimary, "lora");
+    assert.equal(center.theme.showAuthors, true);
+    assert.deepEqual(center.theme.heroBackground.colors, ["#0b3d2c", "#087a57", "#12b886"]);
+    assert.deepEqual(center.theme.headerLinks.en, [{ title: "Shop", url: "https://shop.test/" }]);
+    assert.deepEqual(center.theme.footerLinks.en, [
+      { title: "Terms", url: "https://shop.test/terms", group: "Legal" },
+    ]);
+    assert.equal(center.theme.poweredBy, false);
+    assert.equal(center.live, false, "not live: nothing of it is served");
+    // The homepage's sections: up to five, each kind once, and collections can't be turned off.
+    assert.equal(
+      code(
+        await settings({
+          version: center.version,
+          layout: [{ type: "content", title: { en: "Pricing" }, buttonLabel: { en: "See" }, buttonUrl: "" }],
+        }),
+      ),
+      "INVALID_HELP_CENTER",
+      "a button needs a link",
+    );
+    const sections = await settings({
+      version: center.version,
+      layout: [
+        {
+          type: "content",
+          title: { en: "Pricing" },
+          description: { en: "What each plan includes." },
+          buttonLabel: { en: "See pricing" },
+          buttonUrl: "https://shop.test/pricing",
+          design: "full",
+          background: { type: "color", color: "#0b3d2c" },
+          textColor: "#ffffff",
+        },
+      ],
+    });
+    assert.equal(sections.status, 200, JSON.stringify(sections.body));
+    center = (await agent("help-center?id=" + centerId)).body.center;
+    assert.deepEqual(
+      center.layout.map((b: any) => b.type),
+      ["content", "collections"],
+      "collections is always there",
+    );
+    assert.equal(center.layout[0].design, "full");
+    // Back to a plain look for the rest of the test.
+    const plain = await settings({
+      version: center.version,
+      theme: { template: "classic", primaryColor: "#aa3300" },
+      layout: [{ type: "collections" }, { type: "contact" }],
+      live: true,
+    });
+    assert.equal(plain.status, 200, JSON.stringify(plain.body));
+    center = (await agent("help-center?id=" + centerId)).body.center;
     const welcomed = await settings({
       version: center.version,
       theme: { ...center.theme, welcome: { en: " Help for Acme customers ", fr: "" } },
@@ -663,6 +765,62 @@ test("help centers: one per brand, collections and optional sections, placements
       ),
       "HELP_NOT_PLACEABLE",
     );
+
+    // The editor's live preview (docs/HELP_CENTER_DESIGN.md): the help center's own pages, drawn
+    // from a draft that isn't saved, framed by the app and never indexed or cached.
+    const previewPage = async (params: Record<string, string>, principal = "owner-a", workspace = "a") => {
+      const response = await bridgeAgentRequest(
+        new Request("https://app.test/api/agent/help-preview?" + new URLSearchParams(params), {
+          headers: { origin: "https://app.test" },
+        }),
+        principal,
+        {
+          RELAY_AGENT_INBOX_V1: "true",
+          RELAY_STORAGE_AUTHORITY: "postgres",
+          RELAY_API_ORIGIN: "https://relay.test",
+          RELAY_WORKSPACE_ID: workspace,
+          RELAY_BRIDGE_SECRET: env.bridgeSecret,
+        },
+        (r) => handleApi(r, env),
+      );
+      return {
+        status: response.status,
+        csp: response.headers.get("content-security-policy") ?? "",
+        body: await response.text(),
+      };
+    };
+    const draft = (data: unknown) =>
+      Buffer.from(JSON.stringify(data)).toString("base64url");
+    const drawn = await previewPage({
+      centerId,
+      page: "home",
+      locale: "en",
+      draft: draft({ theme: { actionColor: "#7a0ba5", welcome: { en: "Try the preview" } } }),
+    });
+    assert.equal(drawn.status, 200, drawn.body.slice(0, 200));
+    assert.match(drawn.body, /--action:#7a0ba5/);
+    assert.match(drawn.body, /<h1 class="hero-line">Try the preview<\/h1>/);
+    assert.match(drawn.body, /<body class="[^"]*\bpreview\b/, "the preview's own links do nothing");
+    assert.match(drawn.csp, /frame-ancestors 'self'/);
+    assert.match(drawn.body, /<meta name="robots" content="noindex, nofollow"\/>/);
+    // The saved help center is untouched by a preview.
+    assert.equal(
+      (await agent("help-center?id=" + centerId)).body.center.theme.actionColor,
+      "#aa3300",
+    );
+    // A draft that isn't valid yet comes back as the reason, for the frame to show.
+    const tooTall = await previewPage({
+      centerId,
+      page: "home",
+      locale: "en",
+      draft: draft({ theme: { heroHeight: 9000 } }),
+    });
+    assert.equal(tooTall.status, 200);
+    assert.match(tooTall.body, /The hero's height is between 245 and 600/);
+    assert.doesNotMatch(tooTall.body, /hero-line/);
+    assert.equal((await previewPage({ centerId, draft: "not base64url ±" })).status, 200);
+    // Another workspace can't preview this help center.
+    assert.equal((await previewPage({ centerId }, "owner-b", "b")).status, 404);
 
     // A retried create returns the first result.
     const retry = {

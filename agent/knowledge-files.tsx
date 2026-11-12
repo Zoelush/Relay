@@ -73,7 +73,7 @@ type Target =
   | { purpose: "source"; recordId?: string; locale?: string }
   | { purpose: "article_image"; recordId: string }
   | {
-      purpose: "theme_logo" | "theme_favicon" | "social_image";
+      purpose: "theme_logo" | "theme_favicon" | "social_image" | "theme_image";
       centerId: string;
     };
 
@@ -300,7 +300,7 @@ export function ThemeImage({
   onChange,
 }: {
   label: string;
-  purpose: "theme_logo" | "theme_favicon" | "social_image";
+  purpose: "theme_logo" | "theme_favicon" | "social_image" | "theme_image";
   centerId: string;
   value: string | null;
   onChange: (id: string | null) => void;

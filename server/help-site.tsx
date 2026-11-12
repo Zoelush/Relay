@@ -5,10 +5,12 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { tenant, type Connect, type Sql } from "./db";
 import { currentSession } from "./portal";
-import { DEFAULT_THEME, resolvePath, type Theme } from "./help-centers";
+import { resolvePath } from "./help-centers";
 import { helpPath, resolveLocale } from "../lib/help-paths";
 import { plainText, type RichBlock, type RichDoc } from "../lib/rich-doc";
-import { ArticleText } from "../lib/rich-view";
+import { ArticleText, headingsOf } from "../lib/rich-view";
+import { articleMarkdown } from "../lib/rich-markdown";
+import { SOCIALS, themeOf, type HelpTheme, type Localized } from "../lib/help-theme";
 import type { AttachmentStorage } from "./attachments";
 import { fileResponse, publicFile } from "./knowledge-files";
 import { DomainError } from "./db";
@@ -116,7 +118,7 @@ export async function helpSite(
         ).rows[0],
     );
     if (mapped) {
-      if (/^\/(portal|v1|messenger)(\/|$)/.test(url.pathname))
+      if (/^\/(portal|v1|messenger|help-fonts)(\/|$)/.test(url.pathname))
         return load(request);
       site = customSite(mapped.workspace_id, url.origin);
       rest = url.pathname;
@@ -170,6 +172,8 @@ async function serve(
       segments.unshift(center.slug);
     } else if (segments[0])
       center = await centerBy(db, site.workspace, "slug", segments[0]);
+    // Not live (switched off in its settings): nothing of it is served.
+    if (center && !center.live) return plainNotFound();
     if (brand && segments.length === 2 && segments[1] === "robots.txt")
       return robots(site, center!);
     if (center && segments.length === 2 && segments[1] === "sitemap.xml")
@@ -294,12 +298,19 @@ async function serve(
       started = result.conversationId;
       return result.response;
     }
+    // An article as Markdown: its address with ".md" (when the help center offers it).
+    const md =
+      !!center &&
+      segments.length === 4 &&
+      segments[2] === "articles" &&
+      segments[3].endsWith(".md");
+    if (md) segments[3] = segments[3].slice(0, -3);
     const resolved = await resolvePath(db, site.workspace, segments.join("/"));
     if (resolved.type === "redirect")
       return new Response(null, {
         status: 301,
         headers: {
-          location: site.url(resolved.path),
+          location: site.url(resolved.path) + (md ? ".md" : ""),
           "cache-control": "public, max-age=300",
         },
       });
@@ -311,15 +322,18 @@ async function serve(
     );
     const data = await loadCenter(db, site.workspace, center);
     const page = new Page(db, site, center, data, !!session, url);
-    if (resolved.type === "not_found") return page.notFound(segments[1]);
+    if (resolved.type === "not_found")
+      return md ? plainNotFound() : page.notFound(segments[1]);
     if (center.access === "signed_in" && !session)
-      return page.signIn(resolved.locale);
+      return md ? plainNotFound() : page.signIn(resolved.locale);
     if (resolved.type === "home") return page.home(resolved.locale);
     if (resolved.type !== "article")
       return page.node(resolved.id, resolved.locale, resolved.chain);
     if (resolved.audience === "signed_in" && !session)
-      return page.signIn(resolved.locale);
-    return page.article(resolved.id, resolved.locale, resolved.chain);
+      return md ? plainNotFound() : page.signIn(resolved.locale);
+    return md
+      ? page.markdown(resolved.id, resolved.locale, resolved.chain)
+      : page.article(resolved.id, resolved.locale, resolved.chain);
   });
   if (!response) return load(new Request(request));
   if (started) await notify?.(site.workspace, started);
@@ -355,6 +369,53 @@ export function negotiate(
   return center.default_locale;
 }
 
+/** The editor's live preview: a draft look, inert links, framed by the agent app. */
+type PreviewMode = { fileUrl: (id: string) => string };
+
+/**
+ * A help center's page as the editor's live preview: `center` carries the draft theme and layout
+ * (already checked). Shows everything a signed-in customer would see. Nothing is logged.
+ */
+export async function previewPage(
+  db: Sql,
+  w: string,
+  origin: string,
+  center: Center,
+  show: "home" | "collection" | "article",
+  wanted: string,
+  fileUrl: (id: string) => string,
+) {
+  const { locale, chain } = resolveLocale(wanted, {
+    defaultLocale: center.default_locale,
+    locales: center.locales,
+  });
+  const page = new Page(
+    db,
+    hostedSite(w, origin),
+    center,
+    await loadCenter(db, w, center),
+    true,
+    new URL(origin + "/"),
+    { fileUrl },
+  );
+  return page.previewOf(show, locale, chain);
+}
+/** What the preview's frame shows when the draft can't be drawn (a field that isn't valid yet). */
+export function previewMessage(text: string) {
+  const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Preview</title></head><body><p>${esc}</p></body></html>`,
+    {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-security-policy": "default-src 'none'; frame-ancestors 'self'",
+        "cache-control": "no-store",
+        "x-robots-tag": "noindex",
+      },
+    },
+  );
+}
+
 class Page {
   constructor(
     private db: Sql,
@@ -363,7 +424,231 @@ class Page {
     private data: CenterData,
     private signedIn: boolean,
     private url: URL,
+    private preview: PreviewMode | null = null,
   ) {}
+  private themeCache?: HelpTheme;
+  private theme = () => (this.themeCache ??= themeOf(this.center.theme));
+  /** A line kept per language, in this language or the next one along. */
+  private text = (lines: Localized | undefined, chain: string[]) =>
+    first(chain, (l) => lines?.[l])?.value ?? "";
+  /** The preview's page: the home page, or the first collection or article there is. */
+  async previewOf(show: "home" | "collection" | "article", locale: string, chain: string[]) {
+    const collection = this.collections(chain)[0];
+    if (show === "collection" && collection) return this.node(collection.id, locale, chain);
+    if (show === "article") {
+      const id = this.data.nodes.flatMap((n) => n.articles).find((a) => this.shown(a, chain));
+      if (id) return this.article(id, locale, chain);
+    }
+    return this.home(locale);
+  }
+  /** Collections with a name and something to read, in order. */
+  private collections = (chain: string[]) =>
+    this.data.nodes.filter(
+      (n) => n.kind === "collection" && this.nodeName(n, chain) && this.count(n, chain) > 0,
+    );
+  /** A collection's icon or image, as the theme asks; nothing with the text-only design. */
+  private glyph(n: Node, size: number, page = false) {
+    const theme = this.theme();
+    if (theme.collectionDesign === "none") return null;
+    const image = theme.collectionDesign === "images" ? theme.collectionImages[n.id] : null;
+    if (image) {
+      // eslint-disable-next-line @next/next/no-img-element
+      const img = <img className={page ? undefined : "card-image"} src={this.fileUrl(image)} alt="" loading="lazy" />;
+      return page ? <span className="page-icon">{img}</span> : img;
+    }
+    const Icon = helpIcon(n.icon);
+    return (
+      <span className={page ? "page-icon" : "card-icon"} aria-hidden="true">
+        <Icon size={size} strokeWidth={1.75} />
+      </span>
+    );
+  }
+  private card(n: Node, locale: string, chain: string[]) {
+    const style = this.theme().collectionStyle;
+    const name = this.nodeName(n, chain)!.value;
+    const count = <span className="count">{helpStrings(locale).articles(this.count(n, chain))}</span>;
+    const glyph = this.glyph(n, style === "compact" ? 20 : style === "visual" ? 30 : 24);
+    const words = (
+      <>
+        <strong>{name.name}</strong>
+        {style !== "compact" && name.description && <p>{name.description}</p>}
+        {count}
+      </>
+    );
+    return (
+      <a className="card surface" href={this.nodeUrl(n, locale, chain)!}>
+        {style === "visual" ? (
+          <>
+            {glyph && <div className="card-visual">{glyph}</div>}
+            <div className="card-text">{words}</div>
+          </>
+        ) : (
+          <>
+            {glyph}
+            {words}
+          </>
+        )}
+      </a>
+    );
+  }
+  /** The modern template's left-hand navigation: every collection, the current one opened. */
+  private sideNav(locale: string, chain: string[], at: { node?: string; article?: string }) {
+    const t = helpStrings(locale);
+    const collections = this.collections(chain);
+    const holds = (n: Node) =>
+      n.id === at.node ||
+      this.sections(n).some((s) => s.id === at.node) ||
+      (!!at.article && [n, ...this.sections(n)].some((x) => x.articles.includes(at.article!)));
+    const open = collections.find(holds);
+    const current = (yes: boolean) => (yes ? ("page" as const) : undefined);
+    return (
+      <nav className="side" aria-label={t.allCollections}>
+        <details open>
+          <summary>{t.allCollections}</summary>
+          <ul>
+            {collections.map((n) => (
+              <li key={n.id}>
+                <a className="group" href={this.nodeUrl(n, locale, chain)!} aria-current={current(n.id === at.node)}>
+                  {this.nodeName(n, chain)!.value.name}
+                </a>
+                {n === open && (
+                  <ul>
+                    {this.articlesIn(n, chain).map((id) => (
+                      <li key={id}>
+                        <a href={this.articleUrl(id, locale, chain)!} aria-current={current(id === at.article)}>
+                          {this.shown(id, chain)!.value.title}
+                        </a>
+                      </li>
+                    ))}
+                    {this.sections(n)
+                      .filter((s) => this.nodeName(s, chain) && this.articlesIn(s, chain).length)
+                      .map((s) => (
+                        <li key={s.id}>
+                          <a href={this.nodeUrl(s, locale, chain)!} aria-current={current(s.id === at.node)}>
+                            {this.nodeName(s, chain)!.value.name}
+                          </a>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      </nav>
+    );
+  }
+  private footer(locale: string, chain: string[], portal: boolean) {
+    const t = helpStrings(locale);
+    const theme = this.theme();
+    const logo = theme.footerLogoFileId ?? theme.logoFileId;
+    const brand = (
+      <span className="foot-brand">
+        {logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={this.fileUrl(logo)} alt={this.center.brand_name} />
+        ) : (
+          this.center.brand_name
+        )}
+      </span>
+    );
+    const line = this.text(theme.footerText, chain);
+    const text = line && <p className="foot-text">{line}</p>;
+    const links = first(chain, (l) => (theme.footerLinks[l]?.length ? theme.footerLinks[l] : undefined))?.value ?? [];
+    const own = (
+      <>
+        <li>
+          <a href={this.homeUrl(locale)}>{t.home}</a>
+        </li>
+        {portal && (
+          <li>
+            <a href={this.portalUrl()}>{t.requests}</a>
+          </li>
+        )}
+      </>
+    );
+    const out = (l: { title: string; url: string }, i: number) => (
+      <li key={i}>
+        <a href={l.url} rel="noopener noreferrer">
+          {l.title}
+        </a>
+      </li>
+    );
+    const socials = theme.socials.length > 0 && (
+      <ul className="socials">
+        {theme.socials.map((s, i) => out({ title: SOCIALS[s.platform], url: s.url }, i))}
+      </ul>
+    );
+    const powered = theme.poweredBy && <span className="powered">{t.poweredBy}</span>;
+    if (theme.footerLayout === "multilevel") {
+      const groups = new Map<string, typeof links>();
+      for (const l of links) groups.set(l.group, [...(groups.get(l.group) ?? []), l]);
+      return (
+        <footer className="foot-multilevel">
+          <div className="foot-inner">
+            <div className="foot-top">
+              <div className="foot-main">
+                {brand}
+                {text}
+              </div>
+              <nav className="foot-groups" aria-label={t.home}>
+                <div>
+                  <strong>{this.center.name}</strong>
+                  <ul>{own}</ul>
+                </div>
+                {[...groups].map(([group, list]) => (
+                  <div key={group}>
+                    {group && <strong>{group}</strong>}
+                    <ul>{list.map(out)}</ul>
+                  </div>
+                ))}
+              </nav>
+            </div>
+            <div className="foot-end">
+              {socials || <span />}
+              {powered}
+            </div>
+          </div>
+        </footer>
+      );
+    }
+    const nav = (
+      <nav aria-label={t.home}>
+        <ul className="foot-links">
+          {own}
+          {links.map(out)}
+        </ul>
+      </nav>
+    );
+    if (theme.footerLayout === "classic")
+      return (
+        <footer className="foot-classic">
+          <div className="foot-inner">
+            <div className="foot-main">
+              {brand}
+              {text}
+              {socials}
+            </div>
+            {nav}
+            <div className="foot-end">
+              <span>{this.center.brand_name}</span>
+              {powered}
+            </div>
+          </div>
+        </footer>
+      );
+    return (
+      <footer>
+        <div className="foot-inner">
+          {brand}
+          {text}
+          {nav}
+          {socials}
+          {powered}
+        </div>
+      </footer>
+    );
+  }
   private searchUrl = (locale: string) =>
     this.site.url(`${this.center.slug}/${locale}/search`);
   private searchForm(locale: string, label: string, value = "") {
@@ -388,11 +673,12 @@ class Page {
       </form>
     );
   }
-  private theme = (): Theme => ({ ...DEFAULT_THEME, ...this.center.theme });
   private abs = (path: string) => this.site.origin + path;
   /** An uploaded image of this help center (theme or article image). */
   private fileUrl = (id: string) =>
-    this.site.url(`${this.center.slug}/files/${id}`);
+    this.preview
+      ? this.preview.fileUrl(id)
+      : this.site.url(`${this.center.slug}/files/${id}`);
 
   /** An article as shown in a language: its version there, or the next one along. */
   private shown(id: string, chain: string[]) {
@@ -454,34 +740,17 @@ class Page {
   async home(locale: string) {
     const chain = chainOf(this.center, locale);
     const t = helpStrings(locale);
-    const collections = this.data.nodes.filter(
-      (n) =>
-        n.kind === "collection" &&
-        this.nodeName(n, chain) &&
-        this.count(n, chain) > 0,
-    );
+    const theme = this.theme();
+    const collections = this.collections(chain);
     const portal = await this.portalOn();
-    const blocks = this.center.layout.map((b) => {
+    const blocks = this.center.layout.map((b, i) => {
       if (b.type === "collections" && collections.length)
         return (
           <section key="collections" aria-label={this.center.name}>
-            <ul className="grid">
-              {collections.map((n) => {
-                const name = this.nodeName(n, chain)!.value;
-                const Icon = helpIcon(n.icon);
-                return (
-                  <li key={n.id}>
-                    <a className="card" href={this.nodeUrl(n, locale, chain)!}>
-                      <span className="card-icon" aria-hidden="true">
-                        <Icon size={24} strokeWidth={1.75} />
-                      </span>
-                      <strong>{name.name}</strong>
-                      {name.description && <p>{name.description}</p>}
-                      <span className="count">{t.articles(this.count(n, chain))}</span>
-                    </a>
-                  </li>
-                );
-              })}
+            <ul className={`grid style-${theme.collectionStyle}`}>
+              {collections.map((n) => (
+                <li key={n.id}>{this.card(n, locale, chain)}</li>
+              ))}
             </ul>
           </section>
         );
@@ -489,15 +758,32 @@ class Page {
         const ids = b.recordIds.filter((id) => this.shown(id, chain));
         if (!ids.length) return null;
         return (
-          <section key="featured">
-            <h2>{t.featured}</h2>
-            {this.articleList(ids, locale, chain)}
+          <section key={i}>
+            <h2>{this.text(b.title, chain) || t.featured}</h2>
+            {this.articleList(ids, locale, chain, { columns: true })}
+          </section>
+        );
+      }
+      if (b.type === "content") {
+        const title = this.text(b.title, chain);
+        const description = this.text(b.description, chain);
+        const label = this.text(b.buttonLabel, chain);
+        if (!title && !description) return null;
+        return (
+          <section key={i} className={b.design === "full" ? "content-block content-full" : "content-block"}>
+            {title && <h2>{title}</h2>}
+            {description && <p>{description}</p>}
+            {label && b.buttonUrl && (
+              <a className="button" href={b.buttonUrl} rel="noopener noreferrer">
+                {label}
+              </a>
+            )}
           </section>
         );
       }
       if (b.type === "contact" && portal)
         return (
-          <section key="contact" className="contact">
+          <section key="contact" className="contact surface">
             <div>
               <h2>{t.contactTitle}</h2>
               <p>{t.contactBody}</p>
@@ -507,7 +793,7 @@ class Page {
             </a>
           </section>
         );
-      // The search block is the hero's search box (`render`), not a block among the others.
+      // The first design's search block: the search box is the hero's now.
       return null;
     });
     if (!collections.length && !blocks.some(Boolean))
@@ -520,7 +806,7 @@ class Page {
       status: 200,
       locale,
       contentLocale: locale,
-      title: this.center.name,
+      title: this.text(theme.pageTitle, chain) || this.center.name,
       heading: this.welcome(locale),
       description: this.center.name,
       home: true,
@@ -593,12 +879,13 @@ class Page {
         name.locale !== locale
           ? t.notTranslated(languageName(name.locale, locale, false))
           : undefined,
-      icon: n.kind === "collection" ? helpIcon(n.icon) : null,
+      icon: n.kind === "collection" ? this.glyph(n, 26, true) : null,
+      side: { node: n.id },
       lead: name.value.description || undefined,
       meta: t.articles(this.count(n, chain)),
       body: (
         <>
-          {direct.length > 0 && this.articleList(direct, locale, chain)}
+          {direct.length > 0 && this.articleList(direct, locale, chain, { descriptions: true })}
           {sections.map((s) => (
             <section key={s.id}>
               <div className="section-title">
@@ -609,7 +896,7 @@ class Page {
                 </h2>
                 <small>{t.articles(this.articlesIn(s, chain).length)}</small>
               </div>
-              {this.articleList(this.articlesIn(s, chain), locale, chain)}
+              {this.articleList(this.articlesIn(s, chain), locale, chain, { descriptions: true })}
             </section>
           ))}
           {!direct.length && !sections.length && (
@@ -663,7 +950,21 @@ class Page {
     const faq = a.faq ? faqPairs(body.published_body) : [];
     const restricted =
       this.center.access === "signed_in" || a.audience === "signed_in";
-    const related = await this.related(id, where ?? null, shown.value.title, chain);
+    const theme = this.theme();
+    const related = theme.related
+      ? await this.related(id, where ?? null, shown.value.title, chain)
+      : [];
+    const headings = theme.toc ? headingsOf(body.published_body) : [];
+    const toc = headings.length > 1;
+    const articlePath = this.site.url(
+      helpPath.article(this.center.slug, locale, shown.value.slug),
+    );
+    const initials = a.author
+      .split(/\s+/)
+      .map((w) => w[0] ?? "")
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
     return this.render({
       status: 200,
       locale,
@@ -691,6 +992,9 @@ class Page {
           dateModified: shown.value.publishedAt,
           mainEntityOfPage: this.abs(canonical),
           publisher: { "@type": "Organization", name: this.center.brand_name },
+          ...(theme.showAuthors && a.author
+            ? { author: { "@type": "Person", name: a.author } }
+            : {}),
         },
         ...(faq.length
           ? [
@@ -712,41 +1016,97 @@ class Page {
         shown.locale !== locale
           ? t.notTranslated(languageName(shown.locale, locale, false))
           : undefined,
-      meta: t.updated(date),
-      body: (
-        <article
-          className="article"
-          lang={shown.locale}
-          dir={isRtl(shown.locale) ? "rtl" : undefined}
-        >
-          <ArticleText
-            doc={body.published_body}
-            fallback={body.published_text}
-            link={(recordId) => this.articleUrl(recordId, locale, chain)}
-            image={(image) => (
-              // Server-rendered static markup, not a Next.js page.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={this.fileUrl(image.attachmentId)}
-                alt={image.alt ?? ""}
-                loading="lazy"
-              />
-            )}
-          />
-          {related.length > 0 && (
-            <section className="related" aria-label={t.related}>
-              <h2>{t.related}</h2>
-              {this.articleList(related, locale, chain)}
-            </section>
+      side: { article: id },
+      byline: (
+        <p className="byline">
+          {theme.showAuthors && a.author && (
+            <>
+              <span className="avatar" aria-hidden="true">
+                {initials}
+              </span>
+              <span>{t.writtenBy(a.author)}</span>
+            </>
           )}
-          {this.feedbackForm(
-            locale,
-            this.site.url(
-              helpPath.article(this.center.slug, locale, shown.value.slug),
-            ),
-          )}
-        </article>
+          <span>{t.updated(date)}</span>
+          {theme.markdown && <a href={articlePath + ".md"}>{t.viewMarkdown}</a>}
+        </p>
       ),
+      body: (
+        <div className={toc ? "article-layout" : "article-layout no-toc"}>
+          <article
+            className="article"
+            lang={shown.locale}
+            dir={isRtl(shown.locale) ? "rtl" : undefined}
+          >
+            <ArticleText
+              doc={body.published_body}
+              fallback={body.published_text}
+              anchors={toc}
+              link={(recordId) => this.articleUrl(recordId, locale, chain)}
+              image={(image) => (
+                // Server-rendered static markup, not a Next.js page.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={this.fileUrl(image.attachmentId)}
+                  alt={image.alt ?? ""}
+                  loading="lazy"
+                />
+              )}
+            />
+            {related.length > 0 && (
+              <section className="related" aria-label={t.related}>
+                <h2>{t.related}</h2>
+                {this.articleList(related, locale, chain)}
+              </section>
+            )}
+            {this.feedbackForm(locale, articlePath)}
+          </article>
+          {toc && (
+            <nav className="toc" aria-label={t.onThisPage}>
+              <strong>{t.onThisPage}</strong>
+              <ol>
+                {headings.map((h) => (
+                  <li key={h.id} className={"l" + h.level}>
+                    <a href={"#" + h.id}>{h.text}</a>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
+        </div>
+      ),
+    });
+  }
+
+  /** An article as Markdown, for readers who paste it into another tool (when the theme offers it). */
+  async markdown(id: string, locale: string, chain: string[]) {
+    const a = this.data.articles.get(id);
+    const shown = this.shown(id, chain);
+    if (!a || !shown || !this.theme().markdown) return plainNotFound();
+    const body = (
+      await this.db.query<{ published_body: RichDoc; published_text: string }>(
+        "SELECT published_body,published_text FROM knowledge_locales WHERE workspace_id=$1 AND record_id=$2 AND locale=$3",
+        [this.site.workspace, id, shown.locale],
+      )
+    ).rows[0];
+    const text = articleMarkdown(shown.value.title, body.published_body, body.published_text, {
+      link: (recordId) => {
+        const href = this.articleUrl(recordId, locale, chain);
+        return href && this.abs(href);
+      },
+      image: (attachmentId) => this.abs(this.fileUrl(attachmentId)),
+    });
+    const closed = this.center.access === "signed_in" || a.audience === "signed_in" || this.signedIn;
+    return new Response(text, {
+      headers: {
+        "content-type": "text/markdown; charset=utf-8",
+        "cache-control": closed ? "private, no-store" : PUBLIC_CACHE,
+        vary: "cookie",
+        "content-language": shown.locale,
+        "x-content-type-options": "nosniff",
+        // The page is the one to index, not its Markdown.
+        "x-robots-tag": "noindex",
+      },
     });
   }
 
@@ -822,7 +1182,7 @@ class Page {
         </>
       );
     return (
-      <section id="feedback" className="feedback" aria-label={t.question}>
+      <section id="feedback" className="feedback surface" aria-label={t.question}>
         {content}
       </section>
     );
@@ -985,7 +1345,7 @@ class Page {
             </p>
           )}
           {results.length > 0 && (
-            <ol className="rows results">
+            <ol className="rows results surface">
               {results.map((r) => (
                 <li key={r.id}>
                   <a href={href(r.id)} lang={r.locale}>
@@ -1066,36 +1426,50 @@ class Page {
         <>
           <p className="lead">{t.signInBody(this.center.brand_name)}</p>
           <p>
-            <a href={this.portalUrl()}>{t.signInLink}</a>
+            <a className="button" href={this.theme().loginUrl || this.portalUrl()}>
+              {this.theme().loginUrl ? t.signIn : t.signInLink}
+            </a>
           </p>
         </>
       ),
     });
   }
 
-  private articleList(ids: string[], locale: string, chain: string[]) {
+  private articleList(
+    ids: string[],
+    locale: string,
+    chain: string[],
+    as: { descriptions?: boolean; columns?: boolean } = {},
+  ) {
+    const descriptions = as.descriptions && this.theme().showDescriptions;
     return (
-      <ul className="rows">
-        {ids.map((id) => (
-          <li key={id}>
-            <a href={this.articleUrl(id, locale, chain)!}>
-              <span>{this.shown(id, chain)!.value.title}</span>
-              <ChevronRight size={18} aria-hidden="true" />
-            </a>
-          </li>
-        ))}
+      <ul className={as.columns ? "rows surface columns" : "rows surface"}>
+        {ids.map((id) => {
+          const shown = this.shown(id, chain)!.value;
+          const text = descriptions ? summary(shown.text) : "";
+          return (
+            <li key={id}>
+              <a href={this.articleUrl(id, locale, chain)!}>
+                <span>
+                  {shown.title}
+                  {text && <p>{text}</p>}
+                </span>
+                <ChevronRight size={18} aria-hidden="true" />
+              </a>
+            </li>
+          );
+        })}
       </ul>
     );
   }
 
   /** The hero's line on the home page: the theme's, in this language, else the default. */
   private welcome(locale: string) {
-    const lines = this.theme().welcome ?? {};
-    const own = first(chainOf(this.center, locale), (l) => lines[l]);
-    return own?.value ?? helpStrings(locale).welcome(this.center.brand_name);
+    return (
+      this.text(this.theme().welcome, chainOf(this.center, locale)) ||
+      helpStrings(locale).welcome(this.center.brand_name)
+    );
   }
-  /** Whether the hero has the search box (the homepage's search block). */
-  private searchInHero = () => this.center.layout.some((b) => b.type === "search");
 
   private async render(p: {
     status: number;
@@ -1117,16 +1491,45 @@ class Page {
     /** The home page: the heading is the hero's welcome line. */
     home?: boolean;
     /** A collection's icon, a description, and a line under the heading (a date, a count). */
-    icon?: ReturnType<typeof helpIcon> | null;
+    icon?: ReactNode;
     lead?: string;
     meta?: string;
+    /** An article's line under its heading: who wrote it, when, and its Markdown. */
+    byline?: ReactNode;
+    /** Where the page is, for the modern template's navigation; none on pages without it. */
+    side?: { node?: string; article?: string };
     notice?: string;
     body: ReactNode;
   }) {
     const t: HelpStrings = helpStrings(p.locale);
-    const noindex = this.center.noindex || p.restricted || p.status !== 200;
+    const noindex =
+      this.center.noindex || p.restricted || p.status !== 200 || !!this.preview;
     const theme_ = this.theme();
-    const theme = themeCss(theme_);
+    const theme = themeCss(theme_, this.center.layout, this.fileUrl);
+    const chain = chainOf(this.center, p.locale);
+    const headerLinks =
+      first(chain, (l) =>
+        theme_.headerLinks[l]?.length ? theme_.headerLinks[l] : undefined,
+      )?.value ?? [];
+    const modern =
+      theme_.template === "modern" && !!p.side && p.status === 200;
+    const content = (
+      <>
+        {!p.home && (
+          <div className="page-head">
+            {p.icon}
+            <h1>{p.heading}</h1>
+            {p.lead && <p className="lead">{p.lead}</p>}
+            {p.byline ?? (p.meta && <p className="meta">{p.meta}</p>)}
+          </div>
+        )}
+        {p.body}
+      </>
+    );
+    const bodyClass =
+      [theme_.designStyle === "floating" && "floating", this.preview && "preview"]
+        .filter(Boolean)
+        .join(" ") || undefined;
     const defaultAlternate =
       p.alternates.find((a) => a.locale === this.center.default_locale) ??
       p.alternates[0];
@@ -1223,53 +1626,62 @@ class Page {
               />
             )}
           </head>
-          <body>
+          <body className={bodyClass}>
             <a className="skip" href="#main">
               {p.heading}
             </a>
-            <header className="top">
-              <div className="wrap top-inner">
-                <a className="brand" href={this.homeUrl(p.locale)}>
-                  {theme_.logoFileId ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={this.fileUrl(theme_.logoFileId)}
-                      alt={this.center.name}
-                    />
-                  ) : (
-                    this.center.name
-                  )}
-                </a>
-                <nav aria-label={this.center.name}>
-                  {!this.searchInHero() &&
-                    p.status !== 401 &&
+            <div
+              className={
+                "hero" +
+                (p.home ? " hero-home" : "") +
+                (theme_.heroFade ? " hero-fade" : "")
+              }
+            >
+              <header className="top">
+                <div className="wrap top-inner">
+                  <a className="brand" href={this.homeUrl(p.locale)}>
+                    {theme_.logoFileId ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={this.fileUrl(theme_.logoFileId)}
+                        alt={this.center.name}
+                      />
+                    ) : (
+                      this.center.name
+                    )}
+                  </a>
+                  <nav aria-label={this.center.name}>
+                    {headerLinks.map((l, i) => (
+                      <a key={i} href={l.url} rel="noopener noreferrer">
+                        {l.title}
+                      </a>
+                    ))}
+                    {p.portal && <a href={this.portalUrl()}>{t.requests}</a>}
+                    {switcher && (
+                      <ul className="langs" aria-label={t.language}>
+                        {this.center.locales.map((l) => (
+                          <li key={l}>
+                            <a
+                              href={this.localeUrl(l, p)}
+                              hrefLang={l}
+                              lang={l}
+                              aria-current={l === p.locale ? "page" : undefined}
+                            >
+                              {languageName(l)}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </nav>
+                </div>
+              </header>
+              <div className="wrap hero-body">
+                <div className="hero-inner">
+                  {p.home && <h1 className="hero-line">{p.heading}</h1>}
+                  {p.status !== 401 &&
                     this.searchForm(p.locale, t.searchPlaceholder, p.query)}
-                  {p.portal && <a href={this.portalUrl()}>{t.requests}</a>}
-                  {switcher && (
-                    <ul className="langs" aria-label={t.language}>
-                      {this.center.locales.map((l) => (
-                        <li key={l}>
-                          <a
-                            href={this.localeUrl(l, p)}
-                            hrefLang={l}
-                            lang={l}
-                            aria-current={l === p.locale ? "page" : undefined}
-                          >
-                            {languageName(l)}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </nav>
-              </div>
-            </header>
-            <div className={p.home ? "hero hero-home" : "hero"}>
-              <div className="wrap">
-                {p.home && <h1>{p.heading}</h1>}
-                {this.searchInHero() &&
-                  p.status !== 401 &&
-                  this.searchForm(p.locale, t.searchPlaceholder, p.query)}
+                </div>
               </div>
             </div>
             <main id="main">
@@ -1293,39 +1705,16 @@ class Page {
                   {p.notice}
                 </p>
               )}
-              {!p.home && (
-                <div className="page-head">
-                  {p.icon && (
-                    <span className="page-icon" aria-hidden="true">
-                      <p.icon size={26} strokeWidth={1.75} />
-                    </span>
-                  )}
-                  <h1>{p.heading}</h1>
-                  {p.lead && <p className="lead">{p.lead}</p>}
-                  {p.meta && <p className="meta">{p.meta}</p>}
+              {modern ? (
+                <div className="with-nav">
+                  {this.sideNav(p.locale, chain, p.side!)}
+                  <div>{content}</div>
                 </div>
+              ) : (
+                content
               )}
-              {p.body}
             </main>
-            <footer>
-              <div className="foot-inner">
-                <span className="foot-brand">
-                  {theme_.logoFileId ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={this.fileUrl(theme_.logoFileId)}
-                      alt={this.center.brand_name}
-                    />
-                  ) : (
-                    this.center.brand_name
-                  )}
-                </span>
-                <nav aria-label={t.home}>
-                  <a href={this.homeUrl(p.locale)}>{t.home}</a>
-                  {p.portal && <a href={this.portalUrl()}>{t.requests}</a>}
-                </nav>
-              </div>
-            </footer>
+            {this.footer(p.locale, chain, p.portal)}
           </body>
         </html>,
       );
@@ -1335,17 +1724,22 @@ class Page {
         "default-src 'none'",
         `style-src '${await sha256(HELP_CSS)}' '${await sha256(theme)}'`,
         "img-src 'self' data:",
+        "font-src 'self'",
         "frame-src https://www.youtube-nocookie.com https://player.vimeo.com",
         "base-uri 'none'",
         // Search (GET) and feedback (POST) forms go to this help center only.
         "form-action 'self'",
-        "frame-ancestors 'none'",
+        // Only the editor's preview is ever framed, and only by the app that asked for it.
+        this.preview ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
       ].join("; "),
       "x-content-type-options": "nosniff",
       // YouTube's player needs the page's origin as referrer.
       "referrer-policy": "strict-origin-when-cross-origin",
       "cache-control":
-        p.restricted || this.signedIn || this.url.searchParams.has("feedback")
+        p.restricted ||
+        this.signedIn ||
+        this.preview ||
+        this.url.searchParams.has("feedback")
           ? "private, no-store"
           : PUBLIC_CACHE,
       vary: "cookie",

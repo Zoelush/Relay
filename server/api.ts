@@ -273,7 +273,9 @@ import {
   changeHelpCenter,
   listHelpCenters,
   readHelpCenter,
+  previewDraft,
 } from "./help-centers";
+import { previewMessage, previewPage } from "./help-site";
 import {
   helpAvailable,
   helpContextArticle,
@@ -1556,6 +1558,7 @@ export async function handleApi(
             "/v1/agent/help-centers",
             "/v1/agent/help-center",
             "/v1/agent/help-insights",
+            "/v1/agent/help-preview",
           ].includes(url.pathname)) ||
           (req.method === "POST" &&
             [
@@ -3012,6 +3015,30 @@ export async function handleApi(
             listHelpCenters(db, workspace, principal),
           ),
         );
+      // The editor's live preview: a page of the help center, framed by the agent app.
+      if (url.pathname === "/v1/agent/help-preview") {
+        try {
+          const draft = await tenant(env.connect, workspace, (db) =>
+            previewDraft(db, workspace, principal, url.searchParams),
+          );
+          return await tenant(env.connect, workspace, (db) =>
+            previewPage(
+              db,
+              workspace,
+              url.origin,
+              draft.center,
+              draft.page,
+              draft.locale,
+              (id) => "/api/agent/knowledge-file?id=" + encodeURIComponent(id),
+            ),
+          );
+        } catch (e) {
+          // A draft that isn't valid yet is the editor's own message, not an error page.
+          if (e instanceof DomainError && e.status === 400)
+            return previewMessage(e.message);
+          throw e;
+        }
+      }
       if (url.pathname === "/v1/agent/help-insights")
         return json(
           await tenant(env.connect, workspace, (db) =>
@@ -3025,16 +3052,19 @@ export async function handleApi(
           ),
         );
       if (url.pathname === "/v1/agent/help-center")
-        return json(
-          await tenant(env.connect, workspace, (db) =>
+        return json({
+          ...(await tenant(env.connect, workspace, (db) =>
             readHelpCenter(
               db,
               workspace,
               principal,
               url.searchParams.get("id") ?? "",
             ),
-          ),
-        );
+          )),
+          // Where the help center is served from: the editor's link to the live pages.
+          origin: url.origin,
+          workspace,
+        });
       if (url.pathname === "/v1/agent/knowledge-sources")
         return json(
           await tenant(env.connect, workspace, (db) =>

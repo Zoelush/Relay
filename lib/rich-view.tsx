@@ -61,11 +61,14 @@ export function ArticleText({
   link,
   image = altOnly,
   videos = "embed",
+  anchors = false,
 }: {
   doc: unknown;
   fallback: string;
   link: ArticleLinker;
   image?: ImageRenderer;
+  /** Give headings ids (`headingsOf` lists the same ones), for a table of contents. */
+  anchors?: boolean;
   /** "link" where frames are not allowed (the messenger): a link that opens the video. */
   videos?: "embed" | "link";
 }) {
@@ -75,15 +78,56 @@ export function ArticleText({
   } catch {
     return <p>{fallback}</p>;
   }
+  const ids = anchors ? headingIds(safe) : undefined;
   const block = (n: RichBlock, i: number) =>
-    renderBlock(n, i, { image, link, videos });
+    renderBlock(n, i, { image, link, videos, ids });
   return <div className="rich article">{safe.content.map(block)}</div>;
+}
+
+const inlineText = (nodes: RichInline[] = []) =>
+  nodes.map((n) => (n.type === "text" ? n.text : n.type === "hardBreak" ? " " : "")).join("").trim();
+/** An id for each top-level heading: its words, made unique in the article. */
+function headingIds(doc: RichDoc) {
+  const ids = new Map<RichBlock, string>();
+  const used = new Set<string>();
+  for (const n of doc.content) {
+    if (n.type !== "heading") continue;
+    const base =
+      inlineText(n.content)
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60) || "section";
+    let id = base;
+    for (let i = 2; used.has(id); i++) id = `${base}-${i}`;
+    used.add(id);
+    ids.set(n, id);
+  }
+  return ids;
+}
+/** An article's top-level headings (levels 2 and 3), with the ids `ArticleText` gives them. */
+export function headingsOf(doc: unknown): { id: string; level: 2 | 3; text: string }[] {
+  let safe: RichDoc;
+  try {
+    safe = normalizeDoc(doc, { article: true });
+  } catch {
+    return [];
+  }
+  const ids = headingIds(safe);
+  return safe.content.flatMap((n) =>
+    n.type === "heading" && n.attrs.level <= 3 && inlineText(n.content)
+      ? [{ id: ids.get(n)!, level: n.attrs.level as 2 | 3, text: inlineText(n.content) }]
+      : [],
+  );
 }
 
 type Context = {
   image: ImageRenderer;
   link?: ArticleLinker;
   videos?: "embed" | "link";
+  ids?: Map<RichBlock, string>;
 };
 const VIDEO_PAGE = {
   youtube: (id: string) => `https://www.youtube.com/watch?v=${id}`,
@@ -165,7 +209,11 @@ function renderBlock(n: RichBlock, i: number, context: Context): ReactNode {
       );
     case "heading": {
       const Tag = (["h2", "h3", "h4"] as const)[n.attrs.level - 2];
-      return <Tag key={i}>{inline(n.content, link)}</Tag>;
+      return (
+        <Tag key={i} id={context.ids?.get(n)}>
+          {inline(n.content, link)}
+        </Tag>
+      );
     }
     case "callout":
       return (

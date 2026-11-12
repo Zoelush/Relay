@@ -38,6 +38,7 @@ import { handleApi, type ApiEnvironment } from "../server/api";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
 import { helpSite } from "../server/help-site";
+import { runBrandImport } from "../server/help-brand";
 import { identityIssuer, unwrapIdentityKey } from "../server/identity";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
@@ -1007,6 +1008,8 @@ export async function startLocalRelay(
       processKnowledgeFile(db.connect, env.attachments!, job);
     handlers["messenger.asset.process"] = (job) =>
       processBrandAsset(db.connect, env.attachments!, job);
+  // The help center's "Import your brand": the same fetch policy as website sync.
+  handlers["help.brand.import"] = (job) => runBrandImport(env.sync?.policy ?? {}, job);
   handlers["knowledge.sync.run"] = (job) =>
     runSync(db.connect, env.sync ?? {}, job);
   handlers["knowledge.index"] = (job) =>
@@ -1411,6 +1414,11 @@ export async function startLocalRelay(
                 ".js": "text/javascript",
                 ".css": "text/css",
                 ".svg": "image/svg+xml",
+                ".woff2": "font/woff2",
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".ico": "image/x-icon",
+                ".txt": "text/plain; charset=utf-8",
               } as Record<string, string>
             )[extname(file)] ?? "application/octet-stream",
           "cache-control": "no-store",
@@ -1698,6 +1706,9 @@ export async function startLocalRelay(
         status: 404,
       });
     if (url.pathname.startsWith("/agent/")) return staticResponse(req);
+    // The help center's fonts, served from Relay's own files on every host that shows a page
+    // (the public help center, and the editor's live preview framed by the agent app).
+    if (url.pathname.startsWith("/help-fonts/")) return staticResponse(req);
     // The messenger's own page and files, for Settings' live preview (messenger settings M2).
     if (
       ["/messenger/frame.html", "/messenger/frame.js", "/messenger/frame.css"].includes(

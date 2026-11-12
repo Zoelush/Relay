@@ -28,18 +28,26 @@ import {
  * TODO(phase 07 C2): chunk and embed the extracted text.
  */
 export type FilePurpose =
-  "source" | "article_image" | "theme_logo" | "theme_favicon" | "social_image";
+  | "source"
+  | "article_image"
+  | "theme_logo"
+  | "theme_favicon"
+  | "social_image"
+  /** The rebuild's other theme images: a hero background, collection images and the like. */
+  | "theme_image";
 const PURPOSES: FilePurpose[] = [
   "source",
   "article_image",
   "theme_logo",
   "theme_favicon",
   "social_image",
+  "theme_image",
 ];
 export const THEME_PURPOSES = [
   "theme_logo",
   "theme_favicon",
   "social_image",
+  "theme_image",
 ] as const;
 
 type FileRow = {

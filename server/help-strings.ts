@@ -39,6 +39,12 @@ export type HelpStrings = {
   reactYes: string;
   reactPartly: string;
   reactNo: string;
+  /** The rebuild: an article's author, its table of contents and Markdown link, and the footer. */
+  writtenBy: (name: string) => string;
+  onThisPage: string;
+  viewMarkdown: string;
+  poweredBy: string;
+  signIn: string;
   thanks: string;
   tellUs: string;
   send: string;
@@ -87,7 +93,11 @@ const en: HelpStrings = {
   question: "Did this answer your question?",
   reactYes: "Yes, it did",
   reactPartly: "Partly",
-  reactNo: "No, it didn't",
+  reactNo: "No, it didn't",  writtenBy: (n) => `Written by ${n}`,
+  onThisPage: "On this page",
+  viewMarkdown: "View as Markdown",
+  poweredBy: "Powered by Relay",
+  signIn: "Sign in",
 };
 const fr: HelpStrings = {
   home: "Accueil",
@@ -131,7 +141,11 @@ const fr: HelpStrings = {
   question: "Cet article a-t-il répondu à votre question ?",
   reactYes: "Oui",
   reactPartly: "En partie",
-  reactNo: "Non",
+  reactNo: "Non",  writtenBy: (n) => `Écrit par ${n}`,
+  onThisPage: "Sur cette page",
+  viewMarkdown: "Voir en Markdown",
+  poweredBy: "Propulsé par Relay",
+  signIn: "Se connecter",
 };
 const de: HelpStrings = {
   home: "Startseite",
@@ -175,7 +189,11 @@ const de: HelpStrings = {
   question: "Hat dieser Artikel Ihre Frage beantwortet?",
   reactYes: "Ja",
   reactPartly: "Teilweise",
-  reactNo: "Nein",
+  reactNo: "Nein",  writtenBy: (n) => `Verfasst von ${n}`,
+  onThisPage: "Auf dieser Seite",
+  viewMarkdown: "Als Markdown ansehen",
+  poweredBy: "Bereitgestellt von Relay",
+  signIn: "Anmelden",
 };
 const es: HelpStrings = {
   home: "Inicio",
@@ -219,7 +237,11 @@ const es: HelpStrings = {
   question: "¿Este artículo respondió a tu pregunta?",
   reactYes: "Sí",
   reactPartly: "En parte",
-  reactNo: "No",
+  reactNo: "No",  writtenBy: (n) => `Escrito por ${n}`,
+  onThisPage: "En esta página",
+  viewMarkdown: "Ver como Markdown",
+  poweredBy: "Con tecnología de Relay",
+  signIn: "Iniciar sesión",
 };
 const ar: HelpStrings = {
   home: "الرئيسية",
@@ -261,7 +283,11 @@ const ar: HelpStrings = {
   question: "هل أجابت هذه المقالة عن سؤالك؟",
   reactYes: "نعم",
   reactPartly: "جزئيًا",
-  reactNo: "لا",
+  reactNo: "لا",  writtenBy: (n) => `بقلم ${n}`,
+  onThisPage: "في هذه الصفحة",
+  viewMarkdown: "عرض بصيغة Markdown",
+  poweredBy: "يعمل بواسطة Relay",
+  signIn: "تسجيل الدخول",
 };
 const STRINGS: Record<string, HelpStrings> = { en, fr, de, es, ar };
 

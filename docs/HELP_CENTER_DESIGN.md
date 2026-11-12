@@ -1,45 +1,49 @@
-# The help center's design
+# The help center, rebuilt
 
-Branch `ui/help-center` (November 2026). After phase 16 C9d, the public help center (phase 07, step B1) and its editor were compared with Intercom's (a read-only look at a live account, 11 November 2026) and found flat. This is the first of two parts: the pages customers see. The editor's own redesign (a two-column page with a live preview) is the second.
+Branch `ui/help-center` (November 2026). After phase 16 C9d, the public help center (phase 07, step B1) and its editor were compared with Intercom's — a read-only look at a live account on 11 and 12 November 2026, and Intercom's own guide "Customize your Help Center" — and found flat. This is the rebuild: everything a help center's look is made of, the pages that draw it, the live preview, and the editor that edits it.
 
-## What Intercom's help center has
+It replaces the first redesign of 11 November (the hero, icons and reactions), which is folded into this one.
 
-- **Public pages:**
-  - **Home:** a tall hero in the brand colour (a colour, gradient or image) with the logo, a welcome line ("Advice and answers from the … team") and one large, centred search box. Under it, a grid of collection cards, each with an icon, a title, a description and an article count. A footer with the logo, links and social buttons.
-  - **Collection page:** the hero with the search, a breadcrumb ("All collections › …"), the collection's icon, name, description and count, and its articles as rows in a card with chevrons.
-  - **Article page:** a summary under the title, the date, the body, a "Related articles" card, and "Did this answer your question?" with three face reactions.
-- **The editor:** "Configure and style" with a live preview beside folding sections (templates, header, hero, layout and sections, collection page, article page, footer) and a General tab (languages, domains, analytics, privacy, social images).
+## What Intercom has
+
+- **Settings › Help Center › [centre]** is a collections manager beside a live preview. The manager is a table: a drag handle, an expander, the collection's icon, its name and description edited in place, a status dot, the article count, and a "…" menu (Add articles, Add collection, Delete). Above it: the language, "View all articles" and a "New ▾" button. The header carries the centre's name, a Default badge, a Live ▾ switch, Preview, and **Configure and style**. The preview can show the Homepage, a Collection or an Article, at Desktop, Tablet or Mobile width.
+- **Configure and style** has two tabs.
+  - **General:** supported languages, domains, Google Analytics, restricting articles to signed-in readers with a login page, the favicon and social image, and "set as default".
+  - **Styling:** Templates (Classic, Modern), Import your brand, Shared elements (body background, action colour, design style Card or Floating, corner radius, a primary and a secondary font from 15 Google Fonts, custom fonts, show article authors), Header (logo, page title, up to 3 links, background), Hero block (welcome message, background as a colour, a gradient of up to 3 colours or an image, fade, text colour, height 245–600, search bar length, alignment and corner radius), Layout and sections (the customer portal, collections, an articles section, content sections, each with its own settings and dragged into order; collections in 1–3 columns, Classic, Visual or Compact, with icons, images or neither), Collection page (show descriptions), Article page (table of contents, related articles, Copy for LLM) and Footer (logo, Simple, Classic or Multi level, text, up to 16 social buttons, grouped links, colours, a content block, the powered-by link). It ends with Cancel and "Save and set live".
 
 ## Decisions
 
-1. **Two parts:** the public pages first (this branch), then the editor.
-2. **Collection icons** come from a fixed set of line icons (`lib/help-icons.ts`, about 70 of lucide's), drawn in the help center's colour, so they look the same on every device; a collection without one shows an open book. Uploaded images as icons wait for the editor's redesign. The name is kept on the collection (`help_nodes.icon`, which existed, unused) and checked against the set.
-3. **Feedback is three reactions** (disappointed, neutral, happy), with "Did this answer your question?". Happy counts as helpful; the other two count as not helpful and open the comment box, as "No" did, so insights, reports and the messenger's own "Was this helpful?" are unchanged.
-4. **The welcome line** is part of the theme (`theme.welcome`, one per language, up to 160 characters); empty, it reads "Advice and answers from the … team" in the page's language.
-5. **The hero carries the search** on every page (as Intercom's does). The homepage's "search" block now means the hero has the box; without it, the header has a smaller one, so search is always reachable.
-6. **Still server-rendered with no script**, and the stylesheet is still fixed text hashed into the CSP.
+1. **One shared model of the look.** `lib/help-theme.ts` holds everything "Configure and style" edits, as data: the template, the shared elements, the header, the hero, the collections' cards, the collection and article pages, and the footer. `checkTheme` checks input and refuses what it can't use with the sentence the editor shows; `themeOf` reads whatever is stored, so a help center saved before the rebuild keeps its look — its `primaryColor`, `headerStyle` and `font` become the action colour, the hero and the fonts. One bad field never loses the rest.
+2. **The pages are drawn from CSS variables.** `server/help-style.ts` is still one fixed stylesheet (hashed into the CSP, no script, no inline styles); everything a help center chooses is a second block of variables from `themeCss`. Text colours are derived from the page background, and the action colour is darkened where it wouldn't read on the page, so a badly chosen colour can't make a page unreadable. Automatic dark mode is gone: the page is the colour the help center chose.
+3. **Two templates.** Classic is the search and collection cards. Modern keeps the collections beside every collection and article page, like documentation (`.with-nav`, a `<details>` that opens into a menu at phone width).
+4. **Fonts are Relay's own files.** The same 15 families Intercom offers, served from `/help-fonts/` on every host that serves a help center (`public/help-fonts`, @fontsource 5.3.0, latin and latin-ext, 400 and 700). No one else is told who is reading, and the pages' CSP allows `font-src 'self'` only.
+5. **The live preview is the real thing.** The editor frames `GET /api/agent/help-preview?centerId=…&page=…&locale=…&draft=…`, where the draft is base64url JSON of `{theme, layout}`. The server checks it exactly as a save would, loads the help center's own content and draws the page, so the preview can't show what saving wouldn't give; a draft that isn't valid yet comes back as the reason, shown in the frame. The preview is `noindex`, never cached, framed only by the app (`frame-ancestors 'self'`), its links are inert (`.preview`), and it writes nothing — no search is logged. Images are the editor's own address for an upload (`/api/agent/knowledge-file?id=`), so an image chosen a moment ago already shows.
+6. **Images are knowledge files.** The hero's background, collection images, the footer's logo and the rest are uploads of the help center, with the new purpose `theme_image` (migration 0098). Every image id in a theme is checked on save against the help center's own ready uploads.
+7. **Live, or not.** `help_centers.live` (0098, default true): a help center that isn't live serves nothing — no pages, no sitemap, no files — and the portal doesn't link to it. It is switched in the editor's header, and every save from "Save and set live" sets it.
+8. **Authors** come from the article's owner (`knowledge_records.owner_id` joined to `teammates`), shown only when the help center shows authors, with their initials.
+9. **The table of contents** is built from the article's own top-level headings (`headingsOf` in `lib/rich-view.tsx`, which gives the same ids the body renders), and appears when there are at least two.
+10. **"Copy for LLM" is an address, not a button.** Where the help center offers it, an article is also served as Markdown at its own address plus `.md` (`lib/rich-markdown.ts`, built from the validated document, never from HTML), with a "View as Markdown" link under the title. It is `noindex`: the page is the one to index.
+11. **Import your brand reads colours.** A background job (`help.brand.import`, `server/help-brand.ts`) fetches the website and its own stylesheets through `safe-fetch` (public https only), counts the colours that aren't greys, near-white or near-black, prefers a stated `theme-color`, and suggests an action colour, a hero gradient and the site's name. The editor puts them in the draft, where they can be changed; nothing is saved by the job, and a logo is still uploaded by hand.
+12. **Google Analytics is left out.** A help center that loads someone else's script is not what Relay promises; Intercom's own analytics field has no equivalent here yet.
+13. **The homepage's sections** are up to five, each kind once, in any order: the articles section (up to 12 chosen articles, a title and columns), a content section (title, description, button, card or full width, its own background and text colour), the customer portal block, and the collections grid, which is always there. The first design's "search" block is kept as a no-op: the search box is the hero's now.
+14. **Addresses stay editable.** Intercom hides a collection's address; Relay keeps the field (with its redirects) in the expanded row, because slugs here are public and were editable before.
 
-## What changed
+## What it is made of
 
-- **`server/help-style.ts`:** the stylesheet, rewritten: the hero (the colour deepening to a darker shade, or the surface), the search box with its icon and button, cards with icon tiles and a hover lift, article rows with chevrons, the related card, the reactions, and the footer. The theme adds `--accent-soft`, `--on-accent`, `--hero-bg` and `--hero-text`; `--header-bg` and `--header-text` stay.
-- **`server/help-site.tsx`:**
-  - **The shell:** the header (logo, requests link, languages), the hero (the welcome line on the home page; the search box), the page head (a collection's icon, the title, its description or date), the body and the footer.
-  - **Home:** cards with icons and counts; the contact block as a card with a button.
-  - **Collection and section:** the icon, description and count in the page head; rows with chevrons; sections with their counts.
-  - **Article:** related articles (the others where it's placed, then what a search for its title finds; up to five), then the reactions.
-  - **Search:** results as rows with their excerpts; the query stays in the hero's box.
-- **`server/help-strings.ts`:** the welcome line, "All collections", "Browse by topic", "Related articles", the question and the three reactions, in English, French, German, Spanish and Arabic.
-- **`server/help-content.ts`:** `Node.icon`. **`server/help-centers.ts`:** the icon is checked against the set; the theme's welcome lines are checked.
-- **`agent/help-centers.tsx`:** an icon picker on each collection, and the welcome line (in the editor's language) in the settings.
+- **`lib/help-theme.ts`** — the model: `HelpTheme`, `LayoutBlock`, the 15 fonts, the social networks, the limits, `checkTheme`, `themeOf`, `themeFiles`, and the colour arithmetic (`shade`, `contrast`, `readableOn`).
+- **`lib/help-icons.ts`** — about 75 line icons by name; a collection's `icon` is one of them.
+- **`server/help-style.ts`** — the stylesheet and `themeCss(theme, layout, fileUrl)`, with the @font-face rules for the fonts in use.
+- **`server/help-site.tsx`** — the pages: the hero with the header inside it, the collections grid in three styles, the articles and content sections, the contact card, the modern template's navigation, the article with its byline, table of contents, related articles and Markdown link, the three footer layouts, and `previewPage` / `previewMessage` for the editor.
+- **`server/help-centers.ts`** — `previewDraft` (the draft checked and turned into a help center to draw), the theme and layout checks, `live`, and the `center_brand_import` op.
+- **`server/help-brand.ts`** — "Import your brand": `brandColors`, `readBrand`, `runBrandImport`.
+- **`lib/rich-markdown.ts`** — an article as Markdown. **`lib/rich-view.tsx`** — heading anchors and `headingsOf`.
+- **`agent/help-centers.tsx`** — the editor: the header, the collections manager, the preview, and "Configure and style" with its General and Styling tabs. **`agent/help-theme-fields.tsx`** — the fields each section is made of.
+- **`db/postgres/0098_help_center_design.sql`** — `help_centers.live` and the `theme_image` purpose, with its rollback.
 
 ## Checks
 
-- **`tests/help-site.test.ts`:** the home shows the welcome line (the theme's, else the default in each language) and each collection's icon; a collection page shows its icon and count; an article shows related articles and the three reactions, and the sad and neutral ones record "not helpful" while the happy one records "helpful".
-- **`tests/help-centers.test.ts`:** an icon outside the set and a welcome line over 160 characters are refused; a welcome line is saved per language.
-- **`tests/browser/help-search.spec.ts`:** the vote on the public page uses the happy reaction.
-- **Preview:** the home, a collection and an article, screenshotted.
-
-## Not done here
-
-- **The editor's redesign** (part two): the two-column page with a live preview, uploaded images as collection icons, header and footer links, and the hero's background image or gradient choices.
-- **The messenger's Help space** still shows collections without their icons.
+- **`tests/help-centers.test.ts`:** the theme's fields are each checked on save (a radius, a hero height, a font, a colour, a gradient of one colour, too many header links, a `javascript:` link, 17 social links, an http sign-in page); the first design's theme still means what it meant; the homepage's sections (a button without a link is refused, collections can't be turned off); `live`; and the preview — it draws from the draft, says why an invalid draft can't be drawn, saves nothing, is framed only by the app, and another workspace can't ask for it.
+- **`tests/help-site.test.ts`:** the modern template's navigation with the open collection and the current article, the table of contents with its ids, the byline, the Markdown address (and that it is refused when the help center doesn't offer it), the articles and content sections, the compact cards, the multi-level footer with its groups, socials and powered-by line, the fonts in the CSP, and a help center that isn't live serving nothing.
+- **`tests/help-brand.test.ts`:** which colours count as a brand's, what a page suggests, and the job — the page and its own stylesheets only, and a refusal a teammate can act on.
+- **`tests/browser/help-centers.spec.ts`:** the collections manager (collections, sections, articles, order from the "…" menu, addresses with redirects, names per language), and "Configure and style" — the preview follows the draft, nothing is saved until "Save and set live", and the public pages then carry it.
+- **`tests/browser/help-site.spec.ts`, `help-search.spec.ts`, `dark-mode.spec.ts`, `app-shell.spec.ts`:** updated for the new editor.
