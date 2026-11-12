@@ -36,7 +36,7 @@ CREATE POLICY tenant ON billing_customers USING(workspace_id=current_setting('re
 CREATE TRIGGER audit AFTER INSERT OR UPDATE OF payment_method_id ON billing_customers FOR EACH ROW EXECUTE FUNCTION audit_row('billing_card','workspace','workspace_id','card_last4');
 
 -- One sequence for all of Relay's invoices (RLY-2026-000123). A number taken by a transaction that
--- fails is lost, leaving a gap (documented).
+-- fails is lost, leaving a gap (documented). The application's role needs USAGE on it.
 CREATE SEQUENCE invoice_number_seq;
 
 CREATE TABLE invoices (
@@ -90,10 +90,11 @@ ALTER TABLE invoice_line_units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoice_line_units FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant ON invoice_line_units USING(workspace_id=current_setting('relay.workspace_id',true)) WITH CHECK(workspace_id=current_setting('relay.workspace_id',true));
 
--- Issued is issued: lines and units never change; an invoice only changes its status and payment.
+-- Issued is issued: an invoice only ever changes its status and payment, and what it counted
+-- (its lines and their units) never changes at all.
 CREATE FUNCTION invoice_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_TABLE_NAME = 'invoices' AND TG_OP = 'UPDATE'
+  IF TG_OP = 'UPDATE'
      AND (NEW.number, NEW.period_start, NEW.period_end, NEW.plan, NEW.currency, NEW.subtotal_cents, NEW.tax_cents, NEW.total_cents, NEW.issued_at)
          IS NOT DISTINCT FROM (OLD.number, OLD.period_start, OLD.period_end, OLD.plan, OLD.currency, OLD.subtotal_cents, OLD.tax_cents, OLD.total_cents, OLD.issued_at)
      AND (OLD.status <> 'unpriced' OR NEW.status = 'void') THEN
@@ -101,9 +102,13 @@ BEGIN
   END IF;
   RAISE EXCEPTION 'Issued invoices are append-only: only an invoice''s status and payment change.' USING ERRCODE = 'P0001';
 END $$;
+CREATE FUNCTION invoice_line_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'An issued invoice''s lines are append-only: what it counted never changes.' USING ERRCODE = 'P0001';
+END $$;
 CREATE TRIGGER frozen BEFORE UPDATE OR DELETE ON invoices FOR EACH ROW EXECUTE FUNCTION invoice_frozen();
-CREATE TRIGGER frozen BEFORE UPDATE OR DELETE ON invoice_lines FOR EACH ROW EXECUTE FUNCTION invoice_frozen();
-CREATE TRIGGER frozen BEFORE UPDATE OR DELETE ON invoice_line_units FOR EACH ROW EXECUTE FUNCTION invoice_frozen();
+CREATE TRIGGER frozen BEFORE UPDATE OR DELETE ON invoice_lines FOR EACH ROW EXECUTE FUNCTION invoice_line_frozen();
+CREATE TRIGGER frozen BEFORE UPDATE OR DELETE ON invoice_line_units FOR EACH ROW EXECUTE FUNCTION invoice_line_frozen();
 
 -- The provider's webhook events, each taken once.
 CREATE TABLE payment_events (

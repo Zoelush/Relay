@@ -39,6 +39,9 @@ import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
 import { helpSite } from "../server/help-site";
 import { runBrandImport } from "../server/help-brand";
+import { standInPayments } from "../server/payments";
+import type { BillingEnvironment } from "../server/invoices";
+import { issueDueInvoices, runInvoiceCharge } from "../server/invoices";
 import { identityIssuer, unwrapIdentityKey } from "../server/identity";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
@@ -184,6 +187,13 @@ export async function startLocalRelay(
      */
     aiProviders?: { policy?: FetchPolicy };
     aiProvidersFlag?: boolean;
+    /**
+     * Invoices (phase 16 C10a): the page and issuing, on unless turned off. Payments are the
+     * stand-in (no network, no money); tests pass their own prices, since the plan policy's are
+     * placeholders and an invoice without a price is issued unpriced.
+     */
+    billingFlag?: boolean;
+    billing?: BillingEnvironment;
     /** The AI agent (phase 08), likewise on locally unless turned off. */
     aiAgent?: boolean;
     /** Phase 16 C4a: a stand-in OpenID Connect provider on this loopback port, for single sign-on. */
@@ -316,6 +326,8 @@ export async function startLocalRelay(
     }
     return Promise.all(ids.map((id) => publisher!.publish(id))).then(() => {});
   };
+  // Phase 16 C10a: the payment provider's stand-in — the same steps, no network and no money.
+  const payments = standInPayments();
   const publish = (w: string, id: string) => {
     const task = scheduleInboxProjection(db.connect, w)
       .then(() => publishBatch(w, [id]))
@@ -337,6 +349,8 @@ export async function startLocalRelay(
     knowledgeIndex: options.index ?? localIndex(options.directory),
     // Phase 16 C7a: link reputation's stand-in (malware.test and phishing.test are flagged).
     linkReputation: standInReputation(),
+    // Phase 16 C10a: invoices are charged with the stand-in provider, which takes no money.
+    billing: { payments: payments.port, ...options.billing },
     // Data connectors (phase 09 D1): a local key; calls go only where the policy allows.
     connectors: { key: keys.connector, ...options.connectors },
     // Webhooks (phase 15 D3): secrets sealed with the same key; deliveries go only where the policy allows.
@@ -758,6 +772,11 @@ export async function startLocalRelay(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='ai_providers_v1'",
         [w, options.aiProvidersFlag !== false],
       );
+      // Phase 16 C10a: invoices and billing details.
+      await sql.query(
+        "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='billing_v1'",
+        [w, options.billingFlag !== false],
+      );
       // Reporting (phase 14, R1).
       await sql.query(
         "UPDATE workspace_features SET enabled=$2 WHERE workspace_id=$1 AND name='reports_v1'",
@@ -1010,6 +1029,8 @@ export async function startLocalRelay(
       processBrandAsset(db.connect, env.attachments!, job);
   // The help center's "Import your brand": the same fetch policy as website sync.
   handlers["help.brand.import"] = (job) => runBrandImport(env.sync?.policy ?? {}, job);
+  // Invoices (phase 16 C10a): charged with the stand-in provider, which takes no money.
+  handlers["invoice.charge"] = (job) => runInvoiceCharge(db.connect, env.billing ?? {}, job);
   handlers["knowledge.sync.run"] = (job) =>
     runSync(db.connect, env.sync ?? {}, job);
   handlers["knowledge.index"] = (job) =>
@@ -1318,6 +1339,8 @@ export async function startLocalRelay(
         await scheduleRetention(db.connect, w);
         // Usage alerts (phase 16 C9c): thresholds of a limit or the spend cap crossed this period.
         await checkUsageAlerts(db.connect, w);
+        // Invoices (phase 16 C10a): this period's invoice issued at its start, and charged.
+        await issueDueInvoices(db.connect, w, env.billing ?? {});
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
         // and sending domains due a check.
         await releaseDeferred(db.connect, w);

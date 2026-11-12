@@ -2171,3 +2171,10 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-hc-icons button:hover { background:var(--pg-hover); color:var(--pg-text); }
 .pg-hc-icons button[aria-checked="true"] { border-color:var(--pg-accent); background:var(--pg-selected); color:var(--pg-text); }
 @media (max-width: 1100px) { .pg-hc-split, .pg-hc-configure { grid-template-columns:minmax(0,1fr); } .pg-hc-preview { min-height:520px; } }
+
+/* Settings › Billing › Invoices (phase 16 C10a; docs/SECURITY_STEP20.md). */
+.pg-invoice-row { flex-wrap:wrap; }
+.pg-invoice-actions { display:flex; align-items:center; gap:8px; margin-left:auto; }
+.pg-invoice-actions a.pg-secondary { text-decoration:none; font-size:12.5px; padding:5px 10px; }
+.pg-invoice-actions button { font-size:12.5px; padding:5px 10px; }
+.pg-invoice-detail { flex-basis:100%; display:flex; flex-direction:column; gap:10px; margin-top:8px; padding-top:10px; border-top:1px solid var(--pg-border-subtle); }

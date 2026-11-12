@@ -15,7 +15,7 @@ import type { PaymentPort } from "./payments";
  *
  * - **Built from records, never counted:** seats from the seat ledger (`seatBill`), usage from the
  *   meters' sources (`meterUnits`). Each line is frozen with what it counts, so a dispute is checked
- *   line by line, and migration 0098's trigger refuses any change to an issued line or unit.
+ *   line by line, and migration 0099's trigger refuses any change to an issued line or unit.
  * - **One invoice per period** (unique on its start): the plan's full seats for the new period in
  *   advance; the last period's prorated seat additions and metered usage; tax (zero, `TaxPort`).
  * - **Unpriced** while a price it needs is a placeholder: no amounts, never charged.

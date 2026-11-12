@@ -2819,7 +2819,9 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/invoice-units") return json(await tenant(env.connect, workspace, (db) => readInvoiceUnits(db, workspace, principal, url.searchParams)));
       if (url.pathname === "/v1/agent/invoice-pdf") {
         const data = await tenant(env.connect, workspace, (db) => readInvoice(db, workspace, principal, url.searchParams.get("id") ?? ""));
-        return new Response(await invoicePdf(data), {
+        // A copy of the bytes, so the response carries a buffer of its own.
+        const pdf = (await invoicePdf(data)).slice().buffer as ArrayBuffer;
+        return new Response(pdf, {
           headers: {
             "content-type": "application/pdf",
             "content-disposition": `attachment; filename="${data.invoice.number}.pdf"`,

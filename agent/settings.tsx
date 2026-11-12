@@ -44,6 +44,7 @@ import {
   Webhook,
   AppWindow,
   ScrollText,
+  ReceiptText,
   LockKeyhole,
   MonitorSmartphone,
   EyeOff,
@@ -96,6 +97,7 @@ import { HealthCheckPage, TrustPage } from "./settings-health";
 import { PlanPage } from "./settings-plan";
 import { SeatsPage } from "./settings-seats";
 import { UsagePage } from "./settings-usage";
+import { InvoicesPage } from "./settings-invoices";
 import { AiProvidersPage } from "./settings-ai-providers";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
@@ -421,6 +423,14 @@ const PAGES: Page[] = [
     label: "Usage",
     description: "AI resolutions, messages, minutes and calls this period, each traced to its conversation.",
     icon: Gauge,
+    group: "Billing",
+  },
+  {
+    // Phase 16 C10a: invoices, the card on file and the billing details they are made out to.
+    id: "invoices",
+    label: "Invoices",
+    description: "Your invoices line by line, the card they are charged to, and the details they are made out to.",
+    icon: ReceiptText,
     group: "Billing",
   },
   {
@@ -823,6 +833,8 @@ export function Settings({
             <SeatsPage menu={menu} page={current} />
           ) : current.id === "usage" ? (
             <UsagePage menu={menu} page={current} />
+          ) : current.id === "invoices" ? (
+            <InvoicesPage menu={menu} page={current} />
           ) : current.id === "ai-providers" ? (
             <AiProvidersPage menu={menu} page={current} />
           ) : current.id === "outbound" ? (

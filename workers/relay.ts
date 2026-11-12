@@ -115,6 +115,8 @@ import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
 import { helpSite } from "../server/help-site";
 import { runBrandImport } from "../server/help-brand";
+import { stripePayments } from "../server/payments";
+import { issueDueInvoices, runInvoiceCharge } from "../server/invoices";
 import {
   drainConversationOutbox,
   drainJobStatusOutbox,
@@ -156,6 +158,10 @@ interface Env extends Partial<StorageEnv> {
   RELAY_BACKUP_DAYS?: string;
   /** Phase 16 C7a: Google Safe Browsing (link reputation); without it, only the checks in code. A secret. */
   RELAY_SAFE_BROWSING_KEY?: string;
+  /** Phase 16 C10a: the payment provider. A live key needs RELAY_BILLING_LIVE=true. */
+  RELAY_STRIPE_SECRET_KEY?: string;
+  RELAY_STRIPE_WEBHOOK_SECRET?: string;
+  RELAY_BILLING_LIVE?: string;
   /** Phase 16 C7b: Relay support's sign-in: Relay's own identity provider (OIDC) and the staff allowed. The secret is a secret. */
   RELAY_SUPPORT_OIDC_ISSUER?: string;
   RELAY_SUPPORT_OIDC_CLIENT_ID?: string;
@@ -300,6 +306,18 @@ function environment(env: Env, ctx?: ExecutionContext): ApiEnvironment {
     attachments,
     knowledgeIndex: knowledgeIndex(env),
     linkReputation: env.RELAY_SAFE_BROWSING_KEY ? safeBrowsing(env.RELAY_SAFE_BROWSING_KEY) : undefined,
+    // Phase 16 C10a: invoices are charged through Stripe when its keys are set; prices stay the
+    // plan policy's, so an invoice is issued unpriced until they are real.
+    billing:
+      env.RELAY_STRIPE_SECRET_KEY && env.RELAY_STRIPE_WEBHOOK_SECRET
+        ? {
+            payments: stripePayments({
+              secretKey: env.RELAY_STRIPE_SECRET_KEY,
+              webhookSecret: env.RELAY_STRIPE_WEBHOOK_SECRET,
+              live: env.RELAY_BILLING_LIVE === "true",
+            }),
+          }
+        : undefined,
     support:
       env.RELAY_SUPPORT_OIDC_ISSUER && env.RELAY_SUPPORT_OIDC_CLIENT_ID && env.RELAY_SUPPORT_OIDC_CLIENT_SECRET && env.RELAY_SUPPORT_STAFF
         ? {
@@ -585,6 +603,8 @@ const relayWorker = {
       "sla.reevaluate": (job) => reevaluateJob(runtime.connect, job),
       // Phase 11: workflows triggered, and waiting runs resumed.
       // W3: read connectors, when their key is set.
+      // Phase 16 C10a: one charge per job, with the card on file.
+      "invoice.charge": (job) => runInvoiceCharge(runtime.connect, runtime.billing ?? {}, job),
       "workflow.start": (job) => startWorkflows(runtime.connect, job, { connectors: runtime.connectors }),
       "workflow.resume": (job) => resumeWorkflow(runtime.connect, job, { connectors: runtime.connectors }),
       // W4: schedules, unanswered customers and SLAs about to breach.
@@ -769,6 +789,8 @@ const relayWorker = {
           await scheduleRetention(runtime.connect, work.workspace);
           // Usage alerts (phase 16 C9c): thresholds of a limit or the spend cap crossed this period.
           await checkUsageAlerts(runtime.connect, work.workspace);
+          // Invoices (phase 16 C10a): this period's invoice issued at its start, and charged.
+          await issueDueInvoices(runtime.connect, work.workspace, runtime.billing ?? {});
           // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
           // and sending domains due a check.
           await releaseDeferred(runtime.connect, work.workspace);
