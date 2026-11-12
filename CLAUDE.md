@@ -253,7 +253,9 @@ customers, so only sources and options go there (everything else in `ai_answers`
 `AnswerModel` and `RerankPort` (Claude and Workers AI deployed, stand-ins locally). Phase 07 (help
 center and knowledge store, `docs/KNOWLEDGE_PLAN.md`) is complete locally (`docs/KNOWLEDGE_STEP1.md`
 to `STEP8.md`). The public
-help center is at `/help/demo/relay-help` locally. Phase 06 (routing, teams and workload) is complete locally, planned in
+help center is at `/help/demo/relay-help` locally; it was redesigned in November 2026
+(`docs/HELP_CENTER_DESIGN.md`): a collection's icon is a name in `lib/help-icons.ts` (checked on save), the
+theme's `welcome` line is per language, and the three reactions post `helpful` yes or no as before. Phase 06 (routing, teams and workload) is complete locally, planned in
 `docs/ROUTING_PLAN.md`; its step docs are `docs/ROUTING_STEP1.md` to `STEP3.md`. Phase 05
 (tickets and SLAs; `docs/TICKETS_PLAN.md`, `TICKETS_STEP1.md` to `STEP5.md`) and phase 04
 (agent inbox; `AGENT_INBOX_STEP1.md` to `STEP11.md`) are complete locally. Open items from phases 04–06 were cleared in

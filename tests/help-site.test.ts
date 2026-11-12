@@ -176,6 +176,7 @@ test("public help center: server-rendered pages, metadata, redirects, access, si
       locale: "en",
       name: "Getting started",
       description: "First steps",
+      icon: "rocket",
     });
     await help({
       op: "node_update",
@@ -384,6 +385,56 @@ test("public help center: server-rendered pages, metadata, redirects, access, si
       "es",
       "x-default",
     ]);
+    // The redesign (docs/HELP_CENTER_DESIGN.md): the hero's welcome line in the page's language,
+    // the search box in the hero, and each collection's icon on its card.
+    assert.match(home.body, /<h1>Conseils et réponses de l&#x27;équipe Relay<\/h1>/);
+    assert.match(home.body, /class="hero hero-home"[\s\S]*role="search"/);
+    assert.match(home.body, /class="card-icon"[^>]*><svg[^>]*lucide-rocket/);
+    assert.match(home.body, /class="count">1 article</);
+    // A welcome line of the theme's, per language; French falls back to the default language's.
+    const centerVersion = async () =>
+      (await sql("SELECT version::text AS v FROM help_centers WHERE id=$1", [centerId]))[0].v;
+    await help({
+      op: "center_settings",
+      id: centerId,
+      version: await centerVersion(),
+      theme: { primaryColor: "#ffd400", welcome: { en: "Help for Acme customers" } },
+    });
+    assert.match((await get("/help/a/acme/en")).body, /<h1>Help for Acme customers<\/h1>/);
+    assert.match((await get("/help/a/acme/fr")).body, /<h1>Help for Acme customers<\/h1>/);
+    // A collection page: its icon, description and count above its rows.
+    const collection = await get("/help/a/acme/en/collections/getting-started");
+    assert.match(collection.body, /class="page-icon"[^>]*><svg[^>]*lucide-rocket/);
+    assert.match(collection.body, /<h1>Getting started<\/h1><p class="lead">First steps<\/p><p class="meta">1 article<\/p>/);
+    assert.match(collection.body, /<ul class="rows">/);
+    // An article: its related articles (the others where it's placed), then the three reactions.
+    const twofa = await article({ en: "Set up two-factor" }, rich);
+    await help({ op: "place", nodeId: accounts.id, recordId: twofa });
+    const reset2 = await get(pages.en);
+    assert.match(reset2.body, /<section class="related" aria-label="Related articles"><h2>Related articles<\/h2><ul class="rows"><li><a href="\/help\/a\/acme\/en\/articles\/set-up-two-factor">/);
+    assert.doesNotMatch(/<section class="related"[\s\S]*?<\/section>/.exec(reset2.body)![0], /reset-your-password/, "never itself");
+    assert.match(reset2.body, /<section id="feedback" class="feedback" aria-label="Did this answer your question\?">/);
+    for (const label of ["No, it didn&#x27;t", "Partly", "Yes, it did"]) assert.match(reset2.body, new RegExp(`aria-label="${label}"`), label);
+    // The sad and neutral reactions record "not helpful" (and ask for a comment); the happy one "helpful".
+    const vote = async (value: string) => {
+      const r = await helpSite(
+        new Request(OWN + pages.en + "/feedback", {
+          method: "POST",
+          headers: { origin: OWN, "content-type": "application/x-www-form-urlencoded" },
+          body: "helpful=" + value,
+        }),
+        db.connect,
+        OWN,
+        async () => new Response("static", { status: 299 }),
+      );
+      return r.headers.get("location") ?? "";
+    };
+    assert.match(await vote("no"), /\?feedback=[0-9a-f-]{36}#feedback$/);
+    assert.match(await vote("yes"), /\?feedback=thanks#feedback$/);
+    assert.deepEqual(
+      (await sql("SELECT helpful FROM knowledge_feedback WHERE record_id=$1 ORDER BY created_at", [reset])).map((r) => r.helpful),
+      [false, true],
+    );
 
     // Slug changes and unsupported languages: 301.
     await knowledge({

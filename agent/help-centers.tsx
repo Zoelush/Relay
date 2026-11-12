@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { ThemeImage } from "./knowledge-files";
 import { preferredLocale, teammateLanguages } from "./locales";
+import { DEFAULT_ICON, HELP_ICON_NAMES, helpIcon } from "../lib/help-icons";
+import { createElement } from "react";
 
 /**
  * Help center structure (phase 07, step A2), in the Knowledge section for `knowledge.manage`:
@@ -16,6 +18,8 @@ type Theme = {
   /** Phase 07 C1a: uploaded images, saved with the other settings. */
   logoFileId?: string | null;
   faviconFileId?: string | null;
+  /** The hero's line on the home page, per language. */
+  welcome?: Record<string, string>;
   socialImageFileId?: string | null;
 };
 type Block = { type: string; recordIds?: string[] };
@@ -295,8 +299,9 @@ function CenterEditor({
   return (
     <div className="pg-help-center">
       <CenterSettings
-        key={center.version}
+        key={center.version + ":" + locale}
         center={center}
+        locale={locale}
         oldSlugs={redirectsTo(center.id).map((r) => r.slug)}
         onSave={(data) =>
           change(
@@ -412,6 +417,11 @@ function NodeItem({
     >
       <article aria-label={label}>
         <header>
+          {node.kind === "collection" && (
+            <span className="pg-help-icon" aria-hidden="true">
+              <Glyph name={node.icon} size={16} />
+            </span>
+          )}
           <strong>{shown?.name}</strong>
           {!own && (
             <span className="pg-muted">
@@ -447,6 +457,13 @@ function NodeItem({
             </button>
           </span>
         </header>
+        {node.kind === "collection" && (
+          <IconPicker
+            name={shown?.name ?? ""}
+            value={node.icon}
+            onPick={(icon) => void change({ op: "node_update", id: node.id, version: node.version, icon }, "Icon saved.")}
+          />
+        )}
         <form
           className="pg-help-names"
           onSubmit={(e) => {
@@ -618,6 +635,43 @@ function NodeItem({
   );
 }
 
+/** One icon from the set, by name (the default for none). */
+const Glyph = ({ name, size }: { name: string | null; size: number }) => createElement(helpIcon(name), { size, "aria-hidden": true });
+/** A collection's icon: the set in `lib/help-icons.ts`, drawn in the help center's colour. */
+function IconPicker({ name, value, onPick }: { name: string; value: string | null; onPick: (icon: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const current = value ?? DEFAULT_ICON;
+  return (
+    <div className="pg-help-iconpicker">
+      <button type="button" className="pg-secondary" aria-expanded={open} aria-controls={`icons-${name}`} onClick={() => setOpen((o) => !o)}>
+        <Glyph name={value} size={14} /> {open ? "Done" : "Change icon"}
+      </button>
+      {open && (
+        <div className="pg-help-icons" id={`icons-${name}`} role="radiogroup" aria-label={`Icon for ${name}`}>
+          {HELP_ICON_NAMES.map((n) => {
+            return (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={n === current}
+                aria-label={n.replace(/-/g, " ")}
+                title={n.replace(/-/g, " ")}
+                onClick={() => {
+                  onPick(n === DEFAULT_ICON ? null : n);
+                  setOpen(false);
+                }}
+              >
+                <Glyph name={n} size={18} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddNode({
   label,
   onAdd,
@@ -650,10 +704,13 @@ function AddNode({
 function CenterSettings({
   center,
   oldSlugs,
+  locale,
   onSave,
 }: {
   center: Center;
   oldSlugs: string[];
+  /** The editor's language: the welcome line is edited in it. */
+  locale: string;
   onSave: (data: Record<string, unknown>) => void;
 }) {
   const [form, setForm] = useState({
@@ -720,6 +777,19 @@ function CenterSettings({
         A page without a version in a language is shown in the next language
         along: fr-CA, then fr, then the default.
       </p>
+      <label>
+        Welcome line ({locale})
+        <input
+          aria-label={`Welcome line in ${locale}`}
+          placeholder={`Advice and answers from the ${center.name} team`}
+          maxLength={160}
+          value={form.theme.welcome?.[locale] ?? ""}
+          onChange={(e) =>
+            set({ theme: { ...form.theme, welcome: { ...(form.theme.welcome ?? {}), [locale]: e.target.value } } })
+          }
+        />
+      </label>
+      <p className="pg-muted">The line at the top of the home page. Left empty, it reads “Advice and answers from the … team” in each language.</p>
       <fieldset>
         <legend>Theme</legend>
         <label>

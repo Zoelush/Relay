@@ -238,6 +238,12 @@ test("help centers: one per brand, collections and optional sections, placements
       code(await settings({ version: center.version, defaultLocale: "es" })),
       "INVALID_HELP_CENTER",
     );
+    // The welcome line (docs/HELP_CENTER_DESIGN.md): one per language, up to 160 characters.
+    assert.equal(
+      code(await settings({ version: center.version, theme: { welcome: { en: "x".repeat(161) } } })),
+      "INVALID_HELP_CENTER",
+    );
+    assert.equal(code(await settings({ version: center.version, theme: { welcome: ["hello"] } })), "INVALID_HELP_CENTER");
     const themed = await settings({
       version: center.version,
       theme: { primaryColor: "#AA3300", headerStyle: "light" },
@@ -251,6 +257,18 @@ test("help centers: one per brand, collections and optional sections, placements
       font: "system",
     });
     assert.equal(center.noindex, true);
+    const welcomed = await settings({
+      version: center.version,
+      theme: { ...center.theme, welcome: { en: " Help for Acme customers ", fr: "" } },
+    });
+    assert.equal(welcomed.status, 200, JSON.stringify(welcomed.body));
+    center = (await agent("help-center?id=" + centerId)).body.center;
+    assert.deepEqual(center.theme.welcome, { en: "Help for Acme customers" }, "trimmed; an empty line is dropped");
+    // A collection's icon is one of the set (lib/help-icons.ts).
+    assert.equal(
+      code(await help({ op: "node_create", centerId, locale: "en", name: "Nope", icon: "no-such-icon" })),
+      "INVALID_HELP_CENTER",
+    );
 
     // Collections and sections, with a fixed depth of two.
     const node = async (data: Record<string, unknown>) => {

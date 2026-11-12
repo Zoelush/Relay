@@ -24,6 +24,8 @@ export type Node = {
   id: string;
   kind: "collection" | "section";
   parent_id: string | null;
+  /** A collection's icon (a name in `lib/help-icons.ts`), or none. */
+  icon: string | null;
   names: Record<string, { name: string; description: string; slug: string }>;
   articles: string[];
 };
@@ -71,10 +73,11 @@ export async function loadCenter(db: Sql, w: string, c: Center) {
       id: string;
       kind: "collection" | "section";
       parent_id: string | null;
+      icon: string | null;
       names: Node["names"] | null;
       articles: string[] | null;
     }>(
-      `SELECT n.id,n.kind,n.parent_id,
+      `SELECT n.id,n.kind,n.parent_id,n.icon,
         (SELECT json_object_agg(l.locale,json_build_object('name',l.name,'description',l.description,'slug',l.slug))
           FROM help_node_locales l WHERE l.workspace_id=n.workspace_id AND l.node_id=n.id) AS names,
         (SELECT array_agg(p.record_id ORDER BY p.position,p.record_id) FROM help_placements p WHERE p.workspace_id=n.workspace_id AND p.node_id=n.id) AS articles

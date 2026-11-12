@@ -31,6 +31,8 @@ import {
   type Node,
 } from "./help-content";
 import { HELP_CSS, themeCss } from "./help-style";
+import { ChevronRight, Frown, Meh, Search as SearchIcon, Smile } from "lucide-react";
+import { helpIcon } from "../lib/help-icons";
 import {
   helpStrings,
   isRtl,
@@ -373,6 +375,7 @@ class Page {
         action={this.searchUrl(locale)}
         method="get"
       >
+        <SearchIcon size={18} aria-hidden="true" className="search-icon" />
         <input
           type="search"
           name="q"
@@ -465,12 +468,16 @@ class Page {
             <ul className="grid">
               {collections.map((n) => {
                 const name = this.nodeName(n, chain)!.value;
+                const Icon = helpIcon(n.icon);
                 return (
                   <li key={n.id}>
                     <a className="card" href={this.nodeUrl(n, locale, chain)!}>
+                      <span className="card-icon" aria-hidden="true">
+                        <Icon size={24} strokeWidth={1.75} />
+                      </span>
                       <strong>{name.name}</strong>
                       {name.description && <p>{name.description}</p>}
-                      <p>{t.articles(this.count(n, chain))}</p>
+                      <span className="count">{t.articles(this.count(n, chain))}</span>
                     </a>
                   </li>
                 );
@@ -491,17 +498,16 @@ class Page {
       if (b.type === "contact" && portal)
         return (
           <section key="contact" className="contact">
-            <h2>{t.contactTitle}</h2>
-            <p>{t.contactBody}</p>
-            <a href={this.portalUrl()}>{t.contactLink}</a>
+            <div>
+              <h2>{t.contactTitle}</h2>
+              <p>{t.contactBody}</p>
+            </div>
+            <a className="button" href={this.portalUrl()}>
+              {t.contactLink}
+            </a>
           </section>
         );
-      if (b.type === "search")
-        return (
-          <section key="search" className="search-block">
-            {this.searchForm(locale, t.searchPlaceholder)}
-          </section>
-        );
+      // The search block is the hero's search box (`render`), not a block among the others.
       return null;
     });
     if (!collections.length && !blocks.some(Boolean))
@@ -515,8 +521,9 @@ class Page {
       locale,
       contentLocale: locale,
       title: this.center.name,
-      heading: this.center.name,
+      heading: this.welcome(locale),
       description: this.center.name,
+      home: true,
       canonical: this.homeUrl(locale),
       alternates: this.center.locales.map((l) => ({
         locale: l,
@@ -586,19 +593,22 @@ class Page {
         name.locale !== locale
           ? t.notTranslated(languageName(name.locale, locale, false))
           : undefined,
+      icon: n.kind === "collection" ? helpIcon(n.icon) : null,
+      lead: name.value.description || undefined,
+      meta: t.articles(this.count(n, chain)),
       body: (
         <>
-          {name.value.description && (
-            <p className="lead">{name.value.description}</p>
-          )}
           {direct.length > 0 && this.articleList(direct, locale, chain)}
           {sections.map((s) => (
             <section key={s.id}>
-              <h2>
-                <a href={this.nodeUrl(s, locale, chain)!}>
-                  {this.nodeName(s, chain)!.value.name}
-                </a>
-              </h2>
+              <div className="section-title">
+                <h2>
+                  <a href={this.nodeUrl(s, locale, chain)!}>
+                    {this.nodeName(s, chain)!.value.name}
+                  </a>
+                </h2>
+                <small>{t.articles(this.articlesIn(s, chain).length)}</small>
+              </div>
               {this.articleList(this.articlesIn(s, chain), locale, chain)}
             </section>
           ))}
@@ -653,6 +663,7 @@ class Page {
     const faq = a.faq ? faqPairs(body.published_body) : [];
     const restricted =
       this.center.access === "signed_in" || a.audience === "signed_in";
+    const related = await this.related(id, where ?? null, shown.value.title, chain);
     return this.render({
       status: 200,
       locale,
@@ -701,13 +712,13 @@ class Page {
         shown.locale !== locale
           ? t.notTranslated(languageName(shown.locale, locale, false))
           : undefined,
+      meta: t.updated(date),
       body: (
         <article
           className="article"
           lang={shown.locale}
           dir={isRtl(shown.locale) ? "rtl" : undefined}
         >
-          <p className="meta">{t.updated(date)}</p>
           <ArticleText
             doc={body.published_body}
             fallback={body.published_text}
@@ -722,6 +733,12 @@ class Page {
               />
             )}
           />
+          {related.length > 0 && (
+            <section className="related" aria-label={t.related}>
+              <h2>{t.related}</h2>
+              {this.articleList(related, locale, chain)}
+            </section>
+          )}
           {this.feedbackForm(
             locale,
             this.site.url(
@@ -731,6 +748,21 @@ class Page {
         </article>
       ),
     });
+  }
+
+  /**
+   * Up to five related articles: the others where this one is placed, then (when those are few)
+   * what a search for its title finds. Never the article itself, nor one the visitor can't read.
+   */
+  private async related(id: string, where: Node | null, title: string, chain: string[]) {
+    const out: string[] = [];
+    const add = (candidate: string) => {
+      if (candidate !== id && !out.includes(candidate) && this.shown(candidate, chain)) out.push(candidate);
+    };
+    if (where) for (const other of this.articlesIn(where, chain)) add(other);
+    if (out.length < 3)
+      for (const r of await searchHelp(this.db, this.site.workspace, this.center.id, chain, title, this.signedIn, 8)) add(r.id);
+    return out.slice(0, 5);
   }
 
   /** "Was this helpful?", the comment after a "No", or the thanks, depending on the URL. */
@@ -772,18 +804,25 @@ class Page {
       );
     else
       content = (
-        <form method="post" action={action} className="vote">
-          <span>{t.helpful}</span>
-          <button type="submit" name="helpful" value="yes">
-            {t.yes}
-          </button>
-          <button type="submit" name="helpful" value="no">
-            {t.no}
-          </button>
-        </form>
+        <>
+          <p className="question" id="feedback-question">
+            {t.question}
+          </p>
+          <form method="post" action={action} className="vote" aria-labelledby="feedback-question">
+            <button type="submit" name="helpful" value="no" aria-label={t.reactNo} title={t.reactNo}>
+              <Frown size={26} strokeWidth={1.75} aria-hidden="true" />
+            </button>
+            <button type="submit" name="helpful" value="no" aria-label={t.reactPartly} title={t.reactPartly}>
+              <Meh size={26} strokeWidth={1.75} aria-hidden="true" />
+            </button>
+            <button type="submit" name="helpful" value="yes" aria-label={t.reactYes} title={t.reactYes}>
+              <Smile size={26} strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          </form>
+        </>
       );
     return (
-      <section id="feedback" className="feedback" aria-label={t.helpful}>
+      <section id="feedback" className="feedback" aria-label={t.question}>
         {content}
       </section>
     );
@@ -937,23 +976,25 @@ class Page {
       portal: await this.portalOn(),
       // Search pages are for people, not search engines, and are never cached (each is logged).
       restricted: true,
-      searchPage: true,
+      query: q,
       body: (
         <>
-          {this.searchForm(locale, t.searchPlaceholder, q)}
           {q && (
             <p role="status" className="lead">
               {results.length ? t.results(results.length, q) : t.noResults(q)}
             </p>
           )}
           {results.length > 0 && (
-            <ol className="results">
+            <ol className="rows results">
               {results.map((r) => (
                 <li key={r.id}>
                   <a href={href(r.id)} lang={r.locale}>
-                    {r.title}
+                    <span>
+                      {r.title}
+                      {r.excerpt && <p>{r.excerpt}</p>}
+                    </span>
+                    <ChevronRight size={18} aria-hidden="true" />
                   </a>
-                  {r.excerpt && <p lang={r.locale}>{r.excerpt}</p>}
                 </li>
               ))}
             </ol>
@@ -1034,17 +1075,27 @@ class Page {
 
   private articleList(ids: string[], locale: string, chain: string[]) {
     return (
-      <ul className="list">
+      <ul className="rows">
         {ids.map((id) => (
           <li key={id}>
             <a href={this.articleUrl(id, locale, chain)!}>
-              {this.shown(id, chain)!.value.title}
+              <span>{this.shown(id, chain)!.value.title}</span>
+              <ChevronRight size={18} aria-hidden="true" />
             </a>
           </li>
         ))}
       </ul>
     );
   }
+
+  /** The hero's line on the home page: the theme's, in this language, else the default. */
+  private welcome(locale: string) {
+    const lines = this.theme().welcome ?? {};
+    const own = first(chainOf(this.center, locale), (l) => lines[l]);
+    return own?.value ?? helpStrings(locale).welcome(this.center.brand_name);
+  }
+  /** Whether the hero has the search box (the homepage's search block). */
+  private searchInHero = () => this.center.layout.some((b) => b.type === "search");
 
   private async render(p: {
     status: number;
@@ -1061,8 +1112,14 @@ class Page {
     portal: boolean;
     /** Signed-in only, or an error page: never indexed or cached publicly. */
     restricted: boolean;
-    /** The search page has its own search box, so the header leaves it out. */
-    searchPage?: boolean;
+    /** The search page: the hero's box shows the query. */
+    query?: string;
+    /** The home page: the heading is the hero's welcome line. */
+    home?: boolean;
+    /** A collection's icon, a description, and a line under the heading (a date, a count). */
+    icon?: ReturnType<typeof helpIcon> | null;
+    lead?: string;
+    meta?: string;
     notice?: string;
     body: ReactNode;
   }) {
@@ -1171,7 +1228,7 @@ class Page {
               {p.heading}
             </a>
             <header className="top">
-              <div className="top-inner">
+              <div className="wrap top-inner">
                 <a className="brand" href={this.homeUrl(p.locale)}>
                   {theme_.logoFileId ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1184,9 +1241,9 @@ class Page {
                   )}
                 </a>
                 <nav aria-label={this.center.name}>
-                  {!p.searchPage &&
+                  {!this.searchInHero() &&
                     p.status !== 401 &&
-                    this.searchForm(p.locale, t.search)}
+                    this.searchForm(p.locale, t.searchPlaceholder, p.query)}
                   {p.portal && <a href={this.portalUrl()}>{t.requests}</a>}
                   {switcher && (
                     <ul className="langs" aria-label={t.language}>
@@ -1207,8 +1264,13 @@ class Page {
                 </nav>
               </div>
             </header>
-            <div className="hero">
-              <h1>{p.heading}</h1>
+            <div className={p.home ? "hero hero-home" : "hero"}>
+              <div className="wrap">
+                {p.home && <h1>{p.heading}</h1>}
+                {this.searchInHero() &&
+                  p.status !== 401 &&
+                  this.searchForm(p.locale, t.searchPlaceholder, p.query)}
+              </div>
             </div>
             <main id="main">
               {p.crumbs.length > 1 && (
@@ -1231,10 +1293,38 @@ class Page {
                   {p.notice}
                 </p>
               )}
+              {!p.home && (
+                <div className="page-head">
+                  {p.icon && (
+                    <span className="page-icon" aria-hidden="true">
+                      <p.icon size={26} strokeWidth={1.75} />
+                    </span>
+                  )}
+                  <h1>{p.heading}</h1>
+                  {p.lead && <p className="lead">{p.lead}</p>}
+                  {p.meta && <p className="meta">{p.meta}</p>}
+                </div>
+              )}
               {p.body}
             </main>
             <footer>
-              <div>{this.center.brand_name}</div>
+              <div className="foot-inner">
+                <span className="foot-brand">
+                  {theme_.logoFileId ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={this.fileUrl(theme_.logoFileId)}
+                      alt={this.center.brand_name}
+                    />
+                  ) : (
+                    this.center.brand_name
+                  )}
+                </span>
+                <nav aria-label={t.home}>
+                  <a href={this.homeUrl(p.locale)}>{t.home}</a>
+                  {p.portal && <a href={this.portalUrl()}>{t.requests}</a>}
+                </nav>
+              </div>
             </footer>
           </body>
         </html>,

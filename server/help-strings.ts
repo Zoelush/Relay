@@ -29,6 +29,16 @@ export type HelpStrings = {
   helpful: string;
   yes: string;
   no: string;
+  /** The redesigned site (docs/HELP_CENTER_DESIGN.md): the hero's line, the breadcrumb's root,
+   * related articles, and the three reactions under an article. */
+  welcome: (brand: string) => string;
+  allCollections: string;
+  browse: string;
+  related: string;
+  question: string;
+  reactYes: string;
+  reactPartly: string;
+  reactNo: string;
   thanks: string;
   tellUs: string;
   send: string;
@@ -70,7 +80,14 @@ const en: HelpStrings = {
   sendAndTalk: "Send and talk to us",
   talkElsewhere: (b) =>
     `To talk to us, open the chat on ${b}'s website or app, or sign in to see your requests.`,
-  talkDefault: (t) => `I read “${t}” and still need help.`,
+  talkDefault: (t) => `I read “${t}” and still need help.`,  welcome: (b) => `Advice and answers from the ${b} team`,
+  allCollections: "All collections",
+  browse: "Browse by topic",
+  related: "Related articles",
+  question: "Did this answer your question?",
+  reactYes: "Yes, it did",
+  reactPartly: "Partly",
+  reactNo: "No, it didn't",
 };
 const fr: HelpStrings = {
   home: "Accueil",
@@ -107,7 +124,14 @@ const fr: HelpStrings = {
   sendAndTalk: "Envoyer et nous contacter",
   talkElsewhere: (b) =>
     `Pour nous parler, ouvrez la messagerie sur le site ou l'application de ${b}, ou connectez-vous pour voir vos demandes.`,
-  talkDefault: (t) => `J'ai lu « ${t} » et j'ai encore besoin d'aide.`,
+  talkDefault: (t) => `J'ai lu « ${t} » et j'ai encore besoin d'aide.`,  welcome: (b) => `Conseils et réponses de l'équipe ${b}`,
+  allCollections: "Toutes les collections",
+  browse: "Parcourir par thème",
+  related: "Articles liés",
+  question: "Cet article a-t-il répondu à votre question ?",
+  reactYes: "Oui",
+  reactPartly: "En partie",
+  reactNo: "Non",
 };
 const de: HelpStrings = {
   home: "Startseite",
@@ -144,7 +168,14 @@ const de: HelpStrings = {
   sendAndTalk: "Senden und Kontakt aufnehmen",
   talkElsewhere: (b) =>
     `Um mit uns zu sprechen, öffnen Sie den Chat auf der Website oder in der App von ${b}, oder melden Sie sich an, um Ihre Anfragen zu sehen.`,
-  talkDefault: (t) => `Ich habe „${t}“ gelesen und brauche noch Hilfe.`,
+  talkDefault: (t) => `Ich habe „${t}“ gelesen und brauche noch Hilfe.`,  welcome: (b) => `Rat und Antworten vom ${b}-Team`,
+  allCollections: "Alle Sammlungen",
+  browse: "Nach Thema stöbern",
+  related: "Verwandte Artikel",
+  question: "Hat dieser Artikel Ihre Frage beantwortet?",
+  reactYes: "Ja",
+  reactPartly: "Teilweise",
+  reactNo: "Nein",
 };
 const es: HelpStrings = {
   home: "Inicio",
@@ -181,7 +212,14 @@ const es: HelpStrings = {
   sendAndTalk: "Enviar y hablar con nosotros",
   talkElsewhere: (b) =>
     `Para hablar con nosotros, abre el chat en el sitio web o la app de ${b}, o inicia sesión para ver tus solicitudes.`,
-  talkDefault: (t) => `Leí «${t}» y todavía necesito ayuda.`,
+  talkDefault: (t) => `Leí «${t}» y todavía necesito ayuda.`,  welcome: (b) => `Consejos y respuestas del equipo de ${b}`,
+  allCollections: "Todas las colecciones",
+  browse: "Explorar por tema",
+  related: "Artículos relacionados",
+  question: "¿Este artículo respondió a tu pregunta?",
+  reactYes: "Sí",
+  reactPartly: "En parte",
+  reactNo: "No",
 };
 const ar: HelpStrings = {
   home: "الرئيسية",
@@ -216,7 +254,14 @@ const ar: HelpStrings = {
   sendAndTalk: "إرسال والتحدث إلينا",
   talkElsewhere: (b) =>
     `للتحدث إلينا، افتح المحادثة في موقع ${b} أو تطبيقه، أو سجّل الدخول لرؤية طلباتك.`,
-  talkDefault: (t) => `قرأت "${t}" وما زلت بحاجة إلى مساعدة.`,
+  talkDefault: (t) => `قرأت "${t}" وما زلت بحاجة إلى مساعدة.`,  welcome: (b) => `نصائح وإجابات من فريق ${b}`,
+  allCollections: "كل المجموعات",
+  browse: "تصفّح حسب الموضوع",
+  related: "مقالات ذات صلة",
+  question: "هل أجابت هذه المقالة عن سؤالك؟",
+  reactYes: "نعم",
+  reactPartly: "جزئيًا",
+  reactNo: "لا",
 };
 const STRINGS: Record<string, HelpStrings> = { en, fr, de, es, ar };
 

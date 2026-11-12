@@ -10,6 +10,7 @@ import {
   validSlug,
 } from "./knowledge";
 import { helpPath, resolveLocale, slugify } from "../lib/help-paths";
+import { HELP_ICON_NAMES } from "../lib/help-icons";
 
 /**
  * Help center structure (phase 07, step A2). At most one help center per brand, with its
@@ -47,6 +48,9 @@ export type Theme = {
   primaryColor: string;
   headerStyle: "solid" | "light";
   font: "system" | "serif" | "rounded";
+  /** The hero's line on the home page, per language (docs/HELP_CENTER_DESIGN.md); the default
+   * is "Advice and answers from the … team" in the page's language. */
+  welcome?: Record<string, string>;
   /** Uploaded, scanned images of this help center (knowledge files), or none. */
   logoFileId?: string | null;
   faviconFileId?: string | null;
@@ -83,10 +87,21 @@ function validTheme(input: unknown, current: Theme = DEFAULT_THEME): Theme {
     invalid("Choose a solid or light header.");
   if (!["system", "serif", "rounded"].includes(theme.font))
     invalid("Choose a font style.");
+  const welcome: Record<string, string> = {};
+  if (theme.welcome !== undefined && theme.welcome !== null) {
+    if (typeof theme.welcome !== "object" || Array.isArray(theme.welcome)) invalid("The welcome line is one per language.");
+    for (const [locale, line] of Object.entries(theme.welcome as Record<string, unknown>)) {
+      if (!/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(locale) || typeof line !== "string") invalid("The welcome line is one per language.");
+      const t = String(line).trim();
+      if (t.length > 160) invalid("Keep the welcome line under 160 characters.");
+      if (t) welcome[locale] = t;
+    }
+  }
   return {
     primaryColor: theme.primaryColor.toLowerCase(),
     headerStyle: theme.headerStyle,
     font: theme.font,
+    ...(Object.keys(welcome).length ? { welcome } : {}),
     // Images are checked against the help center's files (`themeImages`); kept as they were here.
     ...Object.fromEntries(
       THEME_IMAGES.filter(([field]) => current[field]).map(([field]) => [
@@ -702,7 +717,7 @@ const bump = (db: Sql, w: string, id: string) =>
   );
 const icon = (value: unknown) => {
   if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string" || !/^[a-z-]{1,40}$/.test(value))
+  if (typeof value !== "string" || !HELP_ICON_NAMES.includes(value))
     invalid("Choose an icon from the list.");
   return value as string;
 };

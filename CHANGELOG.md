@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased: A redesigned help center
+
+- **The public help center looks the part:** a hero in your colour with a welcome line and one large search box, collection cards with icons and descriptions, article rows, related articles under each article, and a proper footer.
+- **Collections get icons:** pick one from the set on each collection in Knowledge › Help centers.
+- **The welcome line** is yours to write, per language, in the help center's settings.
+- **"Did this answer your question?"** with three reactions replaces Yes and No.
+- **Details:** `docs/HELP_CENTER_DESIGN.md`. The editor's own redesign follows.
+
 ## Unreleased: A shorter Settings menu
 
 - **Settings' menu groups fold open and closed:** they start folded, except the one holding the page you're on.

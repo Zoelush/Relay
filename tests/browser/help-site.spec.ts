@@ -242,8 +242,9 @@ test("a signed-in article asks an anonymous visitor to sign in without naming it
   ).toBeVisible();
   // The portal is a section of the help center: its link leads back.
   await customer.getByRole("link", { name: "Help center" }).click();
+  // The home page's heading is the hero's welcome line (docs/HELP_CENTER_DESIGN.md).
   await expect(customer.getByRole("heading", { level: 1 })).toHaveText(
-    "Relay Help",
+    "Advice and answers from the Relay team",
   );
   const opened = await customer.goto(url);
   expect(opened!.status()).toBe(200);

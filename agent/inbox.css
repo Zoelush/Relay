@@ -2085,3 +2085,12 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-ai-provider-facts { display:grid; grid-template-columns:auto 1fr; gap:3px 10px; margin:0; font-size:12.5px; }
 .pg-ai-provider-facts dt { color:var(--pg-muted); }
 .pg-ai-provider-facts dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+
+/* Help centers (November 2026 redesign): a collection's icon and its picker. */
+.pg-help-icon { display:inline-grid; place-items:center; width:26px; height:26px; border-radius:7px; background:var(--pg-chip); color:var(--pg-text-2); }
+.pg-help-iconpicker { display:flex; flex-direction:column; gap:8px; margin:6px 0; }
+.pg-help-iconpicker > button { align-self:flex-start; display:inline-flex; align-items:center; gap:6px; font-size:12.5px; }
+.pg-help-icons { display:grid; grid-template-columns:repeat(auto-fill, minmax(36px, 1fr)); gap:4px; padding:8px; border:1px solid var(--pg-border); border-radius:9px; background:var(--pg-surface); }
+.pg-help-icons button { display:grid; place-items:center; height:36px; padding:0; border:1px solid transparent; border-radius:7px; background:none; color:var(--pg-text-2); cursor:pointer; }
+.pg-help-icons button:hover { background:var(--pg-hover); color:var(--pg-text); }
+.pg-help-icons button[aria-checked="true"] { border-color:var(--pg-accent); background:var(--pg-selected); color:var(--pg-text); }
