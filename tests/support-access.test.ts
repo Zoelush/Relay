@@ -101,6 +101,12 @@ test("support access: granted, signed in through Relay's provider, read-only, au
     assert.equal(inbox.body.account.readOnly, true);
     assert.deepEqual([inbox.body.capabilities.reply, inbox.body.capabilities.note, inbox.body.capabilities.settings], [false, false, true]);
     assert.equal((await agent("audit", undefined, "", "a", rae.token)).status, 200, "even the audit log");
+    // Support is not a teammate here, so it has no workload of its own: that is said, not thrown.
+    const workload = await agent("workload", undefined, "", "a", rae.token);
+    assert.deepEqual(
+      [workload.status, workload.body.error.code, workload.body.error.message],
+      [404, "NO_WORKLOAD", "This account has no workload in this workspace."],
+    );
     // ...but every write is refused before any route runs.
     for (const [path, body] of [
       ["support-access", { action: "grant", days: 14 }],
@@ -120,10 +126,10 @@ test("support access: granted, signed in through Relay's provider, read-only, au
     );
     assert.deepEqual(
       viewed.map((v) => v.target_id),
-      ["inbox", "audit", "link-verdict"],
+      ["inbox", "audit", "workload", "link-verdict"],
     );
     assert.deepEqual([viewed[0].actor_id, viewed[0].actor_name, viewed[0].via], ["relay-support", "Relay support (rae@relay-staff.test)", "support"]);
-    assert.deepEqual(viewed[2].details.query, ["part", "url"]);
+    assert.deepEqual(viewed[3].details.query, ["part", "url"]);
     assert.ok(!JSON.stringify(viewed).includes("secret.example"), "never the query's values");
     assert.ok((await q("a", "SELECT 1 FROM audit_events WHERE action='support.signed_in'")).length === 1);
     assert.equal((await q("a", "SELECT count(*)::int AS n FROM audit_events WHERE action='support.sign_in_refused'"))[0].n, 2);

@@ -76,7 +76,10 @@ function ProviderDialog({ provider, onClose, onSaved }: { provider: Provider; on
       onSaved(saved);
       if (!test || !saved.jobId) return onClose();
       setPhase("Testing…");
-      setResult(await testResult(saved.jobId));
+      const tested = await testResult(saved.jobId);
+      // The answer replaces "Testing…": the two never stand together, here or for a screen reader.
+      setPhase("");
+      setResult(tested);
       onSaved(await api<Data>("ai-providers"));
     } catch (e) {
       setError(message(e, "The provider couldn't be saved."));
