@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased: Your test workspace comes with your setup
+
+- **It starts as your workspace is:** teams, calendars and office hours, SLAs, ticket types, attributes, tags, macros, workflows, segments, Zoe's guidance and connectors, your knowledge and help centre, and your messenger, portal, security and retention settings.
+- **Made-up customers are already in its inbox** — three people whose names say so, at an address that can never be delivered to — each with a conversation to work on.
+- **Nothing that could reach anyone comes with it:** no keys, tokens, phone numbers, email domains, custom domains, sign-in or invoices.
+- **Details:** `docs/TEST_WORKSPACE_STEP2.md`.
+
 ## Unreleased: A test workspace of your own
 
 - **Make one from Settings › General:** a workspace beside your real one, with your brands, roles and teammates, and the same plan.

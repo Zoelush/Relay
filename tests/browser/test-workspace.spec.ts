@@ -41,7 +41,17 @@ test("a manager makes a test workspace, switches into it, and every page says wh
   expect((await sql<{ id: string }>("SELECT id FROM brands ORDER BY id", [], "demo-test")).map((b) => b.id)).toEqual(
     (await sql<{ id: string }>("SELECT id FROM brands ORDER BY id")).map((b) => b.id),
   );
-  expect((await sql("SELECT 1 FROM conversations", [], "demo-test")).length).toBe(0);
+  // T1b: the configuration came with it, and made-up customers are waiting in its inbox.
+  expect((await sql<{ name: string }>("SELECT name FROM macros ORDER BY name", [], "demo-test")).map((m) => m.name)).toEqual(
+    (await sql<{ name: string }>("SELECT name FROM macros ORDER BY name")).map((m) => m.name),
+  );
+  const people = await sql<{ name: string }>("SELECT name FROM contacts", [], "demo-test");
+  expect(people.length).toBeGreaterThan(0);
+  expect(people.every((p) => p.name.includes("(made up)"))).toBe(true);
+  expect((await sql("SELECT 1 FROM conversations", [], "demo-test")).length).toBe(people.length);
+  // And nothing that could reach a person came with it.
+  for (const table of ["api_tokens", "teammate_credentials", "email_domains", "whatsapp_numbers", "invoices"])
+    expect((await sql(`SELECT 1 FROM ${table}`, [], "demo-test")).length).toBe(0);
 
   // Switching: the same sign-in, and the app says where you are, on every page.
   await card.getByRole("button", { name: "Switch to it" }).click();

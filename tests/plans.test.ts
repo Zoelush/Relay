@@ -49,7 +49,11 @@ test("plans: one gate; no plan check, plan read or raw read of a gated flag anyw
       const source = await readFile(path, "utf8");
       if (/from "(\.\.\/)+lib\/plans"/.test(source)) offenders.push(`${path}: imports lib/plans (ask server/plans.ts)`);
       for (const [i, line] of source.split("\n").entries()) {
-        if (/workspace_plans/.test(line) && !(path === "server/people.ts" && /INSERT INTO workspace_plans/.test(line)) && path !== "server/erasure.ts") offenders.push(`${path}:${i + 1}: reads workspace_plans`);
+        // The paired test workspace's registries name the table (which tables it copies) without
+        // reading it: any SQL touching it there is still an offence.
+        const namesOnly = (path === "server/test-copy.ts" || path === "server/test-workspace.ts") && !/\b(FROM|INTO|UPDATE|JOIN)\b/i.test(line);
+        if (/workspace_plans/.test(line) && !(path === "server/people.ts" && /INSERT INTO workspace_plans/.test(line)) && path !== "server/erasure.ts" && !namesOnly)
+          offenders.push(`${path}:${i + 1}: reads workspace_plans`);
         if (/workspace_features/.test(line) && !/INSERT INTO|UPDATE workspace_features/.test(line) && gated.some((g) => line.includes(`'${g}'`) || line.includes(`"${g}"`)))
           offenders.push(`${path}:${i + 1}: reads a plan-gated flag directly (use featureOn)`);
       }
