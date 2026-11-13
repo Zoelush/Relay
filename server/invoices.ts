@@ -7,6 +7,7 @@ import { periodOf, seatBill, type Period, type SeatChange } from "../lib/seats";
 import { METER_IDS, type MeterId } from "../lib/meters";
 import { invoiceNumber, lineAmount, usageDescription, type InvoiceStatus, type LineKind, type PriceBook } from "../lib/invoices";
 import type { PaymentPort } from "./payments";
+import { afterFailedCharge, afterPaidCharge, unpaidPause } from "./dunning";
 
 /**
  * Invoices (phase 16, step C10a; docs/SECURITY_STEP20.md): Settings › Billing › Invoices
@@ -229,15 +230,25 @@ export async function runInvoiceCharge(connect: Connect, env: BillingEnvironment
     description: `Relay invoice ${inv.number}`,
     idempotencyKey: `invoice:${inv.id}:job:${job.id}`,
   });
-  await tenant(connect, w, (db) => recordCharge(db, w, inv.id, r.status === "succeeded" ? { paid: r.id } : { failed: r.failure, ref: r.id }));
+  await tenant(connect, w, (db) => recordCharge(db, w, inv.id, r.status === "succeeded" ? { paid: r.id } : { failed: r.failure, ref: r.id }, job.payload.scheduled === true));
   return { done: true, result: r.status === "succeeded" ? { paid: true } : { paid: false, failure: r.failure } };
 }
-/** A charge's result, from the job or the webhook (whichever comes first; never un-pays). */
-async function recordCharge(db: Sql, w: string, invoiceId: string, r: { paid: string } | { failed: string; ref: string | null }) {
-  if ("paid" in r)
-    await db.query("UPDATE invoices SET status='paid',paid_at=now(),payment_ref=$3,failure='',attempts=attempts+1 WHERE workspace_id=$1 AND id=$2 AND status IN ('open','failed')", [w, invoiceId, r.paid]);
-  else
-    await db.query("UPDATE invoices SET status='failed',failure=$3,payment_ref=COALESCE($4,payment_ref),attempts=attempts+1 WHERE workspace_id=$1 AND id=$2 AND status IN ('open','failed')", [w, invoiceId, r.failed, r.ref]);
+/**
+ * A charge's result, from the job or the webhook (whichever comes first; never un-pays). C10c:
+ * what follows — the next try, or the pause — is `server/dunning.ts`.
+ */
+async function recordCharge(db: Sql, w: string, invoiceId: string, r: { paid: string } | { failed: string; ref: string | null }, scheduled = false) {
+  if ("paid" in r) {
+    const paid = (
+      await db.query("UPDATE invoices SET status='paid',paid_at=now(),payment_ref=$3,failure='',attempts=attempts+1 WHERE workspace_id=$1 AND id=$2 AND status IN ('open','failed') RETURNING id", [w, invoiceId, r.paid])
+    ).rows.length;
+    if (paid) await afterPaidCharge(db, w, invoiceId);
+    return;
+  }
+  const failed = (
+    await db.query("UPDATE invoices SET status='failed',failure=$3,payment_ref=COALESCE($4,payment_ref),attempts=attempts+1 WHERE workspace_id=$1 AND id=$2 AND status IN ('open','failed') RETURNING id", [w, invoiceId, r.failed, r.ref])
+  ).rows.length;
+  if (failed) await afterFailedCharge(db, w, invoiceId, { scheduled });
 }
 
 /** The provider's webhook (`/v1/hooks/stripe`): believed only when signed, each event once. */
@@ -283,7 +294,7 @@ async function saveCard(db: Sql, w: string, card: { paymentMethodId: string; bra
 async function available(db: Sql, w: string) {
   assert(await featureOn(db, w, BILLING_FLAG), "NOT_FOUND", "Invoices aren't available in this workspace.", 404);
 }
-type InvoiceRow = { id: string; number: string; period_start: Date; period_end: Date; plan: string; status: InvoiceStatus; currency: string; subtotal_cents: number | null; tax_cents: number | null; total_cents: number | null; issued_at: Date; paid_at: Date | null; failure: string; attempts: number };
+type InvoiceRow = { id: string; number: string; period_start: Date; period_end: Date; plan: string; status: InvoiceStatus; currency: string; subtotal_cents: number | null; tax_cents: number | null; total_cents: number | null; issued_at: Date; paid_at: Date | null; failure: string; attempts: number; dunning: "none" | "retrying" | "unpaid"; next_attempt_at: Date | null };
 const invoiceOut = (r: InvoiceRow) => ({
   id: r.id,
   number: r.number,
@@ -297,6 +308,9 @@ const invoiceOut = (r: InvoiceRow) => ({
   issuedAt: new Date(r.issued_at).toISOString(),
   paidAt: r.paid_at ? new Date(r.paid_at).toISOString() : null,
   failure: r.failure,
+  // C10c: where it is in its retries, and when the next one is due.
+  dunning: r.dunning,
+  nextAttemptAt: r.next_attempt_at ? new Date(r.next_attempt_at).toISOString() : null,
 });
 const PROFILE_FIELDS = ["email", "name", "address_line1", "address_line2", "city", "postal_code", "country", "tax_id"] as const;
 const camel = (f: string) => f.replace(/_(.)/g, (_, c: string) => c.toUpperCase());
@@ -314,6 +328,8 @@ export async function readBilling(db: Sql, w: string, principal: string, env: Bi
     profile: Object.fromEntries(PROFILE_FIELDS.map((f) => [camel(f), profile?.[f] ?? ""])),
     card: card ? { brand: card.card_brand, last4: card.card_last4, expMonth: card.card_exp_month, expYear: card.card_exp_year } : null,
     payments: env.payments?.provider ?? null,
+    // C10c: why automated sending is paused, when an invoice has gone unpaid.
+    paused: await unpaidPause(db, w),
     upcoming: {
       period: { start: upcoming.period.start.toISOString(), end: upcoming.period.end.toISOString() },
       priced: upcoming.priced,

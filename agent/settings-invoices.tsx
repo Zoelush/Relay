@@ -25,6 +25,8 @@ type Invoice = {
   issuedAt: string;
   paidAt: string | null;
   failure: string;
+  dunning: "none" | "retrying" | "unpaid";
+  nextAttemptAt: string | null;
 };
 type Line = {
   id: string;
@@ -40,6 +42,8 @@ type Billing = {
   profile: Record<string, string>;
   card: { brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null } | null;
   payments: "stripe" | "stand-in" | null;
+  /** C10c: set while an invoice has gone unpaid and automated sending is paused. */
+  paused: string | null;
   upcoming: {
     period: { start: string; end: string };
     priced: boolean;
@@ -267,6 +271,12 @@ export function InvoicesPage({ menu, page }: { menu: MenuState; page: Page }) {
           {notice}
         </p>
       )}
+      {data?.paused && (
+        <p role="alert" className="pg-attr-error">
+          {data.paused} Automated sending is paused — Zoe&apos;s replies, outbound messages and automated emails and
+          texts. Your team&apos;s own replies and calls still work. Paying lifts it at once.
+        </p>
+      )}
       {data && (
         <>
           <Card
@@ -358,6 +368,8 @@ export function InvoicesPage({ menu, page }: { menu: MenuState; page: Page }) {
                         {" "}
                         {day(inv.period.start)} to {day(inv.period.end)} · {STATUS_WORDS[inv.status]}
                         {inv.status === "failed" && inv.failure ? ` · ${inv.failure}` : ""}
+                        {inv.dunning === "retrying" && inv.nextAttemptAt ? ` · We'll try again on ${day(inv.nextAttemptAt)}` : ""}
+                        {inv.dunning === "unpaid" ? " · Automated sending is paused" : ""}
                       </small>
                     </span>
                     <span className="pg-invoice-actions">

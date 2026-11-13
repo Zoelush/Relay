@@ -118,6 +118,7 @@ import { runBrandImport } from "../server/help-brand";
 import { stripePayments } from "../server/payments";
 import { issueDueInvoices, runInvoiceCharge } from "../server/invoices";
 import { applyPlanChanges } from "../server/plans";
+import { runDunning } from "../server/dunning";
 import {
   drainConversationOutbox,
   drainJobStatusOutbox,
@@ -794,6 +795,8 @@ const relayWorker = {
           await applyPlanChanges(runtime.connect, work.workspace);
           // Invoices (phase 16 C10a): this period's invoice issued at its start, and charged.
           await issueDueInvoices(runtime.connect, work.workspace, runtime.billing ?? {});
+          // Dunning (phase 16 C10c): a declined invoice tried again on day 1, 3 and 7.
+          await runDunning(runtime.connect, work.workspace);
           // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
           // and sending domains due a check.
           await releaseDeferred(runtime.connect, work.workspace);

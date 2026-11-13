@@ -43,6 +43,7 @@ import { standInPayments } from "../server/payments";
 import type { BillingEnvironment } from "../server/invoices";
 import { issueDueInvoices, runInvoiceCharge } from "../server/invoices";
 import { applyPlanChanges } from "../server/plans";
+import { runDunning } from "../server/dunning";
 import { identityIssuer, unwrapIdentityKey } from "../server/identity";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
@@ -1344,6 +1345,8 @@ export async function startLocalRelay(
         await applyPlanChanges(db.connect, w);
         // Invoices (phase 16 C10a): this period's invoice issued at its start, and charged.
         await issueDueInvoices(db.connect, w, env.billing ?? {});
+        // Dunning (phase 16 C10c): a declined invoice tried again on day 1, 3 and 7.
+        await runDunning(db.connect, w);
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,
         // and sending domains due a check.
         await releaseDeferred(db.connect, w);

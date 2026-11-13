@@ -572,6 +572,11 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **A move to a smaller plan waits** until the end of the period already paid for, and can be called off until then. Nothing is refunded, and nothing is deleted: the lower plan refuses *more* (`assertWithinLimit`) and what it doesn't include (`assertGate`), while what exists keeps working, as security settings already do.
     - **`plan_changes` is an append-only ledger** (as the seat ledger is), and `planInForce` decides the plan from it: a running trial, then a scheduled change whose time has come, then the plan. The sweep (`applyPlanChanges`) only writes down what has already happened.
 
+40. **C10c decisions: dunning** (13 November 2026; docs/SECURITY_STEP22.md):
+    - **Three more tries,** on day 1, 3 and 7 after the first failure, each the same `invoice.charge` job. The clock starts at the first failure, and a manager's own "Pay now" spends no try and moves no date.
+    - **Then the workspace is unpaid:** automated sending pauses through the spend cap's own pause (`pausedFor`), so every automated sender already honours it. A team's own replies, calls and inbox are never paused, nothing is hidden or deleted, and paying lifts it at once. Relay does not suspend, downgrade or delete for an unpaid invoice.
+    - **Billing managers are told three times,** in the app and by email: the first failure, the last try being scheduled, and the tries running out. Each once (`billing_alerts`, unique per invoice and stage).
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: When a payment fails (phase 16, C10c)
+
+- **Relay tries again** on day 1, 3 and 7 after a card is declined, and the invoice says when the next try is.
+- **You're told three times:** when the payment first fails, when the last try is coming, and if it runs out — in the app and by email, to whoever manages billing.
+- **If it runs out, automated sending pauses:** Zoe's replies, outbound messages and automated emails and texts. Your team's own replies and calls keep working, and nothing is hidden or deleted.
+- **Paying lifts it at once** — "Pay now" on the invoice, or a new card.
+- **Trying by hand is free:** paying now never spends one of the scheduled tries.
+- **Details:** `docs/SECURITY_STEP22.md`.
+
 ## Unreleased: Trials, upgrades and downgrades (phase 16, C10b)
 
 - **Try Pro for 14 days:** any workspace on Starter that hasn't had a trial can start one from Settings › Billing › Plan, with no card. The page shows how long it has left.

@@ -76,7 +76,13 @@ is complete. C9d, workspaces' own AI providers (`lib/ai-providers.ts`, `server/a
 (`docs/SECURITY_STEP19.md`), and C10a, invoices and the payment port (`lib/invoices.ts`, `server/invoices.ts`,
 `server/payments.ts`, `server/invoice-pdf.ts`, `#settings/invoices`, `billing_v1`), is done locally
 (`docs/SECURITY_STEP20.md`), and C10b, trials, upgrades and downgrades (`changePlan`, `applyPlanChanges`,
-`plan_changes`, migration 0100), is done locally (`docs/SECURITY_STEP21.md`); next is C10c (dunning). A
+`plan_changes`, migration 0100), is done locally (`docs/SECURITY_STEP21.md`), and C10c, dunning (`server/dunning.ts`, migration 0101), is done
+locally (`docs/SECURITY_STEP22.md`): phase 16's scope (C1 to C10) is complete locally. A declined charge is
+tried again on day 1, 3 and 7 from the first failure (`afterFailedCharge`, the sweep's `runDunning`); a
+manager's own "Pay now" spends no try and moves no date. When the tries run out the invoice is `unpaid` and
+`unpaidPause` makes `pausedFor` pause every automated sender, which is the only pause there is — never add a
+second kind, and never suspend, downgrade or delete for an unpaid invoice. Paying lifts it at once
+(`afterPaidCharge`). Billing managers are told once per invoice and stage (`billing_alerts`). A
 workspace's plan is decided only by `planInForce` (a running trial, then a scheduled change whose time has
 come, then the plan itself), which `planOf` reads, so the gate is right before the sweep tidies anything;
 the plan changes only through `changePlan`, which writes the append-only `plan_changes` ledger that the
