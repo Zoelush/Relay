@@ -13,7 +13,10 @@ runs; the session itself stays bound to the workspace it was issued for, and Rel
 switches. In a test workspace nothing reaches a real person: `runDelivery` records every channel
 delivery in `test_deliveries` instead of calling a provider, `sendAlert` sends no email, and
 `issueDueInvoices` never invoices it — add such a rule in the one place a thing already funnels
-through, never at each call site.
+through, never at each call site. What a test workspace is made of is `server/test-copy.ts`: every
+table in the schema is in `COPIED` or in `NOT_COPIED` with its reason, and a test fails on a table
+in neither — a new table is a decision, and nothing that could reach a person or sign someone in is
+ever on the copied side.
 
 ## Build plan
 

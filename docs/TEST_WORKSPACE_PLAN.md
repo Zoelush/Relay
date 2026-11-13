@@ -22,7 +22,7 @@ A test workspace is **a workspace of its own, owned by a production one**: same 
 
 - **T1 (this step):** the pair — creating it, the boundary and the switcher, safety by construction, and the configuration copy with made-up customers.
   - **T1a (done, `docs/TEST_WORKSPACE_STEP1.md`):** the pairing, the boundary (one session acting in the pair), the switcher and the marker, the safety rules, and a test workspace created with its brands, roles and teammates.
-  - **T1b:** the configuration copy and the made-up customers, with a registry saying, for every table, whether it is copied — and a test that fails when a new table is neither copied nor deliberately left out.
+  - **T1b (done, `docs/TEST_WORKSPACE_STEP2.md`):** the configuration copy and the made-up customers, with a registry saying, for every table, whether it is copied — and a test that fails when a new table is neither copied nor deliberately left out.
 - **T2:** promoting a change back to production.
 - **T3:** the developer sandbox (phase 15's D6) on top of the same pairing.
 

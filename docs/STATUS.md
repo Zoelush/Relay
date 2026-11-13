@@ -15,7 +15,7 @@ have not been provisioned, and no data has moved from D1.
 
 | Work | State | Evidence |
 |---|---|---|
-| The paired test workspace | T1a done locally | Asked for after phase 16, from its cut list. Plan: `docs/TEST_WORKSPACE_PLAN.md` (decisions of 13 November 2026). Handoff: `docs/TEST_WORKSPACE_STEP1.md` (the pair on both rows, one sign-in acting in it, the band and the switcher, deliveries recorded instead of sent, no email, never invoiced; migration 0102). T1b (the configuration copy and made-up customers), T2 (promoting a change back) and T3 (phase 15's D6 sandbox) wait. |
+| The paired test workspace | T1a and T1b done locally | Asked for after phase 16, from its cut list. Plan: `docs/TEST_WORKSPACE_PLAN.md` (decisions of 13 November 2026). Handoff: `docs/TEST_WORKSPACE_STEP1.md` (the pair on both rows, one sign-in acting in it, the band and the switcher, deliveries recorded instead of sent, no email, never invoiced; migration 0102). `docs/TEST_WORKSPACE_STEP2.md` (T1b: the configuration copied in by a registry that decides every table in the schema, and made-up customers in its inbox). T2 (promoting a change back) and T3 (phase 15's D6 sandbox) wait. |
 
 ## Phases
 

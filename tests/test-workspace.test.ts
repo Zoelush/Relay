@@ -6,6 +6,7 @@ import { seedFoundation } from "../server/people";
 import { bridgeAgentRequest } from "../server/agent-bridge";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { isTest, mayActIn, pairOf } from "../server/test-workspace";
+import { COPIED, NOT_COPIED, SAMPLE_PEOPLE } from "../server/test-copy";
 import { issueDueInvoices } from "../server/invoices";
 import { registerChannel, runDelivery, type ChannelAdapter, type Outbound, type SendResult } from "../server/channels";
 import type { Job } from "../server/jobs";
@@ -16,6 +17,29 @@ import { periodOf } from "../lib/seats";
  * production one, that a teammate reaches with the session they already have — and that cannot
  * reach a real person or be billed.
  */
+test("what a test workspace is made of covers every table, once", async () => {
+  const db = await testDatabase();
+  try {
+    const tables = (
+      await db.pg.query<{ t: string }>("SELECT table_name AS t FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+    ).rows.map((r) => r.t);
+    const copied = new Set(COPIED.map((c) => c.table));
+    const not = new Set(Object.keys(NOT_COPIED));
+    assert.deepEqual(
+      tables.filter((t) => !copied.has(t) && !not.has(t)),
+      [],
+      "every table is copied into a test workspace or says why it isn't",
+    );
+    assert.deepEqual([...copied].filter((t) => not.has(t)), [], "never both");
+    assert.deepEqual([...copied, ...not].filter((t) => !tables.includes(t)), [], "no table that isn't there");
+    // Nothing that could reach a person or sign someone in comes with it.
+    for (const table of ["ai_providers", "api_tokens", "teammate_credentials", "teammate_sessions", "sso_connections", "email_domains", "whatsapp_numbers", "portal_domains", "invoices"])
+      assert.ok(not.has(table), `${table} must never be copied into a test workspace`);
+  } finally {
+    await db.close();
+  }
+});
+
 /** A channel that records what it was asked to send, so "it was never asked" can be proved. */
 const sent: Outbound[] = [];
 const mail: ChannelAdapter = {
@@ -91,7 +115,36 @@ test("the pair: made by a manager, reached with one sign-in, and unable to touch
       (await q<{ principal_id: string; role_id: string }>("a", "SELECT principal_id,role_id FROM teammates ORDER BY principal_id")).map((r) => [r.principal_id, r.role_id]),
     );
     assert.ok((await q(t, "SELECT 1 FROM roles")).length >= 3);
-    assert.equal((await q(t, "SELECT 1 FROM conversations")).length, 0, "no customers of its own yet (T1b seeds them)");
+
+    // T1b: the configuration came with it, and made-up customers to work against.
+    assert.deepEqual(
+      (await q<{ name: string }>(t, "SELECT name FROM macros ORDER BY name")).map((r) => r.name),
+      (await q<{ name: string }>("a", "SELECT name FROM macros ORDER BY name")).map((r) => r.name),
+      "the macros a team wrote are there",
+    );
+    assert.deepEqual(
+      (await q<{ id: string }>(t, "SELECT id FROM teams ORDER BY id")).map((r) => r.id),
+      (await q<{ id: string }>("a", "SELECT id FROM teams ORDER BY id")).map((r) => r.id),
+    );
+    assert.deepEqual(
+      (await q<{ id: string }>(t, "SELECT id FROM knowledge_records ORDER BY id")).map((r) => r.id),
+      (await q<{ id: string }>("a", "SELECT id FROM knowledge_records ORDER BY id")).map((r) => r.id),
+      "and what Zoe answers from",
+    );
+    // Nothing that could reach a person or sign someone in came with it.
+    for (const table of ["api_tokens", "teammate_credentials", "teammate_sessions", "email_domains", "whatsapp_numbers", "invoices"])
+      assert.equal((await q(t, `SELECT 1 FROM ${table}`)).length, 0, table);
+    // Its customers are made up, and nobody could be written to if a reply were sent.
+    const people = await q<{ name: string }>(t, "SELECT name FROM contacts ORDER BY name");
+    assert.equal(people.length, SAMPLE_PEOPLE.length);
+    assert.ok(people.every((x) => x.name.includes("(made up)")), JSON.stringify(people));
+    const addresses = await q<{ email: string }>(t, "SELECT email FROM contact_emails");
+    assert.ok(
+      addresses.length > 0 && addresses.every((x) => x.email.endsWith("@example.invalid")),
+      "a reserved name, so nothing could be delivered even if something tried: " + JSON.stringify(addresses),
+    );
+    assert.equal((await q(t, "SELECT 1 FROM conversations")).length, SAMPLE_PEOPLE.length, "each of them began one");
+    assert.ok((await q(t, "SELECT 1 FROM conversation_parts WHERE body<>''")).length >= SAMPLE_PEOPLE.length);
 
     // The pair, from either side.
     const fromProduction = (await agent("workspaces")).body;
@@ -103,13 +156,15 @@ test("the pair: made by a manager, reached with one sign-in, and unable to touch
     // One sign-in: the production session works in the pair, and the route runs there.
     const inTest = await agent("inbox", undefined, "owner-a", "a", t);
     assert.equal(inTest.status, 200, JSON.stringify(inTest.body).slice(0, 200));
-    assert.equal(inTest.body.conversations.length, 0, "its own, empty inbox");
+    assert.equal(inTest.body.conversations.length, SAMPLE_PEOPLE.length, "its own inbox, with its own made-up people in it");
 
     // Nothing else: not another workspace, and not one where this teammate has no role.
     assert.equal((await agent("inbox", undefined, "owner-a", "a", "b")).body.error.code, "WORKSPACE_NOT_YOURS");
-    await q(t, "DELETE FROM teammates WHERE principal_id='agent-1-a'");
-    assert.equal((await agent("inbox", undefined, "agent-1-a", "a", t)).body.error.code, "WORKSPACE_NOT_YOURS", "removed from the test workspace");
-    assert.equal((await agent("inbox", undefined, "agent-1-a")).status, 200, "and still at work in production");
+    // Someone who joined production after the pair was made is not in the test workspace, and
+    // their session reaches only the workspace they are a teammate of.
+    await q("a", "INSERT INTO teammates(workspace_id,id,principal_id,name,role_id) VALUES('a','agent-2','agent-2-a','Agent two','agent')");
+    assert.equal((await agent("inbox", undefined, "agent-2-a", "a", t)).body.error.code, "WORKSPACE_NOT_YOURS", "not a teammate there");
+    assert.equal((await agent("inbox", undefined, "agent-2-a")).status, 200, "and at work in production as usual");
     assert.equal(await mayActIn(db.connect, "a", t, "owner-a"), true);
     assert.equal(await mayActIn(db.connect, "a", "b", "owner-a"), false);
     assert.equal(await mayActIn(db.connect, t, "a", "owner-a"), false, "the pair is not a way back the other way");

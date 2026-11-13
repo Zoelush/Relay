@@ -95,7 +95,9 @@ export function TestWorkspaceCard() {
       ) : (
         <>
           <p className="pg-muted">
-            It starts with your brands, roles and teammates, and keeps your plan, so what you prove there is true here.
+            It starts with your brands, teams, roles and teammates, your ticket types, SLAs, macros, tags and
+            attributes, your workflows, Zoe&apos;s guidance and your help centre — and keeps your plan, so what you
+            prove there is true here. A few made-up customers are waiting in its inbox.
           </p>
           <button
             type="button"

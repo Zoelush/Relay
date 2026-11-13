@@ -2,6 +2,11 @@ import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
 import { recordAudit } from "./audit";
 import { copyPlanInto, planRow } from "./plans";
+import { COPIED, copyConfiguration, seedSampleCustomers } from "./test-copy";
+
+/** What creating the pair copies after the workspace, its brands, roles and people exist. */
+const MADE_WITH_THE_PAIR = ["workspace", "workspace_features", "workspace_plans", "brands", "roles", "role_capabilities", "teammates"];
+const REST = COPIED.map((c) => c.table).filter((t) => !MADE_WITH_THE_PAIR.includes(t));
 
 /**
  * The paired test workspace (docs/TEST_WORKSPACE_PLAN.md): a workspace of its own, owned by a
@@ -164,5 +169,9 @@ export async function createTestWorkspace(connect: Connect, w: string, principal
     await db.query("UPDATE workspace SET test_workspace_id=$2 WHERE id=$1", [w, test]);
     await recordAudit(db, w, "workspace.test_created", { type: "workspace", id: test, name }, { teammates: prepared.teammates.length });
   });
-  return { id: test, name };
+  // T1b: the rest of the configuration, then made-up customers to work with. Each table is read
+  // in one workspace's transaction and written in the other's; `server/test-copy.ts` says which.
+  const copied = await copyConfiguration(connect, w, test, REST);
+  const conversations = await seedSampleCustomers(connect, test, prepared.brands[0]?.id ?? "default").catch(() => []);
+  return { id: test, name, copied, conversations: conversations.length };
 }
