@@ -42,6 +42,7 @@ import { runBrandImport } from "../server/help-brand";
 import { standInPayments } from "../server/payments";
 import type { BillingEnvironment } from "../server/invoices";
 import { issueDueInvoices, runInvoiceCharge } from "../server/invoices";
+import { applyPlanChanges } from "../server/plans";
 import { identityIssuer, unwrapIdentityKey } from "../server/identity";
 import { notifyWorkspace } from "../server/realtime-batch";
 import { runBulkApply, runBulkUndo } from "../server/bulk";
@@ -1339,6 +1340,8 @@ export async function startLocalRelay(
         await scheduleRetention(db.connect, w);
         // Usage alerts (phase 16 C9c): thresholds of a limit or the spend cap crossed this period.
         await checkUsageAlerts(db.connect, w);
+        // Plans (phase 16 C10b): a trial that has run its course, a downgrade whose time has come.
+        await applyPlanChanges(db.connect, w);
         // Invoices (phase 16 C10a): this period's invoice issued at its start, and charged.
         await issueDueInvoices(db.connect, w, env.billing ?? {});
         // Email out (phase 12 E3): rate-limited deliveries whose minute came, away emails,

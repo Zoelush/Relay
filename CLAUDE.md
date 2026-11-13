@@ -75,7 +75,13 @@ is complete. C9d, workspaces' own AI providers (`lib/ai-providers.ts`, `server/a
 `server/ai-providers.ts`, `#settings/ai-providers`, `ai_providers_v1`), asked for after C9c, is done locally
 (`docs/SECURITY_STEP19.md`), and C10a, invoices and the payment port (`lib/invoices.ts`, `server/invoices.ts`,
 `server/payments.ts`, `server/invoice-pdf.ts`, `#settings/invoices`, `billing_v1`), is done locally
-(`docs/SECURITY_STEP20.md`); next is C10b (trials, upgrades and downgrades). An invoice is built only from
+(`docs/SECURITY_STEP20.md`), and C10b, trials, upgrades and downgrades (`changePlan`, `applyPlanChanges`,
+`plan_changes`, migration 0100), is done locally (`docs/SECURITY_STEP21.md`); next is C10c (dunning). A
+workspace's plan is decided only by `planInForce` (a running trial, then a scheduled change whose time has
+come, then the plan itself), which `planOf` reads, so the gate is right before the sweep tidies anything;
+the plan changes only through `changePlan`, which writes the append-only `plan_changes` ledger that the
+invoice prorates an upgrade from. A smaller plan never deletes anything: it refuses more
+(`assertWithinLimit`) and what it doesn't include (`assertGate`). An invoice is built only from
 records — seats from the seat ledger (`seatBill`), usage from the meters' sources (`meterUnits`) — never
 counted, and every line is frozen with what it counted (`invoice_line_units`); migration 0099's triggers
 refuse any change to an issued line or unit, and an invoice only ever changes its status and payment. One
