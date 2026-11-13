@@ -955,6 +955,9 @@ export async function myWorkload(db: Sql, w: string, principal: string) {
       [w, t.id],
     )
   ).rows[0];
+  // Phase 16 C7b: Relay support reads a workspace without being a teammate in it, so it has no
+  // workload of its own (and neither has a teammate removed while their inbox was open).
+  assert(me, "NO_WORKLOAD", "This account has no workload in this workspace.", 404);
   const all = await listTeams(db, w, principal);
   return {
     teammateId: t.id,
