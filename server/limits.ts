@@ -3,6 +3,7 @@ import { authorize } from "./policy";
 import { unitPrices } from "./plans";
 import { meterTotal, periodFor } from "./meters";
 import { METER_IDS, METERS, type MeterId } from "../lib/meters";
+import { unpaidPause } from "./dunning";
 
 /**
  * Limits and the spend cap (phase 16, step C9b; docs/SECURITY_STEP17.md). A meter's limit is a
@@ -22,6 +23,9 @@ export const CHANNEL_METER: Record<string, MeterId> = { email: "emails", whatsap
 
 /** Why a meter's automated sends are paused this period, or null. */
 export async function pausedFor(db: Sql, w: string, meter: MeterId, now = new Date()) {
+  // Phase 16 C10c: an invoice left unpaid after its retries pauses every automated send.
+  const unpaid = await unpaidPause(db, w);
+  if (unpaid) return `${unpaid} Automated sending is paused until it's paid.`;
   const limit = (await db.query<{ units: number }>("SELECT units FROM usage_limits WHERE workspace_id=$1 AND meter=$2", [w, meter])).rows[0]?.units;
   const cap = (await db.query<{ spend_cap_cents: number | null }>("SELECT spend_cap_cents FROM usage_settings WHERE workspace_id=$1", [w])).rows[0]?.spend_cap_cents ?? null;
   if (limit === undefined && cap === null) return null;

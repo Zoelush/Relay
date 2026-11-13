@@ -2454,6 +2454,7 @@ export default function PostgresInbox({
           onWorkflowAlert={(id) => setArea("workflows", id ? `runs/${id}` : "runs")}
           onWebhook={() => setArea("settings", "webhooks")}
           onUsage={() => setArea("settings", "usage")}
+          onBilling={() => setArea("settings", "invoices")}
           onClose={() => setOverlay(null)}
           onError={report}
         />

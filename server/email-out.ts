@@ -648,11 +648,18 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
         usage_threshold: number | null;
         usage_used: string | null;
         usage_of: string | null;
+        billing_stage: string | null;
+        billing_number: string | null;
+        billing_text: string | null;
       }>(
         `SELECT a.id,a.kind,a.address,a.status,i.metric,i.baseline,i.latest_value,i.opened_at,i.status AS incident_status,h.url,h.disabled_at,
            a.link_sealed,m.name AS inviter,(SELECT brand FROM workspace WHERE id=a.workspace_id) AS workspace_name,v.expires_at AS invite_expires_at,
-           u.subject AS usage_subject,u.threshold AS usage_threshold,u.used AS usage_used,u.of AS usage_of FROM email_alerts a
+           u.subject AS usage_subject,u.threshold AS usage_threshold,u.used AS usage_used,u.of AS usage_of,
+           b.stage AS billing_stage,bi.number AS billing_number,b.text AS billing_text
+         FROM email_alerts a
          LEFT JOIN usage_alerts u ON u.workspace_id=a.workspace_id AND u.id=a.usage_alert_id
+         LEFT JOIN billing_alerts b ON b.workspace_id=a.workspace_id AND b.id=a.billing_alert_id
+         LEFT JOIN invoices bi ON bi.workspace_id=b.workspace_id AND bi.id=b.invoice_id
          LEFT JOIN ai_incidents i ON i.workspace_id=a.workspace_id AND i.id=a.incident_id
          LEFT JOIN webhook_subscriptions h ON h.workspace_id=a.workspace_id AND h.id=a.webhook_subscription_id
          LEFT JOIN teammate_invitations v ON v.workspace_id=a.workspace_id AND v.id=a.invitation_id
@@ -717,6 +724,18 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
         author: "Relay",
         body: `${text}\n\nWhen a limit is reached, Relay pauses automated sending (Zoe, outbound messages, automated emails and texts, connector calls) until the next period or until the limit is raised. Your team's own replies and calls always work.\n\nSee usage and change limits in Settings › Billing › Usage.`,
       },
+      quote: null,
+      footer: "You get this because you manage billing for this Relay workspace.",
+    });
+  } else if (ready.kind === "billing") {
+    // Phase 16 C10c: a charge was declined, a last try is coming, or sending has paused.
+    subject =
+      ready.billing_stage === "unpaid"
+        ? `Relay: automated sending is paused in ${ready.workspace_name ?? "your workspace"}`
+        : `Relay: invoice ${ready.billing_number ?? ""} wasn't paid`;
+    words = composeReply({
+      brand: "Relay",
+      said: { author: "Relay", body: `${ready.billing_text ?? ""}\n\nSee the invoice, pay it or change the card in Settings › Billing › Invoices.` },
       quote: null,
       footer: "You get this because you manage billing for this Relay workspace.",
     });
