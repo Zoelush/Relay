@@ -197,6 +197,8 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
       // Phase 16 C10a: the workspace's billing: its invoices (units hold record ids, never a customer's
       // details), billing contact, card on file (brand and last 4) and the provider's events.
       "billing_profiles", "billing_customers", "invoices", "invoice_lines", "invoice_line_units", "payment_events",
+      // Phase 16 C10b: what happened to the workspace's plan (a teammate's name as the actor, as the seat ledger has).
+      "plan_changes",
     ].map((t) => [t, CONFIG]),
   ),
   ...Object.fromEntries(

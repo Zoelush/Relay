@@ -566,6 +566,12 @@ Settings › Security and Settings › Teammates on a live workspace, and the pe
     - **A failed charge** leaves the invoice `failed`, shown on the page. Retries and what follows are C10c's.
     - **Invoices are append-only** once issued (a trigger refuses changes to lines and units). Only the status, payment fields and PDF can change, and those changes are audited.
 
+39. **C10b decisions: trials, upgrades and downgrades** (13 November 2026; docs/SECURITY_STEP21.md):
+    - **The trial** is 14 days of Pro, started by a button on the Plan page by any workspace on Starter that has never had one, with no card. At its end the workspace is on Starter. One per workspace, whether it ran its course or was ended early by an upgrade.
+    - **An upgrade applies at once,** and the difference for the rest of the period is prorated by the day on the next invoice, per full seat held when it happened (a new `plan_change` line, read from the plan ledger).
+    - **A move to a smaller plan waits** until the end of the period already paid for, and can be called off until then. Nothing is refunded, and nothing is deleted: the lower plan refuses *more* (`assertWithinLimit`) and what it doesn't include (`assertGate`), while what exists keeps working, as security settings already do.
+    - **`plan_changes` is an append-only ledger** (as the seat ledger is), and `planInForce` decides the plan from it: a running trial, then a scheduled change whose time has come, then the plan. The sweep (`applyPlanChanges`) only writes down what has already happened.
+
 ## Approved choices
 
 - **Scope:** C1 to C10, without what the cut list defers (SCIM, the stricter regulated mode and data region, and the paired test workspace).

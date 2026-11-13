@@ -237,7 +237,7 @@ import type { LinkReputation } from "./link-reputation";
 import { changeSupport, finishSupport, isSupportToken, readSupport, recordSupportView, resolveSupportSession, signOutSupport, startSupport, type SupportEnvironment } from "./support";
 import { isSupport } from "./policy";
 import { readHealthCheck } from "./health-check";
-import { readPlan } from "./plans";
+import { changePlan, readPlan } from "./plans";
 import { changeSeat, readSeats } from "./seats";
 import { readUsage, readUsageUnits } from "./meters";
 import { changeLimits, readLimits } from "./limits";
@@ -1651,6 +1651,7 @@ export async function handleApi(
               "/v1/agent/link-verdict",
               "/v1/agent/support-access",
               "/v1/agent/seats",
+              "/v1/agent/plan",
               "/v1/agent/usage",
               "/v1/agent/ai-providers",
               "/v1/agent/invoices",
@@ -2094,6 +2095,9 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/seats")
           // Phase 16 C8b: a teammate's seat changed (the ledger and the audit log are written by the database).
           return json(await tenant(env.connect, workspace, (db) => changeSeat(db, workspace, principal, p)));
+        if (url.pathname === "/v1/agent/plan")
+          // Phase 16 C10b: the trial started, an upgrade applied, a downgrade scheduled or called off.
+          return json(await tenant(env.connect, workspace, (db) => changePlan(db, workspace, principal, p)));
         if (url.pathname === "/v1/agent/support-access")
           // Phase 16 C7b: read-only access for Relay support granted, or revoked.
           return json(await tenant(env.connect, workspace, (db) => changeSupport(db, workspace, principal, p, !!env.support)));

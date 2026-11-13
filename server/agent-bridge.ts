@@ -136,6 +136,7 @@ const routes = {
   ]),
   POST: new Set([
     "command",
+    "plan",
     "views",
     "drafts",
     "notifications",

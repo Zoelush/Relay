@@ -8,13 +8,14 @@ import type { PlanId } from "./plans";
  * - **seats:** the plan's full seats for the new period, in advance (each a whole period);
  * - **proration:** full seats added during the last period, each its share of it (from `seatBill`);
  * - **usage:** the last period's metered units, one line per meter, each unit frozen with its record;
+ * - **plan_change:** C10b — an upgrade's difference for the rest of the period it happened in;
  * - **tax:** zero for now. TODO(before launch): a tax provider behind `TaxPort` (`server/invoices.ts`).
  *
  * While any price it needs is a placeholder, an invoice is issued `unpriced`: quantities and units,
  * no amounts, never charged.
  */
 export type InvoiceStatus = "unpriced" | "open" | "paid" | "failed" | "void";
-export type LineKind = "seats" | "proration" | "usage" | "tax";
+export type LineKind = "seats" | "proration" | "usage" | "tax" | "plan_change";
 
 /** What things cost, in cents (fractions allowed per unit); `null` is a placeholder. The plan policy's is `priceBook()` (`server/plans.ts`); tests pass their own. */
 export type PriceBook = { seat: Record<PlanId, number | null>; units: Record<MeterId, number | null> };

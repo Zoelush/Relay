@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: Trials, upgrades and downgrades (phase 16, C10b)
+
+- **Try Pro for 14 days:** any workspace on Starter that hasn't had a trial can start one from Settings › Billing › Plan, with no card. The page shows how long it has left.
+- **Upgrade and it's yours at once** — the difference for the rest of this period is prorated by the day on your next invoice.
+- **Move to a smaller plan when the period you've paid for ends,** and change your mind until then with "Keep Pro".
+- **Your data stays.** A smaller plan refuses new brands, help centers and features it doesn't include; it never deletes what you already have.
+- **What has happened to your plan** is listed on the page: every trial, upgrade and change, with who made it.
+- **Details:** `docs/SECURITY_STEP21.md`.
+
 ## Unreleased: Invoices (phase 16, C10a)
 
 - **Settings › Billing › Invoices:** every invoice Relay issues, line by line, with what each line counted — each unit traced back to its conversation — and a PDF of each.

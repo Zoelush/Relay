@@ -77,6 +77,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET support-access": { needs: "security.manage" },
   "GET health-check": { needs: "security.manage" },
   "GET plan": { needs: "billing.manage" },
+  // Phase 16 C10b: starting the trial, upgrading, scheduling a downgrade and calling it off.
+  "POST plan": { needs: "billing.manage" },
   "GET seats": { needs: "billing.manage" },
   "GET usage": { needs: "billing.manage" },
   "GET usage-units": { needs: "billing.manage" },

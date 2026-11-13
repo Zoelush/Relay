@@ -1,6 +1,6 @@
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
-import { featureOn, planOf, priceBook, seatPrice } from "./plans";
+import { featureOn, planLabel, planOf, priceBook, seatPrice } from "./plans";
 import { meterUnits } from "./meters";
 import { enqueueJob, type Job } from "./jobs";
 import { periodOf, seatBill, type Period, type SeatChange } from "../lib/seats";
@@ -47,6 +47,7 @@ type Built = {
 
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
+
 /** The invoice for a period: what it would be issued as now (the Upcoming one is this, unsaved). */
 export async function buildInvoice(db: Sql, w: string, period: Period, prices: PriceBook = priceBook(), tax: TaxPort = noTax): Promise<Built> {
   const plan = await planOf(db, w);
@@ -89,6 +90,40 @@ export async function buildInvoice(db: Sql, w: string, period: Period, prices: P
         amountCents: seat === null ? null : bill.prorations.reduce((s, p) => s + (p.amountCents ?? 0), 0),
         units: bill.prorations.map((p) => ({ sourceId: `${p.teammateId}:${p.at}`, at: p.at, quantity: p.fraction, conversationId: null, contactId: null, detail: p.teammateName })),
       });
+    // C10b: an upgrade during the last period owes the difference for the rest of it, per full
+    // seat held when it happened. Read from the plan ledger, never counted.
+    const upgrades = (
+      await db.query<{ seq: string; from_plan: string; to_plan: string; effective_at: Date }>(
+        "SELECT seq::text,from_plan,to_plan,effective_at FROM plan_changes WHERE workspace_id=$1 AND kind='upgraded' AND effective_at>=$2 AND effective_at<$3 ORDER BY seq",
+        [w, previous.start, previous.end],
+      )
+    ).rows;
+    const span = previous.end.getTime() - previous.start.getTime();
+    for (const u of upgrades) {
+      const at = new Date(u.effective_at);
+      const held = new Set<string>();
+      for (const c of changes)
+        if (c.at <= at) {
+          if (c.to === "full") held.add(c.teammateId);
+          else held.delete(c.teammateId);
+        }
+      const fraction = round6(Math.max(0, previous.end.getTime() - at.getTime()) / span);
+      const difference =
+        prices.seat[u.to_plan as keyof typeof prices.seat] === null || prices.seat[u.from_plan as keyof typeof prices.seat] === null
+          ? null
+          : prices.seat[u.to_plan as keyof typeof prices.seat]! - prices.seat[u.from_plan as keyof typeof prices.seat]!;
+      const quantity = round6(held.size * fraction);
+      if (!quantity) continue;
+      lines.push({
+        kind: "plan_change",
+        meter: null,
+        description: `Upgrade to ${planLabel(u.to_plan)} partway through the last period`,
+        quantity,
+        unitCents: difference,
+        amountCents: lineAmount(quantity, difference),
+        units: [{ sourceId: `plan:${u.seq}`, at: at.toISOString(), quantity: fraction, conversationId: null, contactId: null, detail: `${planLabel(u.from_plan)} to ${planLabel(u.to_plan)}, ${held.size} full ${held.size === 1 ? "seat" : "seats"}` }],
+      });
+    }
     // The last period's metered usage, every unit read from its source.
     for (const meter of METER_IDS) {
       const units: UnitRow[] = [];
