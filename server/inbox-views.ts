@@ -713,53 +713,58 @@ async function moveView(
 type FilterSet = { id: string; filter: ViewFilter };
 /** Conversations examined per rebuild step; each step commits with its checkpoint. */
 const REBUILD_BATCH = 250;
-/** A set's filter never changes (its id is the filter's hash), so a checkpoint stays valid. */
+/**
+ * A set's filter never changes (its id is the filter's hash), so a checkpoint stays valid.
+ *
+ * One walk of the conversations fills every set the job was given, not one set at a time: a
+ * workspace with ten views is ready after the same number of steps as one with a single view,
+ * which is what keeps the counters from sitting on "Updating" while the queue works through them.
+ */
 export async function rebuildViews(connect: Connect, job: Job) {
   return tenant(connect, job.workspace_id, async (db) => {
     const w = job.workspace_id;
-    const checkpoint = job.result ?? {},
-      index = Number(checkpoint.index ?? 0),
-      ids = (job.payload.setIds ?? []) as string[];
-    if (index >= ids.length) return { done: true, result: { ...checkpoint } };
-    const set = (
-      await db.query<FilterSet>(
-        "SELECT id,filter FROM inbox_filter_sets WHERE workspace_id=$1 AND id=$2 FOR UPDATE",
-        [w, ids[index]],
-      )
-    ).rows[0];
-    const rows = set
+    const checkpoint = job.result ?? {};
+    // A checkpoint from the older per-set walk starts again: projecting a conversation twice
+    // changes nothing (it is an upsert), and the sets are only marked ready at the end.
+    const after = checkpoint.index === undefined ? String(checkpoint.after ?? "") : "";
+    const ids = (job.payload.setIds ?? []) as string[];
+    const sets = ids.length
       ? (
-          await db.query<{ id: string }>(
-            "SELECT id FROM conversations WHERE workspace_id=$1 AND id>$2 ORDER BY id LIMIT $3",
-            [w, String(checkpoint.after ?? ""), REBUILD_BATCH],
+          await db.query<FilterSet>(
+            "SELECT id,filter FROM inbox_filter_sets WHERE workspace_id=$1 AND id=ANY($2::text[]) ORDER BY id FOR UPDATE",
+            [w, ids],
           )
         ).rows
       : [];
-    if (set)
-      await projectSets(
-        db,
-        w,
-        [set],
-        rows.map((r) => r.id),
-      );
+    if (!sets.length) return { done: true, result: { ...checkpoint } };
+    const rows = (
+      await db.query<{ id: string }>(
+        "SELECT id FROM conversations WHERE workspace_id=$1 AND id>$2 ORDER BY id LIMIT $3",
+        [w, after, REBUILD_BATCH],
+      )
+    ).rows;
+    await projectSets(
+      db,
+      w,
+      sets,
+      rows.map((r) => r.id),
+    );
     const finished = rows.length < REBUILD_BATCH;
-    if (set && finished)
+    if (finished)
       await db.query(
-        "UPDATE inbox_filter_sets SET ready=true WHERE workspace_id=$1 AND id=$2",
-        [w, set.id],
+        "UPDATE inbox_filter_sets SET ready=true WHERE workspace_id=$1 AND id=ANY($2::text[])",
+        [w, sets.map((x) => x.id)],
       );
-    const result = finished
-      ? { index: index + 1 }
-      : { index, after: rows.at(-1)!.id };
+    const result = finished ? { after } : { after: rows.at(-1)!.id };
     // Persist the checkpoint with the membership changes; safe after lost job acknowledgement.
     await db.query(
       "UPDATE jobs SET result=$3 WHERE workspace_id=$1 AND id=$2 AND lease_token=$4",
       [w, job.id, JSON.stringify(result), job.lease_token],
     );
-    return { done: Number(result.index) >= ids.length, result };
+    return { done: finished, result };
   });
 }
-/** Sets evaluated per statement. Each set is one distinct filter shared by all its views. */
+
 const SETS_PER_STATEMENT = 50;
 /** Sort key for conversations without an SLA clock: after every running and paused one. */
 const NO_SLA = "9999-12-31T00:00:00Z";
