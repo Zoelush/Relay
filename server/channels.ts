@@ -1,4 +1,5 @@
 import { CHANNEL_METER, pausedFor } from "./limits";
+import { isTest, recordTestDelivery } from "./test-workspace";
 import { periodFor } from "./meters";
 import { assert, digest, DomainError, once, tenant, type Connect, type Sql } from "./db";
 import { enqueueJob, type Job } from "./jobs";
@@ -452,6 +453,13 @@ export async function runDelivery(connect: Connect, env: ChannelEnvironment, job
         await db.query("UPDATE channel_deliveries SET not_before=$3,limit_held=true,error=$4,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, d.id, end.toISOString(), limited]);
         return null;
       }
+    }
+    // The paired test workspace (docs/TEST_WORKSPACE_PLAN.md): what it would have sent is
+    // recorded and goes nowhere. One place, every channel, before any provider is reached.
+    if (await isTest(db, w)) {
+      await recordTestDelivery(db, w, { channel: d.channel, address: d.address, conversationId: d.conversation_id, partId: d.part_id, body: d.body });
+      await setStatus(db, w, d.id, "sent", "");
+      return null;
     }
     const a = adapterOf(d.channel);
     // A channel that can receive but not send: said once, not retried.

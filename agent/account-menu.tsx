@@ -9,7 +9,7 @@ import {
   Sun,
   UserRound,
 } from "lucide-react";
-import { api } from "./api";
+import { api, chooseWorkspace } from "./api";
 import type { Workload } from "./workload";
 import type { ThemeChoice } from "./theme";
 
@@ -23,6 +23,13 @@ import type { ThemeChoice } from "./theme";
  * TODO(phase 16): editing your profile, and workspace settings, with teammate administration.
  * TODO(phase 17): creating a new workspace, with onboarding.
  */
+/** The paired test workspace: this workspace, its pair, and which of the two you are in. */
+type Pair = {
+  production: { id: string; name: string } | null;
+  test: { id: string; name: string } | null;
+  here: "production" | "test";
+} | null;
+
 type Presence = Workload["presence"];
 export type Account = {
   name: string;
@@ -73,6 +80,7 @@ export function AccountMenu({
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(false);
   const [workload, setWorkload] = useState<Workload | null>(null);
+  const [pair, setPair] = useState<Pair | null>(null);
   const [problem, setProblem] = useState("");
   const [saving, setSaving] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -91,6 +99,17 @@ export function AccountMenu({
     window.addEventListener(PRESENCE_EVENT, load);
     return () => window.removeEventListener(PRESENCE_EVENT, load);
   }, [load]);
+  // The pair this workspace is part of, when it has one.
+  useEffect(() => {
+    let live = true;
+    api<Pair>("workspaces")
+      .then((p) => live && setPair(p?.test || p?.here === "test" ? p : null))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const here = pair ? (pair.here === "test" ? pair.test?.id : pair.production?.id) : account.workspace.id;
   const close = useCallback((focusButton = true) => {
     setOpen(false);
     if (focusButton) button.current?.focus();
@@ -205,11 +224,38 @@ export function AccountMenu({
           )}
           <section className="pg-account-section" aria-label="Workspace">
             <h3>Workspace</h3>
-            <p className="pg-account-item" aria-current="true">
-              <Building2 size={16} aria-hidden="true" />
-              <span>{account.workspace.name}</span>
-              <Check size={16} aria-label="Current workspace" />
-            </p>
+            {/* The paired test workspace (docs/TEST_WORKSPACE_PLAN.md): the pair, and which of
+                the two this browser works in. Switching reloads, so nothing of one workspace is
+                left on the screen while you are in the other. */}
+            {(pair ? [pair.production, pair.test] : []).map((place) =>
+              place ? (
+                <button
+                  key={place.id}
+                  type="button"
+                  className="pg-account-item"
+                  aria-current={place.id === here ? "true" : undefined}
+                  onClick={() => {
+                    if (place.id === here) return close();
+                    chooseWorkspace(pair && place.id === pair.production?.id ? "" : place.id);
+                    window.location.reload();
+                  }}
+                >
+                  <Building2 size={16} aria-hidden="true" />
+                  <span>
+                    {place.name}
+                    {pair && place.id === pair.test?.id && <span className="pg-test-tag">Test</span>}
+                  </span>
+                  {place.id === here && <Check size={16} aria-label="Current workspace" />}
+                </button>
+              ) : null,
+            )}
+            {!pair && (
+              <p className="pg-account-item" aria-current="true">
+                <Building2 size={16} aria-hidden="true" />
+                <span>{account.workspace.name}</span>
+                <Check size={16} aria-label="Current workspace" />
+              </p>
+            )}
             <button
               type="button"
               className="pg-account-item"

@@ -89,6 +89,8 @@ const routes = {
     "seats",
     "health-check",
     "plan",
+    "workspaces",
+    "test-deliveries",
     "usage",
     "usage-units",
     "ai-providers",
@@ -137,6 +139,7 @@ const routes = {
   POST: new Set([
     "command",
     "plan",
+    "workspaces",
     "views",
     "drafts",
     "notifications",
@@ -363,6 +366,11 @@ export async function bridgeAgentRequest(
       ip: client.ip,
       ua: client.ua,
       origin: url.origin,
+      // The paired test workspace: which of the pair the teammate chose. The API checks it is
+      // this workspace's test pair, and that they are a teammate there, before any route runs.
+      ...(/^[A-Za-z0-9_-]{1,100}$/.test(request.headers.get("x-relay-workspace") ?? "")
+        ? { actAs: request.headers.get("x-relay-workspace") }
+        : {}),
       inbox: true,
       method: request.method,
       path: target.pathname,

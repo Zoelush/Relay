@@ -98,6 +98,7 @@ import { PlanPage } from "./settings-plan";
 import { SeatsPage } from "./settings-seats";
 import { UsagePage } from "./settings-usage";
 import { InvoicesPage } from "./settings-invoices";
+import { TestWorkspaceCard } from "./settings-test-workspace";
 import { AiProvidersPage } from "./settings-ai-providers";
 import { WebhooksPage } from "./settings-webhooks";
 import { AppsPage } from "./settings-apps";
@@ -1302,6 +1303,8 @@ function GeneralPage({ menu, page }: { menu: MenuState; page: Page }) {
               )}
             </Field>
           </Card>
+          {/* The paired test workspace (docs/TEST_WORKSPACE_PLAN.md): made, entered and watched here. */}
+          <TestWorkspaceCard />
         </>
       )}
     </Frame>

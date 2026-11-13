@@ -5,7 +5,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { PanelLeftClose, PanelLeftOpen, Pin, PinOff } from "lucide-react";
+import { FlaskConical, PanelLeftClose, PanelLeftOpen, Pin, PinOff } from "lucide-react";
+import { chosenWorkspace } from "./api";
 
 /**
  * The agent app's frame (docs/AGENT_APP_SHELL.md), after Intercom's: a thin icon strip on the
@@ -172,6 +173,13 @@ export function Rail({
       }}
     >
       <div className="pg-rail-panel">
+        {/* The paired test workspace: said on every page, so nobody mistakes one for the other. */}
+        {chosenWorkspace() && (
+          <p className="pg-test-band" role="status">
+            <FlaskConical size={14} aria-hidden="true" />
+            <span className="pg-rail-label">Test workspace</span>
+          </p>
+        )}
         <div className="pg-rail-head">
           <span className="pg-brand">
             <span aria-hidden="true">◈</span>{" "}

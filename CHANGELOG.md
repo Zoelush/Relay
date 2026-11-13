@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: A test workspace of your own
+
+- **Make one from Settings › General:** a workspace beside your real one, with your brands, roles and teammates, and the same plan.
+- **One sign-in:** switch to it from the card or the account menu — no second password, no second two-factor.
+- **You always know where you are:** a band sits above the strip while you're in the test workspace.
+- **Nothing reaches a real person.** Every message it would have sent is recorded and listed instead, with a link back to the conversation, and it never emails anyone — not even your teammates.
+- **It is never billed.**
+- **Details:** `docs/TEST_WORKSPACE_PLAN.md` and `docs/TEST_WORKSPACE_STEP1.md`. Your configuration and made-up customers come next.
+
 ## Unreleased: When a payment fails (phase 16, C10c)
 
 - **Relay tries again** on day 1, 3 and 7 after a card is declined, and the invoice says when the next try is.

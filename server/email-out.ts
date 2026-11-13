@@ -1,4 +1,5 @@
 import { tenant, type Connect, type Sql } from "./db";
+import { isTest, recordTestDelivery } from "./test-workspace";
 import { enqueueJob, type Job } from "./jobs";
 import { resolveContact } from "./people";
 import type { AttachmentStorage } from "./attachments";
@@ -674,6 +675,12 @@ export async function sendAlert(connect: Connect, env: EmailOutEnvironment, job:
       db.query("UPDATE email_alerts SET status=$3,error=$4,provider_id=$5,link_sealed=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2", [w, a.id, status, error, providerId]);
     if (!(await emailOn(db, w))) {
       await set("failed", "Email was turned off.");
+      return null;
+    }
+    // A test workspace emails nobody, not even its own teammates: it is recorded instead.
+    if (await isTest(db, w)) {
+      await recordTestDelivery(db, w, { channel: "email", address: a.address, conversationId: null, partId: null, body: `Alert: ${a.kind}` });
+      await set("suppressed", "A test workspace sends no email.");
       return null;
     }
     const gate = await mayDeliver(db, w, "email", a.address, null);

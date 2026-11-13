@@ -238,6 +238,7 @@ import { changeSupport, finishSupport, isSupportToken, readSupport, recordSuppor
 import { isSupport } from "./policy";
 import { readHealthCheck } from "./health-check";
 import { changePlan, readPlan } from "./plans";
+import { createTestWorkspace, mayActIn, pairOf, readTestDeliveries } from "./test-workspace";
 import { changeSeat, readSeats } from "./seats";
 import { readUsage, readUsageUnits } from "./meters";
 import { changeLimits, readLimits } from "./limits";
@@ -1530,6 +1531,8 @@ export async function handleApi(
             "/v1/agent/seats",
             "/v1/agent/health-check",
             "/v1/agent/plan",
+            "/v1/agent/workspaces",
+            "/v1/agent/test-deliveries",
             "/v1/agent/usage",
             "/v1/agent/usage-units",
             "/v1/agent/ai-providers",
@@ -1652,6 +1655,7 @@ export async function handleApi(
               "/v1/agent/support-access",
               "/v1/agent/seats",
               "/v1/agent/plan",
+              "/v1/agent/workspaces",
               "/v1/agent/usage",
               "/v1/agent/ai-providers",
               "/v1/agent/invoices",
@@ -1706,8 +1710,22 @@ export async function handleApi(
             : await resolveSession(env.connect, c.workspace, c.session, client)
           : null;
       const sessionId = signedIn?.sessionId ?? null;
-      const workspace = c.workspace,
-        principal = signedIn ? signedIn.principal : (c.principal as string);
+      let workspace = c.workspace;
+      const principal = signedIn ? signedIn.principal : (c.principal as string);
+      // The paired test workspace (docs/TEST_WORKSPACE_PLAN.md): a teammate may work in their
+      // workspace's test pair with the session they already have. The session itself stays bound
+      // to the workspace it was issued for — resolved above, in that workspace — and the pair and
+      // this teammate's place in it are checked here, before any route runs.
+      if (typeof c.actAs === "string" && c.actAs !== workspace) {
+        assert(!isSupport(principal), "SUPPORT_READ_ONLY", "Relay support reads the workspace it was granted.", 403);
+        assert(
+          await mayActIn(env.connect, workspace, c.actAs, principal),
+          "WORKSPACE_NOT_YOURS",
+          "You can't work in that workspace.",
+          403,
+        );
+        workspace = c.actAs;
+      }
       // Phase 16 C7b: Relay support only reads (refused here, before any route), and each page it opens is audited.
       if (isSupport(principal)) {
         assert(req.method === "GET", "SUPPORT_READ_ONLY", "Relay support has read-only access to this workspace.", 403);
@@ -2098,6 +2116,11 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/plan")
           // Phase 16 C10b: the trial started, an upgrade applied, a downgrade scheduled or called off.
           return json(await tenant(env.connect, workspace, (db) => changePlan(db, workspace, principal, p)));
+        if (url.pathname === "/v1/agent/workspaces") {
+          // The paired test workspace: built as a tenant of its own, so not inside this one's transaction.
+          assert(p.action === "create_test", "INVALID_FIELD", "Unknown workspace change.", 400);
+          return json(await createTestWorkspace(env.connect, workspace, principal));
+        }
         if (url.pathname === "/v1/agent/support-access")
           // Phase 16 C7b: read-only access for Relay support granted, or revoked.
           return json(await tenant(env.connect, workspace, (db) => changeSupport(db, workspace, principal, p, !!env.support)));
@@ -2840,6 +2863,11 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/seats") return json(await tenant(env.connect, workspace, (db) => readSeats(db, workspace, principal)));
       // Phase 16 C8a: the plan, what each tier includes, and usage of its limits.
       if (url.pathname === "/v1/agent/plan") return json(await tenant(env.connect, workspace, (db) => readPlan(db, workspace, principal)));
+      // The paired test workspace: which workspace you are in, and the pair you may switch between.
+      if (url.pathname === "/v1/agent/workspaces")
+        return json(await tenant(env.connect, workspace, (db) => pairOf(db, workspace)));
+      if (url.pathname === "/v1/agent/test-deliveries")
+        return json(await tenant(env.connect, workspace, (db) => readTestDeliveries(db, workspace, principal)));
       // Phase 16 C7c: the security health check, computed from the settings on each visit.
       if (url.pathname === "/v1/agent/health-check") return json(await tenant(env.connect, workspace, (db) => readHealthCheck(db, workspace, principal, { lookup: !!env.linkReputation })));
       if (url.pathname === "/v1/agent/support-access") return json(await tenant(env.connect, workspace, (db) => readSupport(db, workspace, principal, !!env.support)));

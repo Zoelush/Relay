@@ -77,8 +77,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET support-access": { needs: "security.manage" },
   "GET health-check": { needs: "security.manage" },
   "GET plan": { needs: "billing.manage" },
+  // The paired test workspace: anyone sees which workspace they are in; a manager makes one and
+  // reads what it would have sent.
+  "GET workspaces": { needs: "teammate" },
+  "GET test-deliveries": { needs: "workspace.manage" },
   // Phase 16 C10b: starting the trial, upgrading, scheduling a downgrade and calling it off.
   "POST plan": { needs: "billing.manage" },
+  "POST workspaces": { needs: "workspace.manage", body: { action: "create_test" } },
   "GET seats": { needs: "billing.manage" },
   "GET usage": { needs: "billing.manage" },
   "GET usage-units": { needs: "billing.manage" },
