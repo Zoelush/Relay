@@ -47,6 +47,8 @@ export const ERASURE: Step[] = [
   del("conversation_part_delivery_events", `part_id IN ${PARTS}`),
   del("side_messages", "side_id IN (SELECT id FROM side_conversations WHERE workspace_id=$1 AND conversation_id=ANY($4)) OR part_id=ANY($7)"),
   byConversation("side_conversations"),
+  // The paired test workspace: what it would have sent to this person, had they been real.
+  byConversation("test_deliveries"),
   del("email_events", `delivery_id IN ${DELIVERIES}`),
   del("channel_deliveries", `id IN ${DELIVERIES}`),
   del("email_messages", "conversation_id=ANY($4) OR part_id=ANY($7)"),

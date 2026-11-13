@@ -11,6 +11,12 @@ step A are implemented and tested locally on embedded PostgreSQL, behind
 flags that are off. Neon, Hyperdrive, Queues, R2 and the storage Worker
 have not been provisioned, and no data has moved from D1.
 
+## Beside the phases
+
+| Work | State | Evidence |
+|---|---|---|
+| The paired test workspace | T1a done locally | Asked for after phase 16, from its cut list. Plan: `docs/TEST_WORKSPACE_PLAN.md` (decisions of 13 November 2026). Handoff: `docs/TEST_WORKSPACE_STEP1.md` (the pair on both rows, one sign-in acting in it, the band and the switcher, deliveries recorded instead of sent, no email, never invoiced; migration 0102). T1b (the configuration copy and made-up customers), T2 (promoting a change back) and T3 (phase 15's D6 sandbox) wait. |
+
 ## Phases
 
 | Phase | State | Evidence |

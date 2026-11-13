@@ -63,6 +63,8 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   invoice: { noun: "Invoice", area: "Workspace" },
   procedure: { noun: "Procedure", area: "Zoe and AI" },
   workflow: { noun: "Workflow", area: "Automation" },
+  // The paired test workspace: the workspace row itself, when its pair is made or undone.
+  workspace: { noun: "Workspace", area: "Workspace" },
   outbound: { noun: "Outbound message", area: "Automation" },
   outbound_settings: { noun: "Outbound limits", area: "Automation" },
   api_token: { noun: "API token", area: "Developers" },
@@ -125,6 +127,8 @@ export const EXPLICIT_ACTIONS = {
   "data.retention_applied": { label: "Retention policies applied", area: "Data" },
   "session.break_glass": { label: "Owner signed in with a password (single sign-on enforced)", area: "Security" },
   "invitation.accepted": { label: "Invitation accepted", area: "People and roles" },
+  // The paired test workspace (docs/TEST_WORKSPACE_PLAN.md).
+  "workspace.test_created": { label: "Test workspace created", area: "Workspace" },
 } as const satisfies Record<string, { label: string; area: Area }>;
 export type ExplicitAction = keyof typeof EXPLICIT_ACTIONS;
 

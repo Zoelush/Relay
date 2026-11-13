@@ -288,6 +288,18 @@ export async function seatPrice(db: Sql, w: string, now = new Date()) {
   return { plan, planName: PLANS[plan].name, monthlyCents: PLANS[plan].monthlyCents, anchor: row ? new Date(row.period_anchor) : new Date() };
 }
 
+/**
+ * The paired test workspace: its plan is its production workspace's, so the features and limits a
+ * test proves are the ones production has. Read there, written here, in the test workspace's own
+ * transaction — the only place outside this module that would otherwise touch `workspace_plans`.
+ */
+export async function copyPlanInto(db: Sql, test: string, from: { plan: PlanId; anchor: Date }) {
+  await db.query("INSERT INTO workspace_plans(workspace_id,plan,period_anchor) VALUES($1,$2,$3) ON CONFLICT(workspace_id) DO UPDATE SET plan=EXCLUDED.plan,period_anchor=EXCLUDED.period_anchor", [
+    test,
+    from.plan,
+    from.anchor,
+  ]);
+}
 /** A plan's name, for anything that shows one (the id if it is one Relay no longer has). */
 export const planLabel = (id: string) => PLANS[id as PlanId]?.name ?? id;
 /** Phase 16 C9a: each meter's price per unit (null while a placeholder). */

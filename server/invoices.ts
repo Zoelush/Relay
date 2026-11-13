@@ -8,6 +8,7 @@ import { METER_IDS, type MeterId } from "../lib/meters";
 import { invoiceNumber, lineAmount, usageDescription, type InvoiceStatus, type LineKind, type PriceBook } from "../lib/invoices";
 import type { PaymentPort } from "./payments";
 import { afterFailedCharge, afterPaidCharge, unpaidPause } from "./dunning";
+import { isTest } from "./test-workspace";
 
 /**
  * Invoices (phase 16, step C10a; docs/SECURITY_STEP20.md): Settings › Billing › Invoices
@@ -185,6 +186,8 @@ export async function issueInvoice(db: Sql, w: string, period: Period, prices?: 
 export async function issueDueInvoices(connect: Connect, w: string, env: BillingEnvironment = {}, now = new Date()) {
   return tenant(connect, w, async (db) => {
     if (!(await featureOn(db, w, BILLING_FLAG))) return null;
+    // A test workspace is never invoiced: its seats and usage belong to the workspace it tests.
+    if (await isTest(db, w)) return null;
     const { anchor } = await seatPrice(db, w);
     const r = await issueInvoice(db, w, periodOf(anchor, now), env.prices, now);
     if (r.issued && r.status === "open" && (await cardOf(db, w))) await enqueueJob(db, w, "invoice.charge", { invoiceId: r.id }, {});

@@ -2181,3 +2181,8 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 
 /* Settings › Billing › Plan (phase 16 C10b): the trial and plan-change buttons. */
 .pg-plan-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+
+/* The paired test workspace (docs/TEST_WORKSPACE_PLAN.md): said on every page, and beside the
+   workspace it belongs to in the account menu. */
+.pg-test-band { display:flex; align-items:center; gap:8px; margin:0 0 6px; padding:6px 10px; border-radius:8px; background:var(--pg-tint-amber-bg); color:var(--pg-tint-amber); font-size:12px; font-weight:700; letter-spacing:.02em; }
+.pg-test-tag { margin-inline-start:6px; padding:1px 6px; border-radius:999px; background:var(--pg-tint-amber-bg); color:var(--pg-tint-amber); font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }

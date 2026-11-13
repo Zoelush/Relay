@@ -9,6 +9,28 @@ export class InboxError extends Error {
     super(message);
   }
 }
+/**
+ * The paired test workspace (docs/TEST_WORKSPACE_PLAN.md): which of the pair this browser works
+ * in. Kept per browser, sent with every request, and checked by the server, which refuses a
+ * workspace that isn't this one's test pair or where this teammate has no role.
+ */
+const WORKSPACE_KEY = "relay.workspace";
+export function chosenWorkspace() {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+export function chooseWorkspace(id: string) {
+  try {
+    if (id) localStorage.setItem(WORKSPACE_KEY, id);
+    else localStorage.removeItem(WORKSPACE_KEY);
+  } catch {
+    /* a browser that forbids storage simply stays in production */
+  }
+}
+
 export async function api<T>(
   path: string,
   body?: unknown,
@@ -20,10 +42,10 @@ export async function api<T>(
     keepalive: options.keepalive,
     method: body === undefined ? "GET" : "POST",
     credentials: "same-origin",
-    headers:
-      body === undefined
-        ? {}
-        : { "content-type": "application/json", "idempotency-key": key },
+    headers: {
+      ...(chosenWorkspace() ? { "x-relay-workspace": chosenWorkspace() } : {}),
+      ...(body === undefined ? {} : { "content-type": "application/json", "idempotency-key": key }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const data = (await r.json()) as T & {

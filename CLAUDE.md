@@ -2,6 +2,19 @@
 
 A customer communication and support platform — an alternative to Intercom.
 
+A workspace may have a **paired test workspace** (`docs/TEST_WORKSPACE_PLAN.md`,
+`docs/TEST_WORKSPACE_STEP1.md`; migration 0102): a tenant of its own, owned by a production one.
+The pair is written on both `workspace` rows (`test_of` and `test_workspace_id`), because
+row-level security means a workspace reads only its own row — never try to read the other side's,
+and never copy between tenants with one statement: read in one transaction, write in the other.
+A teammate's production session may act in the pair, named per request (`x-relay-workspace`,
+`actAs` in the bridge's proof) and checked in `server/api.ts` with `mayActIn` before any route
+runs; the session itself stays bound to the workspace it was issued for, and Relay support never
+switches. In a test workspace nothing reaches a real person: `runDelivery` records every channel
+delivery in `test_deliveries` instead of calling a provider, `sendAlert` sends no email, and
+`issueDueInvoices` never invoices it — add such a rule in the one place a thing already funnels
+through, never at each call site.
+
 ## Build plan
 
 The product is being built in 18 phases, numbered 00–17. The full plan and
