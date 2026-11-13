@@ -80,8 +80,12 @@ async function callable(db: Sql, w: string) {
     }));
 }
 
-/** What a definition names that doesn't exist in this workspace: each a problem for publishing. */
-async function references(db: Sql, w: string, def: Definition, self = "") {
+/**
+ * What a definition names that doesn't exist in this workspace: each a problem for publishing.
+ * Promoting a workflow from a test workspace (`server/promote.ts`) asks the same question of the
+ * workspace it would land in, so there is one definition of what a workflow needs.
+ */
+export async function workflowReferences(db: Sql, w: string, def: Definition, self = "") {
   const out: string[] = [];
   const ids = async (sql: string) => new Set((await db.query<{ id: string }>(sql, [w])).rows.map((r) => r.id));
   const tags = await ids("SELECT id FROM tags WHERE workspace_id=$1 AND archived_at IS NULL");
@@ -268,7 +272,7 @@ export async function readWorkflow(db: Sql, w: string, principal: string, id: st
       customerFacing: customerFacing(r.draft),
       updatedAt: new Date(r.updated_at).toISOString(),
       updatedBy: r.updated_name,
-      problems: [...problems(r.draft), ...(await references(db, w, r.draft, r.id))],
+      problems: [...problems(r.draft), ...(await workflowReferences(db, w, r.draft, r.id))],
       // W4: its webhook (when it has that trigger), and an alert while it keeps failing.
       hook: { path: `/v1/hooks/${w}/workflows/${r.id}`, configured: !!r.hook_secret_hash },
       alert: (await alertsOf(db, w, r.id))[0] ?? null,
@@ -363,7 +367,7 @@ export async function changeWorkflow(db: Sql, w: string, principal: string, key:
     if (String(p.version ?? "") !== row.version) throw new DomainError("WORKFLOW_CHANGED", "Someone else changed this workflow. Reload to see it.", 409);
     const touch = "version=version+1,updated_by=$3,updated_at=now()";
     const publish = async (definition: Definition, restoredFrom: number | null) => {
-      const blockers = [...problems(definition), ...(await references(db, w, definition, id))];
+      const blockers = [...problems(definition), ...(await workflowReferences(db, w, definition, id))];
       if (blockers.length) throw new DomainError("WORKFLOW_INVALID", `It can't be published yet: ${blockers[0]}`, 400, { problems: blockers });
       const version =
         ((await db.query<{ v: number | null }>("SELECT max(version) AS v FROM workflow_versions WHERE workspace_id=$1 AND workflow_id=$2", [w, id])).rows[0].v ?? 0) + 1;

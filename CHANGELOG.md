@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased: Promote what you tried in your test workspace
+
+- **Try it there, then promote it:** a workflow or Zoe's guidance you changed in your test workspace
+  becomes a new published version in your real one, from Settings › General.
+- **It never overwrites your colleagues.** If the same thing changed in the production workspace
+  since the two were last in step, the promotion is refused and says so — and what production had
+  stays live.
+- **It never lands half-made.** A workflow that needs a team, tag, attribute, SLA or ticket type
+  your production workspace hasn't got is refused with each missing thing named, and guidance
+  written for a specialist that only exists in the test workspace likewise.
+- **You can always go back:** what was live before is still a version of its own.
+- **A record either way round:** what can be promoted, on one side, and what has been promoted —
+  from where, by whom and as which version — on the other, with every promotion in the audit log.
+- **Details:** `docs/TEST_WORKSPACE_STEP3.md`.
+
 ## Unreleased: Your test workspace comes with your setup
 
 - **It starts as your workspace is:** teams, calendars and office hours, SLAs, ticket types, attributes, tags, macros, workflows, segments, Zoe's guidance and connectors, your knowledge and help centre, and your messenger, portal, security and retention settings.

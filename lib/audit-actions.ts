@@ -129,6 +129,7 @@ export const EXPLICIT_ACTIONS = {
   "invitation.accepted": { label: "Invitation accepted", area: "People and roles" },
   // The paired test workspace (docs/TEST_WORKSPACE_PLAN.md).
   "workspace.test_created": { label: "Test workspace created", area: "Workspace" },
+  "workspace.promoted": { label: "Promoted from the test workspace", area: "Workspace" },
 } as const satisfies Record<string, { label: string; area: Area }>;
 export type ExplicitAction = keyof typeof EXPLICIT_ACTIONS;
 

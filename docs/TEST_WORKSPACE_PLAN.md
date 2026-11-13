@@ -9,7 +9,7 @@ A test workspace is **a workspace of its own, owned by a production one**: same 
 1. **One sign-in.** A teammate's production session may act in its test workspace, because the pair belongs to it. No second password and no second two-factor. The API checks on every request that the workspace being acted in is the session's own or its test pair, and that the teammate exists there with a role; the session's token stays bound to the workspace it was issued for.
 2. **Zoe answers for real,** with the workspace's own AI provider or Relay's, so what is tested is what will ship. Her usage is metered so it can be seen, and a test workspace is never invoiced.
 3. **Created with your configuration and made-up customers:** brands, teams, roles, ticket types, SLAs, calendars, macros, tags, attributes, workflows, Zoe's agents and guidance, the help centre's structure and published articles, and the messenger's settings — then invented contacts and conversations to work with.
-4. **This step is the pair itself, safe by construction.** Promoting a change from test back to production is the next step, with its own rules per kind of object.
+4. **This step is the pair itself, safe by construction.** Promoting a change from test back to production is the next step, with its own rules per kind of object (T2a: `docs/TEST_WORKSPACE_STEP3.md`).
 
 ## What makes it safe
 
@@ -24,6 +24,12 @@ A test workspace is **a workspace of its own, owned by a production one**: same 
   - **T1a (done, `docs/TEST_WORKSPACE_STEP1.md`):** the pairing, the boundary (one session acting in the pair), the switcher and the marker, the safety rules, and a test workspace created with its brands, roles and teammates.
   - **T1b (done, `docs/TEST_WORKSPACE_STEP2.md`):** the configuration copy and the made-up customers, with a registry saying, for every table, whether it is copied — and a test that fails when a new table is neither copied nor deliberately left out.
 - **T2:** promoting a change back to production.
+  - **T2a (done, `docs/TEST_WORKSPACE_STEP3.md`):** workflows and Zoe's guidance, promoted as a new
+    version in production — refused when production has moved on since the pair was last in step,
+    or when it is missing something the change needs — with a ledger of what arrived and the audit
+    log. Decisions of 14 November 2026.
+  - **T2b:** the messenger and a help centre's look, with the uploaded images they refer to
+    (`brand_assets`, which the copy leaves behind today).
 - **T3:** the developer sandbox (phase 15's D6) on top of the same pairing.
 
 ## How it is put together

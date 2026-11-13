@@ -203,6 +203,9 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
       "plan_changes",
       // Phase 16 C10c: which failed invoice the billing managers were told about, and when.
       "billing_alerts",
+      // T2a: the pair's baselines, and what has been promoted into this workspace (an object's
+      // name and the teammate who promoted it, never anything about a customer).
+      "test_baselines", "promotions",
     ].map((t) => [t, CONFIG]),
   ),
   ...Object.fromEntries(

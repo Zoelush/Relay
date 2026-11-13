@@ -3,6 +3,7 @@ import { authorize } from "./policy";
 import { recordAudit } from "./audit";
 import { copyPlanInto, planRow } from "./plans";
 import { COPIED, copyConfiguration, seedSampleCustomers } from "./test-copy";
+import { recordBaselines } from "./promote";
 
 /** What creating the pair copies after the workspace, its brands, roles and people exist. */
 const MADE_WITH_THE_PAIR = ["workspace", "workspace_features", "workspace_plans", "brands", "roles", "role_capabilities", "teammates"];
@@ -173,5 +174,8 @@ export async function createTestWorkspace(connect: Connect, w: string, principal
   // in one workspace's transaction and written in the other's; `server/test-copy.ts` says which.
   const copied = await copyConfiguration(connect, w, test, REST);
   const conversations = await seedSampleCustomers(connect, test, prepared.brands[0]?.id ?? "default").catch(() => []);
+  // T2a: what production's promotable objects are at now, so a promotion later can tell a change
+  // made here from a change made there (`server/promote.ts`).
+  await recordBaselines(connect, w, test);
   return { id: test, name, copied, conversations: conversations.length };
 }
