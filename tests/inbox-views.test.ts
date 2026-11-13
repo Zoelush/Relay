@@ -6,7 +6,7 @@ import { tenant } from "../server/db";
 import { seedFoundation } from "../server/people";
 import { bridgeAgentRequest } from "../server/agent-bridge";
 import { handleApi, type ApiEnvironment } from "../server/api";
-import { runJob, type Job } from "../server/jobs";
+import { enqueueJob, runJob, type Job } from "../server/jobs";
 import {
   compileFilter,
   projectInboxChanges,
@@ -205,6 +205,49 @@ test("views: tenant and teammate isolation, sharing permissions, shared filter s
       "all, unassigned, three Mine and three Mentions sets",
     );
     assert.equal(ownerOpen.ready, true);
+
+    // One walk of the conversations fills every set the job carries, so a workspace with many
+    // views is ready in the same number of steps as one with a single view. A rebuild of all
+    // eight sets over 260 conversations takes two steps (REBUILD_BATCH is 250), not sixteen.
+    await sql(
+      "a",
+      `INSERT INTO conversations(workspace_id,id,brand_id,token_hash,name,email,title,status,assigned,created_at,updated_at)
+       SELECT 'a','rebuild-'||lpad(i::text,4,'0'),'default','','Customer','','Rebuild fixture '||i,'open','',now(),now() FROM generate_series(1,260) i`,
+    );
+    const everySet = (await sql<{ id: string }>("a", "SELECT id FROM inbox_filter_sets ORDER BY id")).map((r) => r.id);
+    assert.equal(everySet.length, 8);
+    await sql("a", "UPDATE inbox_filter_sets SET ready=false");
+    const bulk = await tenant(db.connect, "a", (q) =>
+      enqueueJob(q, "a", "inbox.views.rebuild", { setIds: everySet }, {}),
+    );
+    let steps = 0;
+    for (;;) {
+      const r = await runJob(db.connect, "a", bulk, handlers);
+      steps++;
+      if (r.state !== "queued") {
+        assert.equal(r.state, "succeeded");
+        break;
+      }
+    }
+    const total = Number((await sql("a", "SELECT count(*) FROM conversations WHERE workspace_id='a'"))[0].count);
+    assert.equal(
+      steps,
+      Math.floor(total / 250) + 1,
+      `one step per batch of conversations (${total} of them), whatever the number of sets`,
+    );
+    assert.equal(
+      Number((await sql("a", "SELECT count(*) FROM inbox_filter_sets WHERE NOT ready"))[0].count),
+      0,
+      "every set is ready when the walk ends, not one at a time",
+    );
+    assert.equal(
+      Number((await sql("a", "SELECT count(*) FROM inbox_filter_members WHERE set_id=$1", [ownerOpen.set_id]))[0].count),
+      Number((await sql("a", "SELECT count(*) FROM conversations WHERE workspace_id='a' AND merged_into_id IS NULL"))[0].count),
+      "and \"All\" holds every conversation, whatever its status",
+    );
+    await sql("a", "DELETE FROM inbox_projection_dirty WHERE conversation_id LIKE 'rebuild-%'");
+    await sql("a", "DELETE FROM inbox_filter_members WHERE conversation_id LIKE 'rebuild-%'");
+    await sql("a", "DELETE FROM conversations WHERE id LIKE 'rebuild-%'");
     // A view's count is its open conversations.
     assert.equal(Number(ownerOpen.count), await openCount());
     assert.equal((await views()).length, 4, "four defaults");
