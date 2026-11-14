@@ -81,6 +81,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   // reads what it would have sent.
   "GET workspaces": { needs: "teammate" },
   "GET test-deliveries": { needs: "workspace.manage" },
+  // T2a: promoting a change from a test workspace to production. Each needs the right to manage
+  // the workspace it acts on, and promoting is checked in production, where the change lands.
+  "GET promotable": { needs: "workspace.manage" },
+  "GET promotions": { needs: "workspace.manage" },
+  "POST promote": { needs: "workspace.manage", body: { kind: "workflow", id: "none" } },
   // Phase 16 C10b: starting the trial, upgrading, scheduling a downgrade and calling it off.
   "POST plan": { needs: "billing.manage" },
   "POST workspaces": { needs: "workspace.manage", body: { action: "create_test" } },

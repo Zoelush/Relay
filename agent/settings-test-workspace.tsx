@@ -123,3 +123,151 @@ export function TestWorkspaceCard() {
     </Card>
   );
 }
+
+/* ---------------------------------------------------------------------------------------------- */
+/* Promoting a change back (T2a)                                                                   */
+/* ---------------------------------------------------------------------------------------------- */
+
+type Candidate = {
+  kind: "workflow" | "zoe_guidance";
+  id: string;
+  name: string;
+  status: "ready" | "unchanged" | "changed_in_production" | "needs" | "name_taken";
+  why: string;
+  missing: string[];
+};
+type Promotion = { id: string; kind: string; objectId: string; name: string; from: string; version: number | null; at: string; by: string | null };
+
+const KIND: Record<string, string> = { workflow: "Workflow", zoe_guidance: "Zoe’s guidance", messenger: "Messenger", help_center: "Help centre" };
+
+/**
+ * One card either way round: in the test workspace, what can be promoted and what stands in the
+ * way of each; in production, what has been promoted into it. Every word of it is the server's
+ * answer — the page decides nothing about whether a promotion may happen.
+ */
+export function PromoteCard() {
+  const [pair, setPair] = useState<Pair>(null);
+  const [into, setInto] = useState("");
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [busy, setBusy] = useState("");
+  const [done, setDone] = useState("");
+  const [error, setError] = useState("");
+  const load = useCallback(() => {
+    api<Pair>("workspaces")
+      .then(async (p) => {
+        setPair(p);
+        if (!p?.counterpart) return;
+        if (p.here === "test") {
+          const r = await api<{ into: { id: string; name: string }; candidates: Candidate[] }>("promotable");
+          setInto(r.into.name || r.into.id);
+          setCandidates(r.candidates);
+        } else {
+          setPromotions((await api<{ promotions: Promotion[] }>("promotions")).promotions);
+        }
+      })
+      .catch((e) => setError(message(e, "What can be promoted couldn't be read.")));
+  }, []);
+  useEffect(load, [load]);
+  if (!pair?.counterpart) return null;
+
+  if (pair.here === "production")
+    return (
+      <Card
+        title="Promoted from the test workspace"
+        description="What was tried in the test workspace and published here, newest first. Each one is a version of its own, so you can go back to what was there before."
+      >
+        {error && (
+          <p role="alert" className="pg-attr-error">
+            {error}
+          </p>
+        )}
+        {promotions.length === 0 ? (
+          <p className="pg-muted">Nothing has been promoted yet. Try a change in the test workspace, then promote it from there.</p>
+        ) : (
+          <ul className="pg-settings-list" aria-label="Promoted from the test workspace">
+            {promotions.map((p) => (
+              <li key={p.id}>
+                <span>
+                  <strong>
+                    {KIND[p.kind] ?? p.kind} · {p.name}
+                  </strong>
+                  <small className="pg-muted">
+                    {when(p.at)}
+                    {p.by ? ` · ${p.by}` : ""}
+                    {p.version === null ? "" : ` · version ${p.version}`}
+                  </small>
+                </span>
+                {p.kind === "workflow" && (
+                  <a className="pg-wf-link" href={`#workflows/${p.objectId}`}>
+                    Open
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    );
+
+  return (
+    <Card
+      title="Promote to production"
+      description={`What you have changed here, and whether it can go to ${into || "production"}. A promotion publishes a new version there — it never overwrites a change made in production, and it never lands without what it needs.`}
+    >
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      {done && <p className="pg-settings-value">{done}</p>}
+      {candidates.length === 0 ? (
+        <p className="pg-muted">There is nothing here that can be promoted yet.</p>
+      ) : (
+        <ul className="pg-settings-list" aria-label="What can be promoted">
+          {candidates.map((c) => (
+            <li key={c.kind + c.id}>
+              <span>
+                <strong>
+                  {KIND[c.kind] ?? c.kind} · {c.name}
+                </strong>
+                <small className="pg-muted">{c.why}</small>
+                {c.missing.length > 0 && (
+                  <small className="pg-attr-error">
+                    {c.missing.map((m) => (
+                      <span key={m}>{m} </span>
+                    ))}
+                  </small>
+                )}
+              </span>
+              {c.status === "ready" && (
+                <button
+                  type="button"
+                  className="pg-secondary"
+                  disabled={busy !== ""}
+                  onClick={async () => {
+                    setBusy(c.kind + c.id);
+                    setError("");
+                    setDone("");
+                    try {
+                      await api("promote", { kind: c.kind, id: c.id });
+                      setDone(`${c.name} is live in ${into || "production"}.`);
+                      load();
+                    } catch (e) {
+                      setError(message(e, "It couldn't be promoted."));
+                      load();
+                    } finally {
+                      setBusy("");
+                    }
+                  }}
+                >
+                  {busy === c.kind + c.id ? "Promoting…" : "Promote"}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}

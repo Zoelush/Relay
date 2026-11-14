@@ -91,6 +91,8 @@ const routes = {
     "plan",
     "workspaces",
     "test-deliveries",
+    "promotable",
+    "promotions",
     "usage",
     "usage-units",
     "ai-providers",
@@ -138,6 +140,7 @@ const routes = {
   ]),
   POST: new Set([
     "command",
+    "promote",
     "plan",
     "workspaces",
     "views",

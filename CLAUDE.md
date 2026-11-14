@@ -16,7 +16,13 @@ delivery in `test_deliveries` instead of calling a provider, `sendAlert` sends n
 through, never at each call site. What a test workspace is made of is `server/test-copy.ts`: every
 table in the schema is in `COPIED` or in `NOT_COPIED` with its reason, and a test fails on a table
 in neither — a new table is a decision, and nothing that could reach a person or sign someone in is
-ever on the copied side.
+ever on the copied side. A change tried in the pair goes back only through `server/promote.ts`
+(T2a, `docs/TEST_WORKSPACE_STEP3.md`, migration 0103): only what publishes as a version, published
+in production by the teammate who asked, refused rather than overwriting a change made there and
+refused rather than landing without what it needs — the same `workflowReferences` publishing uses,
+asked of production. `test_baselines` holds the two version numbers the pair was last in step at and
+lives in the production workspace, so a promotion moves the mark in the same transaction as the
+change and is never mistaken for an edit made there.
 
 ## Build plan
 

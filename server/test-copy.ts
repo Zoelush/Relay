@@ -90,6 +90,7 @@ const SECRET = "a key, token or account a test workspace is deliberately without
 const REACHES = "a connection to a provider, which a test workspace must never have";
 const SIGN_IN = "sign-in belongs to the production workspace: one sign-in, used in both";
 const BILLING = "a test workspace is never billed";
+const PAIR = "the production workspace's record of the pair, kept and read only on its side";
 /** Tables a test workspace starts without, and why (the test fails on a table in neither list). */
 export const NOT_COPIED: Record<string, string> = {
   ...Object.fromEntries(
@@ -124,6 +125,9 @@ export const NOT_COPIED: Record<string, string> = {
       "storage_migration_state", "test_deliveries", "data_requests",
     ].map((t) => [t, RUNTIME]),
   ),
+  // T2a: the two sides of promoting a change back, both production's own (server/promote.ts).
+  test_baselines: PAIR,
+  promotions: PAIR,
   ...Object.fromEntries(
     [
       "audit_events", "seat_changes", "plan_changes", "teammate_presence_changes", "identity_failures",

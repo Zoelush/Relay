@@ -22,7 +22,7 @@ const sql = <T = any>(query: string, values: unknown[] = [], w = "demo") =>
 
 test("a manager makes a test workspace, switches into it, and every page says which one they are in", async ({ page }) => {
   await page.goto(relay.hostOrigin + "/agent#settings/general");
-  const card = page.getByRole("region", { name: "Test workspace" });
+  const card = page.getByRole("region", { name: "Test workspace", exact: true });
   await expect(card).toBeVisible({ timeout: 20000 });
   await expect(card).toContainText("nothing can reach a real person");
 
@@ -57,7 +57,7 @@ test("a manager makes a test workspace, switches into it, and every page says wh
   await card.getByRole("button", { name: "Switch to it" }).click();
   const band = page.getByRole("status").filter({ hasText: "Test workspace" });
   await expect(band).toBeVisible({ timeout: 20000 });
-  await expect(page.getByRole("region", { name: "Test workspace" })).toContainText("You are in the test workspace of demo");
+  await expect(page.getByRole("region", { name: "Test workspace", exact: true })).toContainText("You are in the test workspace of demo");
   // Its own inbox, empty, with the band still there.
   await page.goto(relay.hostOrigin + "/agent");
   await expect(page.getByRole("status").filter({ hasText: "Test workspace" })).toBeVisible({ timeout: 20000 });
@@ -65,9 +65,9 @@ test("a manager makes a test workspace, switches into it, and every page says wh
 
   // And back, from the account menu.
   await page.goto(relay.hostOrigin + "/agent#settings/general");
-  await page.getByRole("region", { name: "Test workspace" }).getByRole("button", { name: "Back to the production workspace" }).click();
+  await page.getByRole("region", { name: "Test workspace", exact: true }).getByRole("button", { name: "Back to the production workspace" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Test workspace" })).toHaveCount(0, { timeout: 20000 });
-  await expect(page.getByRole("region", { name: "Test workspace" })).toContainText("This workspace has a test workspace");
+  await expect(page.getByRole("region", { name: "Test workspace", exact: true })).toContainText("This workspace has a test workspace");
 });
 
 test("an agent cannot make one or reach it, and only the pair can be worked in", async ({ page, browser }) => {
@@ -90,11 +90,77 @@ test("an agent cannot make one or reach it, and only the pair can be worked in",
 
   // A workspace that is not this one's test pair is refused, however it is asked for.
   await page.goto(relay.hostOrigin + "/agent#settings/general");
-  await expect(page.getByRole("region", { name: "Test workspace" })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole("region", { name: "Test workspace", exact: true })).toBeVisible({ timeout: 20000 });
   const refused = await page.evaluate(async () => {
     const r = await fetch("/api/agent/inbox", { credentials: "same-origin", headers: { "x-relay-workspace": "someone-else" } });
     return { status: r.status, body: (await r.json()) as { error?: { code?: string } } };
   });
   expect(refused.status).toBe(403);
   expect(refused.body.error?.code).toBe("WORKSPACE_NOT_YOURS");
+});
+
+/**
+ * T2a: promoting a change back. Happy path: a workflow published in the test workspace is
+ * promoted from Settings › General and is live in production, which keeps its own record of where
+ * it came from. Failure path: one that needs a team production hasn't got says so and offers no
+ * button.
+ */
+test("a change tried in the test workspace is promoted, and one production can't take says why", async ({ page }) => {
+  await page.goto(relay.hostOrigin + "/agent#settings/general");
+  await expect(page.getByRole("region", { name: "Promoted from the test workspace" })).toContainText("Nothing has been promoted yet", { timeout: 20000 });
+
+  // Into the pair, and two workflows published there: one that needs nothing, and one that
+  // assigns to a team only the test workspace has.
+  await page.getByRole("region", { name: "Test workspace", exact: true }).getByRole("button", { name: "Switch to it" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Test workspace" })).toBeVisible({ timeout: 20000 });
+  await sql("INSERT INTO teams(workspace_id,id,name) VALUES('demo-test','weekend','Weekend') ON CONFLICT DO NOTHING", [], "demo-test");
+  const published = await page.evaluate(async () => {
+    const call = async (body: unknown) =>
+      (
+        await fetch("/api/agent/workflow", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID(), "x-relay-workspace": "demo-test" },
+          body: JSON.stringify(body),
+        })
+      ).json() as Promise<any>;
+    const out: Record<string, string> = {};
+    for (const [name, step] of [
+      ["Note every new chat", { id: crypto.randomUUID(), type: "note", options: { text: "Tried in the test workspace." } }],
+      ["Weekend cover", { id: crypto.randomUUID(), type: "assign", options: { teamId: "weekend" } }],
+    ] as const) {
+      const made = await call({
+        action: "create",
+        name,
+        definition: { trigger: { type: "first_message", options: {} }, paths: [{ id: "A", label: "", steps: [step], next: { type: "end" } }] },
+      });
+      const live = await call({ action: "publish", id: made.workflow.id, version: made.workflow.version });
+      out[name] = live.workflow?.state ?? JSON.stringify(live);
+    }
+    return out;
+  });
+  expect(published).toEqual({ "Note every new chat": "live", "Weekend cover": "live" });
+
+  // The card says what can go, and what the other one needs — the server's words, not the page's.
+  await page.goto(relay.hostOrigin + "/agent#settings/general");
+  const promote = page.getByRole("region", { name: "Promote to production" });
+  await expect(promote).toBeVisible({ timeout: 20000 });
+  const ready = promote.getByRole("listitem").filter({ hasText: "Note every new chat" });
+  const blocked = promote.getByRole("listitem").filter({ hasText: "Weekend cover" });
+  await expect(blocked).toContainText("its team doesn't exist");
+  await expect(blocked.getByRole("button", { name: "Promote" })).toHaveCount(0);
+
+  // Promoted: live in production, as a version of its own.
+  await ready.getByRole("button", { name: "Promote" }).click();
+  await expect(promote).toContainText("is live in", { timeout: 20000 });
+  const there = await sql<{ name: string; state: string; live_version: number }>("SELECT name,state,live_version FROM workflows WHERE name='Note every new chat'");
+  expect(there[0]).toMatchObject({ state: "live", live_version: 1 });
+  expect((await sql("SELECT 1 FROM audit_events WHERE action='workspace.promoted'")).length).toBe(1);
+
+  // Back in production, the workspace's own record of what arrived and from where.
+  await page.getByRole("region", { name: "Test workspace", exact: true }).getByRole("button", { name: "Back to the production workspace" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Test workspace" })).toHaveCount(0, { timeout: 20000 });
+  const ledger = page.getByRole("region", { name: "Promoted from the test workspace" });
+  await expect(ledger).toContainText("Workflow · Note every new chat");
+  await expect(ledger).toContainText("version 1");
 });
