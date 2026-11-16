@@ -130,6 +130,7 @@ export const EXPLICIT_ACTIONS = {
   // The paired test workspace (docs/TEST_WORKSPACE_PLAN.md).
   "workspace.test_created": { label: "Test workspace created", area: "Workspace" },
   "workspace.promoted": { label: "Promoted from the test workspace", area: "Workspace" },
+  "workspace.promotion_reverted": { label: "Put a promoted help centre look back", area: "Workspace" },
 } as const satisfies Record<string, { label: string; area: Area }>;
 export type ExplicitAction = keyof typeof EXPLICIT_ACTIONS;
 

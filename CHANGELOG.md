@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased: Promote your messenger and your help centre's look
+
+- **The messenger goes back too:** the version you published in your test workspace becomes your
+  real workspace's next published version, so everything you had there is still a version to
+  restore.
+- **A help centre's look as well.** A look keeps no versions of its own, so the one it replaced is
+  kept with the record of the promotion — **Put the previous look back** is right there, and it is
+  refused if somebody has styled the help centre since.
+- **The images come with it.** An image you uploaded in the test workspace is copied into your real
+  workspace as an upload of its own, and what the promotion writes points at it. An image that came
+  from production in the first place is left exactly as it was.
+- **Your test workspace looks like the real one.** Making the pair now brings every image your
+  settings name — the messenger's logos and Home background, Zoe's avatars, your help centre's logo,
+  favicon, hero and collection images, and the images in your articles.
+- **Still refused rather than guessed:** a brand or a help centre only the test workspace has, and a
+  homepage featuring an article your real workspace hasn't got, are each named.
+- **Details:** `docs/TEST_WORKSPACE_STEP4.md`.
+
 ## Unreleased: Promote what you tried in your test workspace
 
 - **Try it there, then promote it:** a workflow or Zoe's guidance you changed in your test workspace

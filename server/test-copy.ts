@@ -1,6 +1,10 @@
 import { tenant, type Connect, type Sql } from "./db";
 import { getIdentity } from "./people";
 import { command } from "./conversations";
+import { assetId, assetsIn } from "./brand-assets";
+import { themeFiles, themeOf } from "../lib/help-theme";
+import type { AttachmentStorage } from "./attachments";
+import { cleanKeyIn, copyBytes, readUploads, writeUpload, type Upload } from "./uploads";
 
 /**
  * What a test workspace is made of (docs/TEST_WORKSPACE_PLAN.md, T1b): the configuration its
@@ -18,10 +22,12 @@ import { command } from "./conversations";
  * - **Nothing is copied by SQL across tenants.** Row-level security means the source rows are
  *   invisible from the other side, so every table is read in one transaction and written in the
  *   other. A cross-tenant `INSERT … SELECT` would silently copy nothing.
+ * - **The images come with the bytes.** An image a copied setting names is copied into the test
+ *   workspace with its id and its bytes (`copyUploads`), under a key of its own.
  * - **No secret and no connection comes with it.** A test workspace holds no keys, no tokens, no
  *   provider accounts and no domains of its own: it cannot reach anyone, so it needs none of them.
  */
-export const COPIED: { table: string; why?: string }[] = [
+export const COPIED: { table: string; why?: string; uploads?: true }[] = [
   // The workspace itself, its people and what they may do (T1a makes these with the pair).
   { table: "workspace" },
   { table: "workspace_features", why: "the same features are on, so a test means something" },
@@ -81,6 +87,10 @@ export const COPIED: { table: string; why?: string }[] = [
   { table: "redaction_rules" },
   { table: "link_policies" },
   { table: "audit_settings" },
+  // T2b: the images the configuration above refers to, brought by `copyUploads` rather than by
+  // the column copy — bytes have to be copied too, and each workspace keys its own.
+  { table: "brand_assets", uploads: true, why: "the messenger's images and Zoe's avatars, as the copied settings name them" },
+  { table: "knowledge_files", uploads: true, why: "a help centre's theme images and the images in copied articles" },
 ];
 
 const CUSTOMERS = "a test workspace has made-up customers of its own, never the real ones";
@@ -117,7 +127,7 @@ export const NOT_COPIED: Record<string, string> = {
       "knowledge_index_generations", "knowledge_chunks", "knowledge_chunk_vectors", "knowledge_search",
       "knowledge_revisions", "knowledge_duplicate_runs", "knowledge_duplicate_pairs",
       "knowledge_duplicate_dismissals", "knowledge_sync_runs", "knowledge_sync_frontier", "knowledge_source_pages",
-      "knowledge_files", "help_redirects", "messenger_drafts", "ai_answers", "ai_resolutions", "ai_model_calls",
+      "help_redirects", "messenger_drafts", "ai_answers", "ai_resolutions", "ai_model_calls",
       "ai_reviews", "ai_review_days", "ai_content_gaps", "ai_incidents", "ai_monitor_runs", "ai_monitor_checks",
       "ai_procedure_runs", "ai_action_approvals", "ai_connector_calls", "ai_connector_rate", "ai_connector_pins",
       "api_usage", "canvas_sessions", "canvas_calls", "canvas_app_daily", "webhook_events", "webhook_deliveries",
@@ -140,7 +150,6 @@ export const NOT_COPIED: Record<string, string> = {
     [
       "ai_providers", "ai_connector_secrets", "ai_connector_tokens", "ai_connector_oauth_states", "api_tokens",
       "oauth_apps", "oauth_codes", "oauth_grants", "oauth_refresh_tokens", "identity_keys", "webhook_subscriptions",
-      "brand_assets",
     ].map((t) => [t, SECRET]),
   ),
   ...Object.fromEntries(
@@ -190,9 +199,11 @@ const BATCH = 200;
  */
 export async function copyConfiguration(connect: Connect, from: string, to: string, only?: string[]) {
   const copied: Record<string, number> = {};
-  for (const { table } of COPIED) {
+  for (const { table, uploads } of COPIED) {
     // The workspace row and the few T1a makes are already there.
     if (only && !only.includes(table)) continue;
+    // The uploads come with their bytes, through `copyUploads`.
+    if (uploads) continue;
     const columns = await tenant(connect, from, (db) => copyableColumns(db, table));
     const rows = await tenant(connect, from, async (db) =>
       (await db.query<Record<string, unknown>>(`SELECT ${columns.map((c) => `"${c}"`).join(",")} FROM "${table}" WHERE workspace_id=$1`, [from])).rows,
@@ -222,6 +233,60 @@ export async function copyConfiguration(connect: Connect, from: string, to: stri
     copied[table] = rows.length;
   }
   return copied;
+}
+
+/**
+ * The images the copied configuration refers to (T2b, docs/TEST_WORKSPACE_STEP4.md): the
+ * messenger's own images and Zoe's avatars (`brand_assets`), and a help centre's theme and
+ * homepage images and the images inside copied articles (`knowledge_files`).
+ *
+ * Every id is kept, exactly as the rest of the copy keeps ids, so the copied settings still name
+ * their images. Only the stored object is new: each workspace keys its own, and the bytes are
+ * copied into the test workspace's key, so neither side can take the other's image away.
+ *
+ * An image whose bytes cannot be read — a deployment without storage, or an object already tidied
+ * away — is left out rather than written as a row pointing at nothing.
+ */
+export async function copyUploads(connect: Connect, from: string, to: string, storage: AttachmentStorage | undefined, by: string) {
+  const uploads = await tenant(connect, from, async (db) => {
+    // What the copied settings name: the live messenger of each brand, every published version
+    // (an earlier one can be restored in the test workspace too) and Zoe's identities.
+    const assets = new Set<string>();
+    for (const r of (
+      await db.query<{ config: Record<string, unknown> }>(
+        `SELECT settings AS config FROM brands WHERE workspace_id=$1
+         UNION ALL SELECT config FROM messenger_versions WHERE workspace_id=$1`,
+        [from],
+      )
+    ).rows)
+      for (const id of assetsIn(r.config)) assets.add(id);
+    for (const r of (
+      await db.query<{ avatar: string | null; avatar_dark: string | null }>("SELECT avatar,avatar_dark FROM ai_agent_identities WHERE workspace_id=$1", [from])
+    ).rows)
+      for (const v of [r.avatar, r.avatar_dark]) {
+        const id = assetId(v);
+        if (id) assets.add(id);
+      }
+    const files = new Set<string>();
+    for (const c of (
+      await db.query<{ theme: Record<string, unknown>; layout: unknown[] }>("SELECT theme,layout FROM help_centers WHERE workspace_id=$1", [from])
+    ).rows)
+      for (const f of themeFiles(themeOf(c.theme), c.layout as Parameters<typeof themeFiles>[1])) files.add(f.id);
+    // An article's images are named inside its body, which is copied with it.
+    for (const r of (await db.query<{ id: string }>("SELECT id FROM knowledge_files WHERE workspace_id=$1 AND purpose='article_image'", [from])).rows)
+      files.add(r.id);
+    return [...(await readUploads(db, from, "brand_assets", [...assets])), ...(await readUploads(db, from, "knowledge_files", [...files]))];
+  });
+  // The bytes, outside both transactions: a stored object nothing points at is harmless, a row
+  // pointing at bytes that aren't there is not.
+  const brought: Upload[] = [];
+  for (const u of uploads) if (await copyBytes(storage, u, cleanKeyIn(u.table, to, u.id, u.checksum))) brought.push(u);
+  if (brought.length)
+    await tenant(connect, to, async (db) => {
+      for (const u of brought)
+        await writeUpload(db, to, u, { id: u.id, cleanKey: cleanKeyIn(u.table, to, u.id, u.checksum), by: u.uploadedBy ?? by });
+    });
+  return brought.length;
 }
 
 /**

@@ -416,6 +416,30 @@ export function themeFiles(theme: HelpTheme, layout: LayoutBlock[] = []) {
   return out;
 }
 
+/**
+ * The same images, with each id put through `to` (T2b, docs/TEST_WORKSPACE_STEP4.md): a look
+ * promoted into another workspace names that workspace's own copies of the images it uses. An id
+ * `to` doesn't map is left as it is.
+ */
+export function mapThemeFiles(theme: HelpTheme, layout: LayoutBlock[], to: Map<string, string>) {
+  const one = (id: string | null) => (id && to.has(id) ? (to.get(id) as string) : id);
+  const background = (b: Background): Background => (b.type === "image" ? { ...b, fileId: one(b.fileId) ?? b.fileId } : b);
+  const mapped: HelpTheme = {
+    ...theme,
+    logoFileId: one(theme.logoFileId),
+    footerLogoFileId: one(theme.footerLogoFileId),
+    faviconFileId: one(theme.faviconFileId),
+    socialImageFileId: one(theme.socialImageFileId),
+    heroBackground: background(theme.heroBackground),
+    iconBackground: theme.iconBackground ? background(theme.iconBackground) : theme.iconBackground,
+    collectionImages: Object.fromEntries(Object.entries(theme.collectionImages).map(([node, id]) => [node, one(id) ?? id])),
+  };
+  return {
+    theme: mapped,
+    layout: layout.map((b) => (b.type === "content" ? { ...b, background: background(b.background) } : b)),
+  };
+}
+
 /** A content section as input; refuses what it can't use. */
 export function checkContent(raw: Record<string, unknown>): Extract<LayoutBlock, { type: "content" }> {
   const buttonLabel = localized(raw.buttonLabel, 40, "The button's label");

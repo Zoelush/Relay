@@ -89,14 +89,19 @@ test("promoting from the test workspace: published as a version, refused on a co
     assert.equal(quiet.body.into.id, "a");
     assert.deepEqual(
       quiet.body.candidates.map((c: any) => [c.kind, c.status]),
-      [["workflow", "unchanged"], ["zoe_guidance", "unchanged"]],
+      [
+        ["workflow", "unchanged"],
+        ["zoe_guidance", "unchanged"],
+        ["messenger", "unchanged"],
+        ["help_center", "unchanged"],
+      ],
     );
     assert.match(quiet.body.candidates[0].why, /Nothing has changed here/);
     // Only from a test workspace, and only for someone who may manage the workspace.
     assert.equal((await agent("promotable")).body.error.code, "NOT_A_TEST_WORKSPACE");
     assert.equal((await inTest("promotable", undefined, "agent-1-a")).status, 403);
     assert.equal((await inTest("promote", { kind: "workflow", id: workflow }, "agent-1-a")).status, 403);
-    assert.equal((await inTest("promote", { kind: "messenger", id: "default" })).body.error.code, "INVALID_FIELD");
+    assert.equal((await inTest("promote", { kind: "portal", id: "default" })).body.error.code, "INVALID_FIELD");
 
     /* A change tried in the pair, then promoted ------------------------------------------------ */
 

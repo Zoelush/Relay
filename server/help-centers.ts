@@ -123,6 +123,20 @@ async function validLayout(
   if (!seen.has("collections")) out.push({ type: "collections" });
   return out;
 }
+/**
+ * A help centre's look checked against the workspace it is going into: the theme and the homepage
+ * as its own editor checks them, with every image a ready upload of this help centre and every
+ * featured article one this workspace shows. T2b promotes a look from a test workspace through
+ * this same check, so what a valid look is has one definition
+ * (docs/TEST_WORKSPACE_STEP4.md).
+ */
+export async function checkLook(db: Sql, w: string, centerId: string, theme: unknown, layout: unknown) {
+  const t = validTheme(theme);
+  const l = (await validLayout(db, w, layout)) ?? DEFAULT_LAYOUT;
+  await themeImages(db, w, centerId, t, l);
+  return { theme: t, layout: l };
+}
+
 function validLocales(input: unknown, fallback: string[]) {
   if (input === undefined) return fallback;
   if (!Array.isArray(input) || input.length < 1 || input.length > 30)
