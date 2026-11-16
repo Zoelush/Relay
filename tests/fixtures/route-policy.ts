@@ -86,6 +86,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET promotable": { needs: "workspace.manage" },
   "GET promotions": { needs: "workspace.manage" },
   "POST promote": { needs: "workspace.manage", body: { kind: "workflow", id: "none" } },
+  "POST promotions": { needs: "workspace.manage", body: { id: "none" } },
   // Phase 16 C10b: starting the trial, upgrading, scheduling a downgrade and calling it off.
   "POST plan": { needs: "billing.manage" },
   "POST workspaces": { needs: "workspace.manage", body: { action: "create_test" } },

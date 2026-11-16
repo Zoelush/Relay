@@ -142,7 +142,9 @@ test("a change tried in the test workspace is promoted, and one production can't
   expect(published).toEqual({ "Note every new chat": "live", "Weekend cover": "live" });
 
   // The card says what can go, and what the other one needs — the server's words, not the page's.
+  // It reads them when it mounts, and the page is already at this address, so ask for it again.
   await page.goto(relay.hostOrigin + "/agent#settings/general");
+  await page.reload();
   const promote = page.getByRole("region", { name: "Promote to production" });
   await expect(promote).toBeVisible({ timeout: 20000 });
   const ready = promote.getByRole("listitem").filter({ hasText: "Note every new chat" });
@@ -163,4 +165,53 @@ test("a change tried in the test workspace is promoted, and one production can't
   const ledger = page.getByRole("region", { name: "Promoted from the test workspace" });
   await expect(ledger).toContainText("Workflow · Note every new chat");
   await expect(ledger).toContainText("version 1");
+});
+
+/**
+ * T2b: the messenger promoted back. Happy path: its look changed and published in the test
+ * workspace, promoted from Settings › General, and live in production as the brand's next
+ * published version — with production's own record of where it came from.
+ */
+test("the messenger changed in the test workspace is promoted as production's next published version", async ({ page }) => {
+  await page.goto(relay.hostOrigin + "/agent#settings/general");
+  await page.getByRole("region", { name: "Test workspace", exact: true }).getByRole("button", { name: "Switch to it" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Test workspace" })).toBeVisible({ timeout: 20000 });
+
+  // Changed and published in the pair: what is promoted is what was tried, never a draft.
+  const liveVersion = await page.evaluate(async () => {
+    const workspace = { "x-relay-workspace": "demo-test" };
+    const post = async (body: unknown) =>
+      (
+        await fetch("/api/agent/messenger", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID(), ...workspace },
+          body: JSON.stringify(body),
+        })
+      ).json() as Promise<any>;
+    const read = (await (await fetch("/api/agent/messenger?brand=default", { credentials: "same-origin", headers: workspace })).json()) as any;
+    await post({ action: "save", brandId: "default", draftVersion: read.draftVersion, config: { ...read.draft, teamIntroduction: "Tried in the test workspace" } });
+    const done = await post({ action: "publish", brandId: "default", draftVersion: String(Number(read.draftVersion) + 1) });
+    return done.liveVersion ?? JSON.stringify(done);
+  });
+  expect(liveVersion).toBe(1);
+
+  // The card offers it, and promoting it publishes it in production.
+  await page.goto(relay.hostOrigin + "/agent#settings/general");
+  await page.reload();
+  const promote = page.getByRole("region", { name: "Promote to production" });
+  const messenger = promote.getByRole("listitem").filter({ hasText: "Messenger" });
+  await expect(messenger).toContainText("Changed here", { timeout: 20000 });
+  await messenger.getByRole("button", { name: "Promote" }).click();
+  await expect(promote).toContainText("is live in", { timeout: 20000 });
+  const versions = await sql<{ version: number; config: any }>("SELECT version,config FROM messenger_versions WHERE brand_id='default' ORDER BY version DESC");
+  expect(versions[0].version).toBe(1);
+  expect(versions[0].config.teamIntroduction).toBe("Tried in the test workspace");
+  const brand = await sql<{ settings: any }>("SELECT settings FROM brands WHERE id='default'");
+  expect(brand[0].settings.teamIntroduction).toBe("Tried in the test workspace");
+
+  // And production's record of what arrived.
+  await page.getByRole("region", { name: "Test workspace", exact: true }).getByRole("button", { name: "Back to the production workspace" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Test workspace" })).toHaveCount(0, { timeout: 20000 });
+  await expect(page.getByRole("region", { name: "Promoted from the test workspace" })).toContainText("Messenger ·");
 });

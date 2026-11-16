@@ -115,6 +115,27 @@ export const assetsIn = (c: Parameters<typeof slots>[0] | null | undefined) =>
     : [];
 
 /**
+ * The same config with each image id put through `to` (T2b, docs/TEST_WORKSPACE_STEP4.md): a
+ * messenger promoted into another workspace names that workspace's own copies of the images it
+ * uses. An id `to` doesn't map is left as it is, and so is an https address.
+ */
+export function mapAssets<T extends MessengerConfig>(config: T, to: Map<string, string>): T {
+  const ref = (value: unknown) => {
+    const id = assetId(value);
+    return id && to.has(id) ? `asset:${to.get(id)}` : (value as string);
+  };
+  return {
+    ...config,
+    logo: ref(config.logo),
+    look: {
+      ...config.look,
+      launcherLogo: ref(config.look.launcherLogo),
+      header: { ...config.look.header, image: ref(config.look.header.image) },
+    },
+  };
+}
+
+/**
  * Before a draft is saved or published: every image it uses is this brand's, ready, and in the
  * place it was uploaded for.
  */

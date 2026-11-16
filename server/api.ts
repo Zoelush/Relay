@@ -239,7 +239,7 @@ import { isSupport } from "./policy";
 import { readHealthCheck } from "./health-check";
 import { changePlan, readPlan } from "./plans";
 import { createTestWorkspace, mayActIn, pairOf, readTestDeliveries } from "./test-workspace";
-import { promote, readPromotable, readPromotions } from "./promote";
+import { promote, readPromotable, readPromotions, undoPromotion } from "./promote";
 import { changeSeat, readSeats } from "./seats";
 import { readUsage, readUsageUnits } from "./meters";
 import { changeLimits, readLimits } from "./limits";
@@ -1586,6 +1586,7 @@ export async function handleApi(
             [
               "/v1/agent/command",
               "/v1/agent/promote",
+              "/v1/agent/promotions",
               "/v1/agent/views",
               "/v1/agent/drafts",
               "/v1/agent/notifications",
@@ -2120,14 +2121,17 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/plan")
           // Phase 16 C10b: the trial started, an upgrade applied, a downgrade scheduled or called off.
           return json(await tenant(env.connect, workspace, (db) => changePlan(db, workspace, principal, p)));
+        if (url.pathname === "/v1/agent/promotions")
+          // T2b: a promoted help centre look put back, in the workspace it landed in.
+          return json(await undoPromotion(env.connect, workspace, principal, p));
         if (url.pathname === "/v1/agent/promote")
           // T2a: one workflow or Zoe's guidance promoted into the production workspace. Not inside
           // this workspace's transaction: it is written, recorded and audited in that one.
-          return json(await promote(env.connect, workspace, principal, p));
+          return json(await promote(env.connect, workspace, principal, p, env.attachments));
         if (url.pathname === "/v1/agent/workspaces") {
           // The paired test workspace: built as a tenant of its own, so not inside this one's transaction.
           assert(p.action === "create_test", "INVALID_FIELD", "Unknown workspace change.", 400);
-          return json(await createTestWorkspace(env.connect, workspace, principal));
+          return json(await createTestWorkspace(env.connect, workspace, principal, env.attachments));
         }
         if (url.pathname === "/v1/agent/support-access")
           // Phase 16 C7b: read-only access for Relay support granted, or revoked.
@@ -2878,7 +2882,7 @@ export async function handleApi(
         return json(await tenant(env.connect, workspace, (db) => readTestDeliveries(db, workspace, principal)));
       // T2a: from a test workspace, what it could promote into production and what stands in the
       // way of each (judged in production, where it would land, not in this one).
-      if (url.pathname === "/v1/agent/promotable") return json(await readPromotable(env.connect, workspace, principal));
+      if (url.pathname === "/v1/agent/promotable") return json(await readPromotable(env.connect, workspace, principal, env.attachments));
       // T2a: what has been promoted into this workspace, which is its own record of where it came from.
       if (url.pathname === "/v1/agent/promotions") return json(await tenant(env.connect, workspace, (db) => readPromotions(db, workspace, principal)));
       // Phase 16 C7c: the security health check, computed from the settings on each visit.

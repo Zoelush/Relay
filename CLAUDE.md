@@ -16,11 +16,17 @@ delivery in `test_deliveries` instead of calling a provider, `sendAlert` sends n
 through, never at each call site. What a test workspace is made of is `server/test-copy.ts`: every
 table in the schema is in `COPIED` or in `NOT_COPIED` with its reason, and a test fails on a table
 in neither — a new table is a decision, and nothing that could reach a person or sign someone in is
-ever on the copied side. A change tried in the pair goes back only through `server/promote.ts`
-(T2a, `docs/TEST_WORKSPACE_STEP3.md`, migration 0103): only what publishes as a version, published
-in production by the teammate who asked, refused rather than overwriting a change made there and
-refused rather than landing without what it needs — the same `workflowReferences` publishing uses,
-asked of production. `test_baselines` holds the two version numbers the pair was last in step at and
+ever on the copied side. The images a copied setting names come too, with their bytes, through
+`copyUploads` and `server/uploads.ts` (T2b): each workspace keys its own stored objects, so nothing
+is shared between the pair. A change tried in the pair goes back only through `server/promote.ts`
+(T2a, `docs/TEST_WORKSPACE_STEP3.md`, migration 0103; T2b, `docs/TEST_WORKSPACE_STEP4.md`,
+migration 0104): a workflow, Zoe's guidance, the messenger or a help centre's look, published in
+production by the teammate who asked, refused rather than overwriting a change made there and
+refused rather than landing without what it needs — the same checks publishing makes
+(`workflowReferences`, `checkAssets`, `checkLook`), asked of production. An image the change uses
+that production hasn't got is copied in as production's own upload and the promoted configuration
+is rewritten to name it; a help centre's look keeps no versions, so the ledger row holds the look
+it replaced and production can put that back. `test_baselines` holds the two version numbers the pair was last in step at and
 lives in the production workspace, so a promotion moves the mark in the same transaction as the
 change and is never mistaken for an edit made there.
 

@@ -125,20 +125,47 @@ export function TestWorkspaceCard() {
 }
 
 /* ---------------------------------------------------------------------------------------------- */
-/* Promoting a change back (T2a)                                                                   */
+/* Promoting a change back (T2a, and T2b's two more kinds)                                         */
 /* ---------------------------------------------------------------------------------------------- */
 
+type Image = { what: string; name: string };
 type Candidate = {
-  kind: "workflow" | "zoe_guidance";
+  kind: "workflow" | "zoe_guidance" | "messenger" | "help_center";
   id: string;
   name: string;
   status: "ready" | "unchanged" | "changed_in_production" | "needs" | "name_taken";
   why: string;
   missing: string[];
+  /** T2b: images production hasn't got, which would be copied in with it. */
+  brings: Image[];
 };
-type Promotion = { id: string; kind: string; objectId: string; name: string; from: string; version: number | null; at: string; by: string | null };
+type Promotion = {
+  id: string;
+  action: string;
+  kind: string;
+  objectId: string;
+  name: string;
+  from: string;
+  version: number | null;
+  at: string;
+  by: string | null;
+  brought: Image[];
+  canPutBack: boolean;
+};
 
-const KIND: Record<string, string> = { workflow: "Workflow", zoe_guidance: "Zoe’s guidance", messenger: "Messenger", help_center: "Help centre" };
+const KIND: Record<string, string> = { workflow: "Workflow", zoe_guidance: "Zoe’s guidance", messenger: "Messenger", help_center: "Help centre look" };
+/** The images coming with a change, in a sentence: "with its launcher logo and Home background". */
+const withImages = (images: Image[]) =>
+  images.length === 0
+    ? ""
+    : ` Its ${images.length === 1 ? images[0].what : images.slice(0, -1).map((i) => i.what).join(", ") + " and " + images[images.length - 1].what} ${images.length === 1 ? "comes" : "come"} with it.`;
+/** Where a promoted thing lives, for the ledger's link. */
+const LINK: Record<string, (id: string) => string> = {
+  workflow: (id) => `#workflows/${id}`,
+  zoe_guidance: () => "#zoe/guidance",
+  messenger: () => "#settings/messenger",
+  help_center: () => "#knowledge/help-centers",
+};
 
 /**
  * One card either way round: in the test workspace, what can be promoted and what stands in the
@@ -175,13 +202,14 @@ export function PromoteCard() {
     return (
       <Card
         title="Promoted from the test workspace"
-        description="What was tried in the test workspace and published here, newest first. Each one is a version of its own, so you can go back to what was there before."
+        description="What was tried in the test workspace and published here, newest first. Each one is a version of its own, so you can go back to what was there before — and a help centre's look, which keeps no versions, can be put back from here."
       >
         {error && (
           <p role="alert" className="pg-attr-error">
             {error}
           </p>
         )}
+        {done && <p className="pg-settings-value">{done}</p>}
         {promotions.length === 0 ? (
           <p className="pg-muted">Nothing has been promoted yet. Try a change in the test workspace, then promote it from there.</p>
         ) : (
@@ -190,16 +218,41 @@ export function PromoteCard() {
               <li key={p.id}>
                 <span>
                   <strong>
+                    {p.action === "reverted" ? "Put back · " : ""}
                     {KIND[p.kind] ?? p.kind} · {p.name}
                   </strong>
                   <small className="pg-muted">
                     {when(p.at)}
                     {p.by ? ` · ${p.by}` : ""}
                     {p.version === null ? "" : ` · version ${p.version}`}
+                    {p.brought.length > 0 ? ` · with ${p.brought.map((i) => i.what).join(", ")}` : ""}
                   </small>
                 </span>
-                {p.kind === "workflow" && (
-                  <a className="pg-wf-link" href={`#workflows/${p.objectId}`}>
+                {p.canPutBack ? (
+                  <button
+                    type="button"
+                    className="pg-secondary"
+                    disabled={busy !== ""}
+                    onClick={async () => {
+                      setBusy(p.id);
+                      setError("");
+                      setDone("");
+                      try {
+                        await api("promotions", { id: p.id });
+                        setDone(`${p.name} is back to the look it had.`);
+                        load();
+                      } catch (e) {
+                        setError(message(e, "The previous look couldn't be put back."));
+                        load();
+                      } finally {
+                        setBusy("");
+                      }
+                    }}
+                  >
+                    {busy === p.id ? "Putting it back…" : "Put the previous look back"}
+                  </button>
+                ) : (
+                  <a className="pg-wf-link" href={(LINK[p.kind] ?? (() => "#settings"))(p.objectId)}>
                     Open
                   </a>
                 )}
@@ -213,7 +266,7 @@ export function PromoteCard() {
   return (
     <Card
       title="Promote to production"
-      description={`What you have changed here, and whether it can go to ${into || "production"}. A promotion publishes a new version there — it never overwrites a change made in production, and it never lands without what it needs.`}
+      description={`What you have changed here, and whether it can go to ${into || "production"}. A promotion publishes it there as a version of its own — a help centre's look keeps no versions, so the one it replaces is kept to put back. It never overwrites a change made in production, it never lands without what it needs, and any image it uses comes with it.`}
     >
       {error && (
         <p role="alert" className="pg-attr-error">
@@ -231,7 +284,10 @@ export function PromoteCard() {
                 <strong>
                   {KIND[c.kind] ?? c.kind} · {c.name}
                 </strong>
-                <small className="pg-muted">{c.why}</small>
+                <small className="pg-muted">
+                  {c.why}
+                  {c.status === "ready" ? withImages(c.brings) : ""}
+                </small>
                 {c.missing.length > 0 && (
                   <small className="pg-attr-error">
                     {c.missing.map((m) => (

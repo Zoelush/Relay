@@ -2,7 +2,8 @@ import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { authorize } from "./policy";
 import { recordAudit } from "./audit";
 import { copyPlanInto, planRow } from "./plans";
-import { COPIED, copyConfiguration, seedSampleCustomers } from "./test-copy";
+import { COPIED, copyConfiguration, copyUploads, seedSampleCustomers } from "./test-copy";
+import type { AttachmentStorage } from "./attachments";
 import { recordBaselines } from "./promote";
 
 /** What creating the pair copies after the workspace, its brands, roles and people exist. */
@@ -107,7 +108,13 @@ export async function readTestDeliveries(db: Sql, w: string, principal: string, 
  * Creates the test workspace for a production one: a workspace of its own, its teammates mirrored
  * with their roles, and the pair recorded. What is copied into it beyond that is T1b's.
  */
-export async function createTestWorkspace(connect: Connect, w: string, principal: string, now = new Date()) {
+export async function createTestWorkspace(
+  connect: Connect,
+  w: string,
+  principal: string,
+  storage?: AttachmentStorage,
+  now = new Date(),
+) {
   type Teammate = { id: string; principal_id: string; name: string; role_id: string; seat: string };
   type Workspace = { owner_id: string; brand: string; greeting: string; color: string; availability: string; timezone: string | null; locale: string | null; test_of: string | null; test_workspace_id: string | null };
   // Everything the test workspace starts from is read here, in the production workspace's own
@@ -173,9 +180,12 @@ export async function createTestWorkspace(connect: Connect, w: string, principal
   // T1b: the rest of the configuration, then made-up customers to work with. Each table is read
   // in one workspace's transaction and written in the other's; `server/test-copy.ts` says which.
   const copied = await copyConfiguration(connect, w, test, REST);
+  // T2b: and the images those settings name, with their bytes (`server/uploads.ts`), so the
+  // messenger and the help centre look here as they do there.
+  const images = await copyUploads(connect, w, test, storage, prepared.here.owner_id);
   const conversations = await seedSampleCustomers(connect, test, prepared.brands[0]?.id ?? "default").catch(() => []);
   // T2a: what production's promotable objects are at now, so a promotion later can tell a change
   // made here from a change made there (`server/promote.ts`).
   await recordBaselines(connect, w, test);
-  return { id: test, name, copied, conversations: conversations.length };
+  return { id: test, name, copied, images, conversations: conversations.length };
 }
