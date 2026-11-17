@@ -46,7 +46,17 @@ const local = () => window.localStorage;
 export function applyTheme(choice: ThemeChoice) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  root.dataset.agentTheme = resolveTheme(choice, systemDark());
+  const next = resolveTheme(choice, systemDark());
+  // Switching themes swaps every surface's colour at once: with transitions running, each would
+  // tween from the old theme's colour, and for a moment light text sits on a light background.
+  // The swap happens with transitions off, restored a frame later.
+  if (root.dataset.agentTheme && root.dataset.agentTheme !== next) {
+    root.setAttribute("data-theme-switching", "");
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => root.removeAttribute("data-theme-switching")),
+    );
+  }
+  root.dataset.agentTheme = next;
   root.dataset.agentThemeChoice = choice;
 }
 // Before the first render, so a dark choice never flashes light.

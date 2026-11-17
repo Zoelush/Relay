@@ -124,3 +124,22 @@ Results on 1 October 2026:
 - The agent bundle builds.
 
 **Later fix (2 October 2026):** the colour replacement had also changed the word "white" inside five `white-space` rules, breaking them. They were restored in `docs/AGENT_LIST_AND_HEADER.md`'s change, and `tests/agent-theme.test.ts` now catches a token inside a property name.
+
+## The design pass (17 November 2026)
+
+The block at the end of `agent/inbox.css` gives the app depth without a single new written-in
+colour: elevation, washes and glows are `color-mix` of the same tokens, and the two helper
+properties (`--elev`, `--elev-up`) are deliberately not `--pg-` ones, because
+`tests/agent-theme.test.ts` requires every `--pg-` token used to be a plain hex defined in both
+themes. The dark theme's `--pg-shadow-faint` is no longer fully transparent, which is what let
+every small shadow vanish there. If a new surface looks flat, give it `box-shadow: var(--elev)`
+rather than inventing a shadow; if a new area needs its own light, copy one of the
+`background-image: radial-gradient(...)` washes and change only the token it mixes. The same
+block reshapes the conversation's side panel (quiet label-and-value attribute rows, section
+hairlines, rows for the ticket's actions) — a new panel section inherits all of it by being a
+`section` child of `.pg-context`. Floating layers (menus, popovers, the canvas toolbar) sit on
+`--pg-glass`, a translucent surface token defined in both themes, frosted with backdrop-filter;
+a dialog stays solid, because people read forms there. `applyTheme` sets `data-theme-switching`
+for a frame when the theme actually changes, and the stylesheet turns every transition off under
+it — without that, each surface would tween from the old theme's colour and the dark-mode spec's
+contrast sweep catches light text on a still-light background mid-switch.

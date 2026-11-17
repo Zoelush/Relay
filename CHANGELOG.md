@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased: Depth and light across the agent app
+
+- **Nothing sits flat any more.** Every card and panel rests on layered shadows — lit from above
+  in the dark theme — and each area's page carries a faint glow in its own colour: the workspace's
+  green, Zoe's teal, Reports' violet.
+- **Actions feel like actions:** primary buttons glow, intensify towards the light and press down
+  a pixel; tiles that go somewhere rise to meet the pointer with their own colour on the edge.
+- **Dialogs and menus arrive** instead of appearing, and the page behind a dialog falls out of
+  focus. Everything honours reduced-motion.
+- **Empty states have a face:** the icon sits on a lit tile instead of floating in a void.
+- **One language for forms:** rounded fields with the same focus ring everywhere, and scrollbars
+  in the theme's own quiet.
+- **The conversation's side panel reads like a panel,** not a form: plain-word section titles with
+  a hairline between sections, attributes as label-and-value rows whose editor appears only when
+  touched, the ticket's actions as rows of one width, and the header's icon cluster without its
+  boxes.
+- **Glass where a layer floats over work:** menus, popovers and the workflow canvas's toolbar sit
+  on a frosted, translucent surface.
+- **Switching themes swaps every surface in the same frame** — nothing tweens from the old
+  theme's colours, so there is no flash of light text on a light background.
+- Every colour is still a token or a mix of tokens, in both themes, held to WCAG AA by the same
+  test as before.
+
 ## Unreleased: Promote your messenger and your help centre's look
 
 - **The messenger goes back too:** the version you published in your test workspace becomes your

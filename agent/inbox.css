@@ -16,7 +16,7 @@
   --pg-note-bg:#fff5d8; --pg-note-bg-2:#fff8e6; --pg-note-border:#e9d594; --pg-note-text:#7f5c16; --pg-note-active:#f5e6b6; --pg-note-fill:#856323; --pg-on-note:#fff; --pg-warn-line:#c77700; --pg-warn-text:#a35f00;
   --pg-danger-text:#9b2c2c; --pg-danger-bg:#fdecea; --pg-danger-border:#e4a3a3; --pg-danger-line:#b3261e; --pg-badge:#c2410c; --pg-on-badge:#fff;
   --pg-info-bg:#eef4fc; --pg-info-line:#3a7bd5; --pg-variable-bg:#eef0ff; --pg-variable-text:#3b3f9a; --pg-neutral-bg:#e6e6e6; --pg-neutral-text:#444; --pg-paused-line:#9aa5a0;
-  --pg-shadow:#132c3355; --pg-shadow-soft:#132c3322; --pg-shadow-faint:#163d2503; --pg-backdrop:#102c2866;
+  --pg-shadow:#132c3355; --pg-shadow-soft:#132c3322; --pg-shadow-faint:#163d250d; --pg-backdrop:#102c2866;
   --pg-team-bg:#edf1da; --pg-team-border:#d4dcb2; --pg-customer-bg:#f3f3f2; --pg-customer-border:#e2e2df; --pg-customer-text:#141414;
   /* Colour (Z1): eight tints for icons, tiles, team marks and avatars, each a strong tone on a
      soft ground; and Zoe's signature teal-to-emerald. Neutrals stay neutral; colour marks meaning. */
@@ -27,6 +27,8 @@
   --pg-zoe-from:#0b7285; --pg-zoe-to:#047857; --pg-on-zoe:#fff; --pg-zoe-text:#0a6670; --pg-zoe-bg:#e1f4f0; --pg-zoe-border:#a6dccf;
   /* Phase 12 E2: an email's own paper and ink, light in both themes: emails are written for white. */
   --pg-email-paper:#ffffff; --pg-email-ink:#1f2933;
+  /* Floating layers (menus, popovers): the surface at four-fifths, frosted by backdrop-filter. */
+  --pg-glass:#ffffffd9;
   /* Phase 16 C3b: a QR code is dark on light in both themes, so every camera reads it. */
   --pg-qr-paper:#ffffff; --pg-qr-ink:#000000;
 }
@@ -39,7 +41,7 @@
   --pg-note-bg:#2d2713; --pg-note-bg-2:#272211; --pg-note-border:#5f5020; --pg-note-text:#ebc97b; --pg-note-active:#4b3f18; --pg-note-fill:#e2bd66; --pg-on-note:#2a1f04; --pg-warn-line:#e19b2e; --pg-warn-text:#f2b45c;
   --pg-danger-text:#ff9f96; --pg-danger-bg:#3b1b18; --pg-danger-border:#75332d; --pg-danger-line:#ef5c51; --pg-badge:#c2410c; --pg-on-badge:#fff;
   --pg-info-bg:#172639; --pg-info-line:#5f9ff2; --pg-variable-bg:#252851; --pg-variable-text:#c6c9ff; --pg-neutral-bg:#2a2a2e; --pg-neutral-text:#d4d4d8; --pg-paused-line:#76767c;
-  --pg-shadow:#000000a0; --pg-shadow-soft:#00000066; --pg-shadow-faint:#0000; --pg-backdrop:#000000a8;
+  --pg-shadow:#000000a0; --pg-shadow-soft:#00000066; --pg-shadow-faint:#00000052; --pg-backdrop:#000000a8;
   --pg-team-bg:#2a301c; --pg-team-border:#434c2b; --pg-customer-bg:#242426; --pg-customer-border:#333336; --pg-customer-text:#f4f4f5;
   --pg-tint-blue:#9cbcff; --pg-tint-blue-bg:#1d2a45; --pg-tint-violet:#c4b0ff; --pg-tint-violet-bg:#2a2147;
   --pg-tint-rose:#ffabc6; --pg-tint-rose-bg:#3f1e2b; --pg-tint-amber:#f6c77e; --pg-tint-amber-bg:#3a2a13;
@@ -47,6 +49,7 @@
   --pg-tint-sky:#94cdee; --pg-tint-sky-bg:#133046; --pg-tint-slate:#c0c9d6; --pg-tint-slate-bg:#272c36;
   --pg-zoe-from:#0b7285; --pg-zoe-to:#047857; --pg-on-zoe:#fff; --pg-zoe-text:#62d6c3; --pg-zoe-bg:#10302b; --pg-zoe-border:#22594f;
   --pg-email-paper:#ffffff; --pg-email-ink:#1f2933;
+  --pg-glass:#1c1c1fd9;
   /* Phase 16 C3b: a QR code is dark on light in both themes, so every camera reads it. */
   --pg-qr-paper:#ffffff; --pg-qr-ink:#000000;
 }
@@ -2186,3 +2189,143 @@ button.pg-wf-letter { border:0; cursor:pointer; }
    workspace it belongs to in the account menu. */
 .pg-test-band { display:flex; align-items:center; gap:8px; margin:0 0 6px; padding:6px 10px; border-radius:8px; background:var(--pg-tint-amber-bg); color:var(--pg-tint-amber); font-size:12px; font-weight:700; letter-spacing:.02em; }
 .pg-test-tag { margin-inline-start:6px; padding:1px 6px; border-radius:999px; background:var(--pg-tint-amber-bg); color:var(--pg-tint-amber); font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+
+/*
+ * The design pass (16 November 2026): depth and light over the same tokens, nothing flat.
+ * Cards sit on layered shadows and are lit from above in the dark theme; each area's canvas
+ * carries a faint aurora in its own colour (the workspace's green, Zoe's teal, Reports' violet);
+ * primary actions glow and press; dialogs and menus arrive instead of appearing; empty states
+ * have a face. Every colour below is a token or a color-mix of tokens, so
+ * tests/agent-theme.test.ts keeps holding; the helper properties are deliberately not --pg- ones.
+ */
+:root {
+  --elev: 0 1px 2px var(--pg-shadow-faint), 0 12px 32px -26px var(--pg-shadow);
+  --elev-up: 0 2px 4px var(--pg-shadow-faint), 0 18px 44px -22px var(--pg-shadow);
+}
+:root[data-agent-theme="dark"] {
+  --elev: inset 0 1px 0 color-mix(in srgb, var(--pg-text) 6%, transparent), 0 1px 2px var(--pg-shadow-faint), 0 14px 36px -24px var(--pg-shadow);
+  --elev-up: inset 0 1px 0 color-mix(in srgb, var(--pg-text) 9%, transparent), 0 2px 6px var(--pg-shadow-faint), 0 22px 54px -26px var(--pg-shadow);
+}
+
+/* Every card and panel sits slightly above its page, on the same radius. */
+.pg-settings-card, .pg-settings-stats > div, .pg-settings-tile, .pg-zoe-stat, .pg-zoe-action,
+.pg-zoe-panel, .pg-zoe-guidelines, .pg-zoe-review, .pg-zoe-monitor, .pg-zoe-incident, .pg-zoe-id,
+.pg-wf-group-card, .pg-wf-create, .pg-accordions, .pg-index-card, .pg-help-insights,
+.pg-health-summary li, .pg-webhooks > li, .pg-messenger-publishing {
+  border-radius: 14px;
+  box-shadow: var(--elev);
+}
+.pg-message, .pg-wf-card, .pg-rep-tile, .pg-rep-card { box-shadow: var(--elev); }
+.pg-bubble-row .pg-message { box-shadow: 0 1px 2px var(--pg-shadow-faint); }
+.pg-composer { box-shadow: var(--elev); }
+.pg-composer:focus-within { box-shadow: 0 0 0 2px var(--pg-focus-soft), var(--elev-up); }
+
+/* Light falls from the top: the header's wash, and each area's aurora in its own colour. */
+.pg-top { background: linear-gradient(180deg, color-mix(in srgb, var(--pg-accent) 3%, var(--pg-surface)), var(--pg-surface) 85%); }
+.pg-thread-title { background: linear-gradient(180deg, color-mix(in srgb, var(--pg-accent) 2%, var(--pg-surface)), var(--pg-surface)); }
+.pg-settings-body { background-image: radial-gradient(1000px 340px at 15% -10%, color-mix(in srgb, var(--pg-accent) 5%, transparent), transparent 70%); }
+.pg-zoe-page .pg-settings-body { background-image: radial-gradient(1000px 340px at 15% -10%, color-mix(in srgb, var(--pg-zoe-from) 7%, transparent), transparent 70%); }
+.pg-rep-body { background: radial-gradient(1000px 340px at 15% -10%, color-mix(in srgb, var(--pg-tint-violet) 5%, transparent), transparent 70%) var(--pg-canvas); }
+.pg-thread { background: radial-gradient(1200px 380px at 30% -14%, color-mix(in srgb, var(--pg-accent) 4%, transparent), transparent 70%) var(--pg-canvas); }
+.pg-zoe-banner { box-shadow: var(--elev), inset 0 0 48px color-mix(in srgb, var(--pg-zoe-from) 8%, transparent); }
+
+/* Primary actions glow, intensify towards the theme's own light, and press down a pixel. */
+.pg-primary { border-radius: 9px; box-shadow: 0 1px 2px var(--pg-shadow-soft), 0 8px 18px -10px color-mix(in srgb, var(--pg-accent) 55%, transparent); transition: background .13s ease, box-shadow .13s ease, transform .08s ease; }
+.pg-primary:not(:disabled):hover, .pg-composer:not(.note) footer button:not(:disabled):hover { background: color-mix(in srgb, var(--pg-accent-fill) 86%, var(--pg-text)); }
+.pg-composer.note footer button:not(:disabled):hover { background: color-mix(in srgb, var(--pg-note-fill) 88%, var(--pg-text)); }
+.pg-primary:not(:disabled):active, .pg-zoe-primary:not(:disabled):active, .pg-composer footer button:not(:disabled):active { transform: translateY(1px); box-shadow: 0 1px 2px var(--pg-shadow-soft); }
+.pg-composer footer button { transition: background .13s ease, transform .08s ease; }
+.pg-zoe-primary { transition: box-shadow .13s ease, transform .08s ease; }
+.pg-zoe-primary:not(:disabled):hover { box-shadow: 0 6px 20px -6px color-mix(in srgb, var(--pg-zoe-to) 60%, transparent); }
+
+/* Tiles that go somewhere rise to meet the pointer, with their own colour on the edge. */
+.pg-settings-tile, .pg-zoe-action, .pg-zoe-suggestions button, .pg-rep-link { transition: transform .13s ease, box-shadow .13s ease, border-color .13s ease, background .13s ease; }
+.pg-settings-tile:hover, .pg-zoe-action:hover { background: var(--pg-surface); transform: translateY(-1px); border-color: color-mix(in srgb, var(--hue, var(--pg-accent)) 45%, var(--pg-border)); box-shadow: var(--elev-up); }
+.pg-card { transition: background .1s ease; }
+.pg-thread-actions button, .pg-menu-button, .pg-zoe-secondary, .pg-zoe-add, .pg-snooze > button,
+.pg-cv-button, .pg-sort-direction, .pg-wf-icon, .pg-wf-tool, .pg-settings-buttons button,
+.pg-rail-item, .pg-menu-entries button, .pg-nav-item, .pg-account-item, .pg-settings-audience button { transition: background .12s ease, border-color .12s ease, color .12s ease; }
+.pg-rail-item[aria-current="page"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue, var(--pg-accent)) 28%, transparent); }
+.pg-knowledge-list li > button[aria-current="true"] { box-shadow: inset 3px 0 0 var(--pg-accent); }
+
+/* Forms: one rounded, ringed language everywhere. */
+.pg-inbox input, .pg-inbox select, .pg-settings-field textarea, .pg-website-form textarea, .pg-ticket-dialog textarea { border-radius: 8px; transition: border-color .12s ease, box-shadow .12s ease; }
+.pg-inbox input:focus-visible, .pg-inbox select:focus-visible, .pg-inbox textarea:focus-visible { outline: none; border-color: var(--pg-focus); box-shadow: 0 0 0 1px var(--pg-focus), 0 0 0 4px var(--pg-focus-soft); }
+.pg-composer textarea:focus-visible { box-shadow: none; }
+.pg-storage { background: var(--pg-sunken); border-color: var(--pg-border); }
+
+/* Dialogs and menus arrive; the page behind a dialog falls out of focus. */
+@keyframes pg-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+@keyframes pg-fade { from { opacity: 0; } }
+.pg-view-dialog, .pg-dialog { border: 1px solid var(--pg-border); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pg-text) 4%, transparent), 0 24px 80px var(--pg-shadow); animation: pg-rise .18s cubic-bezier(.2, .9, .3, 1); }
+.pg-modal-backdrop { backdrop-filter: blur(4px); animation: pg-fade .15s ease; }
+.pg-menu-panel, .pg-account-menu, .pg-mention-list, .pg-cv-popover, .pg-wf-pathlist, .pg-rep-about dl { animation: pg-fade .12s ease; }
+
+/* Empty states have a face: the icon on its own lit tile, not a ghost in a void. */
+.pg-welcome svg, .pg-wf-empty svg { box-sizing: content-box; padding: 18px; border-radius: 26px; color: var(--pg-accent); background: color-mix(in srgb, var(--pg-accent) 10%, var(--pg-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pg-accent) 22%, transparent), 0 18px 40px -18px color-mix(in srgb, var(--pg-accent) 50%, transparent); }
+.pg-welcome h2 { font-weight: 650; letter-spacing: -.3px; margin: 18px 0 6px; }
+.pg-wf-empty { gap: 12px; padding: 56px 16px; }
+.pg-zoe-empty-state svg { color: var(--pg-zoe-text); }
+
+/* Finishing: type with intent, faces with an edge, scrollbars in the theme's own quiet. */
+.pg-settings-card h3 { font-size: 15px; font-weight: 650; letter-spacing: -.2px; }
+.pg-settings-card > p, .pg-settings-head p { color: var(--pg-text-2); }
+.pg-settings-head h2 { font-weight: 650; letter-spacing: -.4px; }
+.pg-settings-stats strong { font-size: 27px; font-weight: 650; letter-spacing: -.6px; }
+.pg-avatar, .pg-account-avatar, .pg-card-assignee, .pg-live-avatar { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pg-text) 10%, transparent); }
+.pg-inbox, .pg-inbox * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pg-text) 24%, transparent) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-view-dialog, .pg-dialog, .pg-modal-backdrop, .pg-menu-panel, .pg-account-menu,
+  .pg-mention-list, .pg-cv-popover, .pg-wf-pathlist, .pg-rep-about dl { animation: none; }
+  .pg-settings-tile, .pg-zoe-action, .pg-primary, .pg-zoe-primary, .pg-composer footer button { transition: none; transform: none; }
+}
+
+/*
+ * The conversation and its side panel, after the reference (17 November 2026): the panel reads as
+ * quiet label-and-value rows under plain-word titles, with a hairline between sections; an
+ * attribute's editor shows only its value until it is touched; the ticket's actions are rows, not
+ * a pile of boxes; and the header's icon cluster loses its boxes. Same token rules as above.
+ */
+.pg-context { width: 320px; gap: 16px; padding: 18px 16px; }
+.pg-context > * + * { border-top: 1px solid var(--pg-border); padding-top: 16px; }
+.pg-context h3 { text-transform: none; letter-spacing: -.1px; font-size: 13px; font-weight: 650; color: var(--pg-text); }
+.pg-context dl { gap: 7px 14px; }
+.pg-context dt { font-size: 12.5px; }
+.pg-context dd { color: var(--pg-text); }
+
+/* An attribute is its label beside its value; the editor is invisible until hovered or focused. */
+.pg-attr { grid-template-columns: minmax(84px, 42%) minmax(0, 1fr); align-items: center; gap: 3px 10px; }
+.pg-attr label, .pg-attr > label:first-child { font-size: 12.5px; color: var(--pg-muted); }
+.pg-attr .pg-attr-error { grid-column: 1 / -1; }
+.pg-context .pg-attr input:not([type="checkbox"]), .pg-context .pg-attr select { width: 100%; max-width: none; margin-left: -7px; padding: 4px 7px; background: transparent; border-color: transparent; }
+.pg-context .pg-attr input:not([type="checkbox"]):hover, .pg-context .pg-attr select:hover { border-color: var(--pg-border-strong); background: var(--pg-surface); }
+.pg-context .pg-attr input:not([type="checkbox"]):focus-visible, .pg-context .pg-attr select:focus-visible { border-color: var(--pg-focus); background: var(--pg-surface); }
+.pg-attr-missing input, .pg-attr-missing select { background: var(--pg-surface) !important; }
+
+/* The ticket's actions, and other things to do from the panel, are rows of the same width. */
+.pg-ticket-buttons { flex-direction: column; align-items: stretch; gap: 6px; }
+.pg-context section > button, .pg-ticket-buttons button { display: block; width: 100%; padding: 7px 10px; border: 1px solid var(--pg-border-subtle); border-radius: 10px; background: var(--pg-surface); color: var(--pg-text); font-size: 12.5px; text-align: left; transition: background .12s ease, border-color .12s ease; }
+.pg-context section > button:hover, .pg-ticket-buttons button:hover { background: var(--pg-hover); border-color: var(--pg-border); }
+.pg-ctx-recent button { border-color: var(--pg-border-subtle); border-radius: 10px; transition: background .12s ease; }
+.pg-ctx-recent button:hover { background: var(--pg-hover); }
+.pg-sla-clock { border-radius: 10px; padding: 8px 10px; }
+
+/* The header: the icon cluster sits quietly; Assign and Close keep their shape. */
+.pg-thread-actions .pg-icon-action, .pg-thread-actions .pg-menu-button.icon { border-color: transparent; background: transparent; }
+.pg-thread-actions .pg-icon-action:hover, .pg-thread-actions .pg-menu-button.icon:hover { background: var(--pg-hover); border-color: transparent; }
+
+/* The moment the theme switches, nothing tweens: every surface changes in the same frame. */
+[data-theme-switching] *, [data-theme-switching] *::before, [data-theme-switching] *::after { transition: none !important; }
+
+/* The composer's mode row: labels never break in two, the hint gives way instead. */
+.pg-modes { gap: 6px; }
+.pg-modes button { white-space: nowrap; }
+.pg-modes small { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+
+/* Glass, where a layer floats over work: menus, popovers and the canvas toolbar are frosted. */
+.pg-menu-panel, .pg-account-menu, .pg-mention-list, .pg-cv-popover, .pg-wf-pathlist, .pg-rep-about dl, .pg-wf-zoombar {
+  background: var(--pg-glass);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+}

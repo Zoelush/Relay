@@ -189,7 +189,8 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
     .getByRole("button", { name: "Internal note", exact: true })
     .click();
   expect(await lowContrast(page)).toEqual([]);
-  // The mention list is attached to <body>, outside the app, and is themed too.
+  // The mention list is attached to <body>, outside the app, and is themed too: the floating
+  // layers' frosted surface (--pg-glass), never a stray light popup.
   await page.locator(".pg-editor").click();
   await page.keyboard.type("Ask @");
   const mentions = page.locator(".pg-mention-list");
@@ -199,7 +200,7 @@ test("dark mode: switch, remembered after a reload, readable everywhere, and Sys
       const s = getComputedStyle(el);
       return [s.backgroundColor, s.color];
     }),
-  ).toEqual(["rgb(22, 22, 24)", "rgb(236, 236, 238)"]);
+  ).toEqual(["rgba(28, 28, 31, 0.85)", "rgb(236, 236, 238)"]);
   expect(await lowContrast(page)).toEqual([]);
   await page.keyboard.press("Escape");
   // A dialog over the dimmed inbox.
