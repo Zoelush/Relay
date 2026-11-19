@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased: Versions for the apps you build, and a sandbox to try them in
+
+- **What you edit is a draft.** Publish it as a numbered version when it's ready; a version is kept
+  exactly as it was published, so what a workspace installed never changes under it.
+- **Try it first.** Until you release a version, only your workspace and its test workspace can
+  install your app — against made-up customers, where nothing reaches a real person. Other
+  workspaces are told the app is still in development.
+- **Upgrades that ask for nothing new arrive by themselves.** A version that asks for more waits
+  on each installation, with the new permissions named, until someone who manages that workspace
+  approves it — the app keeps working on its version meanwhile.
+- **A version that asks for less gets less straight away:** its tokens carry only what it asks for.
+- Apps that existed before this became version 1, released, so nothing that worked stops working.
+- **Details:** `docs/TEST_WORKSPACE_STEP5.md`.
+
 ## Unreleased: Depth and light across the agent app
 
 - **Nothing sits flat any more.** Every card and panel rests on layered shadows — lit from above

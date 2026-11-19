@@ -41,7 +41,13 @@ test("OAuth: register, consent with PKCE, tokens that act within their grant, ro
       await tenant(db.connect, w, (q) => q.query("UPDATE workspace_features SET enabled=true WHERE name='developer_api_v1'"));
     }
     // Registering, in the developer's workspace: redirects are https (or http on loopback), without fragments.
-    const register = (p: Record<string, unknown>) => tenant(db.connect, "dev", (q) => changeApps(q, "dev", "owner-dev", { action: "create", ...p }));
+    // Registered in "dev" and installed elsewhere, so version 1 is released (T3a): only the
+    // developer's own workspace and its test pair install a version that isn't.
+    const register = async (p: Record<string, unknown>) => {
+      const made = (await tenant(db.connect, "dev", (q) => changeApps(q, "dev", "owner-dev", { action: "create", ...p }))) as unknown as { id: string };
+      await tenant(db.connect, "dev", (q) => changeApps(q, "dev", "owner-dev", { action: "release", id: made.id, version: 1 }));
+      return made as never;
+    };
     for (const bad of ["http://example.com/cb", "https://example.com/cb#x", "javascript:alert(1)"])
       await assert.rejects(register({ name: "Bad", redirectUris: [bad], scopes: ["conversations.read"] }), /Redirects use https/);
     await assert.rejects(register({ name: "Bad", redirectUris: ["https://example.com/cb"], scopes: ["root"] }), /no scope root/);

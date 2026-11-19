@@ -4,6 +4,8 @@ import { developerOn } from "./developer";
 import { mintToken, sha256 } from "./rest";
 import { LATEST_VERSION } from "../lib/api-spec";
 import { CANVAS_COLUMNS, canvasOut, rotateCanvasSecret, setCanvas, type CanvasColumns, type CanvasEnvironment } from "./canvas";
+import { installable, readVersions, resolveRunning, sandboxOf, type AppVersion } from "./app-versions";
+import { recordAudit } from "./audit";
 
 /**
  * OAuth apps (phase 15, step D4; docs/DEVELOPER_PLATFORM_STEP4.md), behind `developer_api_v1`.
@@ -18,6 +20,9 @@ import { CANVAS_COLUMNS, canvasOut, rotateCanvasSecret, setCanvas, type CanvasCo
  *   and the same redirect) for an access token (an API token, for an hour) and a refresh token (60
  *   days). Refresh tokens rotate; one used twice revokes the installation (it was stolen). A code
  *   used twice does the same. `POST /oauth/revoke` and Settings › Developers › Apps revoke.
+ * - **Versions and the sandbox** (T3a, docs/TEST_WORKSPACE_STEP5.md): the app row is the draft;
+ *   what anyone installs and runs is a published version, decided by `server/app-versions.ts`.
+ *   Until a version is released, only the app's own workspace and its test pair can install it.
  */
 const b64 = (s: string) => btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const unb64 = (s: string) => {
@@ -88,7 +93,9 @@ async function managing(db: Sql, w: string, principal: string) {
 /** Settings › Developers › Apps: your apps, and the apps installed here. */
 export async function readApps(db: Sql, w: string, principal: string) {
   await managing(db, w, principal);
-  const apps = (await db.query<AppRow>(`${APP} WHERE workspace_id=$1 ORDER BY archived_at IS NOT NULL,created_at,id`, [w])).rows.map((a) => appOut(w, a));
+  const apps = [];
+  for (const a of (await db.query<AppRow>(`${APP} WHERE workspace_id=$1 ORDER BY archived_at IS NOT NULL,created_at,id`, [w])).rows)
+    apps.push({ ...appOut(w, a), versions: await readVersions(db, w, a.id) });
   const installed = (
     await db.query<{ id: string; app_name: string; scopes: string[]; teammate: string; created_at: Date; last_used: Date | null }>(
       `SELECT g.id,g.app_name,g.scopes,t.name AS teammate,g.created_at,(SELECT max(k.last_used_at) FROM api_tokens k WHERE k.workspace_id=g.workspace_id AND k.grant_id=g.id) AS last_used
@@ -133,7 +140,9 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
       ]);
       // D5: its canvas address and placements, if given (the canvas secret is shown once too).
       const canvasSecret = await setCanvas(db, w, id, canvas, p);
-      return appOut(w, await app(id), secret, canvasSecret);
+      // T3a: version 1 is published at once, so the app can be tried in the sandbox straight away.
+      await publishVersion(db, w, id, t.id, "");
+      return { ...appOut(w, await app(id), secret, canvasSecret), versions: await readVersions(db, w, id) };
     }
     case "update": {
       const a = await app(p.id);
@@ -166,6 +175,26 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
       await db.query("UPDATE oauth_apps SET archived_at=COALESCE(archived_at,now()) WHERE workspace_id=$1 AND id=$2", [w, a.id]);
       return appOut(w, await app(a.id));
     }
+    case "publish": {
+      // T3a: the draft as it is now becomes the next version: installable in the sandbox at once.
+      const a = await app(p.id);
+      assert(!a.archived_at, "APP_ARCHIVED", "This app is archived.", 409);
+      const notes = typeof p.notes === "string" ? p.notes.trim() : "";
+      if (notes.length > 500) throw field("notes", "Keep what changed to 500 characters.");
+      const version = await publishVersion(db, w, a.id, t.id, notes);
+      return { ...appOut(w, await app(a.id)), versions: await readVersions(db, w, a.id), published: version };
+    }
+    case "release": {
+      // T3a: a published version, installable beyond the sandbox from now on. Once, and for good.
+      const a = await app(p.id);
+      assert(!a.archived_at, "APP_ARCHIVED", "This app is archived.", 409);
+      const v = (await db.query<{ released_at: Date | null; name: string }>("SELECT released_at,name FROM oauth_app_versions WHERE workspace_id=$1 AND app_id=$2 AND version=$3 FOR UPDATE", [w, a.id, Number(p.version)])).rows[0];
+      assert(v, "NOT_FOUND", "No such version.", 404);
+      assert(!v.released_at, "ALREADY_RELEASED", "That version is already released.", 409);
+      await db.query("UPDATE oauth_app_versions SET released_at=now(),released_by=$4 WHERE workspace_id=$1 AND app_id=$2 AND version=$3", [w, a.id, Number(p.version), t.id]);
+      await recordAudit(db, w, "app_version.released", { type: "app", id: `${a.id}:${Number(p.version)}`, name: v.name }, { version: Number(p.version) });
+      return { ...appOut(w, await app(a.id)), versions: await readVersions(db, w, a.id) };
+    }
     case "uninstall": {
       // An installation here, revoked: its tokens stop at once.
       const g = (await db.query<{ id: string }>("SELECT id FROM oauth_grants WHERE workspace_id=$1 AND id=$2 AND revoked_at IS NULL", [w, String(p.id ?? "")])).rows[0];
@@ -174,7 +203,18 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
       return { ok: true };
     }
   }
-  throw new DomainError("INVALID_APP", "Choose create, update, secret, canvas-secret, archive or uninstall.");
+  throw new DomainError("INVALID_APP", "Choose create, update, publish, release, secret, canvas-secret, archive or uninstall.");
+}
+
+/** The draft as it is now, kept as the app's next version. Returns its number. */
+async function publishVersion(db: Sql, w: string, appId: string, by: string, notes: string) {
+  const next = ((await db.query<{ n: number | null }>("SELECT max(version) AS n FROM oauth_app_versions WHERE workspace_id=$1 AND app_id=$2", [w, appId])).rows[0].n ?? 0) + 1;
+  await db.query(
+    `INSERT INTO oauth_app_versions(workspace_id,app_id,version,name,description,redirect_uris,scopes,canvas_url,canvas_placements,notes,published_by)
+     SELECT workspace_id,id,$3,name,description,redirect_uris,scopes,canvas_url,canvas_placements,$4,$5 FROM oauth_apps WHERE workspace_id=$1 AND id=$2`,
+    [w, appId, next, notes, by],
+  );
+  return next;
 }
 
 /** An installation and everything it issued, revoked. */
@@ -193,7 +233,8 @@ async function appByClient(connect: Connect, client: unknown, secret?: unknown) 
     if (!a || a.archived_at) return null;
     if (secret !== undefined && (typeof secret !== "string" || (await sha256(secret)) !== a.secret_hash)) return null;
     const developer = (await db.query<{ name: string }>("SELECT brand AS name FROM workspace WHERE id=$1", [parsed.w])).rows[0]?.name ?? parsed.w;
-    return { w: parsed.w!, app: a, developer };
+    // T3a: its versions, and the workspaces it's at home in (its own and its test pair).
+    return { w: parsed.w!, app: a, developer, versions: await readVersions(db, parsed.w!, a.id), sandbox: await sandboxOf(db, parsed.w!) };
   }).catch(() => null);
 }
 
@@ -205,8 +246,12 @@ export type AuthorizeQuery = { client_id?: string; redirect_uri?: string; scope?
 export async function readConsent(connect: Connect, w: string, principal: string, q: AuthorizeQuery) {
   const found = await appByClient(connect, q.client_id);
   assert(found, "INVALID_CLIENT", "This app isn't registered with Relay (or was archived).", 400);
-  const { app, developer } = found!;
-  assert(q.redirect_uri && app.redirect_uris.includes(q.redirect_uri), "INVALID_REDIRECT", "This app didn't register that redirect address, so Relay won't send you there.", 400);
+  const { developer } = found!;
+  // T3a: what is installed is a published version — the newest this workspace may see.
+  const choice = installable(found!.versions, found!.sandbox.includes(w));
+  if ("refused" in choice) throw new DomainError("APP_NOT_INSTALLABLE", choice.refused, 403);
+  const app = choice.version;
+  assert(q.redirect_uri && app.redirectUris.includes(q.redirect_uri), "INVALID_REDIRECT", "This app didn't register that redirect address, so Relay won't send you there.", 400);
   assert(q.response_type === "code", "INVALID_REQUEST", "Only the authorization code flow is supported (response_type=code).", 400);
   assert(q.code_challenge && /^[A-Za-z0-9_-]{43,128}$/.test(q.code_challenge) && q.code_challenge_method === "S256", "INVALID_REQUEST", "The app must use PKCE (code_challenge with S256).", 400);
   const asked = q.scope ? [...new Set(q.scope.split(/[\s,]+/).filter(Boolean))] : app.scopes;
@@ -220,7 +265,7 @@ export async function readConsent(connect: Connect, w: string, principal: string
     const workspace = (await db.query<{ name: string }>("SELECT brand AS name FROM workspace WHERE id=$1", [w])).rows[0]?.name ?? w;
     const scopes = [];
     for (const s of asked) scopes.push({ id: s, granted: await can(db, w, principal, s as Capability) });
-    return { app: { name: app.name, description: app.description, developer }, workspace, scopes, redirectUri: q.redirect_uri };
+    return { app: { name: app.name, description: app.description, developer, version: app.version }, workspace, scopes, redirectUri: q.redirect_uri };
   });
 }
 
@@ -243,7 +288,17 @@ export async function decideConsent(connect: Connect, w: string, principal: stri
     const live = (await db.query<{ id: string }>("SELECT id FROM oauth_grants WHERE workspace_id=$1 AND app_workspace_id=$2 AND app_id=$3 AND revoked_at IS NULL", [w, found.w, found.app.id])).rows[0];
     if (live) await revokeGrant(db, w, live.id, "Installed again.");
     const grant = crypto.randomUUID();
-    await db.query("INSERT INTO oauth_grants(workspace_id,id,app_workspace_id,app_id,app_name,teammate_id,scopes) VALUES($1,$2,$3,$4,$5,$6,$7)", [w, grant, found.w, found.app.id, found.app.name, t.id, granted]);
+    // Pinned to the version consented to (T3a); later ones reach it by app-versions' rule.
+    await db.query("INSERT INTO oauth_grants(workspace_id,id,app_workspace_id,app_id,app_name,teammate_id,scopes,app_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [
+      w,
+      grant,
+      found.w,
+      found.app.id,
+      shown.app.name,
+      t.id,
+      granted,
+      shown.app.version,
+    ]);
     await db.query("INSERT INTO oauth_codes(workspace_id,code_hash,grant_id,redirect_uri,code_challenge,expires_at) VALUES($1,$2,$3,$4,$5,now()+($6::int*interval '1 millisecond'))", [
       w,
       await sha256(code),
@@ -290,7 +345,11 @@ const oauthError = (status: number, error: string, description: string) =>
   Response.json({ error, error_description: description }, { status, headers: { "cache-control": "no-store", pragma: "no-cache" } });
 
 /** A fresh access token and refresh token for an installation. */
-async function issue(db: Sql, w: string, grant: { id: string; teammate_id: string; scopes: string[]; app_name: string }) {
+async function issue(db: Sql, w: string, grant: { id: string; teammate_id: string; scopes: string[]; app_name: string }, running: AppVersion | null) {
+  // T3a: what was granted, and only what the running version asks for — a version that asks for
+  // less gets less at once, never what it gave up.
+  const scopes = running ? grant.scopes.filter((s) => running.scopes.includes(s)) : grant.scopes;
+  grant = { ...grant, scopes };
   const access = await mintToken(w);
   await db.query(
     "INSERT INTO api_tokens(workspace_id,id,teammate_id,name,token_hash,last_four,scopes,version,grant_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+($10::int*interval '1 second'))",
@@ -308,8 +367,9 @@ export async function oauthToken(req: Request, connect: Connect): Promise<Respon
   const found = await appByClient(connect, client.id, client.secret ?? "");
   if (!found) return oauthError(401, "invalid_client", "The client id and secret don't match a registered app.");
   const sameApp = (g: { app_workspace_id: string; app_id: string }) => g.app_workspace_id === found.w && g.app_id === found.app.id;
-  type Grant = { id: string; teammate_id: string; scopes: string[]; app_name: string; app_workspace_id: string; app_id: string; revoked_at: Date | null };
-  const GRANT = "SELECT id,teammate_id,scopes,app_name,app_workspace_id,app_id,revoked_at FROM oauth_grants WHERE workspace_id=$1 AND id=$2";
+  type Grant = { id: string; teammate_id: string; scopes: string[]; app_name: string; app_workspace_id: string; app_id: string; revoked_at: Date | null; app_version: number | null };
+  const GRANT = "SELECT id,teammate_id,scopes,app_name,app_workspace_id,app_id,revoked_at,app_version FROM oauth_grants WHERE workspace_id=$1 AND id=$2";
+  const running = (w: string, g: Grant) => resolveRunning(found.versions, found.sandbox.includes(w), g.app_version)?.running ?? null;
   if (form.grant_type === "authorization_code") {
     const where = workspaceOf("relay_code", form.code);
     if (!where?.w) return oauthError(400, "invalid_grant", "That code isn't valid.");
@@ -331,7 +391,7 @@ export async function oauthToken(req: Request, connect: Connect): Promise<Respon
       if (grant.revoked_at) return oauthError(400, "invalid_grant", "That installation was revoked.");
       if (form.redirect_uri !== code.redirect_uri) return oauthError(400, "invalid_grant", "redirect_uri must be the one used to get the code.");
       if (!form.code_verifier || (await pkce(form.code_verifier)) !== code.code_challenge) return oauthError(400, "invalid_grant", "The code_verifier doesn't match the code_challenge.");
-      return Response.json(await issue(db, where.w!, grant), { headers: { "cache-control": "no-store", pragma: "no-cache" } });
+      return Response.json(await issue(db, where.w!, grant, running(where.w!, grant)), { headers: { "cache-control": "no-store", pragma: "no-cache" } });
     });
   }
   if (form.grant_type === "refresh_token") {
@@ -353,7 +413,7 @@ export async function oauthToken(req: Request, connect: Connect): Promise<Respon
       if (grant.revoked_at) return oauthError(400, "invalid_grant", "That installation was revoked.");
       if (new Date(r.expires_at) < new Date()) return oauthError(400, "invalid_grant", "That refresh token has expired.");
       await db.query("UPDATE oauth_refresh_tokens SET used_at=now() WHERE workspace_id=$1 AND token_hash=$2", [where.w, r.token_hash]);
-      return Response.json(await issue(db, where.w!, grant), { headers: { "cache-control": "no-store", pragma: "no-cache" } });
+      return Response.json(await issue(db, where.w!, grant, running(where.w!, grant)), { headers: { "cache-control": "no-store", pragma: "no-cache" } });
     });
   }
   return oauthError(400, "unsupported_grant_type", "grant_type is authorization_code or refresh_token.");
@@ -383,4 +443,68 @@ export async function oauthRevoke(req: Request, connect: Connect): Promise<Respo
       else await db.query("UPDATE api_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE workspace_id=$1 AND token_hash=$2", [w, hash]);
     }).catch(() => undefined);
   return new Response(null, { status: 200, headers: { "cache-control": "no-store" } });
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Installations' versions, in the installing workspace (T3a)                                   */
+/* ------------------------------------------------------------------------------------------ */
+type InstalledGrant = { id: string; app_workspace_id: string; app_id: string; scopes: string[]; app_version: number | null };
+/** Each app's versions and sandbox, read in its own workspace (one at a time, never nested). */
+async function versionsOf(connect: Connect, grants: InstalledGrant[]) {
+  const out = new Map<string, { versions: AppVersion[]; sandbox: string[] }>();
+  for (const g of grants) {
+    const key = g.app_workspace_id + "/" + g.app_id;
+    if (out.has(key)) continue;
+    out.set(
+      key,
+      await tenant(connect, g.app_workspace_id, async (db) => ({ versions: await readVersions(db, g.app_workspace_id, g.app_id), sandbox: await sandboxOf(db, g.app_workspace_id) })).catch(() => ({
+        versions: [],
+        sandbox: [],
+      })),
+    );
+  }
+  return out;
+}
+
+/** Settings › Developers › Apps: what each installation here runs, and what waits for approval. */
+export async function readInstallations(connect: Connect, w: string) {
+  const grants = await tenant(connect, w, async (db) =>
+    (await db.query<InstalledGrant>("SELECT id,app_workspace_id,app_id,scopes,app_version FROM oauth_grants WHERE workspace_id=$1 AND revoked_at IS NULL", [w])).rows,
+  );
+  const of = await versionsOf(connect, grants);
+  const installed: Record<string, { running: number | null; waiting: number | null; newScopes: string[]; notes: string }> = {};
+  for (const g of grants) {
+    const app = of.get(g.app_workspace_id + "/" + g.app_id)!;
+    const r = resolveRunning(app.versions, app.sandbox.includes(w), g.app_version);
+    installed[g.id] = { running: r?.running.version ?? null, waiting: r?.waiting?.version ?? null, newScopes: r?.newScopes ?? [], notes: r?.waiting?.notes ?? "" };
+  }
+  return installed;
+}
+
+/**
+ * A manager approves the version waiting for an installation: it moves there, granted what that
+ * version asks for that the manager also has. Refused when nothing is waiting any more.
+ */
+export async function upgradeInstallation(connect: Connect, w: string, principal: string, p: Record<string, unknown>) {
+  const id = String(p.id ?? "");
+  const grant = await tenant(connect, w, async (db) => {
+    await managing(db, w, principal);
+    return (await db.query<InstalledGrant>("SELECT id,app_workspace_id,app_id,scopes,app_version FROM oauth_grants WHERE workspace_id=$1 AND id=$2 AND revoked_at IS NULL", [w, id])).rows[0];
+  });
+  assert(grant, "NOT_FOUND", "No such installed app.", 404);
+  const app = (await versionsOf(connect, [grant])).get(grant.app_workspace_id + "/" + grant.app_id)!;
+  return tenant(connect, w, async (db) => {
+    await managing(db, w, principal);
+    // Read again in the transaction that writes, so two approvals can't both move it.
+    const now = (await db.query<InstalledGrant>("SELECT id,app_workspace_id,app_id,scopes,app_version FROM oauth_grants WHERE workspace_id=$1 AND id=$2 AND revoked_at IS NULL FOR UPDATE", [w, id])).rows[0];
+    assert(now, "NOT_FOUND", "No such installed app.", 404);
+    const r = resolveRunning(app.versions, app.sandbox.includes(w), now.app_version);
+    assert(r?.waiting, "NOTHING_WAITING", "This app has no new version waiting for approval.", 409);
+    const waiting = r!.waiting!;
+    const granted: string[] = [];
+    for (const s of waiting.scopes) if (await can(db, w, principal, s as Capability)) granted.push(s);
+    assert(granted.length > 0, "INVALID_SCOPE", "You don't have any of the permissions this version asks for.", 403);
+    await db.query("UPDATE oauth_grants SET scopes=$3,app_version=$4,app_name=$5 WHERE workspace_id=$1 AND id=$2", [w, id, granted, waiting.version, waiting.name]);
+    return { id, running: waiting.version, scopes: granted };
+  });
 }

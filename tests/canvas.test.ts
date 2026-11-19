@@ -124,7 +124,13 @@ test("canvas apps: the order-lookup app installed, drawn in the sidebar, compose
       await tenant(db.connect, w, (q) => q.query("UPDATE workspace_features SET enabled=true WHERE name='developer_api_v1'"));
     }
     // Registered with a canvas: its address follows the fetch policy (public https), and its signing secret is shown once.
-    const register = (p: Record<string, unknown>) => tenant(db.connect, "dev", (q) => changeApps(q, "dev", "owner-dev", { action: "create", ...p }, env));
+    // Registered in "dev" and installed elsewhere, so version 1 is released (T3a): only the
+    // developer's own workspace and its test pair install a version that isn't.
+    const register = async (p: Record<string, unknown>) => {
+      const made = (await tenant(db.connect, "dev", (q) => changeApps(q, "dev", "owner-dev", { action: "create", ...p }, env))) as unknown as { id: string };
+      await tenant(db.connect, "dev", (q) => changeApps(q, "dev", "owner-dev", { action: "release", id: made.id, version: 1 }));
+      return made as never;
+    };
     const base = { name: "Order lookup", redirectUris: [APP + "/oauth/callback"], scopes: ["conversations.read", "contacts.personal_data"] };
     await assert.rejects(register({ ...base, canvasUrl: "http://127.0.0.1:9/canvas", canvasPlacements: ["composer"] }), /public https address/);
     await assert.rejects(register({ ...base, canvasPlacements: ["composer"] }), /Give the canvas address/);

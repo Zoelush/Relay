@@ -98,3 +98,76 @@ test("cancelled, the app is told access_denied; an unregistered redirect is refu
   expect(arrived.length).toBe(before);
   expect(page.url()).toContain(relay.hostOrigin);
 });
+
+/**
+ * T3a (docs/TEST_WORKSPACE_STEP5.md): an app's versions. Failure path: a redirect added to the
+ * draft isn't one anybody may use until the draft is published. Happy path: published as version
+ * 2, a version that asks for more waits on the installation, named, until a manager approves it.
+ */
+test("a draft changes nothing until published; a version that asks for more waits for approval", async ({ page, request }) => {
+  // Registered from the page's own session, so it's this workspace's app: version 1, in development.
+  await page.goto(relay.hostOrigin + "/agent#settings/apps");
+  await expect(page.getByRole("heading", { name: "Your apps" })).toBeVisible({ timeout: 20000 });
+  const made = await page.evaluate(
+    async (cb) =>
+      (await (
+        await fetch("/api/agent/developer-app", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+          body: JSON.stringify({ action: "create", name: "Ticket Mirror", redirectUris: [cb], scopes: ["conversations.read"] }),
+        })
+      ).json()) as { id: string; clientId: string; clientSecret: string },
+    `http://127.0.0.1:${port}/cb`,
+  );
+  await page.reload();
+  const mine = page.getByRole("listitem", { name: "Ticket Mirror" });
+  await expect(mine).toContainText("In development", { timeout: 20000 });
+  await expect(mine.getByRole("list", { name: "Ticket Mirror versions" })).toContainText("Version 1");
+
+  // Installed here (the developer's own workspace is its sandbox), as version 1.
+  const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+  const consent = (redirect: string) =>
+    relay.hostOrigin +
+    "/oauth/authorize?" +
+    new URLSearchParams({ response_type: "code", client_id: made.clientId, redirect_uri: redirect, state: "v", code_challenge: challenge, code_challenge_method: "S256" }).toString();
+  await page.goto(consent(`http://127.0.0.1:${port}/cb`));
+  await page.getByRole("region", { name: "Install an app" }).getByRole("button", { name: "Allow" }).click();
+  await expect(page.getByText("Back at the app.")).toBeVisible({ timeout: 15000 });
+  const code = arrived.at(-1)!.searchParams.get("code")!;
+  expect(
+    (
+      await request.post(relay.apiOrigin + "/oauth/token", {
+        form: { grant_type: "authorization_code", code, redirect_uri: `http://127.0.0.1:${port}/cb`, code_verifier: verifier, client_id: made.clientId, client_secret: made.clientSecret },
+      })
+    ).status(),
+  ).toBe(200);
+
+  // The draft gains a redirect and a permission: nobody runs a draft, so the new redirect is refused.
+  await page.goto(relay.hostOrigin + "/agent#settings/apps");
+  await page.evaluate(
+    async ([id, cb]) =>
+      fetch("/api/agent/developer-app", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ action: "update", id, redirectUris: [cb, cb + "/two"], scopes: ["conversations.read", "conversations.reply"] }),
+      }),
+    [made.id, `http://127.0.0.1:${port}/cb`],
+  );
+  await page.goto(consent(`http://127.0.0.1:${port}/cb/two`));
+  await expect(page.getByRole("region", { name: "Install an app" }).getByRole("alert")).toContainText("didn't register that redirect");
+
+  // Published from the page: version 2 asks for more, so the installation waits, the new permission named.
+  await page.goto(relay.hostOrigin + "/agent#settings/apps");
+  const app = page.getByRole("listitem", { name: "Ticket Mirror" });
+  await app.getByRole("textbox", { name: "What changed in Ticket Mirror" }).fill("Replies too.");
+  await app.getByRole("button", { name: "Publish the draft as version 2" }).click();
+  await expect(app.getByRole("list", { name: "Ticket Mirror versions" })).toContainText("Replies too.", { timeout: 15000 });
+  const row = page.getByRole("table", { name: "Installed apps" }).getByRole("row", { name: /Ticket Mirror/ });
+  await expect(row).toContainText("Version 1");
+  await expect(row.getByRole("note")).toContainText("Version 2 also asks to");
+  await row.getByRole("button", { name: "Approve version 2" }).click();
+  await expect(row).toContainText("Version 2", { timeout: 15000 });
+  await expect(row.getByRole("note")).toHaveCount(0);
+});

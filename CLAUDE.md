@@ -26,7 +26,13 @@ refused rather than landing without what it needs — the same checks publishing
 (`workflowReferences`, `checkAssets`, `checkLook`), asked of production. An image the change uses
 that production hasn't got is copied in as production's own upload and the promoted configuration
 is rewritten to name it; a help centre's look keeps no versions, so the ledger row holds the look
-it replaced and production can put that back. `test_baselines` holds the two version numbers the pair was last in step at and
+it replaced and production can put that back. An app's row is its draft; what anyone installs or
+runs is a published `oauth_app_versions` row (kept as published; only its release is ever
+recorded), and which version an installation runs is decided only by `server/app-versions.ts`
+(T3a, `docs/TEST_WORKSPACE_STEP5.md`, migration 0105) — consent, tokens and Canvas all ask it, and
+nothing is written when an installation moves by itself. Only the app's workspace and its test
+pair install an unreleased version; a token carries only scopes both granted and asked for by the
+running version. `test_baselines` holds the two version numbers the pair was last in step at and
 lives in the production workspace, so a promotion moves the mark in the same transaction as the
 change and is never mistaken for an edit made there.
 

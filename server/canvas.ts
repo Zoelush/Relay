@@ -7,6 +7,7 @@ import { seal, unseal } from "./connectors";
 import { checkAddress, FetchRefused, safeRequest, type FetchPolicy } from "./safe-fetch";
 import { signature } from "./webhooks";
 import { CanvasInvalid, inputValues, parseAnswer, PLACEMENTS, submittable, type Canvas, type Placement } from "../lib/canvas";
+import { readVersions, resolveRunning, sandboxOf } from "./app-versions";
 
 /**
  * Canvas apps (phase 15, step D5; docs/DEVELOPER_PLATFORM_STEP5.md), behind `developer_api_v1`.
@@ -98,8 +99,14 @@ export async function rotateCanvasSecret(db: Sql, w: string, appId: string, env:
 /* Reading an app from where it's installed                                                    */
 /* ------------------------------------------------------------------------------------------ */
 type AppCanvas = { name: string; url: string | null; placements: Placement[]; archived: boolean; secrets: string[] };
-/** An app's canvas, read in its developer's workspace (its own row-level security), with its live secrets when asked. */
-async function appCanvas(connect: Connect, appW: string, appId: string, env?: CanvasEnvironment): Promise<AppCanvas | null> {
+/**
+ * An app's canvas as an installation runs it, read in its developer's workspace (its own row-level
+ * security), with its live secrets when asked. The address, placements and name are the running
+ * version's (T3a, `server/app-versions.ts`), never the draft's; the signing secret is the app's.
+ */
+async function appCanvas(connect: Connect, grant: { app_workspace_id: string; app_id: string; app_version: number | null }, installedIn: string, env?: CanvasEnvironment): Promise<AppCanvas | null> {
+  const appW = grant.app_workspace_id;
+  const appId = grant.app_id;
   return tenant(connect, appW, async (db) => {
     const a = (
       await db.query<{ name: string; canvas_url: string | null; canvas_placements: Placement[]; archived_at: Date | null; canvas_secret_sealed: string | null; canvas_previous_secret_sealed: string | null; canvas_previous_until: Date | null }>(
@@ -113,11 +120,13 @@ async function appCanvas(connect: Connect, appW: string, appId: string, env?: Ca
       secrets.push(await opened(env, appW, appId, a.canvas_secret_sealed));
       if (a.canvas_previous_secret_sealed && a.canvas_previous_until && new Date(a.canvas_previous_until) > new Date()) secrets.push(await opened(env, appW, appId, a.canvas_previous_secret_sealed));
     }
-    return { name: a.name, url: a.canvas_url, placements: a.canvas_placements, archived: !!a.archived_at, secrets };
+    const r = resolveRunning(await readVersions(db, appW, appId), (await sandboxOf(db, appW)).includes(installedIn), grant.app_version);
+    if (!r) return null;
+    return { name: r.running.name, url: r.running.canvasUrl, placements: r.running.canvasPlacements as Placement[], archived: !!a.archived_at, secrets };
   });
 }
-type GrantRow = { id: string; app_workspace_id: string; app_id: string; app_name: string; canvas_settings: Record<string, unknown> | null; configured_at: Date | null };
-const GRANTS = "SELECT id,app_workspace_id,app_id,app_name,canvas_settings,configured_at FROM oauth_grants WHERE workspace_id=$1 AND revoked_at IS NULL";
+type GrantRow = { id: string; app_workspace_id: string; app_id: string; app_name: string; canvas_settings: Record<string, unknown> | null; configured_at: Date | null; app_version: number | null };
+const GRANTS = "SELECT id,app_workspace_id,app_id,app_name,canvas_settings,configured_at,app_version FROM oauth_grants WHERE workspace_id=$1 AND revoked_at IS NULL";
 
 /** The apps installed here that draw in a placement, for a teammate who can see it. */
 export async function listCanvasApps(connect: Connect, w: string, principal: string, placement: string, conversationId?: string) {
@@ -129,7 +138,7 @@ export async function listCanvasApps(connect: Connect, w: string, principal: str
   });
   const out = [];
   for (const g of grants) {
-    const app = await appCanvas(connect, g.app_workspace_id, g.app_id);
+    const app = await appCanvas(connect, g, w);
     if (app && !app.archived && app.url && app.placements.includes(placement as Placement)) out.push({ installationId: g.id, appName: app.name, placement });
   }
   return { apps: out };
@@ -166,7 +175,7 @@ export async function canvasOverview(connect: Connect, w: string) {
   }));
   const installed: Record<string, { placements: Placement[]; configured: boolean; calls: number; failures: number }> = {};
   for (const g of local.grants) {
-    const app = await appCanvas(connect, g.app_workspace_id, g.app_id).catch(() => null);
+    const app = await appCanvas(connect, g, w).catch(() => null);
     const c = local.calls.find((x) => x.grant_id === g.id);
     installed[g.id] = { placements: app && !app.archived && app.url ? app.placements : [], configured: !!g.configured_at, calls: c?.calls ?? 0, failures: c?.failures ?? 0 };
   }
@@ -222,7 +231,7 @@ export async function canvasRequest(connect: Connect, env: CanvasEnvironment | u
     }
     return { teammate, grant, contactId, session, values };
   });
-  const app = await appCanvas(connect, ctx.grant.app_workspace_id, ctx.grant.app_id, env);
+  const app = await appCanvas(connect, ctx.grant, w, env);
   assert(app && !app.archived && app.url && app.placements.includes(placement) && app.secrets.length, "NOT_FOUND", "This app no longer shows here.", 404);
   const kind = placement === "settings" ? "configure" : (p.action as "initialize" | "submit");
   const body = JSON.stringify({

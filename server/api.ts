@@ -223,7 +223,7 @@ import { liveDashboard } from "./live";
 import { handleRest } from "./rest";
 import { changeDeveloperTokens, readDeveloperSettings } from "./developer";
 import { changeWebhooks, getDelivery, listDeliveries, listWebhooks, TOPICS } from "./webhooks";
-import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConsent, type AuthorizeQuery } from "./oauth";
+import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConsent, readInstallations, upgradeInstallation, type AuthorizeQuery } from "./oauth";
 import { canvasOverview, canvasRequest, listCanvasApps, type CanvasEnvironment } from "./canvas";
 import { changeAudit, readAudit } from "./audit";
 import { acceptInvitation, changeAccount, changeInvitations, changeSessions, completeTwoFactor, readAccount, readInvitation, readInvitations, readSessions, resolveSession, sessionLive, signIn, signInAllowed, signOut, twoFactorSetup } from "./accounts";
@@ -2091,8 +2091,13 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/report-metric")
           // Phase 14 R2: one metric for a period, broken down (read-only: a POST for its body).
           return json(await reportMetric(env.connect, env.analytics, workspace, principal, p));
+        if (url.pathname === "/v1/agent/developer-app" && p.action === "upgrade")
+          // T3a: a manager approves the version waiting for an installation here. It reads the app's
+          // versions in the app's own workspace first, so it can't run inside this one's transaction.
+          return json(await upgradeInstallation(env.connect, workspace, principal, p));
         if (url.pathname === "/v1/agent/developer-app")
           // Phase 15 D4: an app registered (its secret returned once), changed, given a new secret, archived; or one installed here, uninstalled.
+          // T3a: and a version published from its draft, or released beyond the sandbox.
           return json(await tenant(env.connect, workspace, (db) => changeApps(db, workspace, principal, p, env.canvas)));
         if (url.pathname === "/v1/agent/account") {
           // Phase 16 C3a: your password, and signing out your devices. C3b: and two-factor (a wrong
@@ -2838,7 +2843,8 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/developer-apps") {
         const apps = await tenant(env.connect, workspace, (db) => readApps(db, workspace, principal));
         // D5: each installation's placements and error rate, and your apps' rates across workspaces.
-        return json({ ...apps, canvas: await canvasOverview(env.connect, workspace) });
+        // T3a: what each installation runs, and what waits for a manager's approval.
+        return json({ ...apps, canvas: await canvasOverview(env.connect, workspace), versions: await readInstallations(env.connect, workspace) });
       }
       // Phase 16 C3a: your sign-in and devices; everyone's sessions and their limits; open invitations.
       if (url.pathname === "/v1/agent/account") return json(await tenant(env.connect, workspace, (db) => readAccount(db, workspace, principal, sessionId)));
