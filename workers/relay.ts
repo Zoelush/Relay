@@ -110,6 +110,7 @@ import { linksJob } from "../server/links";
 import { safeBrowsing } from "../server/link-reputation";
 import { DurableObject } from "cloudflare:workers";
 import { handleApi, isAgent, type ApiEnvironment } from "../server/api";
+import { notifyUninstalled } from "../server/canvas";
 import { hyperdriveConnection } from "../server/postgres";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
@@ -693,6 +694,8 @@ const relayWorker = {
         processBrandAsset(runtime.connect, runtime.attachments!, job);
     // Website sync (phase 07, C1b). TODO(phase 17): a Browser Rendering renderer for JavaScript sites.
     handlers["knowledge.sync.run"] = (job) => runSync(runtime.connect, {}, job);
+    // T3b: an uninstalled app is told, so it can delete what it holds (signed, a few tries at most).
+    handlers["app.uninstalled"] = (job) => notifyUninstalled(runtime.connect, env.RELAY_CONNECTOR_KEY ? { key: env.RELAY_CONNECTOR_KEY } : undefined, job);
     // The help center's "Import your brand": public https addresses only, like website sync.
     handlers["help.brand.import"] = (job) => runBrandImport({}, job);
     // The AI index (phase 07, C2a), when its bindings exist.

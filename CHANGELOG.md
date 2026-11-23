@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased: The App directory
+
+- **Find apps Relay has reviewed** in Settings › App directory: what each does, who built it, what
+  it may do and where it shows. Install sends you to the app's own page, then the same consent
+  screen as always.
+- **For developers:** give your app an install address and submit a version from Settings › Apps.
+  Relay's reviewers approve it or tell you what to change. Once listed, a release that asks for
+  more, shows somewhere new or sends people to a new address is reviewed again; anything else goes
+  out at once.
+- **If Relay suspends an app,** it stops everywhere straight away — its tokens, its cards and its
+  consent screen — and every workspace that installed it sees why. A delisted app leaves the
+  directory but keeps working where it's installed.
+- **Uninstalling is clean:** the app's open cards and saved settings go with it, and the app is
+  told, so it can delete what it holds about your workspace.
+- **Details:** `docs/TEST_WORKSPACE_STEP6.md`.
+
 ## Unreleased: Versions for the apps you build, and a sandbox to try them in
 
 - **What you edit is a draft.** Publish it as a numbered version when it's ready; a version is kept

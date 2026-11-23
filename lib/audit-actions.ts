@@ -135,6 +135,13 @@ export const EXPLICIT_ACTIONS = {
   "workspace.promotion_reverted": { label: "Put a promoted help centre look back", area: "Workspace" },
   // T3a: a published app version made installable beyond the developer's sandbox.
   "app_version.released": { label: "App version released", area: "Developers" },
+  // T3b: Relay's operators, through \`npm run directory\`; recorded in the developer's workspace.
+  "app_review.approved": { label: "App version approved for the directory", area: "Developers" },
+  "app_review.rejected": { label: "App version rejected for the directory", area: "Developers" },
+  "app.delisted": { label: "App taken out of the directory", area: "Developers" },
+  "app.relisted": { label: "App put back in the directory", area: "Developers" },
+  "app.suspended": { label: "App suspended by Relay", area: "Developers" },
+  "app.suspension_lifted": { label: "App's suspension lifted", area: "Developers" },
 } as const satisfies Record<string, { label: string; area: Area }>;
 export type ExplicitAction = keyof typeof EXPLICIT_ACTIONS;
 

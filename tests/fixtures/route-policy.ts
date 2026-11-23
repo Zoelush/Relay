@@ -29,6 +29,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   "GET context": { needs: "teammate" },
   "GET deliveries": { needs: "teammate" },
   "GET developer-apps": { needs: "workspace.manage" },
+  // T3b: the app directory, browsed by who may install apps here.
+  "GET app-directory": { needs: "workspace.manage" },
   "GET developer-settings": { needs: "teammate" },
   "GET developer-webhook-deliveries": { needs: "workspace.manage" },
   "GET developer-webhook-delivery": { needs: "workspace.manage" },

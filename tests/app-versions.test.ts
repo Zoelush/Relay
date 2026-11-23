@@ -96,7 +96,7 @@ test("app versions: published and kept, a sandbox on the test pair, installation
     const v2 = await dev({ action: "publish", id: app.id, notes: "Also in the composer." });
     assert.equal(v2.published, 2);
     // Unreleased, so only the sandbox runs it; "a" stays on the released version 1.
-    assert.deepEqual(Object.values(await readInstallations(db.connect, pair))[0], { running: 2, waiting: null, newScopes: [], notes: "" }, "the sandbox runs an unreleased version");
+    assert.deepEqual(Object.values(await readInstallations(db.connect, pair))[0], { running: 2, waiting: null, newScopes: [], notes: "", suspended: null }, "the sandbox runs an unreleased version");
     assert.equal(Object.values(await readInstallations(db.connect, "a"))[0].running, 1);
     await dev({ action: "release", id: app.id, version: 2 });
     assert.equal(Object.values(await readInstallations(db.connect, "a"))[0].running, 2, "released, with no new scopes: it moved by itself");
@@ -107,7 +107,7 @@ test("app versions: published and kept, a sandbox on the test pair, installation
     await dev({ action: "publish", id: app.id, notes: "Replies to customers." });
     await dev({ action: "release", id: app.id, version: 3 });
     const waiting = Object.entries(await readInstallations(db.connect, "a"))[0];
-    assert.deepEqual(waiting[1], { running: 2, waiting: 3, newScopes: ["conversations.reply"], notes: "Replies to customers." });
+    assert.deepEqual(waiting[1], { running: 2, waiting: 3, newScopes: ["conversations.reply"], notes: "Replies to customers.", suspended: null });
     // Its tokens meanwhile carry only what was granted for the version it runs.
     const refreshed = (await (await token({ grant_type: "refresh_token", refresh_token: elsewhere.refresh_token })).json()) as { scope: string; refresh_token: string };
     assert.equal(refreshed.scope, "conversations.read");
@@ -118,7 +118,7 @@ test("app versions: published and kept, a sandbox on the test pair, installation
     assert.deepEqual([moved.running, moved.scopes], [3, ["conversations.read", "conversations.reply"]]);
     const upgraded = (await (await token({ grant_type: "refresh_token", refresh_token: refreshed.refresh_token })).json()) as { scope: string; refresh_token: string };
     assert.equal(upgraded.scope, "conversations.read conversations.reply", "approved: its tokens carry the new scope");
-    assert.deepEqual(Object.values(await readInstallations(db.connect, "a"))[0], { running: 3, waiting: null, newScopes: [], notes: "" });
+    assert.deepEqual(Object.values(await readInstallations(db.connect, "a"))[0], { running: 3, waiting: null, newScopes: [], notes: "", suspended: null });
     await assert.rejects(upgradeInstallation(db.connect, "a", "owner-a", { id: waiting[0] }), /no new version waiting/);
 
     /* ---- A version that asks for less gets less at once ----------------------------------- */
@@ -145,6 +145,7 @@ test("app versions: published and kept, a sandbox on the test pair, installation
       notes: "",
       publishedAt: "",
       releasedAt: released ? "x" : null,
+      installUrl: null,
     });
     const list = [v(1, ["a"]), v(2, ["a"]), v(3, ["a", "b"]), v(4, ["a"], false)];
     assert.deepEqual(resolveRunning(list, false, 1), { running: list[1], waiting: list[2], newScopes: ["b"] }, "elsewhere: released only");

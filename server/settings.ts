@@ -141,6 +141,8 @@ export async function settingsOverview(db: Sql, w: string, principal: string) {
   if (manage && (await flag(db, w, "developer_api_v1"))) pages.push("webhooks");
   // Phase 15 D4: apps registered here, and apps installed here.
   if (manage && (await flag(db, w, "developer_api_v1"))) pages.push("apps");
+  // T3b: the app directory, for who may install apps here.
+  if (manage && (await flag(db, w, "developer_api_v1"))) pages.push("app-directory");
   // Phase 16 C3a: your own sign-in for everyone; sessions for who manages security.
   if (await flag(db, w, "security_v1")) pages.push("sign-in");
   if ((await has("security.manage")) && (await flag(db, w, "security_v1"))) pages.push("sessions");

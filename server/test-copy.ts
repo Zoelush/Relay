@@ -141,6 +141,8 @@ export const NOT_COPIED: Record<string, string> = {
   // T3a: an app's versions stay with the workspace that registered it; its test pair is the app's
   // sandbox and installs it from there, so a copy would be a second app nobody registered.
   oauth_app_versions: "an app belongs to the workspace that registered it; the test pair installs it from there",
+  // T3b: the directory is a tenant of its own, never any workspace's, so there is nothing to copy.
+  ...Object.fromEntries(["app_submissions", "app_listings", "app_suspensions"].map((t) => [t, "the app directory's own tenant, never a workspace's"])),
   ...Object.fromEntries(
     [
       "audit_events", "seat_changes", "plan_changes", "teammate_presence_changes", "identity_failures",

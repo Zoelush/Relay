@@ -2339,3 +2339,20 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-app-publish { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .pg-app-publish input { flex: 1 1 240px; }
 .pg-app-waiting { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--pg-info-bg); border-left: 3px solid var(--pg-info-line); color: var(--pg-text); font-size: 12.5px; font-weight: 500; }
+
+/* T3b: the App directory's cards, and an app's standing with Relay's review. */
+.pg-directory { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.pg-directory-card { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border: 1px solid var(--pg-border); border-radius: 14px; background: var(--pg-surface); box-shadow: var(--elev); }
+.pg-directory-card > header { display: flex; align-items: center; gap: 12px; }
+.pg-directory-card > header > span:last-child { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pg-directory-card > header strong { font-size: 15px; }
+.pg-directory-card .pg-settings-tile-icon { width: 40px; height: 40px; border-radius: 11px; font-weight: 700; background: var(--pg-tint-violet-bg); color: var(--pg-tint-violet); }
+.pg-directory-card p { margin: 0; font-size: 13px; color: var(--pg-text-2); line-height: 1.45; }
+.pg-directory-card dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12.5px; }
+.pg-directory-card dt { color: var(--pg-muted); }
+.pg-directory-card dd { margin: 0; }
+.pg-directory-card > .pg-primary, .pg-directory-card > .pg-email-status { align-self: flex-start; margin-top: auto; text-decoration: none; }
+.pg-app-review { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; background: var(--pg-info-bg); border-left: 3px solid var(--pg-info-line); color: var(--pg-text); font-size: 12.5px; }
+.pg-app-suspended { display: block; margin: 6px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--pg-danger-bg); color: var(--pg-danger-text); font-size: 12.5px; font-weight: 500; }
+.pg-app-rejected { color: var(--pg-danger-text); }
+.pg-app-submit { align-self: flex-start; }

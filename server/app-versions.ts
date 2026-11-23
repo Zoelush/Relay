@@ -27,6 +27,8 @@ export type AppVersion = {
   notes: string;
   publishedAt: string;
   releasedAt: string | null;
+  /** T3b: the app's own page that starts the consent flow, where the directory sends people. */
+  installUrl: string | null;
 };
 type Row = {
   version: number;
@@ -39,13 +41,14 @@ type Row = {
   notes: string;
   published_at: Date;
   released_at: Date | null;
+  install_url: string | null;
 };
 
 /** Every published version of an app, oldest first. Read in the app's workspace. */
 export async function readVersions(db: Sql, appW: string, appId: string): Promise<AppVersion[]> {
   return (
     await db.query<Row>(
-      `SELECT version,name,description,redirect_uris,scopes,canvas_url,canvas_placements,notes,published_at,released_at
+      `SELECT version,name,description,redirect_uris,scopes,canvas_url,canvas_placements,notes,published_at,released_at,install_url
        FROM oauth_app_versions WHERE workspace_id=$1 AND app_id=$2 ORDER BY version`,
       [appW, appId],
     )
@@ -60,6 +63,7 @@ export async function readVersions(db: Sql, appW: string, appId: string): Promis
     notes: r.notes,
     publishedAt: new Date(r.published_at).toISOString(),
     releasedAt: r.released_at ? new Date(r.released_at).toISOString() : null,
+    installUrl: r.install_url,
   }));
 }
 

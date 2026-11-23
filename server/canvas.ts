@@ -8,6 +8,8 @@ import { checkAddress, FetchRefused, safeRequest, type FetchPolicy } from "./saf
 import { signature } from "./webhooks";
 import { CanvasInvalid, inputValues, parseAnswer, PLACEMENTS, submittable, type Canvas, type Placement } from "../lib/canvas";
 import { readVersions, resolveRunning, sandboxOf } from "./app-versions";
+import { suspensionOf } from "./directory";
+import type { Job } from "./jobs";
 
 /**
  * Canvas apps (phase 15, step D5; docs/DEVELOPER_PLATFORM_STEP5.md), behind `developer_api_v1`.
@@ -105,6 +107,18 @@ type AppCanvas = { name: string; url: string | null; placements: Placement[]; ar
  * version's (T3a, `server/app-versions.ts`), never the draft's; the signing secret is the app's.
  */
 async function appCanvas(connect: Connect, grant: { app_workspace_id: string; app_id: string; app_version: number | null }, installedIn: string, env?: CanvasEnvironment): Promise<AppCanvas | null> {
+  const appW = grant.app_workspace_id;
+  const appId = grant.app_id;
+  // T3b: an app Relay has suspended draws nothing anywhere (read after its own workspace's, never inside it).
+  const app = await readAppCanvas(connect, grant, installedIn, env);
+  return app && !(await suspensionOf(connect, appW, appId)) ? app : null;
+}
+async function readAppCanvas(
+  connect: Connect,
+  grant: { app_workspace_id: string; app_id: string; app_version: number | null },
+  installedIn: string,
+  env?: CanvasEnvironment,
+): Promise<AppCanvas | null> {
   const appW = grant.app_workspace_id;
   const appId = grant.app_id;
   return tenant(connect, appW, async (db) => {
@@ -337,4 +351,60 @@ export async function canvasRequest(connect: Connect, env: CanvasEnvironment | u
     ),
   ).catch(() => undefined);
   return result;
+}
+
+/**
+ * T3b (docs/TEST_WORKSPACE_STEP6.md): an uninstalled app is told, so it can delete what it holds
+ * about the workspace — a signed POST to its running version's canvas address, `/uninstalled`,
+ * logged with its other requests. An app with no canvas address has nowhere to be told, and the
+ * job finishes with nothing sent. A failure throws, so the job is tried again a few times and then
+ * given up; the uninstall itself was done long before.
+ */
+export async function notifyUninstalled(connect: Connect, env: CanvasEnvironment | undefined, job: Job) {
+  const w = job.workspace_id;
+  const grant = await tenant(connect, w, async (db) =>
+    (
+      await db.query<{ id: string; app_workspace_id: string; app_id: string; app_version: number | null }>(
+        "SELECT id,app_workspace_id,app_id,app_version FROM oauth_grants WHERE workspace_id=$1 AND id=$2",
+        [w, String(job.payload.grantId ?? "")],
+      )
+    ).rows[0],
+  );
+  if (!grant || !env) return { done: true, result: { sent: false, why: "no installation or no canvas configuration" } };
+  const app = await appCanvas(connect, grant, w, env);
+  if (!app?.url || !app.secrets.length) return { done: true, result: { sent: false, why: "the app has no canvas address" } };
+  const body = JSON.stringify({ type: "uninstalled", request_id: job.id, workspace_id: w, installation_id: grant.id });
+  const started = Date.now();
+  let outcome: Outcome = "ok";
+  let statusCode: number | null = null;
+  let detail = "";
+  try {
+    const r = await safeRequest(
+      `${app.url}/uninstalled`,
+      env.policy ?? {},
+      { method: "POST", headers: { "content-type": "application/json", "relay-signature": await signature(app.secrets, body) }, body },
+      { maxBytes: MAX_BYTES, timeoutMs: env.timeoutMs ?? CANVAS_TIMEOUT_MS },
+    );
+    statusCode = r.status;
+    if (r.status < 200 || r.status >= 300) {
+      outcome = "http_error";
+      detail = `It answered ${r.status}.`;
+    }
+  } catch (e) {
+    outcome = e instanceof FetchRefused && e.code === "TIMEOUT" ? "timeout" : "unreachable";
+    detail = outcome === "timeout" ? "No answer in time." : "Its canvas address couldn't be reached.";
+  }
+  await tenant(connect, w, (db) =>
+    db.query("INSERT INTO canvas_calls(workspace_id,id,grant_id,kind,placement,outcome,status_code,duration_ms,error) VALUES($1,$2,$3,'uninstalled','uninstall',$4,$5,$6,$7)", [
+      w,
+      crypto.randomUUID(),
+      grant.id,
+      outcome,
+      statusCode,
+      Date.now() - started,
+      detail,
+    ]),
+  );
+  if (outcome !== "ok") throw new Error(`The app wasn't told it was uninstalled: ${detail}`);
+  return { done: true, result: { sent: true } };
 }
