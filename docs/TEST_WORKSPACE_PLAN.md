@@ -33,7 +33,13 @@ A test workspace is **a workspace of its own, owned by a production one**: same 
     ledger holds the one it replaced and production can put it back. An image the change uses that
     production hasn't got is copied in as production's own upload, and the copy that makes the pair
     now brings every image a copied setting names, with its bytes. Decisions of 16 November 2026.
-- **T3:** the developer sandbox (phase 15's D6) on top of the same pairing.
+- **T3:** the developer sandbox (phase 15's D6) on top of the same pairing. Decisions of
+  17 November 2026: two steps; the sandbox is the test pair; review by Relay's operators;
+  upgrades move by themselves only when they ask for nothing new.
+  - **T3a (done, `docs/TEST_WORKSPACE_STEP5.md`):** an app's manifest as published versions, kept
+    as they were; installations pinned to what a manager consented to; the developer's workspace
+    and its test pair install a version that isn't released, nobody else does.
+  - **T3b:** review by Relay's operators, and the directory with install and uninstall.
 
 ## How it is put together
 

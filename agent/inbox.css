@@ -2329,3 +2329,13 @@ button.pg-wf-letter { border:0; cursor:pointer; }
   backdrop-filter: blur(16px) saturate(1.4);
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
 }
+
+/* T3a: an app's versions (Settings › Developers › Apps), and an installation's waiting version. */
+.pg-app-versions { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; }
+.pg-app-versions ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--pg-border-subtle); border-radius: 10px; overflow: hidden; }
+.pg-app-versions li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; padding: 7px 12px; font-size: 13px; }
+.pg-app-versions li + li { border-top: 1px solid var(--pg-border-subtle); }
+.pg-app-versions li > .pg-muted { flex: 1; min-width: 0; }
+.pg-app-publish { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pg-app-publish input { flex: 1 1 240px; }
+.pg-app-waiting { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--pg-info-bg); border-left: 3px solid var(--pg-info-line); color: var(--pg-text); font-size: 12.5px; font-weight: 500; }

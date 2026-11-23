@@ -70,6 +70,8 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   api_token: { noun: "API token", area: "Developers" },
   oauth_app: { noun: "App", area: "Developers" },
   app_install: { noun: "App installation", area: "Developers" },
+  // T3a: a version of an app, written once when it is published.
+  app_version: { noun: "App version", area: "Developers" },
   webhook: { noun: "Webhook", area: "Developers" },
   attribute: { noun: "Data attribute", area: "Data" },
   tag: { noun: "Tag", area: "Data" },
@@ -131,6 +133,8 @@ export const EXPLICIT_ACTIONS = {
   "workspace.test_created": { label: "Test workspace created", area: "Workspace" },
   "workspace.promoted": { label: "Promoted from the test workspace", area: "Workspace" },
   "workspace.promotion_reverted": { label: "Put a promoted help centre look back", area: "Workspace" },
+  // T3a: a published app version made installable beyond the developer's sandbox.
+  "app_version.released": { label: "App version released", area: "Developers" },
 } as const satisfies Record<string, { label: string; area: Area }>;
 export type ExplicitAction = keyof typeof EXPLICIT_ACTIONS;
 

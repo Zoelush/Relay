@@ -138,6 +138,9 @@ export const NOT_COPIED: Record<string, string> = {
   // T2a: the two sides of promoting a change back, both production's own (server/promote.ts).
   test_baselines: PAIR,
   promotions: PAIR,
+  // T3a: an app's versions stay with the workspace that registered it; its test pair is the app's
+  // sandbox and installs it from there, so a copy would be a second app nobody registered.
+  oauth_app_versions: "an app belongs to the workspace that registered it; the test pair installs it from there",
   ...Object.fromEntries(
     [
       "audit_events", "seat_changes", "plan_changes", "teammate_presence_changes", "identity_failures",

@@ -14,7 +14,13 @@ import { PLACEMENTS, PLACEMENT_LABEL, type Placement } from "../lib/canvas";
  * D5 adds Canvas: an app's canvas address, placements and signing secret (shown once), its error
  * rate across the workspaces that installed it; and for each app installed here, where it shows,
  * its error rate here, and its configure step (drawn from the app, in settings).
+ *
+ * T3a (docs/TEST_WORKSPACE_STEP5.md): an app's versions. The fields above are the draft; what
+ * anyone installs is a published version, and only the developer's workspace and its test pair
+ * install one that isn't released. Each installation here says which version it runs, and a newer
+ * one that asks for more waits for a manager's approval, with the new permissions named.
  */
+type Version = { version: number; name: string; scopes: string[]; notes: string; publishedAt: string; releasedAt: string | null };
 type App = {
   id: string;
   clientId: string;
@@ -29,6 +35,7 @@ type App = {
   canvasPlacements: Placement[];
   canvasSecretLastFour: string | null;
   canvasSecret?: string;
+  versions: Version[];
 };
 type Installed = {
   id: string;
@@ -44,7 +51,8 @@ type CanvasOverview = {
   apps: Record<string, Rate & { timeouts: number }>;
   days: number;
 };
-type Data = { apps: App[]; installed: Installed[]; canvas: CanvasOverview };
+type Running = { running: number | null; waiting: number | null; newScopes: string[]; notes: string };
+type Data = { apps: App[]; installed: Installed[]; canvas: CanvasOverview; versions: Record<string, Running> };
 type Shown = {
   name: string;
   clientId: string;
@@ -147,9 +155,22 @@ export function AppsPage({ menu, page }: { menu: MenuState; page: Page }) {
                   {data.installed.map((g) => {
                     const cv = data.canvas.installed[g.id];
                     const configurable = !!cv?.placements.includes("settings");
+                    const v = data.versions?.[g.id];
                     return (
                       <tr key={g.id}>
-                        <th scope="row">{g.appName}</th>
+                        <th scope="row">
+                          {g.appName}
+                          {v?.running ? <small className="pg-muted pg-cv-rate">Version {v.running}</small> : null}
+                          {v?.waiting ? (
+                            <span className="pg-app-waiting" role="note">
+                              Version {v.waiting} also asks to: {v.newScopes.map((s) => LABEL[s] ?? s).join(", ")}
+                              {v.notes ? <small className="pg-muted">“{v.notes}”</small> : null}
+                              <button type="button" className="pg-primary" onClick={() => void act({ action: "upgrade", id: g.id }, "The new version couldn't be approved.")}>
+                                Approve version {v.waiting}
+                              </button>
+                            </span>
+                          ) : null}
+                        </th>
                         <td>{g.scopes.map((s) => LABEL[s] ?? s).join(", ")}</td>
                         <td>
                           {cv?.placements.filter((p) => p !== "settings").length ? (
@@ -204,17 +225,21 @@ export function AppsPage({ menu, page }: { menu: MenuState; page: Page }) {
               </button>
             </Card>
           )}
-          <Card title="Your apps" description="Apps you build on Relay's API. A workspace installs one through its consent screen (the OAuth 2 authorization code flow, with PKCE).">
+          <Card
+            title="Your apps"
+            description="Apps you build on Relay's API. What you edit here is a draft: publish it as a version, try it in this workspace and its test workspace, and release it when other workspaces may install it through the consent screen."
+          >
             {data.apps.length ? (
               <ul className="pg-webhooks">
                 {data.apps.map((a) => (
                   <li key={a.id} aria-label={a.name}>
                     <div className="pg-webhook-head">
-                      <span className="pg-email-status" data-status={a.archived ? "failed" : "verified"}>
-                        {a.archived ? "Archived" : "Live"}
+                      <span className="pg-email-status" data-status={a.archived ? "failed" : a.versions.some((v) => v.releasedAt) ? "verified" : "pending"}>
+                        {a.archived ? "Archived" : a.versions.some((v) => v.releasedAt) ? "Released" : "In development"}
                       </span>
                       <strong>{a.name}</strong>
                     </div>
+                    <Versions app={a} act={act} />
                     <p className="pg-muted">
                       Client id <code>{a.clientId}</code> · secret …{a.secretLastFour}
                     </p>
@@ -381,6 +406,55 @@ function CanvasSettings({ app, onSave }: { app: App; onSave: (p: Record<string, 
       <button type="button" className="pg-wf-link" onClick={() => setOpen(false)}>
         Cancel
       </button>
+    </div>
+  );
+}
+
+/**
+ * An app's versions, newest first: each one published from the draft and kept as it was; release
+ * one to let other workspaces install it. A version in development installs only here and in this
+ * workspace's test pair.
+ */
+function Versions({ app, act }: { app: App; act: (p: Record<string, unknown>, fallback: string) => Promise<unknown> }) {
+  const [notes, setNotes] = useState("");
+  const newestReleased = Math.max(0, ...app.versions.filter((v) => v.releasedAt).map((v) => v.version));
+  return (
+    <div className="pg-app-versions">
+      <ol aria-label={`${app.name} versions`}>
+        {[...app.versions].reverse().map((v) => (
+          <li key={v.version}>
+            <strong>Version {v.version}</strong>
+            <span className="pg-muted">
+              {v.notes || "No notes"} · published {when(v.publishedAt)}
+            </span>
+            {v.releasedAt ? (
+              <span className="pg-email-status" data-status="verified">
+                Released
+              </span>
+            ) : !app.archived && v.version > newestReleased ? (
+              <button type="button" className="pg-wf-link" onClick={() => void act({ action: "release", id: app.id, version: v.version }, "That version couldn't be released.")}>
+                Release version {v.version}
+              </button>
+            ) : (
+              <span className="pg-muted">Test workspace only</span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {!app.archived && (
+        <form
+          className="pg-app-publish"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void act({ action: "publish", id: app.id, notes }, "The draft couldn't be published.").then((r) => r && setNotes(""));
+          }}
+        >
+          <input aria-label={`What changed in ${app.name}`} placeholder="What changed (optional)" value={notes} maxLength={500} onChange={(e) => setNotes(e.target.value)} />
+          <button type="submit" className="pg-zoe-secondary">
+            Publish the draft as version {(app.versions.at(-1)?.version ?? 0) + 1}
+          </button>
+        </form>
+      )}
     </div>
   );
 }
