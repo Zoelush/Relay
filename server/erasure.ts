@@ -193,7 +193,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
       "portal_settings", "role_capabilities", "roles", "security_settings", "segments", "sla_policies", "sms_accounts", "sms_numbers", "sms_prices",
       "sso_connections", "sso_domains", "sso_role_mappings", "subscription_types", "tags", "teams", "ticket_states", "ticket_transitions",
       "ticket_type_attributes", "ticket_types", "voice_agents", "voice_settings", "webhook_subscriptions", "whatsapp_numbers", "whatsapp_templates",
-      "workflow_versions", "workflows", "workspace", "workspace_features", "oauth_apps", "oauth_app_versions", "retention_settings", "redaction_rules", "link_policies", "support_grants", "support_logins", "support_sessions", "workspace_plans", "seat_changes", "usage_limits", "usage_settings", "usage_alerts",
+      "workflow_versions", "workflows", "workspace", "workspace_features", "oauth_apps", "oauth_app_versions", "app_submissions", "app_listings", "app_suspensions", "retention_settings", "redaction_rules", "link_policies", "support_grants", "support_logins", "support_sessions", "workspace_plans", "seat_changes", "usage_limits", "usage_settings", "usage_alerts",
       // Phase 16 C9d: a workspace's own AI providers (sealed keys and model names).
       "ai_providers",
       // Phase 16 C10a: the workspace's billing: its invoices (units hold record ids, never a customer's

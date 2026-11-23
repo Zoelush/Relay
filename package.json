@@ -18,6 +18,7 @@
     "test:e2e": "npm run messenger:build && npm run agent:build && npm run portal:build && playwright test",
     "typecheck": "tsc --noEmit",
     "agent:build": "node scripts/build-agent.mjs",
+    "directory": "node --import tsx scripts/directory.ts",
     "portal:build": "node scripts/build-portal.mjs",
     "eval": "node --import tsx scripts/eval.ts",
     "test:postgres": "node --import tsx --test --test-timeout=600000 tests/postgres/*.test.ts",

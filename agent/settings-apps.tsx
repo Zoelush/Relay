@@ -20,7 +20,7 @@ import { PLACEMENTS, PLACEMENT_LABEL, type Placement } from "../lib/canvas";
  * install one that isn't released. Each installation here says which version it runs, and a newer
  * one that asks for more waits for a manager's approval, with the new permissions named.
  */
-type Version = { version: number; name: string; scopes: string[]; notes: string; publishedAt: string; releasedAt: string | null };
+type Version = { version: number; name: string; scopes: string[]; notes: string; publishedAt: string; releasedAt: string | null; installUrl: string | null };
 type App = {
   id: string;
   clientId: string;
@@ -36,6 +36,8 @@ type App = {
   canvasSecretLastFour: string | null;
   canvasSecret?: string;
   versions: Version[];
+  installUrl: string | null;
+  listed: boolean;
 };
 type Installed = {
   id: string;
@@ -51,8 +53,11 @@ type CanvasOverview = {
   apps: Record<string, Rate & { timeouts: number }>;
   days: number;
 };
-type Running = { running: number | null; waiting: number | null; newScopes: string[]; notes: string };
-type Data = { apps: App[]; installed: Installed[]; canvas: CanvasOverview; versions: Record<string, Running> };
+type Running = { running: number | null; waiting: number | null; newScopes: string[]; notes: string; suspended: string | null };
+/** T3b: your apps as the directory knows them. */
+type Submission = { id: string; version: number; kind: "listing" | "version"; widens: string[]; state: "pending" | "approved" | "rejected" | "withdrawn"; reason: string | null };
+type InDirectory = { listing: { version: number; delistedAt: string | null; delistedReason: string | null } | null; submissions: Submission[]; suspended: string | null };
+type Data = { apps: App[]; installed: Installed[]; canvas: CanvasOverview; versions: Record<string, Running>; directory: Record<string, InDirectory> };
 type Shown = {
   name: string;
   clientId: string;
@@ -161,6 +166,11 @@ export function AppsPage({ menu, page }: { menu: MenuState; page: Page }) {
                         <th scope="row">
                           {g.appName}
                           {v?.running ? <small className="pg-muted pg-cv-rate">Version {v.running}</small> : null}
+                          {v?.suspended ? (
+                            <span className="pg-app-suspended" role="alert">
+                              Suspended by Relay: {v.suspended}
+                            </span>
+                          ) : null}
                           {v?.waiting ? (
                             <span className="pg-app-waiting" role="note">
                               Version {v.waiting} also asks to: {v.newScopes.map((s) => LABEL[s] ?? s).join(", ")}
@@ -239,7 +249,7 @@ export function AppsPage({ menu, page }: { menu: MenuState; page: Page }) {
                       </span>
                       <strong>{a.name}</strong>
                     </div>
-                    <Versions app={a} act={act} />
+                    <Versions app={a} act={act} directory={data.directory?.[a.id]} />
                     <p className="pg-muted">
                       Client id <code>{a.clientId}</code> · secret …{a.secretLastFour}
                     </p>
@@ -295,6 +305,7 @@ function NewApp({ onCreate }: { onCreate: (p: Record<string, unknown>) => Promis
   const [scopes, setScopes] = useState<string[]>([]);
   const [canvasUrl, setCanvasUrl] = useState("");
   const [placements, setPlacements] = useState<Placement[]>([]);
+  const [installUrl, setInstallUrl] = useState("");
   return (
     <Card title="Register an app" description="Its name and description are shown on the consent screen. Ask only for what it needs.">
       <label className="pg-settings-field">
@@ -326,6 +337,11 @@ function NewApp({ onCreate }: { onCreate: (p: Record<string, unknown>) => Promis
         </fieldset>
       ))}
       <CanvasFields url={canvasUrl} placements={placements} onUrl={setCanvasUrl} onPlacements={setPlacements} />
+      <label className="pg-settings-field">
+        <span className="pg-settings-label">Install address (optional)</span>
+        <input value={installUrl} placeholder="https://example.com/install" onChange={(e) => setInstallUrl(e.target.value)} />
+        <small className="pg-muted">Your page that starts the consent flow. The App directory sends people here when they press Install.</small>
+      </label>
       <button
         type="button"
         className="pg-primary"
@@ -338,6 +354,7 @@ function NewApp({ onCreate }: { onCreate: (p: Record<string, unknown>) => Promis
               redirectUris: redirects.split(/\s+/).filter(Boolean),
               scopes,
               ...(canvasUrl.trim() ? { canvasUrl, canvasPlacements: placements } : {}),
+              ...(installUrl.trim() ? { installUrl } : {}),
             })
           ) {
             setName("");
@@ -346,6 +363,7 @@ function NewApp({ onCreate }: { onCreate: (p: Record<string, unknown>) => Promis
             setScopes([]);
             setCanvasUrl("");
             setPlacements([]);
+            setInstallUrl("");
           }
         }}
       >
@@ -415,17 +433,42 @@ function CanvasSettings({ app, onSave }: { app: App; onSave: (p: Record<string, 
  * one to let other workspaces install it. A version in development installs only here and in this
  * workspace's test pair.
  */
-function Versions({ app, act }: { app: App; act: (p: Record<string, unknown>, fallback: string) => Promise<unknown> }) {
+function Versions({ app, act, directory }: { app: App; act: (p: Record<string, unknown>, fallback: string) => Promise<unknown>; directory?: InDirectory }) {
   const [notes, setNotes] = useState("");
   const newestReleased = Math.max(0, ...app.versions.filter((v) => v.releasedAt).map((v) => v.version));
+  // T3b: where the app stands in the directory, and the newest decision on each version.
+  const decided = (version: number) => directory?.submissions.find((s) => s.version === version);
+  const waiting = directory?.submissions.find((s) => s.state === "pending");
+  const newest = app.versions.at(-1);
+  const listed = directory?.listing && !directory.listing.delistedAt;
   return (
     <div className="pg-app-versions">
+      {directory?.suspended ? (
+        <p className="pg-app-suspended" role="alert">
+          Relay has suspended this app everywhere: {directory.suspended}
+        </p>
+      ) : listed ? (
+        <p className="pg-muted">In the App directory as version {directory!.listing!.version}. A version that asks for more, shows somewhere new or sends people to a new address is reviewed again.</p>
+      ) : directory?.listing?.delistedAt ? (
+        <p className="pg-app-suspended" role="alert">
+          Relay took this app out of the directory: {directory.listing.delistedReason}. Installations keep working.
+        </p>
+      ) : null}
+      {waiting && (
+        <div className="pg-app-review" role="status">
+          <strong>Version {waiting.version} is waiting for Relay&apos;s review</strong>
+          {waiting.widens.map((w) => (
+            <small key={w}>{w}</small>
+          ))}
+        </div>
+      )}
       <ol aria-label={`${app.name} versions`}>
         {[...app.versions].reverse().map((v) => (
           <li key={v.version}>
             <strong>Version {v.version}</strong>
             <span className="pg-muted">
               {v.notes || "No notes"} · published {when(v.publishedAt)}
+              {decided(v.version)?.state === "rejected" ? <span className="pg-app-rejected"> · Relay asked for changes: {decided(v.version)!.reason}</span> : null}
             </span>
             {v.releasedAt ? (
               <span className="pg-email-status" data-status="verified">
@@ -441,6 +484,17 @@ function Versions({ app, act }: { app: App; act: (p: Record<string, unknown>, fa
           </li>
         ))}
       </ol>
+      {!app.archived && !directory?.listing && !waiting && !directory?.suspended && newest && (
+        <button
+          type="button"
+          className="pg-zoe-secondary pg-app-submit"
+          disabled={!newest.installUrl}
+          title={newest.installUrl ? undefined : "Give the app an install address, then publish, first."}
+          onClick={() => void act({ action: "submit", id: app.id, version: newest.version }, "It couldn't be submitted to the directory.")}
+        >
+          Submit version {newest.version} to the App directory
+        </button>
+      )}
       {!app.archived && (
         <form
           className="pg-app-publish"
@@ -456,5 +510,82 @@ function Versions({ app, act }: { app: App; act: (p: Record<string, unknown>, fa
         </form>
       )}
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------------------------- */
+/* Settings › Apps › Directory (T3b)                                                               */
+/* ---------------------------------------------------------------------------------------------- */
+type Listed = {
+  name: string;
+  description: string;
+  developer: string;
+  clientId: string;
+  version: number;
+  scopes: string[];
+  placements: Placement[];
+  installUrl: string | null;
+  installed: boolean;
+};
+/**
+ * Apps Relay has reviewed. Install sends you to the app's own install page, which starts the same
+ * consent screen as any app: nothing is installed until someone who manages this workspace allows it.
+ */
+export function DirectoryPage({ menu, page }: { menu: MenuState; page: Page }) {
+  const [apps, setApps] = useState<Listed[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api<{ apps: Listed[] }>("app-directory")
+      .then((r) => setApps(r.apps))
+      .catch((e) => setError(message(e, "The directory couldn't be loaded.")));
+  }, []);
+  return (
+    <Frame menu={menu} page={page}>
+      {error && (
+        <p role="alert" className="pg-attr-error">
+          {error}
+        </p>
+      )}
+      {apps && !apps.length && (
+        <Card title="No apps yet" description="Apps appear here once Relay has reviewed them.">
+          <p className="pg-muted">Apps you build yourself are in Settings › Apps, where you can submit one for review.</p>
+        </Card>
+      )}
+      {apps && apps.length > 0 && (
+        <ul className="pg-directory" aria-label="App directory">
+          {apps.map((a) => (
+            <li key={a.clientId} className="pg-directory-card" aria-label={a.name}>
+              <header>
+                <span className="pg-settings-tile-icon" aria-hidden="true">
+                  {a.name.slice(0, 1)}
+                </span>
+                <span>
+                  <strong>{a.name}</strong>
+                  <small className="pg-muted">
+                    by {a.developer} · version {a.version}
+                  </small>
+                </span>
+              </header>
+              <p>{a.description || <span className="pg-muted">No description.</span>}</p>
+              <dl>
+                <dt>May</dt>
+                <dd>{a.scopes.map((s) => LABEL[s] ?? s).join(", ")}</dd>
+                <dt>Shows in</dt>
+                <dd>{a.placements.filter((p) => p !== "settings").map((p) => PLACEMENT_LABEL[p]).join(", ") || "Nowhere in the inbox"}</dd>
+              </dl>
+              {a.installed ? (
+                <span className="pg-email-status" data-status="verified">
+                  Installed
+                </span>
+              ) : a.installUrl ? (
+                <a className="pg-primary" href={a.installUrl}>
+                  Install {a.name}
+                </a>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Frame>
   );
 }

@@ -39,7 +39,11 @@ A test workspace is **a workspace of its own, owned by a production one**: same 
   - **T3a (done, `docs/TEST_WORKSPACE_STEP5.md`):** an app's manifest as published versions, kept
     as they were; installations pinned to what a manager consented to; the developer's workspace
     and its test pair install a version that isn't released, nobody else does.
-  - **T3b:** review by Relay's operators, and the directory with install and uninstall.
+  - **T3b (done, `docs/TEST_WORKSPACE_STEP6.md`):** review by Relay's operators
+    (`npm run directory`), the App directory in Settings with install through each app's own page,
+    re-review only for versions that widen an app's reach, delisting that keeps installations,
+    suspension that stops an app everywhere, and uninstalling that cleans up and tells the app.
+    Decisions of 23 November 2026. With it, phase 15's D6 is complete locally.
 
 ## How it is put together
 

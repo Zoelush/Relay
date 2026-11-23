@@ -73,6 +73,7 @@ const routes = {
     "developer-settings",
     "developer-webhooks",
     "developer-apps",
+    "app-directory",
     "oauth-consent",
     "canvas-apps",
     "audit",

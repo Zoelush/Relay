@@ -32,7 +32,15 @@ recorded), and which version an installation runs is decided only by `server/app
 (T3a, `docs/TEST_WORKSPACE_STEP5.md`, migration 0105) — consent, tokens and Canvas all ask it, and
 nothing is written when an installation moves by itself. Only the app's workspace and its test
 pair install an unreleased version; a token carries only scopes both granted and asked for by the
-running version. `test_baselines` holds the two version numbers the pair was last in step at and
+running version. The App directory (T3b, `docs/TEST_WORKSPACE_STEP6.md`, migration 0106) lives in a tenant of
+its own, `__directory__` (no workspace row, like `__schema__`); read and write it with
+`inDirectory`, one tenant at a time. Only `server/directory-review.ts`, through `npm run
+directory`, decides reviews, listings and suspensions — never add a web surface for staff to write
+through. A release of a listed app is judged against `oauth_apps.listed_card` (`widensReach`) in the
+developer's own transaction, so it fails closed. A suspended app is refused by `suspensionOf`
+wherever it acts: `handleRest`, `appByClient` (consent and tokens) and `appCanvas`; a new way for an
+app to act asks it too. `oauth.ts` never reads a `canvas.ts` export while loading (they sit on a
+cycle through `api.ts`). `test_baselines` holds the two version numbers the pair was last in step at and
 lives in the production workspace, so a promotion moves the mark in the same transaction as the
 change and is never mistaken for an edit made there.
 

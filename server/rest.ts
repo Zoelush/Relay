@@ -1,4 +1,5 @@
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
+import { suspensionOf } from "./directory";
 import { authorize, capabilities, scopeSql, type Capability, type Teammate } from "./policy";
 import { command } from "./conversations";
 import { getIdentity, resolveContact } from "./people";
@@ -364,14 +365,26 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
     const hash = await sha256(auth![1]);
     // Phase 16 C3b: the API's IP allowlist, against the address Cloudflare sets (a caller can't).
     const ip = req.headers.get("cf-connecting-ip");
-    const token = await tenant(env.connect, w, async (db) => {
+    const found = await tenant(env.connect, w, async (db) => {
       const on = (await db.query("SELECT 1 FROM workspace_features WHERE workspace_id=$1 AND name='developer_api_v1' AND enabled", [w])).rows.length > 0;
       if (!on) return null;
       const t = (
-        await db.query<{ id: string; teammate_id: string; principal_id: string; scopes: string[]; version: string; last_used_at: Date | null; grant_id: string | null }>(
-          `SELECT k.id,k.teammate_id,m.principal_id,k.scopes,k.version,k.last_used_at,k.grant_id FROM api_tokens k JOIN teammates m ON m.workspace_id=k.workspace_id AND m.id=k.teammate_id
+        await db.query<{
+          id: string;
+          teammate_id: string;
+          principal_id: string;
+          scopes: string[];
+          version: string;
+          last_used_at: Date | null;
+          grant_id: string | null;
+          app_workspace_id: string | null;
+          app_id: string | null;
+        }>(
+          `SELECT k.id,k.teammate_id,m.principal_id,k.scopes,k.version,k.last_used_at,k.grant_id,g.app_workspace_id,g.app_id
+           FROM api_tokens k JOIN teammates m ON m.workspace_id=k.workspace_id AND m.id=k.teammate_id
+           LEFT JOIN oauth_grants g ON g.workspace_id=k.workspace_id AND g.id=k.grant_id
            WHERE k.workspace_id=$1 AND k.token_hash=$2 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
-             AND (k.grant_id IS NULL OR EXISTS (SELECT 1 FROM oauth_grants g WHERE g.workspace_id=k.workspace_id AND g.id=k.grant_id AND g.revoked_at IS NULL))`,
+             AND (k.grant_id IS NULL OR (g.id IS NOT NULL AND g.revoked_at IS NULL))`,
           [w, hash],
         )
       ).rows[0];
@@ -382,10 +395,19 @@ export async function handleRest(req: Request, env: RestEnvironment): Promise<Re
         await db.query("UPDATE api_tokens SET last_used_at=now() WHERE workspace_id=$1 AND id=$2", [w, t.id]);
         await db.query("DELETE FROM api_usage WHERE workspace_id=$1 AND minute<now()-interval '7 days'", [w]);
       }
-      return { id: t.id, teammateId: t.teammate_id, principal: t.principal_id, scopes: t.scopes, version: t.version, grantId: t.grant_id } satisfies Token;
+      return {
+        token: { id: t.id, teammateId: t.teammate_id, principal: t.principal_id, scopes: t.scopes, version: t.version, grantId: t.grant_id } satisfies Token,
+        app: t.app_workspace_id && t.app_id ? { appW: t.app_workspace_id, appId: t.app_id } : null,
+      };
     }).catch(() => null);
-    if (!token) return error(401, "unauthorized", "That token isn't valid: it may have been revoked.");
-    if (token === "network") return error(403, "network_not_allowed", `This workspace's API isn't available from this address${normalIp(ip) ? ` (${normalIp(ip)})` : ""}. Ask someone who manages security to add it.`);
+    if (!found) return error(401, "unauthorized", "That token isn't valid: it may have been revoked.");
+    if (found === "network") return error(403, "network_not_allowed", `This workspace's API isn't available from this address${normalIp(ip) ? ` (${normalIp(ip)})` : ""}. Ask someone who manages security to add it.`);
+    // T3b: an app's token stops the moment Relay suspends the app, everywhere, with the reason.
+    if (found.app) {
+      const suspended = await suspensionOf(env.connect, found.app.appW, found.app.appId);
+      if (suspended) return error(403, "app_suspended", `Relay has suspended this app: ${suspended.reason}`);
+    }
+    const token = found.token;
     // Rate limits, per token and per workspace; each call is counted for the Developers page.
     const limiter = env.rateLimiter ?? defaultLimiter;
     const mine = limiter.take("token:" + token.id, LIMITS.token);

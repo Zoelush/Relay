@@ -35,6 +35,7 @@ import { getIdentity, seedFoundation } from "../server/people";
 import { tenant, digest, type Sql } from "../server/db";
 import { normalizeDoc, plainText, type RichDoc } from "../lib/rich-doc";
 import { handleApi, type ApiEnvironment } from "../server/api";
+import { notifyUninstalled } from "../server/canvas";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
 import { helpSite } from "../server/help-site";
@@ -1033,6 +1034,8 @@ export async function startLocalRelay(
   handlers["help.brand.import"] = (job) => runBrandImport(env.sync?.policy ?? {}, job);
   // Invoices (phase 16 C10a): charged with the stand-in provider, which takes no money.
   handlers["invoice.charge"] = (job) => runInvoiceCharge(db.connect, env.billing ?? {}, job);
+  // T3b: an uninstalled app is told, so it can delete what it holds (signed, a few tries at most).
+  handlers["app.uninstalled"] = (job) => notifyUninstalled(db.connect, env.canvas, job);
   handlers["knowledge.sync.run"] = (job) =>
     runSync(db.connect, env.sync ?? {}, job);
   handlers["knowledge.index"] = (job) =>

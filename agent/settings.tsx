@@ -43,6 +43,7 @@ import {
   KeyRound,
   Webhook,
   AppWindow,
+  LayoutGrid,
   ScrollText,
   ReceiptText,
   LockKeyhole,
@@ -101,7 +102,7 @@ import { InvoicesPage } from "./settings-invoices";
 import { PromoteCard, TestWorkspaceCard } from "./settings-test-workspace";
 import { AiProvidersPage } from "./settings-ai-providers";
 import { WebhooksPage } from "./settings-webhooks";
-import { AppsPage } from "./settings-apps";
+import { AppsPage, DirectoryPage } from "./settings-apps";
 import { AttributesPage, TagsPage, TicketTypesPage } from "./settings-data";
 import { RolesPage, TeammatesPage } from "./settings-people";
 import { BrandsPage, MessengerPage, PortalPage } from "./settings-channels";
@@ -312,6 +313,14 @@ const PAGES: Page[] = [
     label: "Apps",
     description: "Register apps that use Relay's API with OAuth, and see the apps installed here.",
     icon: AppWindow,
+    group: "Developers",
+  },
+  {
+    // T3b: apps Relay has reviewed, to install here through their own install page.
+    id: "app-directory",
+    label: "App directory",
+    description: "Apps reviewed by Relay that you can install here: what each does, who built it and what it may do.",
+    icon: LayoutGrid,
     group: "Developers",
   },
   {
@@ -804,6 +813,8 @@ export function Settings({
             <WebhooksPage menu={menu} page={current} />
           ) : current.id === "apps" ? (
             <AppsPage menu={menu} page={current} />
+          ) : current.id === "app-directory" ? (
+            <DirectoryPage menu={menu} page={current} />
           ) : current.id === "audit" ? (
             <AuditPage menu={menu} page={current} />
           ) : current.id === "sign-in" ? (

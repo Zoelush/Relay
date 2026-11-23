@@ -223,7 +223,21 @@ import { liveDashboard } from "./live";
 import { handleRest } from "./rest";
 import { changeDeveloperTokens, readDeveloperSettings } from "./developer";
 import { changeWebhooks, getDelivery, listDeliveries, listWebhooks, TOPICS } from "./webhooks";
-import { changeApps, decideConsent, oauthRevoke, oauthToken, readApps, readConsent, readInstallations, upgradeInstallation, type AuthorizeQuery } from "./oauth";
+import {
+  changeApps,
+  decideConsent,
+  oauthRevoke,
+  oauthToken,
+  readApps,
+  readConsent,
+  readDirectory,
+  readInstallations,
+  releaseFromWorkspace,
+  submitToDirectory,
+  upgradeInstallation,
+  type AuthorizeQuery,
+} from "./oauth";
+import { directoryStateFor } from "./directory";
 import { canvasOverview, canvasRequest, listCanvasApps, type CanvasEnvironment } from "./canvas";
 import { changeAudit, readAudit } from "./audit";
 import { acceptInvitation, changeAccount, changeInvitations, changeSessions, completeTwoFactor, readAccount, readInvitation, readInvitations, readSessions, resolveSession, sessionLive, signIn, signInAllowed, signOut, twoFactorSetup } from "./accounts";
@@ -1516,6 +1530,7 @@ export async function handleApi(
             "/v1/agent/developer-settings",
             "/v1/agent/developer-webhooks",
             "/v1/agent/developer-apps",
+            "/v1/agent/app-directory",
             "/v1/agent/oauth-consent",
             "/v1/agent/canvas-apps",
             "/v1/agent/audit",
@@ -2091,6 +2106,12 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/report-metric")
           // Phase 14 R2: one metric for a period, broken down (read-only: a POST for its body).
           return json(await reportMetric(env.connect, env.analytics, workspace, principal, p));
+        if (url.pathname === "/v1/agent/developer-app" && p.action === "submit")
+          // T3b: a version asked to be listed: checked in this workspace, recorded in the directory.
+          return json(await submitToDirectory(env.connect, workspace, principal, p, env.canvas));
+        if (url.pathname === "/v1/agent/developer-app" && p.action === "release")
+          // T3b: a listed app's version that widens its reach goes to review instead of out.
+          return json(await releaseFromWorkspace(env.connect, workspace, principal, p, env.canvas));
         if (url.pathname === "/v1/agent/developer-app" && p.action === "upgrade")
           // T3a: a manager approves the version waiting for an installation here. It reads the app's
           // versions in the app's own workspace first, so it can't run inside this one's transaction.
@@ -2844,7 +2865,17 @@ export async function handleApi(
         const apps = await tenant(env.connect, workspace, (db) => readApps(db, workspace, principal));
         // D5: each installation's placements and error rate, and your apps' rates across workspaces.
         // T3a: what each installation runs, and what waits for a manager's approval.
-        return json({ ...apps, canvas: await canvasOverview(env.connect, workspace), versions: await readInstallations(env.connect, workspace) });
+        return json({
+          ...apps,
+          canvas: await canvasOverview(env.connect, workspace),
+          versions: await readInstallations(env.connect, workspace),
+          // T3b: your apps as the directory knows them: listings, reviews and suspensions.
+          directory: await directoryStateFor(env.connect, workspace),
+        });
+      }
+      if (url.pathname === "/v1/agent/app-directory") {
+        // T3b: Settings › Apps › Directory: what's listed, and which are installed here.
+        return json(await readDirectory(env.connect, workspace, principal));
       }
       // Phase 16 C3a: your sign-in and devices; everyone's sessions and their limits; open invitations.
       if (url.pathname === "/v1/agent/account") return json(await tenant(env.connect, workspace, (db) => readAccount(db, workspace, principal, sessionId)));

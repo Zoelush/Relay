@@ -6,6 +6,8 @@ import { LATEST_VERSION } from "../lib/api-spec";
 import { CANVAS_COLUMNS, canvasOut, rotateCanvasSecret, setCanvas, type CanvasColumns, type CanvasEnvironment } from "./canvas";
 import { installable, readVersions, resolveRunning, sandboxOf, type AppVersion } from "./app-versions";
 import { recordAudit } from "./audit";
+import { cardOf, DIRECTORY, inDirectory, listingOf, readListings, suspensionOf, suspensionsOf, widensReach, type Card, type Suspension } from "./directory";
+import { enqueueJob } from "./jobs";
 
 /**
  * OAuth apps (phase 15, step D4; docs/DEVELOPER_PLATFORM_STEP4.md), behind `developer_api_v1`.
@@ -56,6 +58,16 @@ export function checkRedirect(raw: unknown) {
     throw field("redirect_uris", "Redirects use https (or http on 127.0.0.1 or localhost), without a #fragment.");
   return u.toString();
 }
+/** An app's install page (T3b): where the directory sends people who press Install. */
+function checkInstallUrl(raw: unknown) {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return null;
+  try {
+    return checkRedirect(s);
+  } catch {
+    throw field("install_url", "The install address is a full https address (or http on 127.0.0.1 or localhost), without a #fragment.");
+  }
+}
 function checkScopes(raw: unknown, f = "scopes") {
   const s = Array.isArray(raw) ? [...new Set(raw.map(String))] : [];
   if (!s.length) throw field(f, "Choose at least one scope.");
@@ -67,9 +79,29 @@ function checkScopes(raw: unknown, f = "scopes") {
 /* ------------------------------------------------------------------------------------------ */
 /* Apps, in their developer's workspace                                                        */
 /* ------------------------------------------------------------------------------------------ */
-type AppRow = { id: string; name: string; description: string; redirect_uris: string[]; scopes: string[]; secret_last_four: string; created_at: Date; archived_at: Date | null } & CanvasColumns;
-const APP = `SELECT id,name,description,redirect_uris,scopes,secret_last_four,created_at,archived_at,${CANVAS_COLUMNS} FROM oauth_apps`;
+type AppRow = {
+  id: string;
+  name: string;
+  description: string;
+  redirect_uris: string[];
+  scopes: string[];
+  secret_last_four: string;
+  created_at: Date;
+  archived_at: Date | null;
+  install_url: string | null;
+  listed_card: Card | null;
+} & CanvasColumns;
+/**
+ * Built when first used, never while this module loads: canvas.ts sits on an import cycle through
+ * api.ts, and whichever of the two loads first must not read the other's exports at the top.
+ */
+const APP_SELECT = () => `SELECT id,name,description,redirect_uris,scopes,secret_last_four,created_at,archived_at,install_url,listed_card,${CANVAS_COLUMNS} FROM oauth_apps`;
 const clientId = (w: string, id: string) => `relay_app_${b64(w)}_${id}`;
+/** An app's workspace and id from its client id, or null. */
+export const parseClientId = (client: unknown) => {
+  const r = workspaceOf("relay_app", client);
+  return r?.w ? { w: r.w, id: r.id } : null;
+};
 const appOut = (w: string, a: AppRow, secret?: string, canvasSecret?: string) => ({
   id: a.id,
   clientId: clientId(w, a.id),
@@ -80,6 +112,8 @@ const appOut = (w: string, a: AppRow, secret?: string, canvasSecret?: string) =>
   secretLastFour: a.secret_last_four,
   createdAt: a.created_at.toISOString(),
   archived: !!a.archived_at,
+  installUrl: a.install_url,
+  listed: !!a.listed_card,
   ...canvasOut(a),
   ...(secret ? { clientSecret: secret } : {}),
   ...(canvasSecret ? { canvasSecret } : {}),
@@ -94,7 +128,7 @@ async function managing(db: Sql, w: string, principal: string) {
 export async function readApps(db: Sql, w: string, principal: string) {
   await managing(db, w, principal);
   const apps = [];
-  for (const a of (await db.query<AppRow>(`${APP} WHERE workspace_id=$1 ORDER BY archived_at IS NOT NULL,created_at,id`, [w])).rows)
+  for (const a of (await db.query<AppRow>(`${APP_SELECT()} WHERE workspace_id=$1 ORDER BY archived_at IS NOT NULL,created_at,id`, [w])).rows)
     apps.push({ ...appOut(w, a), versions: await readVersions(db, w, a.id) });
   const installed = (
     await db.query<{ id: string; app_name: string; scopes: string[]; teammate: string; created_at: Date; last_used: Date | null }>(
@@ -109,7 +143,7 @@ export async function readApps(db: Sql, w: string, principal: string) {
 export async function changeApps(db: Sql, w: string, principal: string, p: Record<string, unknown>, canvas?: CanvasEnvironment) {
   const t = await managing(db, w, principal);
   const app = async (id: unknown) => {
-    const a = (await db.query<AppRow>(`${APP} WHERE workspace_id=$1 AND id=$2`, [w, String(id ?? "")])).rows[0];
+    const a = (await db.query<AppRow>(`${APP_SELECT()} WHERE workspace_id=$1 AND id=$2`, [w, String(id ?? "")])).rows[0];
     assert(a, "NOT_FOUND", "No such app.", 404);
     return a;
   };
@@ -127,7 +161,7 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
     case "create": {
       const id = random(24);
       const secret = "relay_cs_" + random(40);
-      await db.query("INSERT INTO oauth_apps(workspace_id,id,name,description,redirect_uris,scopes,secret_hash,secret_last_four,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)", [
+      await db.query("INSERT INTO oauth_apps(workspace_id,id,name,description,redirect_uris,scopes,secret_hash,secret_last_four,created_by,install_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [
         w,
         id,
         name(p.name),
@@ -137,6 +171,7 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
         await sha256(secret),
         secret.slice(-4),
         t.id,
+        checkInstallUrl(p.installUrl),
       ]);
       // D5: its canvas address and placements, if given (the canvas secret is shown once too).
       const canvasSecret = await setCanvas(db, w, id, canvas, p);
@@ -146,13 +181,14 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
     }
     case "update": {
       const a = await app(p.id);
-      await db.query("UPDATE oauth_apps SET name=$3,description=$4,redirect_uris=$5,scopes=$6,updated_at=now() WHERE workspace_id=$1 AND id=$2", [
+      await db.query("UPDATE oauth_apps SET name=$3,description=$4,redirect_uris=$5,scopes=$6,install_url=$7,updated_at=now() WHERE workspace_id=$1 AND id=$2", [
         w,
         a.id,
         p.name === undefined ? a.name : name(p.name),
         p.description === undefined ? a.description : String(p.description).slice(0, 300),
         p.redirectUris === undefined ? a.redirect_uris : redirects(p.redirectUris),
         p.scopes === undefined ? a.scopes : checkScopes(p.scopes),
+        p.installUrl === undefined ? a.install_url : checkInstallUrl(p.installUrl),
       ]);
       const canvasSecret = await setCanvas(db, w, a.id, canvas, p);
       return appOut(w, await app(a.id), undefined, canvasSecret);
@@ -191,35 +227,69 @@ export async function changeApps(db: Sql, w: string, principal: string, p: Recor
       const v = (await db.query<{ released_at: Date | null; name: string }>("SELECT released_at,name FROM oauth_app_versions WHERE workspace_id=$1 AND app_id=$2 AND version=$3 FOR UPDATE", [w, a.id, Number(p.version)])).rows[0];
       assert(v, "NOT_FOUND", "No such version.", 404);
       assert(!v.released_at, "ALREADY_RELEASED", "That version is already released.", 409);
-      await db.query("UPDATE oauth_app_versions SET released_at=now(),released_by=$4 WHERE workspace_id=$1 AND app_id=$2 AND version=$3", [w, a.id, Number(p.version), t.id]);
-      await recordAudit(db, w, "app_version.released", { type: "app", id: `${a.id}:${Number(p.version)}`, name: v.name }, { version: Number(p.version) });
-      return { ...appOut(w, await app(a.id)), versions: await readVersions(db, w, a.id) };
+      // T3b: a listed app's version that widens its reach isn't released here: it goes to review.
+      // Compared with the card an operator approved, kept on this row, so this holds whichever way
+      // a release arrives; the route turns the answer into a submission.
+      const card = await versionCard(db, w, a.id, Number(p.version));
+      const widens = a.listed_card ? widensReach(a.listed_card, card) : [];
+      if (widens.length) return { ...appOut(w, a), versions: await readVersions(db, w, a.id), review: { card, widens } };
+      await releaseVersion(db, w, a.id, Number(p.version), t.id, v.name);
+      return { ...appOut(w, await app(a.id)), versions: await readVersions(db, w, a.id), ...(a.listed_card ? { listedCard: card } : {}) };
+    }
+    case "submit": {
+      // T3b: a version asked to be listed in the directory. Checked here; the route records it there.
+      const a = await app(p.id);
+      assert(!a.archived_at, "APP_ARCHIVED", "This app is archived.", 409);
+      const card = await versionCard(db, w, a.id, Number(p.version));
+      assert(card.installUrl, "INVALID_FIELD", "Give this version an install address first: it's where the directory sends people who press Install.", 400);
+      return { ...appOut(w, a), versions: await readVersions(db, w, a.id), review: { card, widens: [] as string[] } };
     }
     case "uninstall": {
       // An installation here, revoked: its tokens stop at once.
       const g = (await db.query<{ id: string }>("SELECT id FROM oauth_grants WHERE workspace_id=$1 AND id=$2 AND revoked_at IS NULL", [w, String(p.id ?? "")])).rows[0];
       assert(g, "NOT_FOUND", "No such installed app.", 404);
       await revokeGrant(db, w, g.id, "Uninstalled by a teammate.");
+      // T3b: the app is told, so it can delete what it holds about this workspace. A job, after
+      // this commits: a notice that fails is retried a few times and never blocks the uninstall.
+      await enqueueJob(db, w, "app.uninstalled", { grantId: g.id }, { teammateId: t.id });
       return { ok: true };
     }
   }
-  throw new DomainError("INVALID_APP", "Choose create, update, publish, release, secret, canvas-secret, archive or uninstall.");
+  throw new DomainError("INVALID_APP", "Choose create, update, publish, release, submit, secret, canvas-secret, archive or uninstall.");
+}
+
+/** A version's card: what the directory would show of it, and what an operator judges. */
+async function versionCard(db: Sql, w: string, appId: string, version: number): Promise<Card> {
+  const v = (await readVersions(db, w, appId)).find((x) => x.version === version);
+  assert(v, "NOT_FOUND", "No such version.", 404);
+  const developer = (await db.query<{ brand: string }>("SELECT brand FROM workspace WHERE id=$1", [w])).rows[0]?.brand ?? w;
+  return cardOf(v!, developer, clientId(w, appId));
+}
+
+/** A version released: installable beyond the sandbox from now on. Recorded in the audit log. */
+export async function releaseVersion(db: Sql, w: string, appId: string, version: number, by: string | null, name: string) {
+  await db.query("UPDATE oauth_app_versions SET released_at=now(),released_by=$4 WHERE workspace_id=$1 AND app_id=$2 AND version=$3 AND released_at IS NULL", [w, appId, version, by]);
+  await recordAudit(db, w, "app_version.released", { type: "app", id: `${appId}:${version}`, name }, { version });
 }
 
 /** The draft as it is now, kept as the app's next version. Returns its number. */
 async function publishVersion(db: Sql, w: string, appId: string, by: string, notes: string) {
   const next = ((await db.query<{ n: number | null }>("SELECT max(version) AS n FROM oauth_app_versions WHERE workspace_id=$1 AND app_id=$2", [w, appId])).rows[0].n ?? 0) + 1;
   await db.query(
-    `INSERT INTO oauth_app_versions(workspace_id,app_id,version,name,description,redirect_uris,scopes,canvas_url,canvas_placements,notes,published_by)
-     SELECT workspace_id,id,$3,name,description,redirect_uris,scopes,canvas_url,canvas_placements,$4,$5 FROM oauth_apps WHERE workspace_id=$1 AND id=$2`,
+    `INSERT INTO oauth_app_versions(workspace_id,app_id,version,name,description,redirect_uris,scopes,canvas_url,canvas_placements,notes,published_by,install_url)
+     SELECT workspace_id,id,$3,name,description,redirect_uris,scopes,canvas_url,canvas_placements,$4,$5,install_url FROM oauth_apps WHERE workspace_id=$1 AND id=$2`,
     [w, appId, next, notes, by],
   );
   return next;
 }
 
-/** An installation and everything it issued, revoked. */
+/** An installation and everything it issued, revoked; its open cards and saved settings gone (T3b). */
 async function revokeGrant(db: Sql, w: string, grantId: string, reason: string) {
-  await db.query("UPDATE oauth_grants SET revoked_at=COALESCE(revoked_at,now()),revoked_reason=COALESCE(revoked_reason,$3) WHERE workspace_id=$1 AND id=$2", [w, grantId, reason]);
+  await db.query(
+    "UPDATE oauth_grants SET revoked_at=COALESCE(revoked_at,now()),revoked_reason=COALESCE(revoked_reason,$3),canvas_settings=NULL,configured_at=NULL WHERE workspace_id=$1 AND id=$2",
+    [w, grantId, reason],
+  );
+  await db.query("DELETE FROM canvas_sessions WHERE workspace_id=$1 AND grant_id=$2", [w, grantId]);
   await db.query("UPDATE api_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE workspace_id=$1 AND grant_id=$2", [w, grantId]);
   await db.query("UPDATE oauth_refresh_tokens SET used_at=COALESCE(used_at,now()) WHERE workspace_id=$1 AND grant_id=$2", [w, grantId]);
 }
@@ -235,7 +305,9 @@ async function appByClient(connect: Connect, client: unknown, secret?: unknown) 
     const developer = (await db.query<{ name: string }>("SELECT brand AS name FROM workspace WHERE id=$1", [parsed.w])).rows[0]?.name ?? parsed.w;
     // T3a: its versions, and the workspaces it's at home in (its own and its test pair).
     return { w: parsed.w!, app: a, developer, versions: await readVersions(db, parsed.w!, a.id), sandbox: await sandboxOf(db, parsed.w!) };
-  }).catch(() => null);
+  })
+    .then(async (found) => (found ? { ...found, suspended: (await suspensionOf(connect, found.w, found.app.id)) as Suspension | null } : null))
+    .catch(() => null);
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -247,6 +319,8 @@ export async function readConsent(connect: Connect, w: string, principal: string
   const found = await appByClient(connect, q.client_id);
   assert(found, "INVALID_CLIENT", "This app isn't registered with Relay (or was archived).", 400);
   const { developer } = found!;
+  // T3b: an app Relay has suspended installs nowhere.
+  if (found!.suspended) throw new DomainError("APP_SUSPENDED", `Relay has suspended this app: ${found!.suspended.reason}`, 403);
   // T3a: what is installed is a published version — the newest this workspace may see.
   const choice = installable(found!.versions, found!.sandbox.includes(w));
   if ("refused" in choice) throw new DomainError("APP_NOT_INSTALLABLE", choice.refused, 403);
@@ -366,6 +440,8 @@ export async function oauthToken(req: Request, connect: Connect): Promise<Respon
   const client = credentials(req, form);
   const found = await appByClient(connect, client.id, client.secret ?? "");
   if (!found) return oauthError(401, "invalid_client", "The client id and secret don't match a registered app.");
+  // T3b: a suspended app gets no tokens, anywhere, until Relay lifts it.
+  if (found.suspended) return oauthError(401, "invalid_client", `Relay has suspended this app: ${found.suspended.reason}`);
   const sameApp = (g: { app_workspace_id: string; app_id: string }) => g.app_workspace_id === found.w && g.app_id === found.app.id;
   type Grant = { id: string; teammate_id: string; scopes: string[]; app_name: string; app_workspace_id: string; app_id: string; revoked_at: Date | null; app_version: number | null };
   const GRANT = "SELECT id,teammate_id,scopes,app_name,app_workspace_id,app_id,revoked_at,app_version FROM oauth_grants WHERE workspace_id=$1 AND id=$2";
@@ -472,11 +548,22 @@ export async function readInstallations(connect: Connect, w: string) {
     (await db.query<InstalledGrant>("SELECT id,app_workspace_id,app_id,scopes,app_version FROM oauth_grants WHERE workspace_id=$1 AND revoked_at IS NULL", [w])).rows,
   );
   const of = await versionsOf(connect, grants);
-  const installed: Record<string, { running: number | null; waiting: number | null; newScopes: string[]; notes: string }> = {};
+  // T3b: an app Relay has suspended says so on its row, with the reason.
+  const suspended = await suspensionsOf(
+    connect,
+    grants.map((g) => ({ appW: g.app_workspace_id, appId: g.app_id })),
+  );
+  const installed: Record<string, { running: number | null; waiting: number | null; newScopes: string[]; notes: string; suspended: string | null }> = {};
   for (const g of grants) {
     const app = of.get(g.app_workspace_id + "/" + g.app_id)!;
     const r = resolveRunning(app.versions, app.sandbox.includes(w), g.app_version);
-    installed[g.id] = { running: r?.running.version ?? null, waiting: r?.waiting?.version ?? null, newScopes: r?.newScopes ?? [], notes: r?.waiting?.notes ?? "" };
+    installed[g.id] = {
+      running: r?.running.version ?? null,
+      waiting: r?.waiting?.version ?? null,
+      newScopes: r?.newScopes ?? [],
+      notes: r?.waiting?.notes ?? "",
+      suspended: suspended.get(g.app_workspace_id + "/" + g.app_id)?.reason ?? null,
+    };
   }
   return installed;
 }
@@ -507,4 +594,72 @@ export async function upgradeInstallation(connect: Connect, w: string, principal
     await db.query("UPDATE oauth_grants SET scopes=$3,app_version=$4,app_name=$5 WHERE workspace_id=$1 AND id=$2", [w, id, granted, waiting.version, waiting.name]);
     return { id, running: waiting.version, scopes: granted };
   });
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* The directory, from a workspace (T3b, docs/TEST_WORKSPACE_STEP6.md)                         */
+/* ------------------------------------------------------------------------------------------ */
+/** A version's review, recorded in the directory after the developer's own workspace has checked it. */
+async function recordSubmission(connect: Connect, w: string, principal: string, appId: string, kind: "listing" | "version", review: { card: Card; widens: string[] }) {
+  const who = await tenant(connect, w, async (db) => (await managing(db, w, principal)).name);
+  const id = crypto.randomUUID();
+  await inDirectory(connect, (db) =>
+    db.query(
+      "INSERT INTO app_submissions(workspace_id,id,app_workspace_id,app_id,version,kind,card,widens,submitted_by_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      [DIRECTORY, id, w, appId, review.card.version, kind, JSON.stringify(review.card), review.widens, who],
+    ),
+  ).catch((e: unknown) => {
+    if (String((e as { code?: string }).code) === "23505") throw new DomainError("REVIEW_PENDING", "This app already has a version waiting for Relay's review.", 409);
+    throw e;
+  });
+  return id;
+}
+
+/** "Submit to the directory": a version asked to be listed. One open submission per app. */
+export async function submitToDirectory(connect: Connect, w: string, principal: string, p: Record<string, unknown>, canvas?: CanvasEnvironment) {
+  const appId = String(p.id ?? "");
+  // Who may manage this workspace, before anything about the app or the directory is answered.
+  await tenant(connect, w, (db) => managing(db, w, principal));
+  const suspended = await suspensionOf(connect, w, appId);
+  if (suspended) throw new DomainError("APP_SUSPENDED", `Relay has suspended this app: ${suspended.reason}`, 403);
+  const listed = await inDirectory(connect, (db) => listingOf(db, w, appId));
+  assert(!listed, "ALREADY_LISTED", listed?.delistedAt ? "Relay took this app out of the directory; only Relay can put it back." : "This app is already listed: release a new version and it follows, or waits for review.", 409);
+  const checked = (await tenant(connect, w, (db) => changeApps(db, w, principal, { ...p, action: "submit" }, canvas))) as { review: { card: Card; widens: string[] } };
+  const id = await recordSubmission(connect, w, principal, appId, "listing", checked.review);
+  return { submitted: id, version: checked.review.card.version };
+}
+
+/**
+ * Release, from the page: a listed app's version that widens its reach becomes a submission (the
+ * release itself refused it, in the developer's workspace); one that doesn't is released and the
+ * directory's card follows it.
+ */
+export async function releaseFromWorkspace(connect: Connect, w: string, principal: string, p: Record<string, unknown>, canvas?: CanvasEnvironment) {
+  const appId = String(p.id ?? "");
+  await tenant(connect, w, (db) => managing(db, w, principal));
+  const suspended = await suspensionOf(connect, w, appId);
+  if (suspended) throw new DomainError("APP_SUSPENDED", `Relay has suspended this app: ${suspended.reason}`, 403);
+  const r = (await tenant(connect, w, (db) => changeApps(db, w, principal, { ...p, action: "release" }, canvas))) as {
+    review?: { card: Card; widens: string[] };
+    listedCard?: Card;
+  } & Record<string, unknown>;
+  if (r.review) return { ...r, submitted: await recordSubmission(connect, w, principal, appId, "version", r.review) };
+  if (r.listedCard)
+    await inDirectory(connect, (db) =>
+      db.query("UPDATE app_listings SET card=$4,version=$5 WHERE workspace_id=$1 AND app_workspace_id=$2 AND app_id=$3", [DIRECTORY, w, appId, JSON.stringify(r.listedCard), r.listedCard!.version]),
+    );
+  return r;
+}
+
+/** Settings › Apps › Directory: what's listed, and which of them this workspace has installed. */
+export async function readDirectory(connect: Connect, w: string, principal: string) {
+  const installed = await tenant(connect, w, async (db) => {
+    await managing(db, w, principal);
+    return (await db.query<{ app_workspace_id: string; app_id: string }>("SELECT app_workspace_id,app_id FROM oauth_grants WHERE workspace_id=$1 AND revoked_at IS NULL", [w])).rows.map(
+      (g) => g.app_workspace_id + "/" + g.app_id,
+    );
+  });
+  return {
+    apps: (await readListings(connect)).map((l) => ({ ...l.card, listedAt: l.listedAt, installed: installed.includes(l.appW + "/" + l.appId) })),
+  };
 }
