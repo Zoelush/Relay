@@ -35,6 +35,7 @@ import { getIdentity, seedFoundation } from "../server/people";
 import { tenant, digest, type Sql } from "../server/db";
 import { normalizeDoc, plainText, type RichDoc } from "../lib/rich-doc";
 import { handleApi, type ApiEnvironment } from "../server/api";
+import { setContactAttributes } from "../server/contact-attributes";
 import { notifyUninstalled } from "../server/canvas";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
@@ -1145,9 +1146,10 @@ export async function startLocalRelay(
       ] as const;
       for (const p of people) {
         const { contactId } = await getIdentity(q, "demo", "user", p.id, { name: p.name, email: p.email });
-        await q.query("UPDATE contacts SET profile=$2,signed_up_at=$3,last_seen_at=$4 WHERE workspace_id='demo' AND id=$1", [
+        // P1a: their custom data through the one writer, as typed values.
+        await setContactAttributes(q, "demo", contactId, p.profile, { define: true });
+        await q.query("UPDATE contacts SET signed_up_at=$2,last_seen_at=$3 WHERE workspace_id='demo' AND id=$1", [
           contactId,
-          JSON.stringify(p.profile),
           new Date(Date.now() - p.signedUp * day).toISOString(),
           new Date(Date.now() - p.seen * day).toISOString(),
         ]);

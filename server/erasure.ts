@@ -144,6 +144,8 @@ export const ERASURE: Step[] = [
   del("contact_subscription_changes", "contact_id=ANY($2)"),
   del("contact_subscriptions", "contact_id=ANY($2)"),
   del("contact_changes", "contact_id=ANY($2)"),
+  // P1a: their custom data, as typed values.
+  del("contact_attribute_values", "contact_id=ANY($2)"),
   del("contact_emails", "contact_id=ANY($2)"),
   del("contact_phones", "contact_id=ANY($2)"),
   del("customer_unread_totals", "identity_id=ANY($3) OR contact_id=ANY($2)"),

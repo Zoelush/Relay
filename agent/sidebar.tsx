@@ -25,6 +25,8 @@ export type Context = {
     unsubscribed: boolean;
     name?: string;
     externalId?: string | null;
+    /** P1a: their custom data, by attribute name (shown to who may see personal data). */
+    customAttributes?: Record<string, string | number | boolean>;
     emails?: { value: string; verified: boolean }[];
     phones?: { value: string; verified: boolean }[];
   };
@@ -293,6 +295,12 @@ export function ContextSidebar({
                     <div key={p.value} className="pg-ctx-row">
                       <dt>Phone</dt>
                       <dd>{p.value}</dd>
+                    </div>
+                  ))}
+                  {Object.entries(customer.customAttributes ?? {}).map(([name, value]) => (
+                    <div key={name} className="pg-ctx-row">
+                      <dt>{name}</dt>
+                      <dd>{value === true ? "Yes" : value === false ? "No" : String(value)}</dd>
                     </div>
                   ))}
                   {customer.externalId && (

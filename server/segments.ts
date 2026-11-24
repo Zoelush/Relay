@@ -1,3 +1,4 @@
+import { contactAttributesJson, VALUE_TEXT } from "./contact-attributes";
 import { assert, DomainError, once, type Sql } from "./db";
 import { authorize } from "./policy";
 import { effectiveSubscriptions } from "./subscriptions";
@@ -71,10 +72,12 @@ export function compileSegment(def: SegmentDefinition, params: unknown[], now = 
       case "unsubscribed":
         return `c.global_unsubscribe=${p(String(r.value) === "true")}::boolean`;
       case "attribute": {
-        const k = p(r.key);
-        if (r.op === "greater_than" || r.op === "less_than")
-          return `(jsonb_typeof(c.profile->${k}::text)='number' AND (c.profile->>${k}::text)::numeric${r.op === "greater_than" ? ">" : "<"}${p(Number(r.value))}::numeric)`;
-        return text(`(CASE WHEN jsonb_typeof(c.profile->${k}::text) IN ('string','number','boolean') THEN c.profile->>${k}::text END)`, r.op, r.value);
+        // P1a: the typed store, by the attribute's exact name (as lib/segments.ts reads it).
+        const value = (column: string) =>
+          `(SELECT ${column} FROM contact_attribute_values v JOIN attribute_definitions d ON d.workspace_id=v.workspace_id AND d.id=v.attribute_id
+            WHERE v.workspace_id=c.workspace_id AND v.contact_id=c.id AND d.owner_type='contact' AND d.archived_at IS NULL AND d.name=${p(r.key)}::text)`;
+        if (r.op === "greater_than" || r.op === "less_than") return `COALESCE(${value("v.number_value")}${r.op === "greater_than" ? ">" : "<"}${p(Number(r.value))}::numeric,false)`;
+        return text(value(VALUE_TEXT), r.op, r.value);
       }
       case "event": {
         const since = r.days ? ` AND ev.occurred_at>=${p(new Date(now - r.days * DAY).toISOString())}::timestamptz` : "";
@@ -106,7 +109,7 @@ export async function contactFacts(db: Sql, w: string, contactId: string, def: S
       signed_up_at: Date | null;
       global_unsubscribe: boolean;
       profile: Record<string, unknown>;
-    }>("SELECT role,name,external_id,first_seen_at,last_seen_at,signed_up_at,global_unsubscribe,profile FROM contacts WHERE workspace_id=$1 AND id=$2", [w, contactId])
+    }>(`SELECT c.role,c.name,c.external_id,c.first_seen_at,c.last_seen_at,c.signed_up_at,c.global_unsubscribe,${contactAttributesJson("c")} AS profile FROM contacts c WHERE c.workspace_id=$1 AND c.id=$2`, [w, contactId])
   ).rows[0];
   assert(c, "CONTACT_NOT_FOUND", "That person isn't available.", 404);
   const names = [...new Set(def.rules.filter((r) => r.field === "event").map((r) => r.key!))];
@@ -188,9 +191,9 @@ export async function readPeople(db: Sql, w: string, principal: string) {
   return {
     segments: counted,
     attributes: (
+      // P1a: every key in use is a defined attribute now, so the definitions are the whole list.
       await db.query<{ key: string }>(
-        `SELECT DISTINCT k AS key FROM (SELECT jsonb_object_keys(profile) AS k FROM contacts WHERE workspace_id=$1 AND merged_into_contact_id IS NULL AND jsonb_typeof(profile)='object') x
-         UNION SELECT name FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='contact' AND archived_at IS NULL ORDER BY 1 LIMIT 200`,
+        "SELECT name AS key FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='contact' AND archived_at IS NULL ORDER BY lower(name) LIMIT 200",
         [w],
       )
     ).rows.map((r) => r.key),
@@ -243,7 +246,8 @@ export async function changePeople(db: Sql, w: string, principal: string, key: s
 async function contactDetails(db: Sql, w: string, contactId: string) {
   const c = (
     await db.query<{ id: string; name: string; role: string; external_id: string | null; profile: Record<string, unknown>; first_seen_at: Date; last_seen_at: Date; signed_up_at: Date | null; global_unsubscribe: boolean }>(
-      "SELECT id,name,role,external_id,profile,first_seen_at,last_seen_at,signed_up_at,global_unsubscribe FROM contacts WHERE workspace_id=$1 AND id=$2 AND merged_into_contact_id IS NULL",
+      `SELECT c.id,c.name,c.role,c.external_id,${contactAttributesJson("c")} AS profile,c.first_seen_at,c.last_seen_at,c.signed_up_at,c.global_unsubscribe
+       FROM contacts c WHERE c.workspace_id=$1 AND c.id=$2 AND c.merged_into_contact_id IS NULL`,
       [w, contactId],
     )
   ).rows[0];

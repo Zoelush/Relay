@@ -44,6 +44,13 @@ cycle through `api.ts`). `test_baselines` holds the two version numbers the pair
 lives in the production workspace, so a promotion moves the mark in the same transaction as the
 change and is never mistaken for an edit made there.
 
+Phase 01 is being finished (`docs/PEOPLE_PLAN.md`). A contact's custom data is typed values in
+`contact_attribute_values` (P1a, `docs/PEOPLE_STEP1.md`, migration 0107), written only by
+`server/contact-attributes.ts` (`setContactAttributes`, `replaceContactAttributes`,
+`mergeContactAttributes`) for every source — never write `contacts.profile`, which that writer keeps
+in step for one release (a test fails on another writer). Read values with `contactAttributesJson`;
+segments, the sidebar and the API already do.
+
 ## Build plan
 
 The product is being built in 18 phases, numbered 00–17. The full plan and

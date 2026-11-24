@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: Typed customer data, shown in the inbox
+
+- **A customer's own data is typed now.** Plan, seats, renewal date, a yes-or-no — each attribute
+  has a type, and a value that doesn't fit is refused with the attribute named, through the API and
+  workflows alike. An attribute your API names for the first time is defined by its first value.
+- **What you already had came across:** every attribute became a defined one, its type worked out
+  from the values it held (mixed values became text).
+- **See it while you reply.** The inbox's details panel now lists each customer's attributes for
+  teammates who may see personal data.
+- **Details:** `docs/PEOPLE_STEP1.md`.
+
 ## Unreleased: The App directory
 
 - **Find apps Relay has reviewed** in Settings › App directory: what each does, who built it, what

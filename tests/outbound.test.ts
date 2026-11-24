@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { testDatabase } from "./database";
 import { tenant } from "../server/db";
+import { setContactAttributes } from "../server/contact-attributes";
 import { getIdentity, seedFoundation } from "../server/people";
 import { command } from "../server/conversations";
 import { runJob, type Job } from "../server/jobs";
@@ -149,7 +150,7 @@ test("outbound: a chat reaches the messenger and continues into the inbox; deliv
     const ada = await tenant(db.connect, "a", (q) => getIdentity(q, "a", "user", "u-ada", { name: "Ada", email: "ada@example.com" }));
     const grace = await tenant(db.connect, "a", (q) => getIdentity(q, "a", "user", "u-grace", { name: "Grace", email: "grace@example.com" }));
     const visitor = await tenant(db.connect, "a", (q) => getIdentity(q, "a", "anonymous", "device-1"));
-    await sql("a", "UPDATE contacts SET profile='{\"plan\":\"pro\"}' WHERE id=$1", [ada.contactId]);
+    await tenant(db.connect, "a", (x) => setContactAttributes(x, "a", ada.contactId, { plan: "pro" }, { define: true }));
 
     // A draft: what stops it is said; an email subscription can't send an in-app chat.
     const made = (await agent("outbound-message", { action: "create", type: "chat", title: "Welcome to Pro" })).body;

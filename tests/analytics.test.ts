@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { analyticsDatabase, testDatabase } from "./database";
 import { tenant } from "../server/db";
+import { setContactAttributes } from "../server/contact-attributes";
 import { getIdentity, seedFoundation } from "../server/people";
 import { command } from "../server/conversations";
 import { runJob } from "../server/jobs";
@@ -64,7 +65,7 @@ test("reporting's store: fed from the application in batches, idempotent, snapsh
 
     // Off by default: nothing is projected, and there's no page.
     const ada = await tenant(db.connect, "a", (q) => getIdentity(q, "a", "user", "u-ada", { name: "Ada" }));
-    await sql("a", "UPDATE contacts SET profile='{\"plan\":\"pro\"}' WHERE id=$1", [ada.contactId]);
+    await tenant(db.connect, "a", (x) => setContactAttributes(x, "a", ada.contactId, { plan: "pro" }, { define: true }));
     const last = await start(ada.identityId, "A question last month");
     assert.equal(await project(), 0);
     assert.equal((await agent("reporting-status")).status, 404);
@@ -117,7 +118,7 @@ test("reporting's store: fed from the application in batches, idempotent, snapsh
     const report = () => conversationSummary(analytics, "a", { from: monthStart, to: monthEnd }, "plan");
     const was = await report();
     assert.deepEqual(was, { newConversations: 1, firstResponseMedianMs: 600_000, firstResponseMedianBusinessMs: was.firstResponseMedianBusinessMs, byAttribute: [{ value: "pro", count: 1 }] });
-    await sql("a", "UPDATE contacts SET profile='{\"plan\":\"free\"}' WHERE id=$1", [ada.contactId]);
+    await tenant(db.connect, "a", (x) => setContactAttributes(x, "a", ada.contactId, { plan: "free" }, { define: true }));
     await project();
     assert.deepEqual(await report(), was, "an edit today doesn't change last month");
     // Each change is its own row: setting her plan to pro before she wrote, then to free today.
