@@ -418,6 +418,7 @@ export const SPEC: Spec = {
           email: { type: ["string", "null"] },
           external_id: { type: ["string", "null"] },
           custom_attributes: ref("CustomAttributes"),
+          tags: { type: "array", items: ref("Tag"), description: "Their tags (phase 01 P1c)." },
           first_seen_at: time,
           last_seen_at: time,
           signed_up_at: { type: ["string", "null"], format: "date-time" },
@@ -966,6 +967,7 @@ const companyShape = {
   monthly_spend: { type: ["number", "null"] },
   website: { type: ["string", "null"] },
   custom_attributes: ref("CustomAttributes"),
+  tags: { type: "array", items: ref("Tag"), description: "Its tags." },
   contact_count: { type: "integer", description: "How many people are in it." },
   created_at: time,
   updated_at: time,
@@ -978,6 +980,36 @@ Object.assign(SPEC.components.schemas, {
     ["company_id", "name", "role"],
   ),
 });
+
+/* ------------------------------------------------------------------------------------------ */
+/* Phase 01 P1c (docs/PEOPLE_STEP3.md): tags on contacts and companies.                         */
+/* ------------------------------------------------------------------------------------------ */
+const tagOn = (what: "contact" | "company", schema: "Contact" | "Company") => ({
+  [`/${what === "contact" ? "contacts" : "companies"}/{id}/tags`]: {
+    post: write(
+      `tag${schema}`,
+      `Tag a ${what}`,
+      `Put a tag on the ${what} (the same tags conversations have). An archived tag isn't put on again.`,
+      "Tags",
+      "contacts.personal_data",
+      schema,
+      object({ tag_id: id("tag") }, ["tag_id"]),
+      [pathId("id", what)],
+    ),
+  },
+  [`/${what === "contact" ? "contacts" : "companies"}/{id}/tags/{tag_id}`]: {
+    delete: op({
+      operationId: `untag${schema}`,
+      summary: `Remove a tag from a ${what}`,
+      description: `Take a tag off the ${what} (an archived one too).`,
+      tags: ["Tags"],
+      "x-relay-scope": "contacts.personal_data",
+      parameters: [pathId("id", what), pathId("tag_id", "tag")],
+      ok: ok(ref(schema)),
+    }),
+  },
+});
+Object.assign(SPEC.paths, tagOn("contact", "Contact"), tagOn("company", "Company"));
 
 /** Every operation with its method and path, in the document's order. */
 export function operations(spec: Spec = SPEC) {

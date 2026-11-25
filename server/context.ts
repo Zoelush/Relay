@@ -7,6 +7,7 @@ import { access, conversation } from "./conversations";
 import { resolveContact } from "./people";
 import { recordContactView } from "./audit";
 import { companiesOf } from "./companies";
+import { companyTagsOf, contactTagsOf } from "./people-tags";
 
 /** Recent conversations shown for the customer, besides the open one. */
 const RECENT_LIMIT = 5;
@@ -150,8 +151,10 @@ export async function conversationContext(
                 phones: await list("contact_phones", "phone"),
                 // P1a: their custom data, from the typed store — personal data, like the rest of this block.
                 customAttributes: contact.profile,
-                // P1b: the companies they're in, with their role in each.
-                companies: (await companiesOf(db, w, [contact.id]))[contact.id].map((m) => ({
+                // P1c: their tags.
+                tags: (await contactTagsOf(db, w, [contact.id]))[contact.id],
+                // P1b: the companies they're in, with their role in each (P1c: and each one's tags).
+                companies: (await companyContext(db, w, contact.id)).map((m) => ({
                   id: m.id,
                   companyId: m.company_id,
                   name: m.name,
@@ -163,6 +166,7 @@ export async function conversationContext(
                   people: m.contact_count,
                   role: m.role,
                   source: m.source,
+                  tags: m.personTags,
                 })),
               }
             : {}),
@@ -175,4 +179,11 @@ export async function conversationContext(
     tickets: await ticketContext(db, w, c),
     sla: await slaContext(db, w, c),
   };
+}
+
+/** P1b/P1c: a customer's companies, each with its tags (archived ones marked). */
+async function companyContext(db: Sql, w: string, contactId: string) {
+  const companies = (await companiesOf(db, w, [contactId]))[contactId];
+  const tags = await companyTagsOf(db, w, companies.map((c) => c.id));
+  return companies.map((c) => ({ ...c, personTags: tags[c.id] ?? [] }));
 }

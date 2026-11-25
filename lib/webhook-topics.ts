@@ -1,8 +1,8 @@
 /**
  * Webhook topics (phase 15, D3): what a subscription can ask for, and what each delivery's `data`
  * holds. The database writes the events (`db/postgres/0078_webhooks.sql`); a test holds the two to
- * the same list. Company topics arrived with companies (phase 01 P1b, `0108_companies.sql`);
- * `contact.tagged` waits for tags on people (P1c).
+ * the same list. Company topics arrived with companies (phase 01 P1b, `0108_companies.sql`), and
+ * tags on people with P1c (`0109_people_tags.sql`).
  */
 export type Topic = { id: string; group: string; label: string; item: "conversation" | "ticket" | "contact" | "event" | "article" | "company"; about: string };
 export const TOPICS: Topic[] = [
@@ -23,6 +23,10 @@ export const TOPICS: Topic[] = [
   { id: "company.deleted", group: "Companies", label: "A company was deleted", item: "company", about: "`data.item` holds only its id, `company_id` and name: it's gone." },
   { id: "company.contact_attached", group: "Companies", label: "Someone joined a company", item: "company", about: "With `data.contact_id` and `data.role`." },
   { id: "company.contact_detached", group: "Companies", label: "Someone left a company", item: "company", about: "With `data.contact_id`. Not sent for each person when the company itself is deleted." },
+  { id: "contact.tagged", group: "Contacts", label: "A contact was tagged", item: "contact", about: "With `data.tag`." },
+  { id: "contact.untagged", group: "Contacts", label: "A tag came off a contact", item: "contact", about: "With `data.tag`." },
+  { id: "company.tagged", group: "Companies", label: "A company was tagged", item: "company", about: "With `data.tag`." },
+  { id: "company.untagged", group: "Companies", label: "A tag came off a company", item: "company", about: "With `data.tag`. Not sent for each tag when the company itself is deleted." },
   { id: "event.received", group: "Contacts", label: "An event was recorded", item: "event", about: "From your server or the messenger." },
   { id: "ai_agent.resolved", group: "AI agent", label: "Zoe resolved a conversation", item: "conversation", about: "A confirmed or assumed resolution." },
   { id: "ai_agent.escalated", group: "AI agent", label: "Zoe handed over", item: "conversation", about: "Zoe passed the conversation to the team, with `data.part`." },

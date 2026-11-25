@@ -475,6 +475,76 @@ A new tag. A name that's taken returns the existing tag.
 
 **Returns:** `201`, Tag.
 
+### Tag a contact
+
+`POST /contacts/{id}/tags`
+
+Put a tag on the contact (the same tags conversations have). An archived tag isn't put on again.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The contact's id. up to 100 characters |
+
+**Body:**
+
+| Field | Type | Required | About |
+|---|---|---|---|
+| `tag_id` | string | yes | The tag's id. up to 100 characters |
+
+**Returns:** `200`, Contact.
+
+### Remove a tag from a contact
+
+`DELETE /contacts/{id}/tags/{tag_id}`
+
+Take a tag off the contact (an archived one too).
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The contact's id. up to 100 characters |
+| `tag_id` | path | string | yes | The tag's id. up to 100 characters |
+
+**Returns:** `200`, Contact.
+
+### Tag a company
+
+`POST /companies/{id}/tags`
+
+Put a tag on the company (the same tags conversations have). An archived tag isn't put on again.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The company's id. up to 100 characters |
+
+**Body:**
+
+| Field | Type | Required | About |
+|---|---|---|---|
+| `tag_id` | string | yes | The tag's id. up to 100 characters |
+
+**Returns:** `200`, Company.
+
+### Remove a tag from a company
+
+`DELETE /companies/{id}/tags/{tag_id}`
+
+Take a tag off the company (an archived one too).
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The company's id. up to 100 characters |
+| `tag_id` | path | string | yes | The tag's id. up to 100 characters |
+
+**Returns:** `200`, Company.
+
 ## Teammates and teams
 
 ### List teammates
@@ -1097,7 +1167,7 @@ Subscribe a public https address to topics. The response carries its signing `se
 | Field | Type | Required | About |
 |---|---|---|---|
 | `url` | string | yes | Where deliveries are POSTed (https). at least 8 characters; up to 2000 characters |
-| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `company.created`, `company.updated`, `company.deleted`, `company.contact_attached`, `company.contact_detached`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | yes |  |
+| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `company.created`, `company.updated`, `company.deleted`, `company.contact_attached`, `company.contact_detached`, `contact.tagged`, `contact.untagged`, `company.tagged`, `company.untagged`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | yes |  |
 | `alert_email` | string or null (email) | no | Told if it's turned off after failing for 24 hours. up to 320 characters |
 
 **Returns:** `201`, Webhook.
@@ -1133,7 +1203,7 @@ Change its address, topics or alert email, or turn it off or back on (back on fo
 | Field | Type | Required | About |
 |---|---|---|---|
 | `url` | string | no | at least 8 characters; up to 2000 characters |
-| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `company.created`, `company.updated`, `company.deleted`, `company.contact_attached`, `company.contact_detached`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | no |  |
+| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `company.created`, `company.updated`, `company.deleted`, `company.contact_attached`, `company.contact_detached`, `contact.tagged`, `contact.untagged`, `company.tagged`, `company.untagged`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | no |  |
 | `alert_email` | string or null (email) | no | up to 320 characters |
 | `active` | boolean | no |  |
 
@@ -1444,13 +1514,15 @@ Also `custom_attributes.<name>` (text, or a number when the value is one). Sorte
 | `company.deleted` | `data.item` holds only its id, `company_id` and name: it's gone. | company |
 | `company.contact_attached` | With `data.contact_id` and `data.role`. | company |
 | `company.contact_detached` | With `data.contact_id`. Not sent for each person when the company itself is deleted. | company |
+| `contact.tagged` | With `data.tag`. | contact |
+| `contact.untagged` | With `data.tag`. | contact |
+| `company.tagged` | With `data.tag`. | company |
+| `company.untagged` | With `data.tag`. Not sent for each tag when the company itself is deleted. | company |
 | `event.received` | From your server or the messenger. | event |
 | `ai_agent.resolved` | A confirmed or assumed resolution. | conversation |
 | `ai_agent.escalated` | Zoe passed the conversation to the team, with `data.part`. | conversation |
 | `sla.breached` | With `data.metric` (first response, next response, time to close or resolve). | conversation |
 | `article.published` | A new or updated article went live. | article |
-
-`contact.tagged` comes with tags on people (phase 01 P1c).
 
 ## Canvas components
 
@@ -1545,6 +1617,7 @@ Your own facts about them: up to 50, each a string (up to 255), a number, a bool
 | `email` | string or null | no |  |
 | `external_id` | string or null | no |  |
 | `custom_attributes` | CustomAttributes | no | Your own facts about them: up to 50, each a string (up to 255), a number, a boolean or null. |
+| `tags` | array of Tag | no | Their tags (phase 01 P1c). |
 | `first_seen_at` | string (date-time) | no |  |
 | `last_seen_at` | string (date-time) | no |  |
 | `signed_up_at` | string or null (date-time) | no |  |
@@ -1795,6 +1868,7 @@ Your own facts about them: up to 50, each a string (up to 255), a number, a bool
 | `monthly_spend` | number or null | no |  |
 | `website` | string or null | no |  |
 | `custom_attributes` | CustomAttributes | no | Your own facts about them: up to 50, each a string (up to 255), a number, a boolean or null. |
+| `tags` | array of Tag | no | Its tags. |
 | `contact_count` | integer | no | How many people are in it. |
 | `created_at` | string (date-time) | no |  |
 | `updated_at` | string (date-time) | no |  |
@@ -1812,6 +1886,7 @@ Your own facts about them: up to 50, each a string (up to 255), a number, a bool
 | `monthly_spend` | number or null | no |  |
 | `website` | string or null | no |  |
 | `custom_attributes` | CustomAttributes | no | Your own facts about them: up to 50, each a string (up to 255), a number, a boolean or null. |
+| `tags` | array of Tag | no | Its tags. |
 | `contact_count` | integer | no | How many people are in it. |
 | `created_at` | string (date-time) | no |  |
 | `updated_at` | string (date-time) | no |  |

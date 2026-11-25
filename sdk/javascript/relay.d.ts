@@ -59,6 +59,7 @@ export type Contact = {
   email?: string | null;
   external_id?: string | null;
   custom_attributes?: CustomAttributes;
+  tags?: Tag[];
   first_seen_at?: string;
   last_seen_at?: string;
   signed_up_at?: string | null;
@@ -281,6 +282,7 @@ export type Company = {
   monthly_spend?: number | null;
   website?: string | null;
   custom_attributes?: CustomAttributes;
+  tags?: Tag[];
   contact_count?: number;
   created_at?: string;
   updated_at?: string;
@@ -295,6 +297,7 @@ export type Membership = {
   monthly_spend?: number | null;
   website?: string | null;
   custom_attributes?: CustomAttributes;
+  tags?: Tag[];
   contact_count?: number;
   created_at?: string;
   updated_at?: string;
@@ -628,7 +631,7 @@ export declare class Relay {
   /** Create a webhook. */
   createWebhook(body: {
     url: string;
-    topics: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "company.created" | "company.updated" | "company.deleted" | "company.contact_attached" | "company.contact_detached" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
+    topics: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "company.created" | "company.updated" | "company.deleted" | "company.contact_attached" | "company.contact_detached" | "contact.tagged" | "contact.untagged" | "company.tagged" | "company.untagged" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
     alert_email?: string | null;
   }, options?: RequestOptions<never>): Promise<Webhook>;
   /** Retrieve a webhook. */
@@ -636,7 +639,7 @@ export declare class Relay {
   /** Update a webhook. */
   updateWebhook(id: string, body: {
     url?: string;
-    topics?: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "company.created" | "company.updated" | "company.deleted" | "company.contact_attached" | "company.contact_detached" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
+    topics?: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "company.created" | "company.updated" | "company.deleted" | "company.contact_attached" | "company.contact_detached" | "contact.tagged" | "contact.untagged" | "company.tagged" | "company.untagged" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
     alert_email?: string | null;
     active?: boolean;
   }, options?: RequestOptions<never>): Promise<Webhook>;
@@ -719,4 +722,16 @@ export declare class Relay {
     company_id?: string;
     detached?: boolean;
   }>;
+  /** Tag a contact. */
+  tagContact(id: string, body: {
+    tag_id: string;
+  }, options?: RequestOptions<never>): Promise<Contact>;
+  /** Remove a tag from a contact. */
+  untagContact(id: string, tagId: string, options?: RequestOptions<never>): Promise<Contact>;
+  /** Tag a company. */
+  tagCompany(id: string, body: {
+    tag_id: string;
+  }, options?: RequestOptions<never>): Promise<Company>;
+  /** Remove a tag from a company. */
+  untagCompany(id: string, tagId: string, options?: RequestOptions<never>): Promise<Company>;
 }

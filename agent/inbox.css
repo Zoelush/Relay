@@ -2380,3 +2380,14 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-company-choices small { color:var(--pg-muted); }
 .pg-company-new { color:var(--pg-accent) !important; font-weight:600; }
 .pg-muted-text { color:var(--pg-muted); }
+
+/* Phase 01 P1c: tags on a customer and their companies in the details sidebar. */
+.pg-person-tags { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:10px; }
+.pg-company .pg-person-tags { margin-top:0; }
+.pg-tag-chip { display:inline-flex; align-items:center; gap:2px; padding:2px 4px 2px 9px; border:1px solid var(--pg-border); border-radius:999px; background:var(--pg-hover); color:var(--pg-text-2); font-size:12px; }
+.pg-tag-chip[data-archived] { border-style:dashed; color:var(--pg-muted); }
+.pg-tag-chip button { display:grid; place-items:center; width:18px; height:18px; border:0; border-radius:50%; background:none; color:inherit; font-size:13px; line-height:1; cursor:pointer; }
+.pg-tag-chip button:hover:not(:disabled) { background:var(--pg-border); }
+.pg-tag-add { padding:2px 9px; border:1px dashed var(--pg-border-strong); border-radius:999px; background:none; color:var(--pg-text-3); font-size:12px; cursor:pointer; }
+.pg-tag-add:hover { color:var(--pg-text); border-color:var(--pg-text-3); }
+.pg-tag-select { padding:2px 6px; border:1px solid var(--pg-input-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); font-size:12px; }

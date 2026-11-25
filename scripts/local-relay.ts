@@ -37,6 +37,7 @@ import { normalizeDoc, plainText, type RichDoc } from "../lib/rich-doc";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { setContactAttributes } from "../server/contact-attributes";
 import { attachCompany, upsertCompany } from "../server/companies";
+import { tagCompany, tagContact } from "../server/people-tags";
 import { notifyUninstalled } from "../server/canvas";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
@@ -1156,6 +1157,12 @@ export async function startLocalRelay(
             : { company_id: "ncl", name: "Navy Computing Lab", plan: "Free", seats: 1, monthly_spend: 0, custom_attributes: { region: "AMER" } };
         const { id: companyId } = await upsertCompany(q, "demo", company);
         await attachCompany(q, "demo", contactId, companyId, p.id === "ada-demo" ? "Founder" : "Engineer", "api");
+        // P1c: Ada and her company are tagged VIP.
+        if (p.id === "ada-demo") {
+          await q.query("INSERT INTO tags(workspace_id,id,name) VALUES('demo','vip','VIP') ON CONFLICT DO NOTHING");
+          await tagContact(q, "demo", contactId, "vip", "api");
+          await tagCompany(q, "demo", companyId, "vip", "api");
+        }
         await q.query("UPDATE contacts SET signed_up_at=$2,last_seen_at=$3 WHERE workspace_id='demo' AND id=$1", [
           contactId,
           new Date(Date.now() - p.signedUp * day).toISOString(),
