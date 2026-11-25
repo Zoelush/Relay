@@ -879,6 +879,106 @@ Object.assign(SPEC.components.schemas, {
   ),
 });
 
+/* ------------------------------------------------------------------------------------------ */
+/* Phase 01 P1b (docs/PEOPLE_STEP2.md): companies, and the people in them.                      */
+/* ------------------------------------------------------------------------------------------ */
+const companyFields: Record<string, Schema> = {
+  name: { type: "string", minLength: 1, maxLength: 255, description: "Its name (needed to create one)." },
+  plan: { type: ["string", "null"], maxLength: 255 },
+  seats: { type: ["integer", "null"], minimum: 0, description: "How many seats it pays for." },
+  monthly_spend: { type: ["number", "null"], minimum: 0, description: "What it spends a month, to the cent." },
+  website: { type: ["string", "null"], maxLength: 2000 },
+  custom_attributes: ref("CustomAttributes"),
+};
+const companyId = { type: "string", minLength: 1, maxLength: 200, description: "Your id for the company." } as Schema;
+Object.assign(SPEC.paths, {
+  "/companies": {
+    get: listing("listCompanies", "List companies", "Companies, by name.", "Companies", "contacts.personal_data", "Company", [
+      { name: "company_id", in: "query", description: "Only the company with your id for it.", schema: { type: "string", maxLength: 200 } },
+    ]),
+    post: write(
+      "createCompany",
+      "Create or update a company",
+      "A company, by your `company_id` for it: created (with a name) if there's none, or updated if there is, so retries and syncs are safe. Custom attributes are typed by their definitions; a name not yet defined is defined by its first value.",
+      "Companies",
+      "contacts.personal_data",
+      "Company",
+      object({ company_id: companyId, ...companyFields }, ["company_id"]),
+      [],
+      "200",
+    ),
+  },
+  "/companies/{id}": {
+    get: read("getCompany", "Retrieve a company", "One company.", "Companies", "contacts.personal_data", "Company", [pathId("id", "company")]),
+    patch: write(
+      "updateCompany",
+      "Update a company",
+      "Change what's given (`null` clears a field or a custom attribute); the rest is left as it is.",
+      "Companies",
+      "contacts.personal_data",
+      "Company",
+      object({ company_id: companyId, ...companyFields }),
+      [pathId("id", "company")],
+    ),
+    delete: op({
+      operationId: "deleteCompany",
+      summary: "Delete a company",
+      description: "The company goes, with its custom data; its people stay, no longer in it. Recorded in the audit log.",
+      tags: ["Companies"],
+      "x-relay-scope": "contacts.personal_data",
+      parameters: [pathId("id", "company")],
+      ok: ok({ type: "object", properties: { id: { type: "string" }, deleted: { type: "boolean" } } }),
+    }),
+  },
+  "/companies/{id}/contacts": {
+    get: listing("listCompanyContacts", "List a company's contacts", "The people in the company, by id.", "Companies", "contacts.personal_data", "Contact", [pathId("id", "company")]),
+  },
+  "/contacts/{id}/companies": {
+    get: listing("listContactCompanies", "List a contact's companies", "The companies they're in, with their role in each.", "Companies", "contacts.personal_data", "Membership", [pathId("id", "contact")], false),
+    post: write(
+      "attachContactToCompany",
+      "Add a contact to a company",
+      "They join the company (or, if they're in it, their role changes when one is given).",
+      "Companies",
+      "contacts.personal_data",
+      "Membership",
+      object({ company_id: { ...id("company"), description: "The company's id (Relay's, not yours)." }, role: { type: "string", maxLength: 100, description: "What they are there (`Admin`, `Billing contact`)." } }, ["company_id"]),
+      [pathId("id", "contact")],
+    ),
+  },
+  "/contacts/{id}/companies/{company_id}": {
+    delete: op({
+      operationId: "detachContactFromCompany",
+      summary: "Take a contact out of a company",
+      description: "They're no longer in it; the company stays.",
+      tags: ["Companies"],
+      "x-relay-scope": "contacts.personal_data",
+      parameters: [pathId("id", "contact"), pathId("company_id", "company")],
+      ok: ok({ type: "object", properties: { id: { type: "string" }, company_id: { type: "string" }, detached: { type: "boolean" } } }),
+    }),
+  },
+});
+const companyShape = {
+  company_id: { type: "string", description: "Your id for it." },
+  name: { type: "string" },
+  plan: { type: ["string", "null"] },
+  seats: { type: ["integer", "null"] },
+  monthly_spend: { type: ["number", "null"] },
+  website: { type: ["string", "null"] },
+  custom_attributes: ref("CustomAttributes"),
+  contact_count: { type: "integer", description: "How many people are in it." },
+  created_at: time,
+  updated_at: time,
+} as Record<string, Schema>;
+Object.assign(SPEC.components.schemas, {
+  Company: typed("company", companyShape, ["company_id", "name"]),
+  Membership: typed(
+    "company",
+    { ...companyShape, role: { type: "string", description: "The contact's role there (may be empty)." }, source: { type: "string", enum: ["api", "inbox", "messenger", "merge"], description: "Who added them to it." } },
+    ["company_id", "name", "role"],
+  ),
+});
+
 /** Every operation with its method and path, in the document's order. */
 export function operations(spec: Spec = SPEC) {
   return Object.entries(spec.paths).flatMap(([path, methods]) =>

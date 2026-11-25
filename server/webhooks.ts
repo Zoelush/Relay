@@ -4,6 +4,7 @@ import { seal, unseal } from "./connectors";
 import { checkAddress, FetchRefused, safeRequest, type FetchPolicy } from "./safe-fetch";
 import { enqueueJob, type Job } from "./jobs";
 import { developerOn } from "./developer";
+import { readCompany } from "./companies";
 import { contactOut, CONTACT_SELECT, cursor, invalid, listOf, readConversation, type ContactRow, type Context } from "./rest";
 import { articleOut, eventOut, readRecord, readTicket, type EventRow } from "./rest-more";
 import { LATEST_VERSION } from "../lib/api-spec";
@@ -272,6 +273,10 @@ async function payloadData(db: Sql, w: string, e: { topic: string; resource_type
   } else if (e.resource_type === "event") {
     const ev = (await db.query<EventRow>("SELECT id,contact_id,name,metadata,source,occurred_at FROM contact_events WHERE workspace_id=$1 AND id=$2", [w, e.resource_id])).rows[0];
     data.item = ev ? eventOut(ev) : { type: "event", id: e.resource_id };
+  } else if (e.resource_type === "company") {
+    // P1b: a deleted company is only what its event remembered of it.
+    const c = await safe(() => readCompany(db, w, e.resource_id));
+    data.item = c ?? { type: "company", id: e.resource_id, company_id: e.detail?.company_id ?? null, name: e.detail?.name ?? null };
   } else if (e.resource_type === "article") data.item = (await safe(async () => articleOut(await readRecord(db, w, e.resource_id, true)))) ?? { type: "article", id: e.resource_id };
   const d = e.detail ?? {};
   if (typeof d.part_id === "string") {
@@ -289,6 +294,8 @@ async function payloadData(db: Sql, w: string, e: { topic: string; resource_type
   }
   if (typeof d.metric === "string") data.metric = d.metric;
   if (typeof d.merged_contact_id === "string") data.merged_contact_id = d.merged_contact_id;
+  if (e.resource_type === "company" && typeof d.contact_id === "string") data.contact_id = d.contact_id;
+  if (e.resource_type === "company" && typeof d.role === "string") data.role = d.role;
   if (d.from_state_id !== undefined) data.changes = { state_id: { from: d.from_state_id, to: d.to_state_id } };
   return data;
 }

@@ -5,6 +5,7 @@ import { TicketPanel, type TicketContext } from "./tickets";
 import { SlaSection, type SlaContext } from "./sla";
 import { initials } from "./card";
 import { hueOf } from "./colour";
+import { CustomerCompanies, type CustomerCompany } from "./sidebar-companies";
 
 export type Attribute = {
   id: string;
@@ -27,6 +28,8 @@ export type Context = {
     externalId?: string | null;
     /** P1a: their custom data, by attribute name (shown to who may see personal data). */
     customAttributes?: Record<string, string | number | boolean>;
+    /** P1b: the companies they're in, with their role in each (shown to who may see personal data). */
+    companies?: CustomerCompany[];
     emails?: { value: string; verified: boolean }[];
     phones?: { value: string; verified: boolean }[];
   };
@@ -336,6 +339,9 @@ export function ContextSidebar({
           </>
         )}
       </section>
+      {customer && c.personalData && customer.companies && (
+        <CustomerCompanies key={customer.id + ":" + (data?.receivedAt ?? 0)} contactId={customer.id} customerName={customer.name ?? ""} companies={customer.companies} onError={onError} />
+      )}
       {c.sla && data && <SlaSection sla={c.sla} receivedAt={data.receivedAt} />}
       <TicketPanel
         conversationId={conversationId}

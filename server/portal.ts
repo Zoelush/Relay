@@ -13,6 +13,7 @@ import {
   type IdentityProof,
 } from "./identity";
 import { getIdentity } from "./people";
+import { TRUSTED_MEMBERSHIP } from "./companies";
 import {
   command,
   conversation,
@@ -273,7 +274,27 @@ const actorOf = (s: PortalSession): Actor => ({
   verified: true,
 });
 
-/** The customer's requests. TODO(phase 01): 'company' visibility, once companies exist. */
+/**
+ * P1b: the identities of the customer's colleagues — people who share a company with them, through
+ * memberships the portal trusts (`TRUSTED_MEMBERSHIP`: not one the messenger added unless the
+ * workspace still allows that), on both sides. `$1` is the workspace and `$2` the customer's
+ * identity; `me` is a CTE of the customer's surviving contact.
+ */
+const COLLEAGUES = `mine AS (
+    SELECT m.company_id FROM contact_companies m WHERE m.workspace_id=$1 AND m.contact_id IN (SELECT id FROM me) AND ${TRUSTED_MEMBERSHIP}
+  ), colleagues AS (
+    SELECT im.identity_id AS id,k.name FROM contact_companies m
+    JOIN identity_contact_mappings im ON im.workspace_id=m.workspace_id AND im.contact_id=m.contact_id
+    JOIN contacts k ON k.workspace_id=m.workspace_id AND k.id=m.contact_id
+    WHERE m.workspace_id=$1 AND m.company_id IN (SELECT company_id FROM mine) AND m.contact_id NOT IN (SELECT id FROM me) AND ${TRUSTED_MEMBERSHIP}
+  )`;
+/** Who sees a request: its ticket type's choice, or the portal's (a request without a ticket has the portal's). */
+const VISIBILITY = `COALESCE(y.portal_visibility,(SELECT visibility FROM portal_settings WHERE workspace_id=$1),'individual')`;
+
+/**
+ * The customer's requests, and — where a request's visibility is "company" — those of the people
+ * who share a company with them (P1b), marked with whose they are.
+ */
 export async function listRequests(
   db: Sql,
   scope: PortalScope,
@@ -290,6 +311,7 @@ export async function listRequests(
       number: string | null;
       type_name: string | null;
       label: string | null;
+      shared_by: string | null;
     }>(
       `WITH RECURSIVE up AS (
         SELECT k.id,k.merged_into_contact_id,0 AS d FROM identity_contact_mappings m JOIN contacts k ON k.workspace_id=m.workspace_id AND k.id=m.contact_id
@@ -300,15 +322,19 @@ export async function listRequests(
         UNION SELECT k.id FROM contacts k JOIN family f ON k.merged_into_contact_id=f.id WHERE k.workspace_id=$1
       ), eligible AS (
         SELECT $2::text AS id UNION SELECT identity_id FROM identity_contact_mappings WHERE workspace_id=$1 AND contact_id IN (SELECT id FROM family)
+      ), me AS (SELECT id FROM up WHERE merged_into_contact_id IS NULL), ${COLLEAGUES}, own AS (
+        SELECT c.id FROM conversations c WHERE c.workspace_id=$1 AND c.primary_identity_id IN (SELECT id FROM eligible)
+        UNION SELECT p.conversation_id FROM conversation_participants p WHERE p.workspace_id=$1 AND p.identity_id IN (SELECT id FROM eligible)
       )
-      SELECT c.id,c.title,c.status,c.updated_at,t.number::text AS number,y.name AS type_name,s.customer_label AS label
+      SELECT c.id,c.title,c.status,c.updated_at,t.number::text AS number,y.name AS type_name,s.customer_label AS label,
+        CASE WHEN c.id IN (SELECT id FROM own) THEN NULL ELSE (SELECT g.name FROM colleagues g WHERE g.id=c.primary_identity_id LIMIT 1) END AS shared_by
       FROM conversations c
       LEFT JOIN tickets t ON t.workspace_id=c.workspace_id AND t.conversation_id=c.id
       LEFT JOIN ticket_types y ON y.workspace_id=t.workspace_id AND y.id=t.type_id
       LEFT JOIN ticket_states s ON s.workspace_id=t.workspace_id AND s.id=t.state_id
       WHERE c.workspace_id=$1 AND c.brand_id=$3 AND c.merged_into_id IS NULL AND c.visibility='customer'
-        AND (c.primary_identity_id IN (SELECT id FROM eligible)
-          OR EXISTS(SELECT 1 FROM conversation_participants p WHERE p.workspace_id=$1 AND p.conversation_id=c.id AND p.identity_id IN (SELECT id FROM eligible)))
+        AND (c.id IN (SELECT id FROM own)
+          OR (c.primary_identity_id IN (SELECT id FROM colleagues) AND ${VISIBILITY}='company'))
         AND (t.conversation_id IS NULL OR (y.category='customer' AND y.portal_visible))
       ORDER BY c.updated_at DESC,c.id LIMIT 200`,
       [w, s.identityId, scope.brand],
@@ -323,8 +349,36 @@ export async function listRequests(
       ticket: r.number
         ? { number: Number(r.number), typeName: r.type_name, label: r.label }
         : null,
+      // P1b: a colleague's request, shared through the company — whose it is (null for their own).
+      sharedBy: r.shared_by === null ? null : r.shared_by || "A colleague",
     })),
   };
+}
+
+/**
+ * A colleague's request this customer may read through the company (P1b): one in this brand,
+ * started by someone who shares a trusted company with them, whose visibility is "company".
+ * Returns its owner's identity and name, or null.
+ */
+async function sharedRequest(db: Sql, w: string, s: PortalSession, id: string) {
+  return (
+    (
+      await db.query<{ identityId: string; name: string }>(
+        `WITH RECURSIVE up AS (
+          SELECT k.id,k.merged_into_contact_id,0 AS d FROM identity_contact_mappings m JOIN contacts k ON k.workspace_id=m.workspace_id AND k.id=m.contact_id
+          WHERE m.workspace_id=$1 AND m.identity_id=$2
+          UNION ALL SELECT k.id,k.merged_into_contact_id,u.d+1 FROM contacts k JOIN up u ON k.id=u.merged_into_contact_id WHERE k.workspace_id=$1 AND u.d<32
+        ), me AS (SELECT id FROM up WHERE merged_into_contact_id IS NULL), ${COLLEAGUES}
+        SELECT g.id AS "identityId",g.name FROM conversations c
+        JOIN colleagues g ON g.id=c.primary_identity_id
+        LEFT JOIN tickets t ON t.workspace_id=c.workspace_id AND t.conversation_id=c.id
+        LEFT JOIN ticket_types y ON y.workspace_id=t.workspace_id AND y.id=t.type_id
+        WHERE c.workspace_id=$1 AND c.id=$3 AND c.brand_id=$4 AND c.merged_into_id IS NULL AND c.visibility='customer'
+          AND ${VISIBILITY}='company' LIMIT 1`,
+        [w, s.identityId, id, s.brandId],
+      )
+    ).rows[0] ?? null
+  );
 }
 
 /** A request's ticket, if it has one the portal may show; throws if the portal must not show it. */
@@ -363,24 +417,37 @@ export async function readRequest(
 ) {
   const w = scope.workspace;
   await requirePortal(db, w, scope.brand);
-  // The same access check and delivery policy as the messenger.
-  const data = await recentTimeline(db, w, id, actorOf(s), 100);
+  // The same access check and delivery policy as the messenger; failing that, a colleague's
+  // request shared through the company (P1b), read as its owner sees it, and not replied to.
+  let shared: { identityId: string; name: string } | null = null;
+  let data;
+  try {
+    data = await recentTimeline(db, w, id, actorOf(s), 100);
+  } catch (e) {
+    if (!(e instanceof DomainError) || e.code !== "CONVERSATION_NOT_FOUND") throw e;
+    shared = await sharedRequest(db, w, s, id);
+    if (!shared) throw e;
+    data = await recentTimeline(db, w, id, { type: "contact", identityId: shared.identityId, brandId: s.brandId, verified: true }, 100);
+  }
   const ticket = await visibleTicket(db, w, data.conversation.id);
   return {
     id: data.conversation.id,
     title: data.conversation.title,
     status: data.conversation.status,
     ticket,
+    sharedBy: shared ? shared.name || "A colleague" : null,
     parts: data.parts.map((p) => {
       const d = p.data as Record<string, unknown>;
       return {
         id: p.id,
         kind: p.kind,
-        author: p.author_type === "contact" ? "you" : p.author_type,
+        author: p.author_type === "contact" ? (shared ? "colleague" : "you") : p.author_type,
         authorName:
           p.author_type === "teammate" && typeof d.authorName === "string"
             ? d.authorName
-            : null,
+            : p.author_type === "contact" && shared
+              ? shared.name || "A colleague"
+              : null,
         body: ["customer_message", "teammate_reply", "ai_reply", "workflow_message"].includes(
           p.kind,
         )
@@ -555,7 +622,7 @@ export async function portalSettings(
     ...(visibility === "company"
       ? {
           notice:
-            "Company-wide visibility applies once companies exist; until then customers see their own requests.",
+            "Customers see the requests of people who share a company with them. A company the messenger set counts only while Settings › Messenger › Security accepts companies from signed identity tokens.",
         }
       : {}),
     domains: (

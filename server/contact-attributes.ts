@@ -1,7 +1,8 @@
 import { DomainError, type Sql } from "./db";
 
 /**
- * A contact's custom data, as typed values (docs/PEOPLE_STEP1.md, phase 01 P1a).
+ * A contact's custom data, as typed values (docs/PEOPLE_STEP1.md, phase 01 P1a), and a
+ * company's (docs/PEOPLE_STEP2.md, P1b).
  *
  * Each value is a row in `contact_attribute_values`, apart from its definition in
  * `attribute_definitions` (owner `contact`), in the one typed column the definition's type picks,
@@ -34,12 +35,25 @@ export const VALUE_TEXT = `COALESCE(v.text_value, trim_scale(v.number_value)::te
   to_char(v.date_value AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))`;
 
 /**
+ * P1b: companies' custom data is typed the same way, in `company_attribute_values` (owner
+ * `company`), and written here too, so every typed value has the one writer.
+ */
+type Owner = "contact" | "company";
+const OWNERS = {
+  contact: { table: "contact_attribute_values", column: "contact_id", noun: "customer" },
+  company: { table: "company_attribute_values", column: "company_id", noun: "company" },
+} as const;
+
+const attributesJson = (owner: Owner, alias: string) => `COALESCE((SELECT jsonb_object_agg(d.name, ${VALUE_JSON})
+  FROM ${OWNERS[owner].table} v JOIN attribute_definitions d ON d.workspace_id=v.workspace_id AND d.id=v.attribute_id
+  WHERE v.workspace_id=${alias}.workspace_id AND v.${OWNERS[owner].column}=${alias}.id AND d.archived_at IS NULL),'{}'::jsonb)`;
+/**
  * SQL for a contact's values as one object (`{name: value}`), for a contact row aliased `alias`.
  * Archived attributes are left out, as they are everywhere a value is read.
  */
-export const contactAttributesJson = (alias: string) => `COALESCE((SELECT jsonb_object_agg(d.name, ${VALUE_JSON})
-  FROM contact_attribute_values v JOIN attribute_definitions d ON d.workspace_id=v.workspace_id AND d.id=v.attribute_id
-  WHERE v.workspace_id=${alias}.workspace_id AND v.contact_id=${alias}.id AND d.archived_at IS NULL),'{}'::jsonb)`;
+export const contactAttributesJson = (alias: string) => attributesJson("contact", alias);
+/** The same for a company row aliased `alias` (P1b). */
+export const companyAttributesJson = (alias: string) => attributesJson("company", alias);
 
 /** The type a first value implies, for an attribute defined by being written (as the API and workflows may). */
 function inferred(value: unknown): ValueType {
@@ -86,11 +100,11 @@ export function typedValue(def: Pick<Definition, "name" | "value_type" | "option
   return refuse(key, `${key} has a type Relay doesn't know.`);
 }
 
-async function definitionOf(db: Sql, w: string, key: string) {
+async function definitionOf(db: Sql, w: string, owner: Owner, key: string) {
   return (
     await db.query<Definition>(
-      "SELECT id,name,value_type,options,archived_at FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='contact' AND lower(name)=lower($2)",
-      [w, key],
+      "SELECT id,name,value_type,options,archived_at FROM attribute_definitions WHERE workspace_id=$1 AND owner_type=$2 AND lower(name)=lower($3)",
+      [w, owner, key],
     )
   ).rows[0];
 }
@@ -101,29 +115,39 @@ async function definitionOf(db: Sql, w: string, key: string) {
  * attribute is refused: archived means nothing writes it any more.
  */
 export async function setContactAttributes(db: Sql, w: string, contactId: string, values: Record<string, unknown>, opts: { define: boolean }) {
+  await setValues(db, w, "contact", contactId, values, opts);
+  await syncProfile(db, w, contactId);
+}
+
+/** Sets some of a company's values, as `setContactAttributes` does a contact's (P1b). */
+export async function setCompanyAttributes(db: Sql, w: string, companyId: string, values: Record<string, unknown>, opts: { define: boolean }) {
+  await setValues(db, w, "company", companyId, values, opts);
+}
+
+async function setValues(db: Sql, w: string, owner: Owner, ownerId: string, values: Record<string, unknown>, opts: { define: boolean }) {
+  const { table, column, noun } = OWNERS[owner];
   for (const [key, raw] of Object.entries(values)) {
     if (!KEY.test(key)) refuse(key, "Names are letters, digits, dots, dashes and underscores, up to 64.");
-    let def = await definitionOf(db, w, key);
+    let def = await definitionOf(db, w, owner, key);
     if (def?.archived_at) refuse(key, `${def.name} is archived, so nothing writes it any more.`);
     if (raw === null || raw === undefined) {
-      if (def) await db.query("DELETE FROM contact_attribute_values WHERE workspace_id=$1 AND contact_id=$2 AND attribute_id=$3", [w, contactId, def.id]);
+      if (def) await db.query(`DELETE FROM ${table} WHERE workspace_id=$1 AND ${column}=$2 AND attribute_id=$3`, [w, ownerId, def.id]);
       continue;
     }
     if (!def) {
-      if (!opts.define) refuse(key, `There's no customer attribute called ${key}.`);
+      if (!opts.define) refuse(key, `There's no ${noun} attribute called ${key}.`);
       const id = crypto.randomUUID();
-      await db.query("INSERT INTO attribute_definitions(workspace_id,id,name,owner_type,value_type) VALUES($1,$2,$3,'contact',$4)", [w, id, key, inferred(raw)]);
-      def = (await definitionOf(db, w, key))!;
+      await db.query("INSERT INTO attribute_definitions(workspace_id,id,name,owner_type,value_type) VALUES($1,$2,$3,$4,$5)", [w, id, key, owner, inferred(raw)]);
+      def = (await definitionOf(db, w, owner, key))!;
     }
     const t = typedValue(def, raw);
     await db.query(
-      `INSERT INTO contact_attribute_values(workspace_id,contact_id,attribute_id,text_value,number_value,bool_value,date_value) VALUES($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT(workspace_id,contact_id,attribute_id) DO UPDATE SET text_value=excluded.text_value,number_value=excluded.number_value,
+      `INSERT INTO ${table}(workspace_id,${column},attribute_id,text_value,number_value,bool_value,date_value) VALUES($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT(workspace_id,${column},attribute_id) DO UPDATE SET text_value=excluded.text_value,number_value=excluded.number_value,
          bool_value=excluded.bool_value,date_value=excluded.date_value,updated_at=now()`,
-      [w, contactId, def.id, t.text_value, t.number_value, t.bool_value, t.date_value],
+      [w, ownerId, def.id, t.text_value, t.number_value, t.bool_value, t.date_value],
     );
   }
-  await syncProfile(db, w, contactId);
 }
 
 /** All of a contact's values replaced by `values` (a merge's reversal puts back what was there). */
@@ -162,4 +186,9 @@ export async function readContactAttributes(db: Sql, w: string, contactIds: stri
     ])
   ).rows;
   return Object.fromEntries(rows.map((r) => [r.id, r.values])) as Record<string, Record<string, unknown>>;
+}
+
+/** A company's values go with it when it's deleted (P1b). */
+export async function deleteCompanyAttributes(db: Sql, w: string, companyId: string) {
+  await db.query("DELETE FROM company_attribute_values WHERE workspace_id=$1 AND company_id=$2", [w, companyId]);
 }

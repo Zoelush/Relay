@@ -173,7 +173,7 @@ export function apiReferenceMarkdown(spec: Spec = SPEC) {
   searchable("Contacts", CONTACT_FIELDS, "Also `custom_attributes.<name>` (text, or a number when the value is one). Sorted by `last_seen_at`, newest first, unless you choose.");
   out.push("## Webhook topics", "", "| Topic | When | `data.item` |", "|---|---|---|");
   for (const t of TOPICS) out.push(`| \`${t.id}\` | ${t.about} | ${t.item} |`);
-  out.push("", "Company topics and `contact.tagged` come with companies and tags on people (phase 01).", "");
+  out.push("", "`contact.tagged` comes with tags on people (phase 01 P1c).", "");
   out.push("## Canvas components", "", `Up to ${CANVAS_LIMITS.components} per canvas. Every component may have an \`id\` (1 to 64 letters, digits or \`_.:-\`), unique on the canvas; anything not listed here is refused.`, "", "| Type | Properties |", "|---|---|");
   for (const [type, about] of Object.entries(COMPONENT_REFERENCE)) out.push(`| \`${type}\` | ${about} |`);
   out.push("");

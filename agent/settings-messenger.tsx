@@ -1877,6 +1877,7 @@ export function MessengerDrafts({
             {view.tab === "security" && (
               <>
                 <IdentityCard data={data} brand={brand} onSaved={onIdentity} />
+                <CompaniesFromMessengerCard />
                 <IdentityGuide
                   workspaceId={data.workspaceId}
                   keys={data.identityKeys}
@@ -1969,6 +1970,62 @@ function IdentityCard({
           {state}
         </span>
       </div>
+    </Card>
+  );
+}
+
+/**
+ * Phase 01 P1b: whether a verified customer's messenger may put them in companies, through the
+ * signed identity token's `companies` claim. Off by default; saved at once and audited, because
+ * the portal's company visibility trusts what it adds.
+ */
+function CompaniesFromMessengerCard() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [state, setState] = useState("");
+  useEffect(() => {
+    let live = true;
+    api<{ messengerSetsCompanies: boolean }>("people-settings")
+      .then((d) => live && setOn(d.messengerSetsCompanies))
+      .catch((e) => live && setState(message(e, "Couldn't load this setting.")));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return (
+    <Card
+      title="Companies from the messenger"
+      description="Let your server put signed-in customers in their companies through the signed identity token. Saved at once."
+    >
+      <label className="pg-settings-toggle">
+        <input
+          type="checkbox"
+          checked={on === true}
+          disabled={on === null}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            // Shown at once, and put back if the save is refused.
+            setOn(next);
+            try {
+              const d = await api<{ messengerSetsCompanies: boolean }>("people-settings", { messengerSetsCompanies: next });
+              setOn(d.messengerSetsCompanies);
+              setState(next ? "The messenger can now set companies." : "The messenger no longer sets companies.");
+            } catch (err) {
+              setOn(!next);
+              setState(message(err, "Couldn't save."));
+            }
+          }}
+        />
+        <span>
+          <strong>Accept companies from signed identity tokens</strong>
+          <small className="pg-muted">
+            Only a token your server signs (JWT, not the older HMAC) can name companies, in a <code>companies</code> claim. When this is off, the
+            portal stops counting companies the messenger set.
+          </small>
+        </span>
+      </label>
+      <span role="status" className="pg-muted">
+        {state}
+      </span>
     </Card>
   );
 }

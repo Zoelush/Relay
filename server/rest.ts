@@ -9,6 +9,7 @@ import { check, readParameters } from "../lib/api-validate";
 import { LIMITS, memoryRateLimiter, type RateLimiter } from "./rate-limit";
 import type { AttachmentStorage } from "./attachments";
 import { MORE_HANDLERS } from "./rest-more";
+import { COMPANY_HANDLERS } from "./rest-companies";
 import { WEBHOOK_HANDLERS, type WebhookEnvironment } from "./webhooks";
 import { actingVia, recordContactView } from "./audit";
 import { networkAllowed, normalIp } from "./allowlists";
@@ -43,9 +44,9 @@ export const VERSION_CHANGES: VersionChange[] = [];
 /** The versions a request may name: the spec's, and each change's predecessor still supported. */
 export const supportedVersions = () => [...new Set([...API_VERSIONS, ...VERSION_CHANGES.map((c) => c.before)])];
 /** The operations the router can serve (a test holds them to the spec). */
-export const handledOperations = () => [...Object.keys(HANDLERS), ...Object.keys(MORE_HANDLERS), ...Object.keys(WEBHOOK_HANDLERS)];
+export const handledOperations = () => [...Object.keys(HANDLERS), ...Object.keys(MORE_HANDLERS), ...Object.keys(WEBHOOK_HANDLERS), ...Object.keys(COMPANY_HANDLERS)];
 /** An operation's work: D1's here, D2's in rest-more.ts (looked up when called; the two import each other). */
-const handlerFor = (operationId: string) => HANDLERS[operationId] ?? MORE_HANDLERS[operationId] ?? WEBHOOK_HANDLERS[operationId];
+const handlerFor = (operationId: string) => HANDLERS[operationId] ?? MORE_HANDLERS[operationId] ?? WEBHOOK_HANDLERS[operationId] ?? COMPANY_HANDLERS[operationId];
 
 const TOKEN = /^relay_pat_([A-Za-z0-9_-]{2,140})_([A-Za-z0-9]{40})$/;
 const b64 = (s: string) => btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

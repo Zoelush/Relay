@@ -14,6 +14,7 @@ import {
   type IdentityProof,
 } from "./identity";
 import { getIdentity, mergeVisitorIdentity } from "./people";
+import { applyCompanyClaim, changeCompanies, changePeopleSettings, findCompanies } from "./companies";
 import {
   command,
   timeline,
@@ -1357,6 +1358,10 @@ export async function handleApi(
                       visitor.identityId,
                       identity.contactId,
                     );
+                  // P1b: their companies, only from the signed token (never a legacy HMAC proof or
+                  // an unsigned field), and only while the workspace allows it.
+                  if (p.user.jwt)
+                    await applyCompanyClaim(db, p.workspaceId, identity.contactId, decodeJwt(p.user.jwt).companies);
                 }
                 const sessionId = crypto.randomUUID(),
                   proofExpiry = verified
@@ -1521,6 +1526,8 @@ export async function handleApi(
             "/v1/agent/community-settings",
             "/v1/agent/voice-settings",
             "/v1/agent/people",
+            "/v1/agent/companies",
+            "/v1/agent/people-settings",
             "/v1/agent/events-settings",
             "/v1/agent/subscription-settings",
             "/v1/agent/outbound",
@@ -1651,6 +1658,8 @@ export async function handleApi(
               "/v1/agent/community-settings",
               "/v1/agent/voice-settings",
               "/v1/agent/people",
+              "/v1/agent/companies",
+              "/v1/agent/people-settings",
               "/v1/agent/events-settings",
               "/v1/agent/subscription-settings",
               "/v1/agent/outbound-message",
@@ -2219,6 +2228,12 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/outbound-settings")
           // Phase 13 O2: the cap across all outbound, quiet hours and the timezone.
           return json(await tenant(env.connect, workspace, (db) => changeOutboundSettings(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/companies")
+          // Phase 01 P1b: a customer joins or leaves a company, or their role there changes.
+          return json(await tenant(env.connect, workspace, (db) => changeCompanies(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
+        if (url.pathname === "/v1/agent/people-settings")
+          // Phase 01 P1b: whether the messenger may set a verified user's companies.
+          return json(await tenant(env.connect, workspace, (db) => changePeopleSettings(db, workspace, principal, p)));
         if (url.pathname === "/v1/agent/people")
           // Phase 13 O1: a segment's or draft rules' people, one person, saving or archiving a segment.
           return json(await tenant(env.connect, workspace, (db) => changePeople(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
@@ -2966,6 +2981,12 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/outbound-message")
         // Phase 13 O2: one message: its draft and what stops it, versions, numbers and latest entries.
         return json(await tenant(env.connect, workspace, (db) => readOutboundMessage(db, workspace, principal, url.searchParams.get("id") ?? "")));
+      if (url.pathname === "/v1/agent/companies")
+        // Phase 01 P1b: companies for the sidebar's picker.
+        return json(await tenant(env.connect, workspace, (db) => findCompanies(db, workspace, principal, url.searchParams.get("q") ?? "")));
+      if (url.pathname === "/v1/agent/people-settings")
+        // Phase 01 P1b: whether the messenger may set a verified user's companies.
+        return json(await tenant(env.connect, workspace, (db) => changePeopleSettings(db, workspace, principal)));
       if (url.pathname === "/v1/agent/people")
         // Phase 13 O1: segments with their counts, and what rules can name.
         return json(await tenant(env.connect, workspace, (db) => readPeople(db, workspace, principal)));

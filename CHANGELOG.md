@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased: Companies
+
+- **Your customers' companies, with their plan, seats and monthly spend** and any data of your own,
+  typed like customer data. A person can be in several companies, with a role in each.
+- **Set them through the API** (create or update by your own id for a company, so syncs are safe),
+  **or from the inbox:** the details panel shows each company and lets a teammate add the customer
+  to one, change their role or take them out.
+- **From the messenger too, if you choose:** turn on Settings › Messenger › Security › Companies
+  from the messenger, and your server can name a signed-in customer's companies in the signed
+  identity token. Off by default, and never from the older HMAC signature.
+- **The portal's "everyone at their company" works:** customers see their colleagues' requests,
+  marked with whose they are, and can read them but not reply.
+- **Webhooks** for companies created, changed, deleted, and people joining or leaving them.
+  Deleting a company is in the audit log.
+- **Details:** `docs/PEOPLE_STEP2.md`.
+
 ## Unreleased: Typed customer data, shown in the inbox
 
 - **A customer's own data is typed now.** Plan, seats, renewal date, a yes-or-no — each attribute

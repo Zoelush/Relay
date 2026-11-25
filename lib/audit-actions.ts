@@ -78,6 +78,8 @@ export const TABLE_ACTIONS: Record<string, { noun: string; area: Area }> = {
   ticket_type: { noun: "Ticket type", area: "Data" },
   subscription_type: { noun: "Subscription type", area: "Data" },
   segment: { noun: "Segment", area: "Data" },
+  // Phase 01 P1b: whether the messenger may set a person's companies.
+  people_settings: { noun: "Companies from the messenger", area: "Data" },
   "contact.merge": { noun: "Contact", area: "Customer records" },
   audit_settings: { noun: "Audit log retention", area: "Security" },
   account: { noun: "Password sign-in", area: "Security" },
@@ -113,6 +115,8 @@ export const EXPLICIT_ACTIONS = {
   "link.opened_despite_warning": { label: "Malicious link opened after a warning", area: "Security" },
   "conversation.merged_across_people": { label: "Conversations of different people merged", area: "Customer records" },
   "contact.lead_merged_by_email": { label: "Lead merged into a user by email", area: "Customer records" },
+  // Phase 01 P1b.
+  "company.deleted": { label: "Company deleted", area: "Customer records" },
   // Phase 16 C7b.
   "support.signed_in": { label: "Relay support signed in", area: "Security" },
   "support.sign_in_refused": { label: "Relay support sign-in refused", area: "Security" },

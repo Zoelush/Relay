@@ -23,8 +23,9 @@ import { Relay, RelayError, verifyWebhook } from "../sdk/javascript/relay.mjs";
  * another workspace sees none of it. And the reference's verification snippets work.
  */
 test("the database writes exactly the topics the list names", () => {
-  const sql = readFileSync("db/postgres/0078_webhooks.sql", "utf8");
-  const written = [...new Set([...sql.matchAll(/'((?:conversation|ticket|contact|event|ai_agent|sla|article)\.[a-z_]+)'/g)].map((m) => m[1]))].sort();
+  // 0078 wrote the first topics; P1b's companies added theirs (0108).
+  const sql = ["db/postgres/0078_webhooks.sql", "db/postgres/0108_companies.sql"].map((f) => readFileSync(f, "utf8")).join("\n");
+  const written = [...new Set([...sql.matchAll(/'((?:conversation|ticket|contact|event|ai_agent|sla|article|company)\.[a-z_]+)'/g)].map((m) => m[1]))].sort();
   assert.deepEqual(written, [...TOPIC_IDS].sort());
 });
 

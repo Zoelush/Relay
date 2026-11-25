@@ -271,6 +271,36 @@ export type WebhookDelivery = {
     }[];
   created_at?: string;
 };
+export type Company = {
+  type: "company";
+  id: string;
+  company_id: string;
+  name: string;
+  plan?: string | null;
+  seats?: number | null;
+  monthly_spend?: number | null;
+  website?: string | null;
+  custom_attributes?: CustomAttributes;
+  contact_count?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+export type Membership = {
+  type: "company";
+  id: string;
+  company_id: string;
+  name: string;
+  plan?: string | null;
+  seats?: number | null;
+  monthly_spend?: number | null;
+  website?: string | null;
+  custom_attributes?: CustomAttributes;
+  contact_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  role: string;
+  source?: "api" | "inbox" | "messenger" | "merge";
+};
 export type RequestOptions<Q> = { query?: Q; idempotencyKey?: string };
 /** Verifies a webhook delivery's `Relay-Signature` and returns its event (throws if it isn't Relay's). */
 export declare function verifyWebhook(secret: string, rawBody: string, signatureHeader: string, toleranceSeconds?: number, now?: number): Promise<{ type: "webhook_event"; id: string; topic: string; created_at: string; workspace_id: string; data: Record<string, unknown> }>;
@@ -598,7 +628,7 @@ export declare class Relay {
   /** Create a webhook. */
   createWebhook(body: {
     url: string;
-    topics: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
+    topics: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "company.created" | "company.updated" | "company.deleted" | "company.contact_attached" | "company.contact_detached" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
     alert_email?: string | null;
   }, options?: RequestOptions<never>): Promise<Webhook>;
   /** Retrieve a webhook. */
@@ -606,7 +636,7 @@ export declare class Relay {
   /** Update a webhook. */
   updateWebhook(id: string, body: {
     url?: string;
-    topics?: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
+    topics?: ("conversation.created" | "conversation.customer_replied" | "conversation.teammate_replied" | "conversation.assigned" | "conversation.closed" | "conversation.rated" | "conversation.tagged" | "ticket.created" | "ticket.state_changed" | "contact.created" | "contact.updated" | "contact.merged" | "company.created" | "company.updated" | "company.deleted" | "company.contact_attached" | "company.contact_detached" | "event.received" | "ai_agent.resolved" | "ai_agent.escalated" | "sla.breached" | "article.published")[];
     alert_email?: string | null;
     active?: boolean;
   }, options?: RequestOptions<never>): Promise<Webhook>;
@@ -631,4 +661,62 @@ export declare class Relay {
   getWebhookDelivery(id: string, deliveryId: string, options?: RequestOptions<never>): Promise<WebhookDelivery>;
   /** Replay a delivery. */
   replayWebhookDelivery(id: string, deliveryId: string, options?: RequestOptions<never>): Promise<WebhookDelivery>;
+  /** List companies. */
+  listCompanies(options?: RequestOptions<{ company_id?: string; per_page?: number; starting_after?: string }>): Promise<{
+    type: "list";
+    data: Company[];
+    pages: Pages;
+  }>;
+  listCompaniesAll(options?: RequestOptions<{ company_id?: string; per_page?: number; starting_after?: string }>): AsyncGenerator<Company>;
+  /** Create or update a company. */
+  createCompany(body: {
+    company_id: string;
+    name?: string;
+    plan?: string | null;
+    seats?: number | null;
+    monthly_spend?: number | null;
+    website?: string | null;
+    custom_attributes?: CustomAttributes;
+  }, options?: RequestOptions<never>): Promise<Company>;
+  /** Retrieve a company. */
+  getCompany(id: string, options?: RequestOptions<never>): Promise<Company>;
+  /** Update a company. */
+  updateCompany(id: string, body: {
+    company_id?: string;
+    name?: string;
+    plan?: string | null;
+    seats?: number | null;
+    monthly_spend?: number | null;
+    website?: string | null;
+    custom_attributes?: CustomAttributes;
+  }, options?: RequestOptions<never>): Promise<Company>;
+  /** Delete a company. */
+  deleteCompany(id: string, options?: RequestOptions<never>): Promise<{
+    id?: string;
+    deleted?: boolean;
+  }>;
+  /** List a company's contacts. */
+  listCompanyContacts(id: string, options?: RequestOptions<{ per_page?: number; starting_after?: string }>): Promise<{
+    type: "list";
+    data: Contact[];
+    pages: Pages;
+  }>;
+  listCompanyContactsAll(id: string, options?: RequestOptions<{ per_page?: number; starting_after?: string }>): AsyncGenerator<Contact>;
+  /** List a contact's companies. */
+  listContactCompanies(id: string, options?: RequestOptions<never>): Promise<{
+    type: "list";
+    data: Membership[];
+    pages: Pages;
+  }>;
+  /** Add a contact to a company. */
+  attachContactToCompany(id: string, body: {
+    company_id: string;
+    role?: string;
+  }, options?: RequestOptions<never>): Promise<Membership>;
+  /** Take a contact out of a company. */
+  detachContactFromCompany(id: string, companyId: string, options?: RequestOptions<never>): Promise<{
+    id?: string;
+    company_id?: string;
+    detached?: boolean;
+  }>;
 }

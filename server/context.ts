@@ -6,6 +6,7 @@ import { authorize, can, scopeSql } from "./policy";
 import { access, conversation } from "./conversations";
 import { resolveContact } from "./people";
 import { recordContactView } from "./audit";
+import { companiesOf } from "./companies";
 
 /** Recent conversations shown for the customer, besides the open one. */
 const RECENT_LIMIT = 5;
@@ -129,7 +130,7 @@ export async function conversationContext(
     options: a.options ?? [],
     value: (c.attributes as Record<string, unknown>)[a.id] ?? null,
   }));
-  // TODO(phase 1): company and custom object cards, once the people service has them.
+  // TODO(phase 01 P3): custom object cards, once custom objects exist.
   return {
     personalData: personal,
     customer: contact
@@ -149,6 +150,20 @@ export async function conversationContext(
                 phones: await list("contact_phones", "phone"),
                 // P1a: their custom data, from the typed store — personal data, like the rest of this block.
                 customAttributes: contact.profile,
+                // P1b: the companies they're in, with their role in each.
+                companies: (await companiesOf(db, w, [contact.id]))[contact.id].map((m) => ({
+                  id: m.id,
+                  companyId: m.company_id,
+                  name: m.name,
+                  plan: m.plan,
+                  seats: m.seats,
+                  monthlySpend: m.monthly_spend,
+                  website: m.website,
+                  customAttributes: m.custom_attributes,
+                  people: m.contact_count,
+                  role: m.role,
+                  source: m.source,
+                })),
               }
             : {}),
         }
