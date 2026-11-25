@@ -1,3 +1,4 @@
+import { contactAttributesJson } from "./contact-attributes";
 import type { Sql } from "./db";
 import { ticketContext } from "./tickets";
 import { slaContext } from "./sla";
@@ -48,7 +49,9 @@ export async function conversationContext(
           origin_timezone: string | null;
           global_unsubscribe: boolean;
         }>(
-          "SELECT id,role,name,external_id,profile,first_seen_at,last_seen_at,signed_up_at,origin_timezone,global_unsubscribe FROM contacts WHERE workspace_id=$1 AND id=$2",
+          // P1a: the sidebar reads custom attributes from the typed store.
+          `SELECT c.id,c.role,c.name,c.external_id,${contactAttributesJson("c")} AS profile,c.first_seen_at,c.last_seen_at,c.signed_up_at,c.origin_timezone,c.global_unsubscribe
+           FROM contacts c WHERE c.workspace_id=$1 AND c.id=$2`,
           [w, contactId],
         )
       ).rows[0]
@@ -144,6 +147,8 @@ export async function conversationContext(
                 externalId: contact.external_id,
                 emails: await list("contact_emails", "email"),
                 phones: await list("contact_phones", "phone"),
+                // P1a: their custom data, from the typed store — personal data, like the rest of this block.
+                customAttributes: contact.profile,
               }
             : {}),
         }

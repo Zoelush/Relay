@@ -105,7 +105,7 @@ const PAIR = "the production workspace's record of the pair, kept and read only 
 export const NOT_COPIED: Record<string, string> = {
   ...Object.fromEntries(
     [
-      "contacts", "contact_changes", "contact_emails", "contact_phones", "contact_events", "contact_merges",
+      "contacts", "contact_changes", "contact_attribute_values", "contact_emails", "contact_phones", "contact_events", "contact_merges",
       "contact_subscriptions", "contact_subscription_changes", "identities", "identity_addresses",
       "identity_contact_mappings", "conversations", "conversation_parts", "conversation_part_images",
       "conversation_part_delivery_events", "conversation_participants", "conversation_reads", "conversation_tags",

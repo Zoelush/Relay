@@ -1,3 +1,4 @@
+import { setContactAttributes } from "./contact-attributes";
 import { DomainError, tenant, type Connect, type Sql } from "./db";
 import { enqueueJob, type Job } from "./jobs";
 import { command, conversation, type Conversation } from "./conversations";
@@ -1046,12 +1047,9 @@ async function setContactAttribute(db: Sql, w: string, run: RunRow, c: Conversat
   ).rows[0]?.contact_id;
   if (!contactId) throw new DomainError("CONTACT_NOT_FOUND", "This conversation has no customer record.", 404);
   const v = value === undefined ? null : value;
-  await db.query("UPDATE contacts SET profile=jsonb_set(profile,ARRAY[$3],$4::jsonb,true),version=version+1 WHERE workspace_id=$1 AND id=$2", [
-    w,
-    contactId,
-    keyName,
-    JSON.stringify(v),
-  ]);
+  // P1a: through the one writer, typed by its definition (defined by this first value if new).
+  await setContactAttributes(db, w, contactId, { [keyName]: v }, { define: true });
+  await db.query("UPDATE contacts SET version=version+1 WHERE workspace_id=$1 AND id=$2", [w, contactId]);
   const { append } = await import("./conversations");
   await append(
     db,

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { testDatabase } from "./database";
 import { tenant } from "../server/db";
+import { setContactAttributes } from "../server/contact-attributes";
 import { getIdentity, seedFoundation } from "../server/people";
 import { command } from "../server/conversations";
 import { runJob, type Job } from "../server/jobs";
@@ -319,10 +320,7 @@ test("customer-facing workflows: messages, reply buttons, collected replies, Zoe
     await sql("a", "UPDATE ai_agents SET verification_fallback='none'");
     const ten = await tenant(db.connect, "a", async (q) => {
       const identity = await getIdentity(q, "a", "anonymous", crypto.randomUUID(), {});
-      await q.query(
-        "UPDATE contacts SET profile=profile||'{\"order\":\"A1001\"}' WHERE workspace_id='a' AND id=(SELECT contact_id FROM identity_contact_mappings WHERE workspace_id='a' AND identity_id=$1)",
-        [identity.identityId],
-      );
+      await setContactAttributes(q, "a", identity.contactId, { order: "A1001" }, { define: true });
       return ((await command(q, "a", { type: "contact", identityId: identity.identityId, brandId: "default" }, crypto.randomUUID(), { action: "start", text: "Order?" })) as {
         conversationId: string;
       }).conversationId;

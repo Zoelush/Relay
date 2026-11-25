@@ -1,3 +1,4 @@
+import { setContactAttributes } from "../server/contact-attributes";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { testDatabase } from "./database";
@@ -23,27 +24,9 @@ test("non-destructive merge preserves conversation identity; survivor false/zero
     await tenant(db.connect, "a", async (sql) => {
       const visitor = await getIdentity(sql, "a", "anonymous", "device"),
         user = await getIdentity(sql, "a", "user", "person");
-      await sql.query(
-        "UPDATE contacts SET profile=$3 WHERE workspace_id=$1 AND id=$2",
-        [
-          "a",
-          visitor.contactId,
-          JSON.stringify({
-            tier: "trial",
-            active: true,
-            count: 4,
-            name: "visitor",
-          }),
-        ],
-      );
-      await sql.query(
-        "UPDATE contacts SET profile=$3 WHERE workspace_id=$1 AND id=$2",
-        [
-          "a",
-          user.contactId,
-          JSON.stringify({ active: false, count: 0, name: "" }),
-        ],
-      );
+      // P1a: custom data is written through the one writer, as typed values.
+      await setContactAttributes(sql, "a", visitor.contactId, { tier: "trial", active: true, count: 4, name: "visitor" }, { define: true });
+      await setContactAttributes(sql, "a", user.contactId, { active: false, count: 0, name: "" }, { define: true });
       const actor = {
           type: "contact" as const,
           identityId: visitor.identityId,
@@ -144,10 +127,9 @@ test("contact reversal reports later-edit conflict and cross-workspace lookup fa
         a.identityId,
         b.contactId,
       );
-      await sql.query(
-        "UPDATE contacts SET profile=$3,version=version+1 WHERE workspace_id=$1 AND id=$2",
-        ["a", b.contactId, { later: true }],
-      );
+      // A later edit, through the one writer: the reversal must see it and refuse.
+      await setContactAttributes(sql, "a", b.contactId, { later: true }, { define: true });
+      await sql.query("UPDATE contacts SET version=version+1 WHERE workspace_id=$1 AND id=$2", ["a", b.contactId]);
       return id!;
     });
     await assert.rejects(

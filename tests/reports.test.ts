@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { analyticsDatabase, testDatabase } from "./database";
 import { tenant } from "../server/db";
+import { setContactAttributes } from "../server/contact-attributes";
 import { getIdentity, seedFoundation } from "../server/people";
 import { append, command, conversation } from "../server/conversations";
 import { projectJob, reportFlow, reportMetric, type AnalyticsStore } from "../server/analytics";
@@ -96,7 +97,7 @@ test("every metric answers from the store, as defined, with breakdowns, filters,
     const as = (principal: string) => ({ type: "teammate" as const, principal });
     const run = (p: Record<string, unknown>, actor: ReturnType<typeof as> = as("owner-a")) => tenant(db.connect, "a", (q) => command(q, "a", actor, crypto.randomUUID(), p as never));
     const ada = await tenant(db.connect, "a", (q) => getIdentity(q, "a", "user", "u-ada", { name: "Ada" }));
-    await sql("UPDATE contacts SET profile='{\"plan\":\"pro\"}' WHERE id=$1", [ada.contactId]);
+    await tenant(db.connect, "a", (x) => setContactAttributes(x, "a", ada.contactId, { plan: "pro" }, { define: true }));
     const start = async (identityId: string, text: string) =>
       ((await tenant(db.connect, "a", (q) => command(q, "a", { type: "contact", identityId, brandId: "default" }, crypto.randomUUID(), { action: "start", text }))) as { conversationId: string }).conversationId;
     const say = (id: string, identityId: string, text: string) => tenant(db.connect, "a", (q) => command(q, "a", { type: "contact", identityId, brandId: "default" }, crypto.randomUUID(), { action: "reply", conversationId: id, text }));

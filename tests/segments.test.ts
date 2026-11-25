@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { SignJWT } from "jose";
 import { testDatabase } from "./database";
 import { tenant } from "../server/db";
+import { setContactAttributes } from "../server/contact-attributes";
 import { getIdentity, mergeVisitorIdentity, seedFoundation } from "../server/people";
 import { runJob, type Job } from "../server/jobs";
 import { bridgeAgentRequest } from "../server/agent-bridge";
@@ -176,7 +177,11 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
           role,
           pick(names),
           role === "user" ? `user-${i}` : null,
-          JSON.stringify(pick([{}, { plan: "pro", seats: 12 }, { plan: "free", seats: 1 }, { plan: "Pro", seats: "many" }, { seats: 5, beta: true }, { plan: null }])),
+          // Written the old way, into contacts.profile; the P1a backfill below moves it into typed values.
+          // seats mixes numbers and text, so it becomes text; score is numbers only, so it stays a number.
+          JSON.stringify(
+            pick([{}, { plan: "pro", seats: 12, score: 9 }, { plan: "free", seats: 1, score: 2 }, { plan: "Pro", seats: "many", score: 4.5 }, { seats: 5, beta: true }, { plan: null }]),
+          ),
           new Date(now - (60 + Math.floor(rand() * 300)) * DAY).toISOString(),
           new Date(now - Math.floor(rand() * 60) * DAY - 3_600_000).toISOString(),
           rand() < 0.5 ? new Date(now - Math.floor(rand() * 40) * DAY - 3_600_000).toISOString() : null,
@@ -194,6 +199,10 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
         ]);
       if (rand() < 0.4) await sql("a", "INSERT INTO contact_subscriptions(workspace_id,contact_id,subscription_type_id,state) VALUES('a',$1,$2,$3)", [id, pick([UPDATES, OFFERS, OLD]), pick(["opted_in", "opted_out"])]);
     }
+    // P1a: the migration's own backfill, run over the corpus exactly as it ran over real data.
+    await sql("a", "SELECT relay_backfill_contact_values()");
+    const inferredTypes = Object.fromEntries((await sql<{ name: string; value_type: string }>("a", "SELECT name,value_type FROM attribute_definitions WHERE owner_type='contact'")).map((d) => [d.name, d.value_type]));
+    assert.deepEqual(inferredTypes, { beta: "boolean", plan: "string", score: "float", seats: "string" }, "types inferred from what each key held");
     const rules: Rule[] = [
       ...["user", "lead", "visitor"].flatMap((v) => [{ field: "role", op: "is", value: v } as Rule, { field: "role", op: "is_not", value: v } as Rule]),
       ...(["is", "is_not", "contains", "is_set", "is_not_set"] as const).map((op) => ({ field: "name", op, value: "ada" })),
@@ -210,8 +219,11 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
       { field: "unsubscribed", op: "is", value: "true" },
       { field: "unsubscribed", op: "is", value: "false" },
       ...(["is", "is_not", "contains", "is_set", "is_not_set"] as const).map((op) => ({ field: "attribute", key: "plan", op, value: "pro" })),
+      { field: "attribute", key: "score", op: "greater_than", value: 4 },
+      { field: "attribute", key: "score", op: "less_than", value: 4 },
+      // seats is text now: its numbers are matched as the text JavaScript writes them.
+      { field: "attribute", key: "seats", op: "is", value: "12" },
       { field: "attribute", key: "seats", op: "greater_than", value: 4 },
-      { field: "attribute", key: "seats", op: "less_than", value: 4 },
       { field: "attribute", key: "beta", op: "is", value: "true" },
       { field: "event", key: "upgraded", op: "performed" },
       { field: "event", key: "upgraded", op: "performed", days: 7 },
@@ -245,6 +257,7 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
     await sql("a", "DELETE FROM contact_emails WHERE contact_id LIKE 'c%'");
     await sql("a", "DELETE FROM contact_phones WHERE contact_id LIKE 'c%'");
     await sql("a", "DELETE FROM contact_subscriptions WHERE contact_id LIKE 'c%'");
+    await sql("a", "DELETE FROM contact_attribute_values WHERE contact_id LIKE 'c%'");
     await sql("a", "DELETE FROM contacts WHERE id LIKE 'c%'");
 
     // Events from the customer's server: signed with the workspace's identity key for one user, kept once by id.
@@ -379,7 +392,9 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
     assert.deepEqual(await sql("a", "SELECT source,actor FROM contact_subscription_changes WHERE contact_id=$1", [u2.contactId]), [{ source: "merge", actor: v2.contactId }]);
 
     // People: predefined and saved segments with counts; a draft's live list; one person.
-    await sql("a", "UPDATE contacts SET profile='{\"plan\":\"pro\"}',signed_up_at=now() WHERE id=$1", [ada.id]);
+    // P1a: through the one writer, as the API would.
+    await tenant(db.connect, "a", (x) => setContactAttributes(x, "a", ada.id, { plan: "pro" }, { define: true }));
+    await sql("a", "UPDATE contacts SET signed_up_at=now() WHERE id=$1", [ada.id]);
     const people = (await agent("people")).body;
     assert.deepEqual(
       people.segments.map((s: any) => [s.id, s.count]),

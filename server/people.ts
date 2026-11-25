@@ -1,3 +1,4 @@
+import { mergeContactAttributes, replaceContactAttributes } from "./contact-attributes";
 import { assert, digest, type Sql } from "./db";
 import { capabilities } from "./policy";
 import { wrapIdentityKey } from "./identity";
@@ -299,7 +300,9 @@ export async function mergeVisitorIdentity(
     "Only anonymous/lead identity can merge into a verified user.",
     409,
   );
-  const after = { ...a.profile, ...b.profile }; // Existing survivor values, including false/0/empty, win.
+  // P1a: the values move through the one writer; the survivor's own win, false/0/empty included.
+  await mergeContactAttributes(db, workspace, loser, survivor);
+  const after = (await db.query<{ profile: Record<string, unknown> }>("SELECT profile FROM contacts WHERE workspace_id=$1 AND id=$2", [workspace, survivor])).rows[0].profile;
   const changes = {
     identityId,
     mappingBefore: mapping,
@@ -315,10 +318,7 @@ export async function mergeVisitorIdentity(
     "UPDATE contacts SET merged_into_contact_id=$3,version=version+1 WHERE workspace_id=$1 AND id=$2",
     [workspace, loser, survivor],
   );
-  await db.query(
-    "UPDATE contacts SET profile=$3,version=version+1 WHERE workspace_id=$1 AND id=$2",
-    [workspace, survivor, JSON.stringify(after)],
-  );
+  await db.query("UPDATE contacts SET version=version+1 WHERE workspace_id=$1 AND id=$2", [workspace, survivor]);
   await carryOptOuts(db, workspace, loser, survivor);
   const id = crypto.randomUUID();
   await db.query(
@@ -443,10 +443,9 @@ export async function reverseContactMerge(
     "UPDATE contacts SET merged_into_contact_id=NULL,version=version+1 WHERE workspace_id=$1 AND id=$2",
     [workspace, audit.loser_id],
   );
-  await db.query(
-    "UPDATE contacts SET profile=$3,version=version+1 WHERE workspace_id=$1 AND id=$2",
-    [workspace, audit.survivor_id, JSON.stringify(log.survivorBefore.profile)],
-  );
+  // P1a: the survivor's values put back exactly as they were before the merge.
+  await replaceContactAttributes(db, workspace, audit.survivor_id, log.survivorBefore.profile ?? {});
+  await db.query("UPDATE contacts SET version=version+1 WHERE workspace_id=$1 AND id=$2", [workspace, audit.survivor_id]);
   await db.query(
     "UPDATE contact_merges SET reversed_at=now(),changes=changes||jsonb_build_object('reversal',jsonb_build_object('mappingBefore',$3::jsonb,'survivorBefore',$4::jsonb,'restoredProfile',$5::jsonb)) WHERE workspace_id=$1 AND id=$2",
     [

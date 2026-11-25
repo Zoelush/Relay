@@ -1,5 +1,6 @@
 import { assert, DomainError, tenant, type Connect, type Sql } from "./db";
 import { suspensionOf } from "./directory";
+import { contactAttributesJson, setContactAttributes } from "./contact-attributes";
 import { authorize, capabilities, scopeSql, type Capability, type Teammate } from "./policy";
 import { command } from "./conversations";
 import { getIdentity, resolveContact } from "./people";
@@ -123,7 +124,8 @@ export async function readConversation(db: Sql, w: string, id: string, scope?: T
   return conversationOut(db, w, c);
 }
 export type ContactRow = { id: string; role: string; name: string; external_id: string | null; profile: Record<string, unknown>; first_seen_at: Date; last_seen_at: Date; signed_up_at: Date | null; email: string | null };
-export const CONTACT_SELECT = `SELECT c.id,c.role,c.name,c.external_id,c.profile,c.first_seen_at,c.last_seen_at,c.signed_up_at,
+// P1a: custom attributes come from the typed store, never contacts.profile.
+export const CONTACT_SELECT = `SELECT c.id,c.role,c.name,c.external_id,${contactAttributesJson("c")} AS profile,c.first_seen_at,c.last_seen_at,c.signed_up_at,
   (SELECT e.email FROM contact_emails e WHERE e.workspace_id=c.workspace_id AND e.contact_id=c.id ORDER BY e.verified DESC,e.email LIMIT 1) AS email FROM contacts c`;
 export const contactOut = (c: ContactRow) => ({
   type: "contact",
@@ -279,8 +281,11 @@ const HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
     const found = external
       ? await getIdentity(x.db, x.w, "user", external, { name: x.body.name as string | undefined, email })
       : await getIdentity(x.db, x.w, "anonymous", "api:" + (x.key ?? crypto.randomUUID()), { name: x.body.name as string | undefined, email });
-    if (Object.keys(attributes).length)
-      await x.db.query("UPDATE contacts SET profile=jsonb_strip_nulls(profile||$3::jsonb),version=version+1 WHERE workspace_id=$1 AND id=$2", [x.w, found.contactId, JSON.stringify(attributes)]);
+    if (Object.keys(attributes).length) {
+      // P1a: typed by each attribute's definition; one the API names first is defined by its value.
+      await setContactAttributes(x.db, x.w, found.contactId, attributes, { define: true });
+      await x.db.query("UPDATE contacts SET version=version+1 WHERE workspace_id=$1 AND id=$2", [x.w, found.contactId]);
+    }
     return readContact(x.db, x.w, found.contactId);
   },
   async getContact(x) {
@@ -292,10 +297,8 @@ const HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
   async updateContact(x) {
     const current = await readContact(x.db, x.w, String(x.params.id));
     const attributes = sanitizeAttributes(x.body.custom_attributes);
-    await x.db.query(
-      "UPDATE contacts SET name=COALESCE($3,name),profile=jsonb_strip_nulls(profile||$4::jsonb),version=version+1 WHERE workspace_id=$1 AND id=$2",
-      [x.w, current.id, (x.body.name as string | undefined) ?? null, JSON.stringify(attributes)],
-    );
+    await setContactAttributes(x.db, x.w, current.id, attributes, { define: true });
+    await x.db.query("UPDATE contacts SET name=COALESCE($3,name),version=version+1 WHERE workspace_id=$1 AND id=$2", [x.w, current.id, (x.body.name as string | undefined) ?? null]);
     return readContact(x.db, x.w, current.id);
   },
   async listTags(x) {
