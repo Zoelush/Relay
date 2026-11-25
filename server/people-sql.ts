@@ -8,3 +8,11 @@ const tagsJson = (table: "contact_tags" | "company_tags", column: string, alias:
   WHERE x.workspace_id=${alias}.workspace_id AND x.${column}=${alias}.id),'[]'::jsonb)`;
 export const contactTagsJson = (alias: string) => tagsJson("contact_tags", "contact_id", alias);
 export const companyTagsJson = (alias: string) => tagsJson("company_tags", "company_id", alias);
+
+/**
+ * P2a: how many people a company has — its live members, not contacts since merged into another
+ * (a merge leaves the loser's memberships in place, so its reversal finds them). For a company row
+ * aliased `alias`.
+ */
+export const companyPeopleSql = (alias: string) => `(SELECT count(*)::int FROM contact_companies m JOIN contacts k ON k.workspace_id=m.workspace_id AND k.id=m.contact_id
+  WHERE m.workspace_id=${alias}.workspace_id AND m.company_id=${alias}.id AND k.merged_into_contact_id IS NULL)`;

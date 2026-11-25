@@ -402,7 +402,7 @@ class Relay:
         return self.request("GET", "/segments", query=None, idempotency_key=idempotency_key)
 
     def list_segment_contacts(self, id, *, per_page=None, starting_after=None, idempotency_key=None):
-        """List a segment's contacts. Who's in a segment now."""
+        """List a segment's contacts. Who's in a segment of people now."""
         return self.request("GET", f"/segments/{_e(id)}/contacts", query={"per_page": per_page, "starting_after": starting_after}, idempotency_key=idempotency_key)
 
     def iter_list_segment_contacts(self, id, *, per_page=None):
@@ -410,6 +410,20 @@ class Relay:
         after = None
         while True:
             page = self.list_segment_contacts(id, per_page=per_page, starting_after=after)
+            yield from page["data"]
+            after = page["pages"]["next"]
+            if not after:
+                return
+
+    def list_segment_companies(self, id, *, per_page=None, starting_after=None, idempotency_key=None):
+        """List a segment's companies. Which companies are in a segment of companies now (phase 01 P2a)."""
+        return self.request("GET", f"/segments/{_e(id)}/companies", query={"per_page": per_page, "starting_after": starting_after}, idempotency_key=idempotency_key)
+
+    def iter_list_segment_companies(self, id, *, per_page=None):
+        """Every page of list_segment_companies, item by item."""
+        after = None
+        while True:
+            page = self.list_segment_companies(id, per_page=per_page, starting_after=after)
             yield from page["data"]
             after = page["pages"]["next"]
             if not after:

@@ -10,7 +10,7 @@ import { LIMITS, memoryRateLimiter, type RateLimiter } from "./rate-limit";
 import type { AttachmentStorage } from "./attachments";
 import { MORE_HANDLERS } from "./rest-more";
 import { COMPANY_HANDLERS } from "./rest-companies";
-import { contactTagsJson } from "./tag-sql";
+import { contactTagsJson } from "./people-sql";
 import { WEBHOOK_HANDLERS, type WebhookEnvironment } from "./webhooks";
 import { actingVia, recordContactView } from "./audit";
 import { networkAllowed, normalIp } from "./allowlists";

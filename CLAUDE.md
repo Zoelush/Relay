@@ -57,8 +57,12 @@ visibility) must use `TRUSTED_MEMBERSHIP`, which ignores the messenger's while
 `people_settings.messenger_sets_companies` is off. The messenger may set companies only from the
 signed JWT's `companies` claim, never from HMAC proofs or unsigned fields. Tags on contacts and
 companies (P1c, `docs/PEOPLE_STEP3.md`, migration 0109) are written only by `server/people-tags.ts`;
-SQL builders that module-level selects use (`server/tag-sql.ts`) stay free of imports, because the
-people modules import one another.
+SQL builders that module-level selects use (`server/people-sql.ts`) stay free of imports, because the
+people modules import one another. Segments (P2a, `docs/PEOPLE_STEP4.md`) nest groups and filter on
+tags and companies (`company.<field>`: any one company matching, negatives included); a segment is of
+people or companies (`segments.target`), and only people segments may be outbound audiences. Any new
+rule must be added to both `lib/segments.ts` (`matches`/`companyMatches`) and `server/segments.ts`
+(`sqlFor`), and to the corpus in `tests/segments.test.ts`. Check one person with `inSegment`.
 
 ## Build plan
 

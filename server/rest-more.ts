@@ -8,12 +8,13 @@ import { applyMacro } from "./macros";
 import { runManually } from "./workflows";
 import { outboundOn } from "./outbound";
 import { checkEvent, recordEvent } from "./events";
-import { compileSegment, segmentsOn } from "./segments";
+import { compileCompanySegment, compileSegment, segmentsOn } from "./segments";
+import { COMPANY_SELECT, companyOut, type CompanyRow } from "./companies";
 import { saveAttribute } from "./workspace-data";
 import { enqueueJob, type Job } from "./jobs";
 import { recordAudit } from "./audit";
 import type { AttachmentStorage } from "./attachments";
-import { PREDEFINED, type SegmentDefinition } from "../lib/segments";
+import { PREDEFINED, PREDEFINED_COMPANIES, type SegmentDefinition } from "../lib/segments";
 import { plainText, type RichDoc } from "../lib/rich-doc";
 import { CONTACT_FIELDS, CONVERSATION_FIELDS, compileSearch, compileSort, SearchError, type Field } from "../lib/api-search";
 import {
@@ -434,16 +435,20 @@ export const MORE_HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
 
   async listSegments(x) {
     assert(await segmentsOn(x.db, x.w), "NOT_FOUND", "Segments aren't enabled for this workspace.", 404);
-    const saved = (await x.db.query<{ id: string; name: string }>("SELECT id,name FROM segments WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id", [x.w])).rows;
-    return listOf([...PREDEFINED.map((s) => ({ type: "segment", id: s.id, name: s.name, predefined: true })), ...saved.map((s) => ({ type: "segment", id: s.id, name: s.name, predefined: false }))], null);
+    const saved = (await x.db.query<{ id: string; name: string; target: string }>("SELECT id,name,target FROM segments WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id", [x.w])).rows;
+    return listOf(
+      [
+        ...PREDEFINED.map((s) => ({ type: "segment", id: s.id, name: s.name, predefined: true, of: "contacts" })),
+        ...PREDEFINED_COMPANIES.map((s) => ({ type: "segment", id: s.id, name: s.name, predefined: true, of: "companies" })),
+        // P2a: a segment is of people or of companies.
+        ...saved.map((s) => ({ type: "segment", id: s.id, name: s.name, predefined: false, of: s.target })),
+      ],
+      null,
+    );
   },
   async listSegmentContacts(x) {
     assert(await segmentsOn(x.db, x.w), "NOT_FOUND", "Segments aren't enabled for this workspace.", 404);
-    const id = String(x.params.id);
-    const def =
-      PREDEFINED.find((s) => s.id === id)?.definition ??
-      (await x.db.query<{ definition: SegmentDefinition }>("SELECT definition FROM segments WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL", [x.w, id])).rows[0]?.definition;
-    assert(def, "NOT_FOUND", "No such segment.", 404);
+    const def = await segmentDefinition(x, "contacts");
     const after = readCursor<string>(x, (v) => typeof v === "string");
     const params: unknown[] = [x.w];
     let where = `c.workspace_id=$1 AND c.merged_into_contact_id IS NULL AND ${compileSegment(def, params)}`;
@@ -452,6 +457,19 @@ export const MORE_HANDLERS: Record<string, (x: Context) => Promise<unknown>> = {
     const rows = (await x.db.query<ContactRow>(`${CONTACT_SELECT} WHERE ${where} ORDER BY c.id LIMIT ${n + 1}`, params)).rows;
     const r = page(rows, n, (l) => l.id);
     return listOf(r.rows.map(contactOut), r.next);
+  },
+  // P2a: a company segment's companies, by id.
+  async listSegmentCompanies(x) {
+    assert(await segmentsOn(x.db, x.w), "NOT_FOUND", "Segments aren't enabled for this workspace.", 404);
+    const def = await segmentDefinition(x, "companies");
+    const after = readCursor<string>(x, (v) => typeof v === "string");
+    const params: unknown[] = [x.w];
+    let where = `co.workspace_id=$1 AND ${compileCompanySegment(def, params)}`;
+    if (after) where += ` AND co.id>$${params.push(after)}`;
+    const n = Number(x.params.per_page);
+    const rows = (await x.db.query<CompanyRow>(`${COMPANY_SELECT} WHERE ${where} ORDER BY co.id LIMIT ${n + 1}`, params)).rows;
+    const r = page(rows, n, (l) => l.id);
+    return listOf(r.rows.map(companyOut), r.next);
   },
 
   async createExport(x) {
@@ -566,4 +584,19 @@ export async function exportJob(connect: Connect, storage: AttachmentStorage, jo
     next.after = null;
   } else next.after = lines.last;
   return { done: next.i >= p.resources.length, result: next };
+}
+
+/** A segment's definition for the API, if it's of `of` (P2a): a people segment has no companies, and the reverse. */
+async function segmentDefinition(x: Context, of: "contacts" | "companies"): Promise<SegmentDefinition> {
+  const id = String(x.params.id);
+  const pre = PREDEFINED.find((s) => s.id === id);
+  const preCompanies = PREDEFINED_COMPANIES.find((s) => s.id === id);
+  const row = pre
+    ? { definition: pre.definition, target: "contacts" }
+    : preCompanies
+      ? { definition: preCompanies.definition, target: "companies" }
+    : (await x.db.query<{ definition: SegmentDefinition; target: string }>("SELECT definition,target FROM segments WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL", [x.w, id])).rows[0];
+  assert(row, "NOT_FOUND", "No such segment.", 404);
+  assert(row.target === of, "NOT_FOUND", of === "companies" ? "That segment is of people: list its contacts." : "That segment is of companies: list its companies.", 404);
+  return row.definition;
 }

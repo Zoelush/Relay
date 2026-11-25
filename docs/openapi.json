@@ -5429,7 +5429,7 @@
       "get": {
         "operationId": "listSegmentContacts",
         "summary": "List a segment's contacts",
-        "description": "Who's in a segment now.",
+        "description": "Who's in a segment of people now.",
         "tags": [
           "Segments"
         ],
@@ -5491,6 +5491,125 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/Contact"
+                      }
+                    },
+                    "pages": {
+                      "$ref": "#/components/schemas/Pages"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request isn't valid: the error names the field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one that's been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token's scopes, or its teammate's role, don't allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: wait `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/segments/{id}/companies": {
+      "get": {
+        "operationId": "listSegmentCompanies",
+        "summary": "List a segment's companies",
+        "description": "Which companies are in a segment of companies now (phase 01 P2a).",
+        "tags": [
+          "Segments"
+        ],
+        "x-relay-scope": "contacts.personal_data",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The segment's id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "description": "The segment's id."
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "How many to return, 1 to 100.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "starting_after",
+            "in": "query",
+            "description": "The cursor from the previous page's `pages.next`.",
+            "schema": {
+              "type": "string",
+              "maxLength": 400
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "data",
+                    "pages"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "list"
+                      ]
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Company"
                       }
                     },
                     "pages": {
@@ -9215,6 +9334,14 @@
           },
           "predefined": {
             "type": "boolean"
+          },
+          "of": {
+            "type": "string",
+            "enum": [
+              "contacts",
+              "companies"
+            ],
+            "description": "What it's made of: people, or companies (phase 01 P2a)."
           }
         }
       },

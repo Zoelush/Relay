@@ -3,9 +3,9 @@ import { assert, DomainError, once, tenant, type Connect, type Sql } from "./db"
 import { enqueueJob, type Job } from "./jobs";
 import { authorize } from "./policy";
 import { resolveContact } from "./people";
-import { compileSegment, contactFacts } from "./segments";
+import { compileSegment, inSegment } from "./segments";
 import { effectiveSubscriptions } from "./subscriptions";
-import { matches, PREDEFINED, type SegmentDefinition } from "../lib/segments";
+import { PREDEFINED, type SegmentDefinition } from "../lib/segments";
 import { blankDefinition, bucket, goalReadout, inQuietHours, outboundProblems, sendTimeMatches, type OutboundDefinition, type PageContext } from "../lib/outbound";
 import { featureOn } from "./plans";
 
@@ -65,14 +65,16 @@ async function audienceOf(db: Sql, w: string, def: OutboundDefinition): Promise<
   const id = def.audience.segmentId;
   if (id) {
     const pre = PREDEFINED.find((s) => s.id === id)?.definition;
-    const saved = pre ? null : (await db.query<{ definition: SegmentDefinition }>("SELECT definition FROM segments WHERE workspace_id=$1 AND id=$2", [w, id])).rows[0]?.definition;
+    // P2a: only a segment of people can be an audience; a company segment reaches nobody.
+    const saved = pre ? null : (await db.query<{ definition: SegmentDefinition }>("SELECT definition FROM segments WHERE workspace_id=$1 AND id=$2 AND target='contacts'", [w, id])).rows[0]?.definition;
     // An archived segment's message reaches nobody, rather than everybody.
     out.push(pre ?? saved ?? { match: "all", rules: [{ field: "role", op: "is", value: "nobody" }] });
   }
   return out;
 }
 async function inAudience(db: Sql, w: string, def: OutboundDefinition, contactId: string, now: number) {
-  for (const part of await audienceOf(db, w, def)) if (!matches(part, await contactFacts(db, w, contactId, part), now)) return false;
+  // P2a: one indexed query per part (`inSegment`), the same meaning as `matches`.
+  for (const part of await audienceOf(db, w, def)) if (!(await inSegment(db, w, part, contactId, now))) return false;
   return true;
 }
 /** The contacts an audience reaches now, as SQL (for the live size, and a fixed audience's snapshot). */
@@ -419,8 +421,12 @@ async function problemsHere(db: Sql, w: string, def: OutboundDefinition) {
   else if (type.channel !== "in_app") out.push("An in-app message needs an in-app subscription type.");
   if (def.type === "chat" && !(await db.query("SELECT 1 FROM teammates WHERE workspace_id=$1 AND id=$2", [w, def.content.senderId])).rows.length) out.push("Choose a teammate to send it.");
   const seg = def.audience.segmentId;
-  if (seg && !PREDEFINED.some((s) => s.id === seg) && !(await db.query("SELECT 1 FROM segments WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL", [w, seg])).rows.length)
-    out.push("Its segment isn't available.");
+  if (seg && !PREDEFINED.some((s) => s.id === seg)) {
+    const found = (await db.query<{ target: string }>("SELECT target FROM segments WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL", [w, seg])).rows[0];
+    if (!found) out.push("Its segment isn't available.");
+    // P2a: messages go to people, so a segment of companies can't be an audience.
+    else if (found.target !== "contacts") out.push("Its segment is of companies: choose a segment of people.");
+  }
   return out;
 }
 
@@ -482,13 +488,14 @@ export async function readOutbound(db: Sql, w: string, principal: string) {
     choices: {
       teammates: await rows<{ id: string; name: string }>("SELECT id,name FROM teammates WHERE workspace_id=$1 ORDER BY name,id"),
       subscriptions: await rows<{ id: string; name: string }>("SELECT id,name FROM subscription_types WHERE workspace_id=$1 AND channel='in_app' AND archived_at IS NULL ORDER BY lower(name),id"),
-      segments: [...PREDEFINED.map((x) => ({ id: x.id, name: x.name })), ...(await rows<{ id: string; name: string }>("SELECT id,name FROM segments WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id"))],
+      // P2a: only segments of people can be an audience.
+      segments: [...PREDEFINED.map((x) => ({ id: x.id, name: x.name })), ...(await rows<{ id: string; name: string }>("SELECT id,name FROM segments WHERE workspace_id=$1 AND archived_at IS NULL AND target='contacts' ORDER BY lower(name),id"))],
       events: (await rows<{ name: string }>("SELECT name FROM event_definitions WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name)")).map((r) => r.name),
-      attributes: (
-        await rows<{ key: string }>(
-          "SELECT DISTINCT k AS key FROM (SELECT jsonb_object_keys(profile) AS k FROM contacts WHERE workspace_id=$1 AND merged_into_contact_id IS NULL AND jsonb_typeof(profile)='object') x ORDER BY 1 LIMIT 200",
-        )
-      ).map((r) => r.key),
+      // P1a: the defined attributes (no longer the keys found in contacts.profile).
+      attributes: (await rows<{ key: string }>("SELECT name AS key FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='contact' AND archived_at IS NULL ORDER BY lower(name) LIMIT 200")).map((r) => r.key),
+      // P2a: what tag and company rules can name.
+      tags: await rows<{ id: string; name: string }>("SELECT id,name FROM tags WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id"),
+      companyAttributes: (await rows<{ key: string }>("SELECT name AS key FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='company' AND archived_at IS NULL ORDER BY lower(name) LIMIT 200")).map((r) => r.key),
     },
   };
 }
