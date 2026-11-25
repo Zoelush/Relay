@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Filter, Plus, Trash2, Users, X } from "lucide-react";
+import { Building2, Filter, FolderPlus, Plus, Trash2, Users, X } from "lucide-react";
 import { api } from "./api";
 import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
 import { message } from "./settings-ui";
-import { SEGMENT_FIELDS, type Op, type Rule, type SegmentDefinition } from "../lib/segments";
+import { fieldsFor, isGroup, MAX_DEPTH, SEGMENT_FIELDS, type Op, type Rule, type SegmentDefinition, type SegmentGroup, type SegmentItem, type SegmentTarget } from "../lib/segments";
 
 /**
  * People (phase 13, step O1; docs/OUTBOUND_STEP1.md), behind `segments_v1`, at `#people` and
@@ -11,9 +11,21 @@ import { SEGMENT_FIELDS, type Op, type Rule, type SegmentDefinition } from "../l
  * predefined segments and saved ones with their counts; the rules above the list are the
  * segment's, and changing them shows a live count before saving (as a new segment, or over a
  * saved one). A person opens beside the list: their details, latest events and subscriptions.
+ *
+ * Phase 01 P2a (docs/PEOPLE_STEP4.md): rules nest in groups (all or any, 3 deep), filter on tags
+ * and on a person's companies, and a People / Companies switch shows segments of companies too.
  */
-type Segment = { id: string; name: string; predefined: boolean; definition: SegmentDefinition; count: number };
-export type Directory = { segments: Segment[]; attributes: string[]; events: string[]; subscriptions: { id: string; name: string; channel: string }[] };
+type Segment = { id: string; name: string; predefined: boolean; target: SegmentTarget; definition: SegmentDefinition; count: number };
+export type Directory = {
+  segments: Segment[];
+  attributes: string[];
+  events: string[];
+  subscriptions: { id: string; name: string; channel: string }[];
+  /** P2a: what tag and company rules can name. */
+  tags?: { id: string; name: string }[];
+  companyAttributes?: string[];
+};
+type CompanyRow = { id: string; name: string; companyId: string; plan: string | null; seats: number | null; monthlySpend: number | null; people: number };
 type Person = { id: string; name: string; role: string; email: string | null; firstSeenAt: string | null; lastSeenAt: string | null; signedUpAt: string | null };
 type Details = {
   contact: {
@@ -49,23 +61,31 @@ const OPS: Record<Op, string> = {
   not_performed: "wasn't done",
   opted_in: "is subscribed",
   opted_out: "is unsubscribed",
+  has: "has",
+  has_not: "doesn't have",
 };
+/** Words for an operator on a particular field, where the general ones read wrongly. */
+const opLabel = (field: string, op: Op) => (field === "companies" ? (op === "is_set" ? "in a company" : "in no company") : OPS[op]);
 const ago = (iso: string | null) => {
   if (!iso) return "—";
   const d = (Date.now() - Date.parse(iso)) / 86_400_000;
   return d < 1 ? "Today" : d < 2 ? "Yesterday" : d < 60 ? `${Math.floor(d)} days ago` : new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 };
-const needsValue = (op: Op) => !["is_set", "is_not_set", "performed", "not_performed", "opted_in", "opted_out"].includes(op);
+const needsValue = (op: Op) => !["is_set", "is_not_set", "performed", "not_performed", "opted_in", "opted_out", "has", "has_not"].includes(op);
+/** Whether a rule names a company's attribute (a company segment's, or a person's company's). */
+const companyAttribute = (field: string, target: SegmentTarget) => field === "company.attribute" || (target === "companies" && field === "attribute");
 /** A new rule on a field, with a first value that makes sense for it. */
-export function fresh(field: string, dir: Directory): Rule {
-  const f = SEGMENT_FIELDS[field];
+export function fresh(field: string, dir: Directory, target: SegmentTarget = "contacts"): Rule {
+  const f = fieldsFor(target)[field];
   const op = f.ops[0];
   const r: Rule = { field, op };
   if (f.key === "event") r.key = dir.events[0] ?? "";
   if (f.key === "subscription") r.key = dir.subscriptions[0]?.id ?? "";
-  if (f.key === "attribute") r.key = dir.attributes[0] ?? "";
+  if (f.key === "attribute") r.key = (companyAttribute(field, target) ? dir.companyAttributes?.[0] : dir.attributes[0]) ?? "";
+  if (f.tag) r.value = dir.tags?.[0]?.id ?? "";
   if (f.values) r.value = f.values[0];
   else if (op === "more_than_days_ago" || op === "less_than_days_ago") r.value = 30;
+  else if (op === "greater_than" || op === "less_than") r.value = 0;
   return r;
 }
 
@@ -85,22 +105,37 @@ export function People({ segment, onSegment }: { segment: string; onSegment: (id
     void load();
   }, [load]);
   const current = dir?.segments.find((s) => s.id === segment) ?? dir?.segments[0];
+  const target = current?.target ?? "contacts";
   return (
     <section className="pg-workspace pg-people" aria-label="People">
       <div className="pg-area">
         <SideMenu state={menu} title="People" label="People menu">
           {dir && (
             <>
+              {/* P2a: segments of people, or of companies. */}
+              <div className="pg-people-switch" role="group" aria-label="Show segments of">
+                {(["contacts", "companies"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={target === t}
+                    onClick={() => target !== t && onSegment(dir.segments.find((s) => s.target === t)?.id ?? "")}
+                  >
+                    {t === "contacts" ? <Users size={14} aria-hidden="true" /> : <Building2 size={14} aria-hidden="true" />}
+                    {t === "contacts" ? "People" : "Companies"}
+                  </button>
+                ))}
+              </div>
               <ul className="pg-menu-entries" aria-label="Predefined segments">
                 {dir.segments
-                  .filter((s) => s.predefined)
+                  .filter((s) => s.predefined && s.target === target)
                   .map((s) => (
                     <SegmentEntry key={s.id} s={s} current={current?.id === s.id} onClick={() => onSegment(s.id)} />
                   ))}
               </ul>
               <ul className="pg-menu-entries" aria-label="Your segments">
                 {dir.segments
-                  .filter((s) => !s.predefined)
+                  .filter((s) => !s.predefined && s.target === target)
                   .map((s) => (
                     <SegmentEntry key={s.id} s={s} current={current?.id === s.id} onClick={() => onSegment(s.id)} />
                   ))}
@@ -142,7 +177,7 @@ function SegmentEntry({ s, current, onClick }: { s: Segment; current: boolean; o
     <li data-hue={s.predefined ? "teal" : "slate"}>
       <button aria-current={current ? "page" : undefined} onClick={onClick}>
         <span className="pg-menu-entry-icon" aria-hidden="true">
-          {s.predefined ? <Users size={16} /> : <Filter size={16} />}
+          {s.predefined ? s.target === "companies" ? <Building2 size={16} /> : <Users size={16} /> : <Filter size={16} />}
         </span>
         <span className="pg-menu-entry-name">{s.name}</span>
         <span className="pg-menu-entry-count">{s.count}</span>
@@ -167,7 +202,8 @@ function SegmentView({
   onArchived: () => void;
 }) {
   const [def, setDef] = useState<SegmentDefinition>(segment.definition);
-  const [people, setPeople] = useState<{ count: number; contacts: Person[] } | null>(null);
+  const target = segment.target;
+  const [people, setPeople] = useState<{ count: number; contacts?: Person[]; companies?: CompanyRow[] } | null>(null);
   const [page, setPage] = useState(0);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -179,7 +215,7 @@ function SegmentView({
   useEffect(() => {
     const n = ++asked.current;
     const t = setTimeout(() => {
-      api<{ count: number; contacts: Person[] }>("people", changed ? { action: "list", definition: def, page: 0 } : { action: "list", segmentId: segment.id, page: 0 })
+      api<{ count: number; contacts?: Person[]; companies?: CompanyRow[] }>("people", changed ? { action: "list", target, definition: def, page: 0 } : { action: "list", segmentId: segment.id, page: 0 })
         .then((r) => {
           if (n !== asked.current) return;
           setPeople(r);
@@ -189,29 +225,32 @@ function SegmentView({
         .catch((e) => n === asked.current && setError(message(e, "Those rules can't be used.")));
     }, 250);
     return () => clearTimeout(t);
-  }, [def, changed, segment.id]);
+  }, [def, changed, segment.id, target]);
   const more = async () => {
-    const r = await api<{ count: number; contacts: Person[] }>("people", changed ? { action: "list", definition: def, page: page + 1 } : { action: "list", segmentId: segment.id, page: page + 1 });
-    setPeople((p) => (p ? { count: r.count, contacts: [...p.contacts, ...r.contacts] } : r));
+    const r = await api<{ count: number; contacts?: Person[]; companies?: CompanyRow[] }>("people", changed ? { action: "list", target, definition: def, page: page + 1 } : { action: "list", segmentId: segment.id, page: page + 1 });
+    setPeople((p) =>
+      p ? { count: r.count, ...(r.companies ? { companies: [...(p.companies ?? []), ...r.companies] } : { contacts: [...(p.contacts ?? []), ...(r.contacts ?? [])] }) } : r,
+    );
     setPage(page + 1);
   };
+  const shown = (people?.contacts ?? people?.companies ?? []).length;
+  const noun = (n: number) => (target === "companies" ? (n === 1 ? "company matches" : "companies match") : n === 1 ? "person matches" : "people match");
   const save = async (asNew: boolean) => {
     try {
-      const r = await api<{ id: string }>("people", { action: "save", ...(asNew ? {} : { id: segment.id }), name: asNew ? name : segment.name, definition: def });
+      const r = await api<{ id: string }>("people", { action: "save", ...(asNew ? { target } : { id: segment.id }), name: asNew ? name : segment.name, definition: def });
       onSaved(r.id, asNew ? `Saved ${name}.` : `Saved ${segment.name}.`);
     } catch (e) {
       setError(message(e, "The segment couldn't be saved."));
     }
   };
-  const setRule = (i: number, r: Rule) => setDef({ ...def, rules: def.rules.map((x, j) => (j === i ? r : x)) });
   return (
     <>
       <header className="pg-top pg-settings-head">
         {menu}
         <div>
           <h2>{segment.name}</h2>
-          <p className="pg-muted" aria-live="polite" aria-label="People matching">
-            {people ? `${people.count} ${people.count === 1 ? "person matches" : "people match"}${changed ? " these rules" : ""}` : "Counting…"}
+          <p className="pg-muted" aria-live="polite" aria-label={target === "companies" ? "Companies matching" : "People matching"}>
+            {people ? `${people.count} ${noun(people.count)}${changed ? " these rules" : ""}` : "Counting…"}
           </p>
         </div>
         <div className="pg-settings-save">
@@ -276,31 +315,33 @@ function SegmentView({
           </form>
         )}
         <section className="pg-people-rules" aria-label="Rules">
-          <div className="pg-settings-row">
-            <label className="pg-settings-inline">
-              People who match
-              <select aria-label="Match" value={def.match} onChange={(e) => setDef({ ...def, match: e.target.value as "all" | "any" })}>
-                <option value="all">all</option>
-                <option value="any">any</option>
-              </select>
-              of these rules
-            </label>
-          </div>
-          <ol className="pg-people-rule-list">
-            {def.rules.map((r, i) => (
-              <li key={i}>
-                <RuleEditor rule={r} index={i} dir={dir} onChange={(x) => setRule(i, x)} />
-                <button type="button" className="pg-wf-link" aria-label={`Remove rule ${i + 1}`} onClick={() => setDef({ ...def, rules: def.rules.filter((_, j) => j !== i) })}>
-                  <Trash2 size={14} aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ol>
-          <button type="button" className="pg-zoe-secondary" onClick={() => setDef({ ...def, rules: [...def.rules, fresh("attribute", dir)] })}>
-            <Plus size={14} aria-hidden="true" /> Add rule
-          </button>
+          <RulesEditor def={def} dir={dir} target={target} lead={target === "companies" ? "Companies that match" : "People who match"} onChange={setDef} />
         </section>
         <div className="pg-people-split">
+          {target === "companies" ? (
+            <table className="pg-email-records pg-people-table" aria-label="Companies">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Plan</th>
+                  <th scope="col">Seats</th>
+                  <th scope="col">Monthly spend</th>
+                  <th scope="col">People</th>
+                </tr>
+              </thead>
+              <tbody>
+                {people?.companies?.map((c) => (
+                  <tr key={c.id}>
+                    <th scope="row">{c.name}</th>
+                    <td>{c.plan ?? "—"}</td>
+                    <td>{c.seats ?? "—"}</td>
+                    <td>{c.monthlySpend === null ? "—" : c.monthlySpend.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                    <td>{c.people}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
           <table className="pg-email-records pg-people-table" aria-label="People">
             <thead>
               <tr>
@@ -313,7 +354,7 @@ function SegmentView({
               </tr>
             </thead>
             <tbody>
-              {people?.contacts.map((c) => (
+              {people?.contacts?.map((c) => (
                 <tr key={c.id} aria-selected={open === c.id}>
                   <th scope="row">
                     <button type="button" className="pg-wf-link" onClick={() => setOpen(c.id)}>
@@ -329,27 +370,30 @@ function SegmentView({
               ))}
             </tbody>
           </table>
+          )}
           {open && <PersonPanel key={open} id={open} onClose={() => setOpen(null)} />}
         </div>
-        {people && people.contacts.length < people.count && (
+        {people && shown < people.count && (
           <button type="button" className="pg-zoe-secondary" onClick={() => void more()}>
             Show more
           </button>
         )}
-        {people && !people.count && <p className="pg-muted">Nobody matches yet.</p>}
+        {people && !people.count && <p className="pg-muted">{target === "companies" ? "No company matches yet." : "Nobody matches yet."}</p>}
       </div>
     </>
   );
 }
 
-export function RuleEditor({ rule, index, dir, onChange }: { rule: Rule; index: number; dir: Directory; onChange: (r: Rule) => void }) {
-  const f = SEGMENT_FIELDS[rule.field];
+export function RuleEditor({ rule, index, dir, onChange, target = "contacts" }: { rule: Rule; index: number; dir: Directory; onChange: (r: Rule) => void; target?: SegmentTarget }) {
+  const fields = fieldsFor(target);
+  const f = fields[rule.field] ?? SEGMENT_FIELDS.attribute;
   const n = index + 1;
   const dated = rule.op === "more_than_days_ago" || rule.op === "less_than_days_ago";
+  const ofCompany = companyAttribute(rule.field, target);
   return (
     <div className="pg-people-rule" role="group" aria-label={`Rule ${n}`}>
-      <select aria-label={`Rule ${n}: filter on`} value={rule.field} onChange={(e) => onChange(fresh(e.target.value, dir))}>
-        {Object.entries(SEGMENT_FIELDS).map(([id, x]) => (
+      <select aria-label={`Rule ${n}: filter on`} value={rule.field} onChange={(e) => onChange(fresh(e.target.value, dir, target))}>
+        {Object.entries(fields).map(([id, x]) => (
           <option key={id} value={id}>
             {x.label}
           </option>
@@ -357,9 +401,9 @@ export function RuleEditor({ rule, index, dir, onChange }: { rule: Rule; index: 
       </select>
       {f.key === "attribute" && (
         <>
-          <input aria-label={`Rule ${n}: attribute`} list="pg-people-attributes" value={rule.key ?? ""} onChange={(e) => onChange({ ...rule, key: e.target.value })} />
-          <datalist id="pg-people-attributes">
-            {dir.attributes.map((a) => (
+          <input aria-label={`Rule ${n}: attribute`} list={ofCompany ? "pg-people-company-attributes" : "pg-people-attributes"} value={rule.key ?? ""} onChange={(e) => onChange({ ...rule, key: e.target.value })} />
+          <datalist id={ofCompany ? "pg-people-company-attributes" : "pg-people-attributes"}>
+            {(ofCompany ? (dir.companyAttributes ?? []) : dir.attributes).map((a) => (
               <option key={a} value={a} />
             ))}
           </datalist>
@@ -391,7 +435,8 @@ export function RuleEditor({ rule, index, dir, onChange }: { rule: Rule; index: 
         onChange={(e) => {
           const op = e.target.value as Op;
           const r: Rule = { field: rule.field, op, key: rule.key };
-          if (f.values) r.value = f.values[0];
+          if (f.tag) r.value = rule.value;
+          else if (f.values) r.value = f.values[0];
           else if (op === "more_than_days_ago" || op === "less_than_days_ago") r.value = 30;
           else if (op === "greater_than" || op === "less_than") r.value = 0;
           else if (needsValue(op)) r.value = typeof rule.value === "string" ? rule.value : "";
@@ -400,10 +445,20 @@ export function RuleEditor({ rule, index, dir, onChange }: { rule: Rule; index: 
       >
         {f.ops.map((o) => (
           <option key={o} value={o}>
-            {OPS[o]}
+            {opLabel(rule.field, o)}
           </option>
         ))}
       </select>
+      {f.tag && (
+        <select aria-label={`Rule ${n}: tag`} value={String(rule.value ?? "")} onChange={(e) => onChange({ ...rule, value: e.target.value })}>
+          {!dir.tags?.length && <option value="">No tags yet</option>}
+          {dir.tags?.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      )}
       {needsValue(rule.op) &&
         (f.values ? (
           <select aria-label={`Rule ${n}: value`} value={String(rule.value)} onChange={(e) => onChange({ ...rule, value: e.target.value })}>
@@ -447,6 +502,133 @@ export function RuleEditor({ rule, index, dir, onChange }: { rule: Rule; index: 
           </label>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * A definition's rules, grouped (P2a): the top group's "all" or "any", its rules, and groups within
+ * it (3 deep at most), each with its own "all" or "any". Rules are numbered in reading order, so
+ * "Rule 3" is the third on the page, however it's grouped.
+ */
+export function RulesEditor({ def, dir, target, lead, onChange }: { def: SegmentDefinition; dir: Directory; target: SegmentTarget; lead: string; onChange: (d: SegmentDefinition) => void }) {
+  return <GroupEditor group={def} dir={dir} target={target} lead={lead} depth={1} firstRule={0} number={0} firstChild={1} onChange={onChange} />;
+}
+
+/** How many rules and groups a group holds, however deep. */
+const tally = (g: SegmentGroup): { rules: number; groups: number } =>
+  g.rules.reduce(
+    (t, r) => {
+      if (!isGroup(r)) return { rules: t.rules + 1, groups: t.groups };
+      const x = tally(r);
+      return { rules: t.rules + x.rules, groups: t.groups + 1 + x.groups };
+    },
+    { rules: 0, groups: 0 },
+  );
+
+function GroupEditor({
+  group,
+  dir,
+  target,
+  lead,
+  depth,
+  firstRule,
+  number,
+  firstChild,
+  onChange,
+  onRemove,
+}: {
+  group: SegmentGroup;
+  dir: Directory;
+  target: SegmentTarget;
+  lead: string;
+  depth: number;
+  /** How many rules come before this group's first, on the page. */
+  firstRule: number;
+  /** This group's number (the top group has none), and its first inner group's. */
+  number: number;
+  firstChild: number;
+  onChange: (g: SegmentGroup) => void;
+  onRemove?: () => void;
+}) {
+  const top = depth === 1;
+  const label = top ? "" : `Group ${number}`;
+  // Each item's place in the reading order: a rule's number, or a group's and its first rule's.
+  const places: { rule: number; group: number; child: number }[] = [];
+  let nextRule = firstRule;
+  let nextGroup = firstChild;
+  for (const item of group.rules) {
+    if (isGroup(item)) {
+      places.push({ rule: nextRule, group: nextGroup, child: nextGroup + 1 });
+      const t = tally(item);
+      nextRule += t.rules;
+      nextGroup += 1 + t.groups;
+    } else places.push({ rule: nextRule++, group: 0, child: 0 });
+  }
+  const set = (i: number, item: SegmentItem) => onChange({ ...group, rules: group.rules.map((x, j) => (j === i ? item : x)) });
+  const remove = (i: number) => onChange({ ...group, rules: group.rules.filter((_, j) => j !== i) });
+  return (
+    <div className={top ? "pg-people-group-top" : "pg-people-group"} role={top ? undefined : "group"} aria-label={top ? undefined : label}>
+      <div className="pg-settings-row pg-people-group-head">
+        <label className="pg-settings-inline">
+          {top ? lead : "Match"}
+          <select aria-label={top ? "Match" : `${label}: match`} value={group.match} onChange={(e) => onChange({ ...group, match: e.target.value as "all" | "any" })}>
+            <option value="all">all</option>
+            <option value="any">any</option>
+          </select>
+          of these rules
+        </label>
+        {onRemove && (
+          <button type="button" className="pg-wf-link" aria-label={`Remove ${label.toLowerCase()}`} onClick={onRemove}>
+            <Trash2 size={14} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+      <ol className="pg-people-rule-list">
+        {group.rules.map((item, i) => {
+          if (isGroup(item))
+            return (
+              <li key={i} className="pg-people-group-item">
+                <GroupEditor
+                  group={item}
+                  dir={dir}
+                  target={target}
+                  lead={lead}
+                  depth={depth + 1}
+                  firstRule={places[i].rule}
+                  number={places[i].group}
+                  firstChild={places[i].child}
+                  onChange={(g) => set(i, g)}
+                  onRemove={() => remove(i)}
+                />
+              </li>
+            );
+          const n = places[i].rule;
+          return (
+            <li key={i}>
+              <RuleEditor rule={item} index={n} dir={dir} target={target} onChange={(x) => set(i, x)} />
+              <button type="button" className="pg-wf-link" aria-label={`Remove rule ${n + 1}`} onClick={() => remove(i)}>
+                <Trash2 size={14} aria-hidden="true" />
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="pg-people-group-actions">
+        <button type="button" className="pg-zoe-secondary" aria-label={top ? "Add rule" : `${label}: add rule`} onClick={() => onChange({ ...group, rules: [...group.rules, fresh("attribute", dir, target)] })}>
+          <Plus size={14} aria-hidden="true" /> Add rule
+        </button>
+        {depth < MAX_DEPTH && (
+          <button
+            type="button"
+            className="pg-zoe-secondary"
+            aria-label={top ? "Add group" : `${label}: add group`}
+            onClick={() => onChange({ ...group, rules: [...group.rules, { match: "any", rules: [fresh("attribute", dir, target)] }] })}
+          >
+            <FolderPlus size={14} aria-hidden="true" /> Add group
+          </button>
+        )}
+      </div>
     </div>
   );
 }

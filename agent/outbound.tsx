@@ -3,7 +3,7 @@ import { ArrowLeft, Megaphone, MessageSquare, Pause, Play, Plus, Send, Trash2 } 
 import { api } from "./api";
 import { ShowMenuButton, SideMenu, useSideMenu } from "./shell";
 import { message } from "./settings-ui";
-import { fresh, RuleEditor, type Directory } from "./people";
+import { RulesEditor, type Directory } from "./people";
 import type { OutboundDefinition, SendTimeRule } from "../lib/outbound";
 
 /**
@@ -26,7 +26,16 @@ type Stats = {
   goal: null | { event: string; days: number; sent: { n: number; converted: number }; control: { n: number; converted: number }; verdict: string };
 };
 type Row = { id: string; title: string; type: "chat" | "banner"; state: string; liveVersion: number | null; updatedAt: string; stats: Stats };
-type Choices = { teammates: { id: string; name: string }[]; subscriptions: { id: string; name: string }[]; segments: { id: string; name: string }[]; events: string[]; attributes: string[] };
+type Choices = {
+  teammates: { id: string; name: string }[];
+  subscriptions: { id: string; name: string }[];
+  segments: { id: string; name: string }[];
+  events: string[];
+  attributes: string[];
+  /** P2a: for tag and company rules. */
+  tags?: { id: string; name: string }[];
+  companyAttributes?: string[];
+};
 type List = { messages: Row[]; choices: Choices };
 type Detail = {
   message: { id: string; title: string; type: "chat" | "banner"; state: string; liveVersion: number | null };
@@ -261,7 +270,14 @@ function Editor({ id, choices, menu, onBack, onChanged }: { id: string; choices:
   };
   if (!d || !def) return error ? <p className="pg-attr-error">{error}</p> : null;
   const set = (x: Partial<OutboundDefinition>) => setDef({ ...def, ...x });
-  const dir: Directory = { segments: [], attributes: choices.attributes, events: choices.events, subscriptions: choices.subscriptions.map((s) => ({ ...s, channel: "in_app" })) };
+  const dir: Directory = {
+    segments: [],
+    attributes: choices.attributes,
+    events: choices.events,
+    subscriptions: choices.subscriptions.map((s) => ({ ...s, channel: "in_app" })),
+    tags: choices.tags ?? [],
+    companyAttributes: choices.companyAttributes ?? [],
+  };
   const save = () => act({ action: "save", title, definition: def }, "Saved.");
   const m = d.message;
   return (
@@ -392,37 +408,8 @@ function Editor({ id, choices, menu, onBack, onChanged }: { id: string; choices:
                   ))}
                 </select>
               </label>
-              <label className="pg-settings-inline">
-                and who match
-                <select aria-label="Match" value={def.audience.rules.match} onChange={(e) => set({ audience: { ...def.audience, rules: { ...def.audience.rules, match: e.target.value as "all" | "any" } } })}>
-                  <option value="all">all</option>
-                  <option value="any">any</option>
-                </select>
-                of these rules
-              </label>
-              <ol className="pg-people-rule-list">
-                {def.audience.rules.rules.map((r, i) => (
-                  <li key={i}>
-                    <RuleEditor
-                      rule={r}
-                      index={i}
-                      dir={dir}
-                      onChange={(x) => set({ audience: { ...def.audience, rules: { ...def.audience.rules, rules: def.audience.rules.rules.map((y, j) => (j === i ? x : y)) } } })}
-                    />
-                    <button
-                      type="button"
-                      className="pg-wf-link"
-                      aria-label={`Remove rule ${i + 1}`}
-                      onClick={() => set({ audience: { ...def.audience, rules: { ...def.audience.rules, rules: def.audience.rules.rules.filter((_, j) => j !== i) } } })}
-                    >
-                      <Trash2 size={14} aria-hidden="true" />
-                    </button>
-                  </li>
-                ))}
-              </ol>
-              <button type="button" className="pg-zoe-secondary" onClick={() => set({ audience: { ...def.audience, rules: { ...def.audience.rules, rules: [...def.audience.rules.rules, fresh("attribute", dir)] } } })}>
-                <Plus size={14} aria-hidden="true" /> Add rule
-              </button>
+              {/* P2a: the audience's own rules, grouped as a segment's are. */}
+              <RulesEditor def={def.audience.rules} dir={dir} target="contacts" lead="and who match" onChange={(rules) => set({ audience: { ...def.audience, rules } })} />
               <SendTimeRules rules={def.audience.sendTime} onChange={(sendTime) => set({ audience: { ...def.audience, sendTime } })} />
             </Section>
             <Section title="Delivery">

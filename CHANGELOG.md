@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: Segments with groups, tags and companies
+
+- **Group your rules:** match all of some and any of others, three levels deep, and see the count
+  change as you build.
+- **Filter on tags** and on the companies people are in (plan, seats, spend, their data, their
+  tags): someone matches when any one of their companies does.
+- **Segments of companies:** People now has a People / Companies switch, with saved company
+  segments and their counts. Outbound messages still go to people.
+- **Through the API:** each segment says whether it's of people or companies, and a company
+  segment lists its companies.
+- **Details:** `docs/PEOPLE_STEP4.md`.
+
 ## Unreleased: Tags on people and companies
 
 - **Tag customers and their companies** with the same tags your conversations use, so "VIP" means

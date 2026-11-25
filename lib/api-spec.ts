@@ -615,7 +615,8 @@ Object.assign(SPEC.paths, {
     ),
   },
   "/segments": { get: listing("listSegments", "List segments", "Saved and built-in segments of contacts.", "Segments", "contacts.personal_data", "Segment", [], false) },
-  "/segments/{id}/contacts": { get: listing("listSegmentContacts", "List a segment's contacts", "Who's in a segment now.", "Segments", "contacts.personal_data", "Contact", [pathId("id", "segment")]) },
+  "/segments/{id}/contacts": { get: listing("listSegmentContacts", "List a segment's contacts", "Who's in a segment of people now.", "Segments", "contacts.personal_data", "Contact", [pathId("id", "segment")]) },
+  "/segments/{id}/companies": { get: listing("listSegmentCompanies", "List a segment's companies", "Which companies are in a segment of companies now (phase 01 P2a).", "Segments", "contacts.personal_data", "Company", [pathId("id", "segment")]) },
   "/exports": {
     post: write(
       "createExport",
@@ -731,7 +732,7 @@ Object.assign(SPEC.components.schemas, {
     { name: { type: "string" }, model: { type: "string", enum: ["conversation", "contact"] }, value_type: { type: "string" }, options: { type: "array", items: { type: "string" } }, archived: { type: "boolean" } },
     ["name", "model", "value_type"],
   ),
-  Segment: typed("segment", { name: { type: "string" }, predefined: { type: "boolean" } }, ["name"]),
+  Segment: typed("segment", { name: { type: "string" }, predefined: { type: "boolean" }, of: { type: "string", enum: ["contacts", "companies"], description: "What it's made of: people, or companies (phase 01 P2a)." } }, ["name"]),
   Export: typed(
     "export",
     {

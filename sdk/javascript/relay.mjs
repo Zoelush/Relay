@@ -435,7 +435,7 @@ export class Relay {
     return this.request("GET", "/segments", { ...options });
   }
 
-  /** List a segment's contacts. Who's in a segment now. */
+  /** List a segment's contacts. Who's in a segment of people now. */
   listSegmentContacts(id, options = {}) {
     return this.request("GET", `/segments/${e(id)}/contacts`, { ...options });
   }
@@ -445,6 +445,21 @@ export class Relay {
     let after;
     do {
       const page = await this.listSegmentContacts(id, { ...options, query: { ...options.query, ...(after ? { starting_after: after } : {}) } });
+      yield* page.data;
+      after = page.pages.next;
+    } while (after);
+  }
+
+  /** List a segment's companies. Which companies are in a segment of companies now (phase 01 P2a). */
+  listSegmentCompanies(id, options = {}) {
+    return this.request("GET", `/segments/${e(id)}/companies`, { ...options });
+  }
+
+  /** Every page of listSegmentCompanies, item by item. */
+  async *listSegmentCompaniesAll(id, options = {}) {
+    let after;
+    do {
+      const page = await this.listSegmentCompanies(id, { ...options, query: { ...options.query, ...(after ? { starting_after: after } : {}) } });
       yield* page.data;
       after = page.pages.next;
     } while (after);

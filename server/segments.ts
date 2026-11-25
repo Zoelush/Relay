@@ -1,9 +1,22 @@
-import { contactAttributesJson, VALUE_TEXT } from "./contact-attributes";
+import { companyAttributesJson, contactAttributesJson, VALUE_TEXT } from "./contact-attributes";
 import { assert, DomainError, once, type Sql } from "./db";
 import { authorize } from "./policy";
 import { effectiveSubscriptions } from "./subscriptions";
 import { recordContactView } from "./audit";
-import { PREDEFINED, segmentProblems, type ContactFacts, type Rule, type SegmentDefinition } from "../lib/segments";
+import {
+  isGroup,
+  PREDEFINED,
+  PREDEFINED_COMPANIES,
+  rulesOf,
+  segmentProblems,
+  type CompanyFacts,
+  type ContactFacts,
+  type Rule,
+  type SegmentDefinition,
+  type SegmentGroup,
+  type SegmentTarget,
+} from "../lib/segments";
+import { companyPeopleSql } from "./people-sql";
 import { featureOn } from "./plans";
 
 /**
@@ -19,8 +32,11 @@ export async function segmentsOn(db: Sql, w: string) {
   return featureOn(db, w, "segments_v1");
 }
 
-/** The definition as a WHERE clause over `contacts c`, its values appended to `params` (`$1` is the workspace). */
-export function compileSegment(def: SegmentDefinition, params: unknown[], now = Date.now()) {
+/**
+ * SQL for `lib/segments.ts`'s rules, with the same meaning as `matches` and `companyMatches` (the
+ * corpus test holds them to it). Values are appended to `params` (`$1` is the workspace).
+ */
+function sqlFor(params: unknown[], now: number) {
   const p = (v: unknown) => {
     params.push(v);
     return "$" + params.length;
@@ -44,7 +60,47 @@ export function compileSegment(def: SegmentDefinition, params: unknown[], now = 
     const cutoff = p(new Date(now - Number(n) * DAY).toISOString());
     return op === "more_than_days_ago" ? `(${x} IS NOT NULL AND ${x}<${cutoff}::timestamptz)` : `(${x} IS NOT NULL AND ${x}>=${cutoff}::timestamptz)`;
   };
-  const rule = (r: Rule): string => {
+  const number = (x: string, op: Rule["op"], v: unknown) => {
+    if (op === "is_set") return `${x} IS NOT NULL`;
+    if (op === "is_not_set") return `${x} IS NULL`;
+    return `COALESCE(${x}${op === "greater_than" ? ">" : "<"}${p(Number(v))}::numeric,false)`;
+  };
+  /** A typed attribute's value (P1a), by its exact name, for an owner row `alias.id`. */
+  const attribute = (owner: "contact" | "company", alias: string, r: Rule) => {
+    const table = owner === "contact" ? "contact_attribute_values" : "company_attribute_values";
+    const value = (column: string) =>
+      `(SELECT ${column} FROM ${table} v JOIN attribute_definitions d ON d.workspace_id=v.workspace_id AND d.id=v.attribute_id
+        WHERE v.workspace_id=${alias}.workspace_id AND v.${owner}_id=${alias}.id AND d.owner_type='${owner}' AND d.archived_at IS NULL AND d.name=${p(r.key)}::text)`;
+    if (r.op === "greater_than" || r.op === "less_than") return `COALESCE(${value("v.number_value")}${r.op === "greater_than" ? ">" : "<"}${p(Number(r.value))}::numeric,false)`;
+    return text(value(VALUE_TEXT), r.op, r.value);
+  };
+  /** A company rule on a company row aliased `a` (P2a). */
+  const companyRule = (r: Rule, a: string): string => {
+    switch (r.field) {
+      case "name":
+        return text(`${a}.name`, r.op, r.value);
+      case "company_id":
+        return text(`${a}.company_id`, r.op, r.value);
+      case "plan":
+        return text(`${a}.plan`, r.op, r.value);
+      case "seats":
+        return number(`${a}.seats`, r.op, r.value);
+      case "monthly_spend":
+        return number(`${a}.monthly_spend`, r.op, r.value);
+      case "people":
+        return number(companyPeopleSql(a), r.op, r.value);
+      case "created":
+        return date(`${a}.created_at`, r.op, r.value);
+      case "attribute":
+        return attribute("company", a, r);
+      case "tag": {
+        const has = `EXISTS (SELECT 1 FROM company_tags ct WHERE ct.workspace_id=${a}.workspace_id AND ct.company_id=${a}.id AND ct.tag_id=${p(String(r.value))}::text)`;
+        return r.op === "has" ? has : `NOT ${has}`;
+      }
+    }
+    return "false";
+  };
+  const contactRule = (r: Rule): string => {
     switch (r.field) {
       case "role":
         return `c.role${r.op === "is" ? "=" : "<>"}${p(String(r.value))}::text`;
@@ -71,14 +127,8 @@ export function compileSegment(def: SegmentDefinition, params: unknown[], now = 
         return date("c.signed_up_at", r.op, r.value);
       case "unsubscribed":
         return `c.global_unsubscribe=${p(String(r.value) === "true")}::boolean`;
-      case "attribute": {
-        // P1a: the typed store, by the attribute's exact name (as lib/segments.ts reads it).
-        const value = (column: string) =>
-          `(SELECT ${column} FROM contact_attribute_values v JOIN attribute_definitions d ON d.workspace_id=v.workspace_id AND d.id=v.attribute_id
-            WHERE v.workspace_id=c.workspace_id AND v.contact_id=c.id AND d.owner_type='contact' AND d.archived_at IS NULL AND d.name=${p(r.key)}::text)`;
-        if (r.op === "greater_than" || r.op === "less_than") return `COALESCE(${value("v.number_value")}${r.op === "greater_than" ? ">" : "<"}${p(Number(r.value))}::numeric,false)`;
-        return text(value(VALUE_TEXT), r.op, r.value);
-      }
+      case "attribute":
+        return attribute("contact", "c", r);
       case "event": {
         const since = r.days ? ` AND ev.occurred_at>=${p(new Date(now - r.days * DAY).toISOString())}::timestamptz` : "";
         const n = `(SELECT count(*) FROM contact_events ev WHERE ev.workspace_id=c.workspace_id AND ev.contact_id=c.id AND ev.name=${p(r.key)}::text${since})`;
@@ -90,11 +140,47 @@ export function compileSegment(def: SegmentDefinition, params: unknown[], now = 
           ELSE COALESCE((SELECT s.state FROM contact_subscriptions s WHERE s.workspace_id=c.workspace_id AND s.contact_id=c.id AND s.subscription_type_id=${k}::text),
                         (SELECT CASE t.consent WHEN 'opt_out' THEN 'opted_in' ELSE 'opted_out' END FROM subscription_types t WHERE t.workspace_id=c.workspace_id AND t.id=${k}::text)) END)=${p(r.op)}::text`;
       }
+      case "tag": {
+        const has = `EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.workspace_id=c.workspace_id AND ct.contact_id=c.id AND ct.tag_id=${p(String(r.value))}::text)`;
+        return r.op === "has" ? has : `NOT ${has}`;
+      }
+      case "companies": {
+        const any = `EXISTS (SELECT 1 FROM contact_companies cm WHERE cm.workspace_id=c.workspace_id AND cm.contact_id=c.id)`;
+        return r.op === "is_set" ? any : `NOT ${any}`;
+      }
+    }
+    // Any one of their companies matching the company rule (decision 12).
+    if (r.field.startsWith("company.")) {
+      const sub = { ...r, field: r.field.slice("company.".length) };
+      return `EXISTS (SELECT 1 FROM contact_companies cm JOIN companies co ON co.workspace_id=cm.workspace_id AND co.id=cm.company_id
+        WHERE cm.workspace_id=c.workspace_id AND cm.contact_id=c.id AND ${companyRule(sub, "co")})`;
     }
     return "false";
   };
-  if (!def.rules.length) return "true";
-  return "(" + def.rules.map(rule).join(def.match === "all" ? " AND " : " OR ") + ")";
+  const group = (g: SegmentGroup, rule: (r: Rule) => string): string => {
+    if (!g.rules.length) return "true";
+    return "(" + g.rules.map((r) => (isGroup(r) ? group(r, rule) : rule(r))).join(g.match === "all" ? " AND " : " OR ") + ")";
+  };
+  return { contacts: (def: SegmentDefinition) => group(def, contactRule), companies: (def: SegmentDefinition) => group(def, (r) => companyRule(r, "co")) };
+}
+
+/** A people segment as a WHERE clause over `contacts c`, its values appended to `params` (`$1` is the workspace). */
+export function compileSegment(def: SegmentDefinition, params: unknown[], now = Date.now()) {
+  return sqlFor(params, now).contacts(def);
+}
+/** A company segment as a WHERE clause over `companies co` (P2a). */
+export function compileCompanySegment(def: SegmentDefinition, params: unknown[], now = Date.now()) {
+  return sqlFor(params, now).companies(def);
+}
+
+/**
+ * Whether one contact is in a people segment now: one indexed query (P2a, the brief's "membership
+ * for a single contact, cheaply", which targeting calls on every message). A merged-away contact
+ * is never in one.
+ */
+export async function inSegment(db: Sql, w: string, def: SegmentDefinition, contactId: string, now = Date.now()) {
+  const params: unknown[] = [w, contactId];
+  return (await db.query(`SELECT 1 FROM contacts c WHERE c.workspace_id=$1 AND c.id=$2 AND c.merged_into_contact_id IS NULL AND ${compileSegment(def, params, now)}`, params)).rows.length > 0;
 }
 
 /** What `matches` reads for one contact (the events and subscriptions the definition names). */
@@ -112,8 +198,12 @@ export async function contactFacts(db: Sql, w: string, contactId: string, def: S
     }>(`SELECT c.role,c.name,c.external_id,c.first_seen_at,c.last_seen_at,c.signed_up_at,c.global_unsubscribe,${contactAttributesJson("c")} AS profile FROM contacts c WHERE c.workspace_id=$1 AND c.id=$2`, [w, contactId])
   ).rows[0];
   assert(c, "CONTACT_NOT_FOUND", "That person isn't available.", 404);
-  const names = [...new Set(def.rules.filter((r) => r.field === "event").map((r) => r.key!))];
-  const types = [...new Set(def.rules.filter((r) => r.field === "subscription").map((r) => r.key!))];
+  const rules = rulesOf(def);
+  const names = [...new Set(rules.filter((r) => r.field === "event").map((r) => r.key!))];
+  const types = [...new Set(rules.filter((r) => r.field === "subscription").map((r) => r.key!))];
+  // P2a: their tags and companies, when a rule asks for them.
+  const wantsTags = rules.some((r) => r.field === "tag");
+  const wantsCompanies = rules.some((r) => r.field === "companies" || r.field.startsWith("company."));
   const events: Record<string, string[]> = {};
   if (names.length)
     for (const e of (
@@ -134,7 +224,36 @@ export async function contactFacts(db: Sql, w: string, contactId: string, def: S
     profile: c.profile,
     events,
     subscriptions: types.length ? await effectiveSubscriptions(db, w, contactId, types) : {},
+    ...(wantsTags ? { tags: (await db.query<{ tag_id: string }>("SELECT tag_id FROM contact_tags WHERE workspace_id=$1 AND contact_id=$2", [w, contactId])).rows.map((r) => r.tag_id) } : {}),
+    ...(wantsCompanies
+      ? { companies: await companyFacts(db, w, (await db.query<{ company_id: string }>("SELECT company_id FROM contact_companies WHERE workspace_id=$1 AND contact_id=$2", [w, contactId])).rows.map((r) => r.company_id)) }
+      : {}),
   };
+}
+
+/** What `companyMatches` reads, for several companies (P2a). */
+export async function companyFacts(db: Sql, w: string, ids: string[]): Promise<CompanyFacts[]> {
+  if (!ids.length) return [];
+  const rows = (
+    await db.query<{ id: string; name: string; company_id: string; plan: string | null; seats: number | null; monthly_spend: string | null; people: number; created_at: Date; attributes: Record<string, unknown>; tags: string[] }>(
+      `SELECT co.id,co.name,co.company_id,co.plan,co.seats,co.monthly_spend::text AS monthly_spend,${companyPeopleSql("co")} AS people,co.created_at,
+        ${companyAttributesJson("co")} AS attributes,
+        COALESCE((SELECT array_agg(ct.tag_id) FROM company_tags ct WHERE ct.workspace_id=co.workspace_id AND ct.company_id=co.id),'{}') AS tags
+       FROM companies co WHERE co.workspace_id=$1 AND co.id=ANY($2::text[]) ORDER BY co.id`,
+      [w, ids],
+    )
+  ).rows;
+  return rows.map((r) => ({
+    name: r.name,
+    companyId: r.company_id,
+    plan: r.plan,
+    seats: r.seats,
+    monthlySpend: r.monthly_spend === null ? null : Number(r.monthly_spend),
+    people: r.people,
+    createdAt: new Date(r.created_at).toISOString(),
+    attributes: r.attributes,
+    tags: r.tags,
+  }));
 }
 
 /** The contacts a definition matches: how many, and a page of them (latest seen first). */
@@ -156,6 +275,25 @@ export async function matching(db: Sql, w: string, def: SegmentDefinition, page 
   };
 }
 
+/** The companies a company segment matches (P2a): how many, and a page of them (by name). */
+export async function matchingCompanies(db: Sql, w: string, def: SegmentDefinition, page = 0, now = Date.now()) {
+  const params: unknown[] = [w];
+  const where = `co.workspace_id=$1 AND ${compileCompanySegment(def, params, now)}`;
+  const count = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM companies co WHERE ${where}`, params)).rows[0].n;
+  const rows = (
+    await db.query<{ id: string; name: string; company_id: string; plan: string | null; seats: number | null; monthly_spend: string | null; people: number }>(
+      `SELECT co.id,co.name,co.company_id,co.plan,co.seats,co.monthly_spend::text AS monthly_spend,${companyPeopleSql("co")} AS people
+       FROM companies co WHERE ${where} ORDER BY lower(co.name),co.id LIMIT 50 OFFSET ${Math.max(0, Math.min(200, Math.floor(page))) * 50}`,
+      params,
+    )
+  ).rows;
+  return {
+    count,
+    companies: rows.map((r) => ({ id: r.id, name: r.name, companyId: r.company_id, plan: r.plan, seats: r.seats, monthlySpend: r.monthly_spend === null ? null : Number(r.monthly_spend), people: r.people })),
+  };
+}
+const matchingFor = (db: Sql, w: string, target: SegmentTarget, def: SegmentDefinition, page = 0) => (target === "companies" ? matchingCompanies(db, w, def, page) : matching(db, w, def, page));
+
 /* ------------------------------------------------------------------------------------------ */
 /* The People area                                                                             */
 
@@ -166,18 +304,25 @@ async function allowed(db: Sql, w: string, principal: string) {
 }
 async function saved(db: Sql, w: string) {
   return (
-    await db.query<{ id: string; name: string; definition: SegmentDefinition }>("SELECT id,name,definition FROM segments WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id", [w])
+    await db.query<{ id: string; name: string; definition: SegmentDefinition; target: SegmentTarget }>(
+      "SELECT id,name,definition,target FROM segments WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id",
+      [w],
+    )
   ).rows;
 }
-async function definitionOf(db: Sql, w: string, id: string) {
+/** A segment's definition and what it's made of (predefined ones are people). */
+export async function segmentOf(db: Sql, w: string, id: string): Promise<{ definition: SegmentDefinition; target: SegmentTarget }> {
   const pre = PREDEFINED.find((s) => s.id === id);
-  if (pre) return pre.definition;
-  const row = (await db.query<{ definition: SegmentDefinition }>("SELECT definition FROM segments WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL", [w, id])).rows[0];
+  if (pre) return { definition: pre.definition, target: "contacts" };
+  const preCompanies = PREDEFINED_COMPANIES.find((s) => s.id === id);
+  if (preCompanies) return { definition: preCompanies.definition, target: "companies" };
+  const row = (await db.query<{ definition: SegmentDefinition; target: SegmentTarget }>("SELECT definition,target FROM segments WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL", [w, id])).rows[0];
   assert(row, "SEGMENT_NOT_FOUND", "That segment isn't available.", 404);
-  return row.definition;
+  return row;
 }
-const checked = (def: unknown) => {
-  const problems = segmentProblems(def);
+const targetOf = (v: unknown): SegmentTarget => (v === "companies" ? "companies" : "contacts");
+const checked = (def: unknown, target: SegmentTarget = "contacts") => {
+  const problems = segmentProblems(def, target);
   if (problems.length) throw new DomainError("INVALID_SEGMENT", problems[0], 400);
   return def as SegmentDefinition;
 };
@@ -185,11 +330,23 @@ const checked = (def: unknown) => {
 /** The segments (with counts), and what rules can name: attributes, events and subscriptions. */
 export async function readPeople(db: Sql, w: string, principal: string) {
   await allowed(db, w, principal);
-  const segments = [...PREDEFINED.map((s) => ({ ...s, predefined: true })), ...(await saved(db, w)).map((s) => ({ ...s, predefined: false }))];
+  const segments = [
+    ...PREDEFINED.map((s) => ({ ...s, predefined: true, target: "contacts" as SegmentTarget })),
+    ...PREDEFINED_COMPANIES.map((s) => ({ ...s, predefined: true, target: "companies" as SegmentTarget })),
+    ...(await saved(db, w)).map((s) => ({ ...s, predefined: false })),
+  ];
   const counted = [];
-  for (const s of segments) counted.push({ id: s.id, name: s.name, predefined: s.predefined, definition: s.definition, count: (await matching(db, w, s.definition)).count });
+  for (const s of segments) {
+    const target = s.target;
+    counted.push({ id: s.id, name: s.name, predefined: s.predefined, target, definition: s.definition, count: (await matchingFor(db, w, target, s.definition)).count });
+  }
   return {
     segments: counted,
+    // P2a: what tag and company rules can name.
+    tags: (await db.query<{ id: string; name: string }>("SELECT id,name FROM tags WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY lower(name),id", [w])).rows,
+    companyAttributes: (
+      await db.query<{ key: string }>("SELECT name AS key FROM attribute_definitions WHERE workspace_id=$1 AND owner_type='company' AND archived_at IS NULL ORDER BY lower(name) LIMIT 200", [w])
+    ).rows.map((r) => r.key),
     attributes: (
       // P1a: every key in use is a defined attribute now, so the definitions are the whole list.
       await db.query<{ key: string }>(
@@ -211,18 +368,21 @@ export async function readPeople(db: Sql, w: string, principal: string) {
 export async function changePeople(db: Sql, w: string, principal: string, key: string, p: Record<string, unknown>) {
   const t = await allowed(db, w, principal);
   if (p.action === "list") {
-    const def = p.segmentId ? await definitionOf(db, w, String(p.segmentId)) : checked(p.definition);
-    return matching(db, w, def, Number(p.page ?? 0) || 0);
+    // P2a: a segment of people or of companies.
+    const { definition, target } = p.segmentId ? await segmentOf(db, w, String(p.segmentId)) : { target: targetOf(p.target), definition: null };
+    return matchingFor(db, w, target, definition ?? checked(p.definition, target), Number(p.page ?? 0) || 0);
   }
   if (p.action === "contact") return contactDetails(db, w, String(p.contactId ?? ""));
   return once(db, w, "segments:" + principal, key, p, async () => {
     if (p.action === "save") {
       const name = String(p.name ?? "").trim();
       if (!name || name.length > 80) throw new DomainError("INVALID_SEGMENT", "Name the segment (80 characters at most).", 400);
-      const def = checked(p.definition);
       const id = p.id ? String(p.id) : null;
-      assert(!id || !PREDEFINED.some((s) => s.id === id), "SEGMENT_PREDEFINED", "Predefined segments can't be changed: save a copy.", 409);
-      if ((await db.query("SELECT 1 FROM segments WHERE workspace_id=$1 AND lower(name)=lower($2) AND archived_at IS NULL AND id IS DISTINCT FROM $3", [w, name, id])).rows.length || PREDEFINED.some((s) => s.name.toLowerCase() === name.toLowerCase()))
+      assert(!id || ![...PREDEFINED, ...PREDEFINED_COMPANIES].some((s) => s.id === id), "SEGMENT_PREDEFINED", "Predefined segments can't be changed: save a copy.", 409);
+      // P2a: a saved segment keeps what it's made of; a new one is people unless it says companies.
+      const target = id ? (await segmentOf(db, w, id)).target : targetOf(p.target);
+      const def = checked(p.definition, target);
+      if ((await db.query("SELECT 1 FROM segments WHERE workspace_id=$1 AND lower(name)=lower($2) AND archived_at IS NULL AND id IS DISTINCT FROM $3", [w, name, id])).rows.length || [...PREDEFINED, ...PREDEFINED_COMPANIES].some((s) => s.name.toLowerCase() === name.toLowerCase()))
         throw new DomainError("INVALID_SEGMENT", "A segment with that name already exists.", 400);
       if (id) {
         const r = await db.query("UPDATE segments SET name=$3,definition=$4,updated_by=$5,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL RETURNING id", [w, id, name, JSON.stringify(def), t.id]);
@@ -230,11 +390,11 @@ export async function changePeople(db: Sql, w: string, principal: string, key: s
         return { id, ...(await readPeople(db, w, principal)) };
       }
       const created = crypto.randomUUID();
-      await db.query("INSERT INTO segments(workspace_id,id,name,definition,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$5)", [w, created, name, JSON.stringify(def), t.id]);
+      await db.query("INSERT INTO segments(workspace_id,id,name,definition,target,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$6)", [w, created, name, JSON.stringify(def), target, t.id]);
       return { id: created, ...(await readPeople(db, w, principal)) };
     }
     if (p.action === "archive") {
-      assert(!PREDEFINED.some((s) => s.id === p.id), "SEGMENT_PREDEFINED", "Predefined segments can't be archived.", 409);
+      assert(![...PREDEFINED, ...PREDEFINED_COMPANIES].some((s) => s.id === p.id), "SEGMENT_PREDEFINED", "Predefined segments can't be archived.", 409);
       const r = await db.query("UPDATE segments SET archived_at=now(),updated_by=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL RETURNING id", [w, String(p.id ?? ""), t.id]);
       assert(r.rows.length, "SEGMENT_NOT_FOUND", "That segment isn't available.", 404);
       return readPeople(db, w, principal);

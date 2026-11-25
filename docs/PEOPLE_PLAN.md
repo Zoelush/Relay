@@ -38,6 +38,19 @@ event-name registry, subscription types and flat segments.
 9. **Tags on people come from the API and teammates,** not from the messenger.
 10. **An archived tag behaves as on conversations:** it stays, can be taken off, isn't put on again.
 
+## Decisions for P2 (asked, 25 November 2026)
+
+11. **Two steps:** P2a the features (nested and/or groups, tag and company filters on people,
+    segments over companies, a cheap single-contact check); P2b the acceptance run at scale and
+    whatever index or compiler work it shows is needed.
+12. **A company filter on a person means "any one of their companies matches", literally,** for
+    negative rules too: someone at a Pro and a Free company matches "company plan is not Pro". A
+    person in no company never matches a company rule; "in no company" is its own rule.
+13. **Segments over companies are saved, counted and listed** like people segments, in the People
+    area (a People / Companies switch) and the API. Outbound still sends only to people.
+14. **The acceptance run is part of `npm run test:postgres`:** seeded on real PostgreSQL 17, its plan
+    printed, failing over 500 ms.
+
 ## The steps
 
 - **P1a (merged, #122) — typed values for contacts** (`docs/PEOPLE_STEP1.md`): a value table apart from the
@@ -46,9 +59,10 @@ event-name registry, subscription types and flat segments.
 - **P1b (merged, #123) — companies** (`docs/PEOPLE_STEP2.md`): companies with their plan, seats, monthly spend and
   typed attributes; contacts in many companies, with a role on each; the API, the inbox sidebar,
   the messenger's signed claim, merges, webhooks and the portal's company visibility.
-- **P1c (done) — tags on people** (`docs/PEOPLE_STEP3.md`): tags on contacts and companies, in
+- **P1c (merged, #124) — tags on people** (`docs/PEOPLE_STEP3.md`): tags on contacts and companies, in
   the same namespace as conversations', with `contact.tagged` and its siblings.
-- **P2 — segments and the acceptance run:** nested and/or groups, tags, company filters on people
+- **P2a (done) — segments: groups, tags, companies** (`docs/PEOPLE_STEP4.md`). **P2b — the acceptance
+  run.** Together: nested and/or groups, tags, company filters on people
   (any one company matching), segments over companies; then 50,000 contacts, 5,000 companies, 20
   attributes and 2 million events, with the plan and timing of the brief's segment under 500 ms.
 - **P3 — custom objects:** object types with typed attributes, instances, references from contacts,

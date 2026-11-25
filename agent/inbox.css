@@ -2391,3 +2391,13 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-tag-add { padding:2px 9px; border:1px dashed var(--pg-border-strong); border-radius:999px; background:none; color:var(--pg-text-3); font-size:12px; cursor:pointer; }
 .pg-tag-add:hover { color:var(--pg-text); border-color:var(--pg-text-3); }
 .pg-tag-select { padding:2px 6px; border:1px solid var(--pg-input-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); font-size:12px; }
+
+/* Phase 01 P2a: the People / Companies switch, and rules grouped within rules. */
+.pg-people-switch { display:grid; grid-template-columns:1fr 1fr; gap:2px; margin:0 0 10px; padding:3px; border:1px solid var(--pg-border); border-radius:10px; background:var(--pg-hover); }
+.pg-people-switch button { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:5px 8px; border:0; border-radius:7px; background:none; color:var(--pg-text-3); font-size:13px; font-weight:600; cursor:pointer; }
+.pg-people-switch button[aria-pressed="true"] { background:var(--pg-surface); color:var(--pg-text); box-shadow:var(--elev, 0 1px 2px var(--pg-shadow-faint)); }
+.pg-people-group-head { justify-content:space-between; }
+.pg-people-group { display:grid; gap:8px; padding:10px 12px; border:1px solid var(--pg-border); border-left:3px solid var(--pg-accent); border-radius:10px; background:color-mix(in srgb, var(--pg-accent) 4%, var(--pg-surface)); }
+.pg-people-group .pg-people-group { background:var(--pg-surface); }
+.pg-people-group-item { display:block !important; }
+.pg-people-group-actions { display:flex; flex-wrap:wrap; gap:8px; }

@@ -34,7 +34,7 @@ test("outbound definitions and the engine's pure parts: checks, send-time rules,
   assert.deepEqual(one({ delivery: { mode: "event" } }), ["Choose the event that sends it."]);
   assert.deepEqual(one({ delivery: { mode: "recurring", every: { unit: "week", at: "09:00" } } }), ["Choose the day of the week."]);
   assert.deepEqual(one({ startAt: "2026-10-02T00:00:00Z", stopAt: "2026-10-01T00:00:00Z" }), ["Stop after it starts."]);
-  assert.deepEqual(one({ audience: { segmentId: null, rules: { match: "all", rules: [{ field: "company.plan", op: "is", value: "x" }] }, sendTime: [] } }), ["Audience: Rule 1: Companies arrive in phase 01."]);
+  assert.deepEqual(one({ audience: { segmentId: null, rules: { match: "all", rules: [{ field: "custom_object.order", op: "is", value: "x" }] }, sendTime: [] } }), ["Audience: Rule 1: Custom objects arrive in phase 01 (P3)."]);
   assert.deepEqual(one({ audience: { segmentId: null, rules: { match: "all", rules: [] }, sendTime: [{ field: "device", op: "is", value: "tv" as "mobile" }] } }), ["Send-time rule 1: desktop or mobile."]);
 
   // O3: banners: 300 characters, top or bottom, closable or not, an optional https button.

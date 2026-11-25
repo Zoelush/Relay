@@ -1096,7 +1096,23 @@ Saved and built-in segments of contacts.
 
 `GET /segments/{id}/contacts`
 
-Who's in a segment now.
+Who's in a segment of people now.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The segment's id. up to 100 characters |
+| `per_page` | query | integer | no | How many to return, 1 to 100. 1 to 100; default 20 |
+| `starting_after` | query | string | no | The cursor from the previous page's `pages.next`. up to 400 characters |
+
+**Returns:** `200`, object.
+
+### List a segment's companies
+
+`GET /segments/{id}/companies`
+
+Which companies are in a segment of companies now (phase 01 P2a).
 
 **Scope:** `contacts.personal_data`.
 
@@ -1805,6 +1821,7 @@ Your own facts about them: up to 50, each a string (up to 255), a number, a bool
 | `id` | string | yes |  |
 | `name` | string | yes |  |
 | `predefined` | boolean | no |  |
+| `of` | string: `contacts`, `companies` | no | What it's made of: people, or companies (phase 01 P2a). |
 
 ### Export
 

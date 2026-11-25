@@ -11,11 +11,13 @@ import { bridgeAgentRequest } from "../server/agent-bridge";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { mayDeliver, queueDeliveryTo, receiveInbound, registerChannel, runDelivery, type ChannelAdapter, type Outbound } from "../server/channels";
 import { identityIssuer } from "../server/identity";
-import { contactFacts, matching } from "../server/segments";
+import { companyFacts, contactFacts, matching, matchingCompanies } from "../server/segments";
+import { attachCompany, upsertCompany } from "../server/companies";
+import { tagCompany, tagContact } from "../server/people-tags";
 import { messengerEvent } from "../server/events";
 import { preferenceToken } from "../server/subscriptions";
 import { append, conversation } from "../server/conversations";
-import { matches, PREDEFINED, segmentProblems, type Rule, type SegmentDefinition } from "../lib/segments";
+import { companyMatches, matches, PREDEFINED, PREDEFINED_COMPANIES, segmentProblems, type Rule, type SegmentDefinition, type SegmentItem } from "../lib/segments";
 
 /**
  * Events, subscriptions and segments (phase 13, O1; docs/OUTBOUND_STEP1.md): rules checked; the
@@ -28,8 +30,22 @@ test("segment rules: checked with reasons; later phases' data refused by name", 
   assert.deepEqual(segmentProblems({ match: "all", rules: [] }), []);
   assert.deepEqual(segmentProblems({ match: "some", rules: [] }), ["A segment matches all or any of a list of rules."]);
   const one = (r: Partial<Rule>) => segmentProblems({ match: "all", rules: [r as Rule] })[0];
-  assert.equal(one({ field: "company.plan", op: "is", value: "x" }), "Rule 1: Companies arrive in phase 01.");
-  assert.equal(one({ field: "tag", op: "is", value: "vip" }), "Rule 1: Tags on people arrive in phase 01.");
+  assert.equal(one({ field: "custom_object.order", op: "is", value: "x" }), "Rule 1: Custom objects arrive in phase 01 (P3).");
+  // P2a: tags and companies are rules now; groups nest 3 deep with 20 conditions in all.
+  assert.equal(one({ field: "tag", op: "has", value: "vip" }), undefined);
+  assert.equal(one({ field: "tag", op: "has", value: "" }), "Rule 1: choose the tag.");
+  assert.equal(one({ field: "company.plan", op: "is", value: "Pro" }), undefined);
+  assert.equal(one({ field: "company.people", op: "contains", value: "x" }), "Rule 1: company people can't be filtered that way.");
+  assert.equal(one({ field: "plan", op: "is", value: "Pro" }), "Rule 1: choose what to filter on.", "a company's own field isn't a person's");
+  assert.deepEqual(segmentProblems({ match: "all", rules: [{ field: "plan", op: "is", value: "Pro" }] }, "companies"), []);
+  assert.equal(segmentProblems({ match: "all", rules: [{ field: "role", op: "is", value: "user" }] }, "companies")[0], "Rule 1: choose what to filter on.", "nor a person's a company's");
+  const nest = (depth: number): SegmentItem => (depth === 0 ? { field: "phone", op: "is_set" } : { match: "any", rules: [nest(depth - 1)] });
+  assert.deepEqual(segmentProblems({ match: "all", rules: [nest(2)] }), [], "3 deep, counting the definition");
+  assert.deepEqual(segmentProblems({ match: "all", rules: [nest(3)] }), ["Groups go 3 deep at most."]);
+  assert.deepEqual(segmentProblems({ match: "all", rules: [{ match: "any", rules: [] }] }), ["A group needs at least one rule."]);
+  assert.equal(segmentProblems({ match: "all", rules: [{ match: "any", rules: [{ field: "phone", op: "is_set" }, { field: "tag", op: "has", value: "" }] }] })[0], "Rule 2: choose the tag.", "rules numbered in reading order");
+  assert.match(segmentProblems({ match: "any", rules: Array.from({ length: 7 }, () => ({ match: "all", rules: [{ field: "phone", op: "is_set" }, { field: "phone", op: "is_set" }, { field: "phone", op: "is_set" }] }) as SegmentItem) })[0], /20 rules at most/, "conditions counted across groups");
+  for (const s of PREDEFINED_COMPANIES) assert.deepEqual(segmentProblems(s.definition, "companies"), [], s.id);
   assert.equal(one({ field: "role", op: "contains", value: "u" }), "Rule 1: type can't be filtered that way.");
   assert.equal(one({ field: "role", op: "is", value: "admin" }), "Rule 1: choose one of user, lead, visitor.");
   assert.equal(one({ field: "attribute", op: "is", key: "bad key!", value: "x" }), "Rule 1: name the attribute (letters, digits, . _ : -).");
@@ -203,6 +219,48 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
     await sql("a", "SELECT relay_backfill_contact_values()");
     const inferredTypes = Object.fromEntries((await sql<{ name: string; value_type: string }>("a", "SELECT name,value_type FROM attribute_definitions WHERE owner_type='contact'")).map((d) => [d.name, d.value_type]));
     assert.deepEqual(inferredTypes, { beta: "boolean", plan: "string", score: "float", seats: "string" }, "types inferred from what each key held");
+    // P2a: tags on people, and companies (with typed data and tags) that people are in, 0 to 2 each.
+    await sql("a", "INSERT INTO tags(workspace_id,id,name) VALUES('a','t-vip','VIP'),('a','t-churn','Churn risk'),('a','t-beta','Beta')");
+    const companyIds: string[] = [];
+    await tenant(db.connect, "a", async (q) => {
+      const shapes = [
+        { name: "Acme", plan: "Pro", seats: 50, monthly_spend: 2500, custom_attributes: { region: "EMEA", score: 8.5 } },
+        { name: "Globex", plan: "Free", seats: 3, monthly_spend: 0, custom_attributes: { region: "AMER" } },
+        { name: "Initech", plan: "pro", seats: null, monthly_spend: null, custom_attributes: { score: 3.5 } },
+        { name: "Umbrella", plan: null, seats: 400, monthly_spend: 99000.5, custom_attributes: {} },
+        { name: "Hooli", plan: "Enterprise", seats: 12, monthly_spend: 640, custom_attributes: { region: "APAC", score: 5 } },
+        { name: "Nobody Ltd", plan: "Free", seats: 0, monthly_spend: 0, custom_attributes: {} },
+      ];
+      for (const [i, c] of shapes.entries()) {
+        const { id } = await upsertCompany(q, "a", { company_id: "co-" + i, ...c });
+        companyIds.push(id);
+        if (i % 2 === 0) await tagCompany(q, "a", id, pick(["t-vip", "t-beta"]), "api");
+      }
+      for (const id of ids) {
+        if (rand() < 0.35) await tagContact(q, "a", id, pick(["t-vip", "t-churn", "t-beta"]), "api");
+        const n = Math.floor(rand() * 3);
+        for (let k = 0; k < n; k++) await attachCompany(q, "a", id, pick(companyIds.slice(0, 5)), pick(["Admin", ""]), "api");
+      }
+    });
+    /** P2a: company rules, for company segments and (as `company.<field>`) on people. */
+    const companyRules: Rule[] = [
+      ...(["is", "is_not", "contains", "is_set", "is_not_set"] as const).map((op) => ({ field: "plan", op, value: "pro" })),
+      { field: "name", op: "contains", value: "o" },
+      { field: "company_id", op: "is", value: "CO-1" },
+      ...(["seats", "monthly_spend"] as const).flatMap((field) => (["is_set", "is_not_set"] as const).map((op) => ({ field, op }) as Rule)),
+      { field: "seats", op: "greater_than", value: 10 },
+      { field: "seats", op: "less_than", value: 10 },
+      { field: "monthly_spend", op: "greater_than", value: 600 },
+      { field: "people", op: "greater_than", value: 5 },
+      { field: "people", op: "less_than", value: 3 },
+      { field: "created", op: "less_than_days_ago", value: 1 },
+      { field: "created", op: "more_than_days_ago", value: 1 },
+      ...(["is", "is_not", "is_set", "is_not_set"] as const).map((op) => ({ field: "attribute", key: "region", op, value: "emea" })),
+      { field: "attribute", key: "score", op: "greater_than", value: 4 },
+      { field: "attribute", key: "score", op: "less_than", value: 4 },
+      { field: "tag", op: "has", value: "t-vip" },
+      { field: "tag", op: "has_not", value: "t-vip" },
+    ];
     const rules: Rule[] = [
       ...["user", "lead", "visitor"].flatMap((v) => [{ field: "role", op: "is", value: v } as Rule, { field: "role", op: "is_not", value: v } as Rule]),
       ...(["is", "is_not", "contains", "is_set", "is_not_set"] as const).map((op) => ({ field: "name", op, value: "ada" })),
@@ -231,11 +289,21 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
       { field: "event", key: "exported report", op: "not_performed", days: 10 },
       { field: "event", key: "never happens", op: "not_performed" },
       ...[UPDATES, OFFERS, OLD, "missing"].flatMap((key) => [{ field: "subscription", key, op: "opted_in" } as Rule, { field: "subscription", key, op: "opted_out" } as Rule]),
+      // P2a: tags, membership, and a person's companies (any one of them matching, negatives included).
+      ...["t-vip", "t-churn", "missing"].flatMap((value) => [{ field: "tag", op: "has", value } as Rule, { field: "tag", op: "has_not", value } as Rule]),
+      { field: "companies", op: "is_set" },
+      { field: "companies", op: "is_not_set" },
+      ...companyRules.map((r) => ({ ...r, field: "company." + r.field })),
     ];
     const defs: SegmentDefinition[] = [
       { match: "all", rules: [] },
       ...rules.map((r) => ({ match: "all" as const, rules: [r] })),
       ...Array.from({ length: 40 }, () => ({ match: pick(["all", "any"] as const), rules: [pick(rules), pick(rules), pick(rules)] })),
+      // P2a: groups within groups.
+      ...Array.from({ length: 30 }, () => ({
+        match: pick(["all", "any"] as const),
+        rules: [pick(rules), { match: pick(["all", "any"] as const), rules: [pick(rules), pick(rules), { match: pick(["all", "any"] as const), rules: [pick(rules), pick(rules)] }] }],
+      })),
     ];
     let nonTrivial = 0;
     await tenant(db.connect, "a", async (q) => {
@@ -253,11 +321,45 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
       }
     });
     assert.ok(nonTrivial > rules.length / 2, "the corpus tells rules apart");
+    // P2a: company segments, the same way, on every company.
+    const companyDefs: SegmentDefinition[] = [
+      ...PREDEFINED_COMPANIES.map((s) => s.definition),
+      ...companyRules.map((r) => ({ match: "all" as const, rules: [r] })),
+      ...Array.from({ length: 30 }, () => ({ match: pick(["all", "any"] as const), rules: [pick(companyRules), { match: pick(["all", "any"] as const), rules: [pick(companyRules), pick(companyRules)] }] })),
+    ];
+    let companiesApart = 0;
+    await tenant(db.connect, "a", async (q) => {
+      const facts = await companyFacts(q, "a", companyIds);
+      const byId = new Map(facts.map((f) => [companyIds[Number(f.companyId.slice(3))], f]));
+      for (const def of companyDefs) {
+        const bySql = new Set((await matchingCompanies(q, "a", def, 0, now)).companies.map((c) => c.id));
+        const byCode = new Set(companyIds.filter((id) => companyMatches(def, byId.get(id)!, now)));
+        assert.deepEqual([...bySql].sort(), [...byCode].sort(), "companies: " + JSON.stringify(def));
+        if (byCode.size > 0 && byCode.size < companyIds.length) companiesApart++;
+      }
+    });
+    assert.ok(companiesApart > companyRules.length / 2, "the companies tell rules apart");
+    // A person's company rule: someone at a Pro and a Free company matches "plan is not Pro" (decision 12).
+    await tenant(db.connect, "a", async (q) => {
+      const both = ids.find((id) => id) as string;
+      await attachCompany(q, "a", both, companyIds[0], "", "api");
+      await attachCompany(q, "a", both, companyIds[1], "", "api");
+      const facts = await contactFacts(q, "a", both, { match: "all", rules: [{ field: "company.plan", op: "is_not", value: "pro" }] });
+      assert.ok(matches({ match: "all", rules: [{ field: "company.plan", op: "is_not", value: "pro" }] }, facts, now));
+      assert.ok(matches({ match: "all", rules: [{ field: "company.plan", op: "is", value: "pro" }] }, facts, now));
+    });
     await sql("a", "DELETE FROM contact_events");
     await sql("a", "DELETE FROM contact_emails WHERE contact_id LIKE 'c%'");
     await sql("a", "DELETE FROM contact_phones WHERE contact_id LIKE 'c%'");
     await sql("a", "DELETE FROM contact_subscriptions WHERE contact_id LIKE 'c%'");
     await sql("a", "DELETE FROM contact_attribute_values WHERE contact_id LIKE 'c%'");
+    // P2a: memberships and tags go through their writers.
+    await tenant(db.connect, "a", async (q) => {
+      const { deleteCompany } = await import("../server/companies");
+      const { untagContact } = await import("../server/people-tags");
+      for (const id of companyIds) await deleteCompany(q, "a", id);
+      for (const t of (await q.query<{ contact_id: string; tag_id: string }>("SELECT contact_id,tag_id FROM contact_tags WHERE contact_id LIKE 'c%'")).rows) await untagContact(q, "a", t.contact_id, t.tag_id);
+    });
     await sql("a", "DELETE FROM contacts WHERE id LIKE 'c%'");
 
     // Events from the customer's server: signed with the workspace's identity key for one user, kept once by id.
@@ -403,14 +505,19 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
         ["all-leads", 2],
         ["active", 2],
         ["new", 1],
+        // P2a: the predefined company segment (the corpus's companies were deleted with it).
+        ["all-companies", 0],
       ],
     );
+    assert.deepEqual(people.segments.map((s: any) => s.target), ["contacts", "contacts", "contacts", "contacts", "companies"]);
     assert.deepEqual([people.events.sort(), people.subscriptions.map((s: any) => s.name)], [["exported report", "opened billing", "upgraded plan"], ["Offers", "Product updates"]]);
     assert.ok(people.attributes.includes("plan"));
     const pro: SegmentDefinition = { match: "all", rules: [{ field: "role", op: "is", value: "user" }, { field: "event", key: "upgraded plan", op: "performed", days: 30 }] };
     const list = (await agent("people", { action: "list", definition: pro })).body;
     assert.deepEqual([list.count, list.contacts.map((x: any) => x.id)], [1, [ada.id]]);
-    assert.equal((await agent("people", { action: "list", definition: { match: "all", rules: [{ field: "company.plan", op: "is", value: "x" }] } })).body.error.message, "Rule 1: Companies arrive in phase 01.");
+    // P2a: company rules work now; custom objects are still refused by name.
+    assert.equal((await agent("people", { action: "list", definition: { match: "all", rules: [{ field: "company.plan", op: "is", value: "x" }] } })).body.count, 0);
+    assert.equal((await agent("people", { action: "list", definition: { match: "all", rules: [{ field: "custom_object.order", op: "is", value: "x" }] } })).body.error.message, "Rule 1: Custom objects arrive in phase 01 (P3).");
     const saved = (await agent("people", { action: "save", name: "Upgraded lately", definition: pro })).body;
     assert.ok(saved.segments.some((s: any) => s.id === saved.id && s.count === 1));
     assert.match((await agent("people", { action: "save", name: "upgraded LATELY", definition: pro })).body.error.message, /already exists/);
@@ -425,7 +532,7 @@ test("events, subscriptions and segments: one meaning in SQL and code, events ke
     // Another workspace: its own (empty) people and settings; a's person, segment and link aren't its.
     await sql("b", "UPDATE workspace_features SET enabled=true WHERE name='segments_v1'");
     const other = (await agent("people", undefined, "owner-b", "b")).body;
-    assert.deepEqual([other.segments.map((s: any) => s.count), other.events, other.subscriptions], [[0, 0, 0, 0], [], []]);
+    assert.deepEqual([other.segments.map((s: any) => s.count), other.events, other.subscriptions], [[0, 0, 0, 0, 0], [], []], "four people segments and All companies, all empty");
     assert.equal((await agent("people", { action: "contact", contactId: ada.id }, "owner-b", "b")).status, 404);
     assert.equal((await agent("people", { action: "list", segmentId: saved.id }, "owner-b", "b")).status, 404);
     assert.equal((await agent("subscription-settings", { action: "archive", id: OFFERS }, "owner-b", "b")).status, 400);

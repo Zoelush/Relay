@@ -222,6 +222,7 @@ export type Segment = {
   id: string;
   name: string;
   predefined?: boolean;
+  of?: "contacts" | "companies";
 };
 export type Export = {
   type: "export";
@@ -614,6 +615,13 @@ export declare class Relay {
     pages: Pages;
   }>;
   listSegmentContactsAll(id: string, options?: RequestOptions<{ per_page?: number; starting_after?: string }>): AsyncGenerator<Contact>;
+  /** List a segment's companies. */
+  listSegmentCompanies(id: string, options?: RequestOptions<{ per_page?: number; starting_after?: string }>): Promise<{
+    type: "list";
+    data: Company[];
+    pages: Pages;
+  }>;
+  listSegmentCompaniesAll(id: string, options?: RequestOptions<{ per_page?: number; starting_after?: string }>): AsyncGenerator<Company>;
   /** Export data. */
   createExport(body: {
     resources: ("conversations" | "contacts" | "tickets")[];
