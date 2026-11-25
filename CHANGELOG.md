@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: Tags on people and companies
+
+- **Tag customers and their companies** with the same tags your conversations use, so "VIP" means
+  the same everywhere.
+- **From the inbox:** the details panel shows a customer's tags and each company's, with a picker
+  to add one and a button to take one off.
+- **Through the API:** tag and untag contacts and companies; both now carry their tags. Webhooks
+  tell you when a contact or company is tagged or untagged.
+- **Archived tags** stay where they are and can be taken off, but aren't added again.
+- **Details:** `docs/PEOPLE_STEP3.md`.
+
 ## Unreleased: Companies
 
 - **Your customers' companies, with their plan, seats and monthly spend** and any data of your own,

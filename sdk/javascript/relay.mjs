@@ -584,4 +584,24 @@ export class Relay {
   detachContactFromCompany(id, companyId, options = {}) {
     return this.request("DELETE", `/contacts/${e(id)}/companies/${e(companyId)}`, { ...options });
   }
+
+  /** Tag a contact. Put a tag on the contact (the same tags conversations have). An archived tag isn't put on again. */
+  tagContact(id, body, options = {}) {
+    return this.request("POST", `/contacts/${e(id)}/tags`, { ...options, body });
+  }
+
+  /** Remove a tag from a contact. Take a tag off the contact (an archived one too). */
+  untagContact(id, tagId, options = {}) {
+    return this.request("DELETE", `/contacts/${e(id)}/tags/${e(tagId)}`, { ...options });
+  }
+
+  /** Tag a company. Put a tag on the company (the same tags conversations have). An archived tag isn't put on again. */
+  tagCompany(id, body, options = {}) {
+    return this.request("POST", `/companies/${e(id)}/tags`, { ...options, body });
+  }
+
+  /** Remove a tag from a company. Take a tag off the company (an archived one too). */
+  untagCompany(id, tagId, options = {}) {
+    return this.request("DELETE", `/companies/${e(id)}/tags/${e(tagId)}`, { ...options });
+  }
 }

@@ -10,6 +10,7 @@ import { LIMITS, memoryRateLimiter, type RateLimiter } from "./rate-limit";
 import type { AttachmentStorage } from "./attachments";
 import { MORE_HANDLERS } from "./rest-more";
 import { COMPANY_HANDLERS } from "./rest-companies";
+import { contactTagsJson } from "./tag-sql";
 import { WEBHOOK_HANDLERS, type WebhookEnvironment } from "./webhooks";
 import { actingVia, recordContactView } from "./audit";
 import { networkAllowed, normalIp } from "./allowlists";
@@ -124,9 +125,10 @@ export async function readConversation(db: Sql, w: string, id: string, scope?: T
   assert(c, "NOT_FOUND", "No such conversation.", 404);
   return conversationOut(db, w, c);
 }
-export type ContactRow = { id: string; role: string; name: string; external_id: string | null; profile: Record<string, unknown>; first_seen_at: Date; last_seen_at: Date; signed_up_at: Date | null; email: string | null };
+export type ContactRow = { id: string; role: string; name: string; external_id: string | null; profile: Record<string, unknown>; tags?: { type: "tag"; id: string; name: string }[]; first_seen_at: Date; last_seen_at: Date; signed_up_at: Date | null; email: string | null };
 // P1a: custom attributes come from the typed store, never contacts.profile.
-export const CONTACT_SELECT = `SELECT c.id,c.role,c.name,c.external_id,${contactAttributesJson("c")} AS profile,c.first_seen_at,c.last_seen_at,c.signed_up_at,
+// P1c: and their tags.
+export const CONTACT_SELECT = `SELECT c.id,c.role,c.name,c.external_id,${contactAttributesJson("c")} AS profile,${contactTagsJson("c")} AS tags,c.first_seen_at,c.last_seen_at,c.signed_up_at,
   (SELECT e.email FROM contact_emails e WHERE e.workspace_id=c.workspace_id AND e.contact_id=c.id ORDER BY e.verified DESC,e.email LIMIT 1) AS email FROM contacts c`;
 export const contactOut = (c: ContactRow) => ({
   type: "contact",
@@ -136,6 +138,7 @@ export const contactOut = (c: ContactRow) => ({
   email: c.email,
   external_id: c.external_id,
   custom_attributes: c.profile ?? {},
+  tags: c.tags ?? [],
   first_seen_at: iso(c.first_seen_at),
   last_seen_at: iso(c.last_seen_at),
   signed_up_at: iso(c.signed_up_at),

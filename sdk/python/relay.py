@@ -528,3 +528,19 @@ class Relay:
     def detach_contact_from_company(self, id, company_id, *, idempotency_key=None):
         """Take a contact out of a company. They're no longer in it; the company stays."""
         return self.request("DELETE", f"/contacts/{_e(id)}/companies/{_e(company_id)}", query=None, idempotency_key=idempotency_key)
+
+    def tag_contact(self, id, body, *, idempotency_key=None):
+        """Tag a contact. Put a tag on the contact (the same tags conversations have). An archived tag isn't put on again."""
+        return self.request("POST", f"/contacts/{_e(id)}/tags", query=None, body=body, idempotency_key=idempotency_key)
+
+    def untag_contact(self, id, tag_id, *, idempotency_key=None):
+        """Remove a tag from a contact. Take a tag off the contact (an archived one too)."""
+        return self.request("DELETE", f"/contacts/{_e(id)}/tags/{_e(tag_id)}", query=None, idempotency_key=idempotency_key)
+
+    def tag_company(self, id, body, *, idempotency_key=None):
+        """Tag a company. Put a tag on the company (the same tags conversations have). An archived tag isn't put on again."""
+        return self.request("POST", f"/companies/{_e(id)}/tags", query=None, body=body, idempotency_key=idempotency_key)
+
+    def untag_company(self, id, tag_id, *, idempotency_key=None):
+        """Remove a tag from a company. Take a tag off the company (an archived one too)."""
+        return self.request("DELETE", f"/companies/{_e(id)}/tags/{_e(tag_id)}", query=None, idempotency_key=idempotency_key)

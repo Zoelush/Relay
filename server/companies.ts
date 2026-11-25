@@ -2,6 +2,8 @@ import { assert, DomainError, once, type Sql } from "./db";
 import { authorize, can } from "./policy";
 import { resolveContact } from "./people";
 import { recordAudit } from "./audit";
+import { deleteCompanyTags } from "./people-tags";
+import { companyTagsJson } from "./tag-sql";
 import {
   companyAttributesJson,
   deleteCompanyAttributes,
@@ -30,6 +32,7 @@ export type CompanyRow = {
   monthly_spend: string | null;
   website: string | null;
   custom_attributes: Record<string, unknown>;
+  tags: { type: "tag"; id: string; name: string }[];
   contact_count: number;
   created_at: Date;
   updated_at: Date;
@@ -37,7 +40,7 @@ export type CompanyRow = {
 export type MembershipSource = "api" | "inbox" | "messenger" | "merge";
 
 export const COMPANY_SELECT = `SELECT co.id,co.company_id,co.name,co.plan,co.seats,co.monthly_spend::text AS monthly_spend,co.website,
-  ${companyAttributesJson("co")} AS custom_attributes,
+  ${companyAttributesJson("co")} AS custom_attributes,${companyTagsJson("co")} AS tags,
   (SELECT count(*)::int FROM contact_companies m WHERE m.workspace_id=co.workspace_id AND m.company_id=co.id) AS contact_count,
   co.created_at,co.updated_at FROM companies co`;
 
@@ -53,6 +56,7 @@ export const companyOut = (c: CompanyRow) => ({
   monthly_spend: c.monthly_spend === null ? null : Number(c.monthly_spend),
   website: c.website,
   custom_attributes: c.custom_attributes ?? {},
+  tags: c.tags ?? [],
   contact_count: c.contact_count,
   created_at: iso(c.created_at),
   updated_at: iso(c.updated_at),
@@ -256,6 +260,8 @@ export async function deleteCompany(db: Sql, w: string, id: string) {
       [w, id],
     )
   ).rows.length;
+  // P1c: and its tags, likewise without an "untagged" each.
+  await deleteCompanyTags(db, w, id);
   await db.query("SELECT set_config('relay.deleting_company','',true)");
   await deleteCompanyAttributes(db, w, id);
   await db.query("DELETE FROM companies WHERE workspace_id=$1 AND id=$2", [

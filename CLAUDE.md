@@ -55,7 +55,10 @@ data only by `setCompanyAttributes` in `server/contact-attributes.ts`; a test fa
 writer. Each membership records its source; anything that trusts a membership (the portal's company
 visibility) must use `TRUSTED_MEMBERSHIP`, which ignores the messenger's while
 `people_settings.messenger_sets_companies` is off. The messenger may set companies only from the
-signed JWT's `companies` claim, never from HMAC proofs or unsigned fields.
+signed JWT's `companies` claim, never from HMAC proofs or unsigned fields. Tags on contacts and
+companies (P1c, `docs/PEOPLE_STEP3.md`, migration 0109) are written only by `server/people-tags.ts`;
+SQL builders that module-level selects use (`server/tag-sql.ts`) stay free of imports, because the
+people modules import one another.
 
 ## Build plan
 

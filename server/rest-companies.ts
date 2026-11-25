@@ -11,6 +11,7 @@ import {
   type CompanyInput,
   type CompanyRow,
 } from "./companies";
+import { tagCompany, tagContact, untagCompany, untagContact } from "./people-tags";
 import {
   contactOut,
   CONTACT_SELECT,
@@ -110,6 +111,27 @@ export const COMPANY_HANDLERS: Record<
         (m) => m.id === company,
       )!,
     );
+  },
+  // P1c: tags on contacts and companies, answered with the contact or company as it now is.
+  async tagContact(x) {
+    const contact = (await readContact(x.db, x.w, String(x.params.id))).id;
+    await tagContact(x.db, x.w, contact, String(x.body.tag_id), "api");
+    return readContact(x.db, x.w, contact);
+  },
+  async untagContact(x) {
+    const contact = (await readContact(x.db, x.w, String(x.params.id))).id;
+    await untagContact(x.db, x.w, contact, String(x.params.tag_id));
+    return readContact(x.db, x.w, contact);
+  },
+  async tagCompany(x) {
+    const company = (await readCompany(x.db, x.w, String(x.params.id))).id;
+    await tagCompany(x.db, x.w, company, String(x.body.tag_id), "api");
+    return readCompany(x.db, x.w, company);
+  },
+  async untagCompany(x) {
+    const company = (await readCompany(x.db, x.w, String(x.params.id))).id;
+    await untagCompany(x.db, x.w, company, String(x.params.tag_id));
+    return readCompany(x.db, x.w, company);
   },
   async detachContactFromCompany(x) {
     const contact = (await readContact(x.db, x.w, String(x.params.id))).id;

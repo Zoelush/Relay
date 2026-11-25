@@ -6,6 +6,7 @@ import { SlaSection, type SlaContext } from "./sla";
 import { initials } from "./card";
 import { hueOf } from "./colour";
 import { CustomerCompanies, type CustomerCompany } from "./sidebar-companies";
+import { PersonTags, type PersonTag } from "./sidebar-tags";
 
 export type Attribute = {
   id: string;
@@ -30,6 +31,8 @@ export type Context = {
     customAttributes?: Record<string, string | number | boolean>;
     /** P1b: the companies they're in, with their role in each (shown to who may see personal data). */
     companies?: CustomerCompany[];
+    /** P1c: their tags. */
+    tags?: PersonTag[];
     emails?: { value: string; verified: boolean }[];
     phones?: { value: string; verified: boolean }[];
   };
@@ -336,6 +339,9 @@ export function ContextSidebar({
               )}
               {customer.unsubscribed && <dd>Unsubscribed from messages</dd>}
             </dl>
+            {c.personalData && customer.tags && (
+              <PersonTags key={customer.id + ":" + (data?.receivedAt ?? 0)} target={{ contactId: customer.id }} name={customer.name || "this customer"} tags={customer.tags} />
+            )}
           </>
         )}
       </section>

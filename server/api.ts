@@ -15,6 +15,7 @@ import {
 } from "./identity";
 import { getIdentity, mergeVisitorIdentity } from "./people";
 import { applyCompanyClaim, changeCompanies, changePeopleSettings, findCompanies } from "./companies";
+import { changePeopleTags, readPeopleTags } from "./people-tags";
 import {
   command,
   timeline,
@@ -1528,6 +1529,7 @@ export async function handleApi(
             "/v1/agent/people",
             "/v1/agent/companies",
             "/v1/agent/people-settings",
+            "/v1/agent/people-tags",
             "/v1/agent/events-settings",
             "/v1/agent/subscription-settings",
             "/v1/agent/outbound",
@@ -1660,6 +1662,7 @@ export async function handleApi(
               "/v1/agent/people",
               "/v1/agent/companies",
               "/v1/agent/people-settings",
+              "/v1/agent/people-tags",
               "/v1/agent/events-settings",
               "/v1/agent/subscription-settings",
               "/v1/agent/outbound-message",
@@ -2234,6 +2237,9 @@ export async function handleApi(
         if (url.pathname === "/v1/agent/people-settings")
           // Phase 01 P1b: whether the messenger may set a verified user's companies.
           return json(await tenant(env.connect, workspace, (db) => changePeopleSettings(db, workspace, principal, p)));
+        if (url.pathname === "/v1/agent/people-tags")
+          // Phase 01 P1c: a tag put on, or taken off, a customer or one of their companies.
+          return json(await tenant(env.connect, workspace, (db) => changePeopleTags(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
         if (url.pathname === "/v1/agent/people")
           // Phase 13 O1: a segment's or draft rules' people, one person, saving or archiving a segment.
           return json(await tenant(env.connect, workspace, (db) => changePeople(db, workspace, principal, req.headers.get("idempotency-key") ?? "", p)));
@@ -2987,6 +2993,9 @@ export async function handleApi(
       if (url.pathname === "/v1/agent/people-settings")
         // Phase 01 P1b: whether the messenger may set a verified user's companies.
         return json(await tenant(env.connect, workspace, (db) => changePeopleSettings(db, workspace, principal)));
+      if (url.pathname === "/v1/agent/people-tags")
+        // Phase 01 P1c: the tags a teammate can put on a customer or company.
+        return json(await tenant(env.connect, workspace, (db) => readPeopleTags(db, workspace, principal)));
       if (url.pathname === "/v1/agent/people")
         // Phase 13 O1: segments with their counts, and what rules can name.
         return json(await tenant(env.connect, workspace, (db) => readPeople(db, workspace, principal)));

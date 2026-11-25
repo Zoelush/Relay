@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { PersonTags, type PersonTag } from "./sidebar-tags";
 
 /** A customer's company, as the conversation context gives it (phase 01 P1b). */
 export type CustomerCompany = {
@@ -14,6 +15,8 @@ export type CustomerCompany = {
   people: number;
   role: string;
   source: "api" | "inbox" | "messenger" | "merge";
+  /** P1c: the company's tags. */
+  tags: PersonTag[];
 };
 type Found = {
   id: string;
@@ -34,6 +37,7 @@ type Membership = {
   contact_count: number;
   role: string;
   source: CustomerCompany["source"];
+  tags: { id: string; name: string }[];
 };
 
 const asCompany = (m: Membership): CustomerCompany => ({
@@ -48,6 +52,7 @@ const asCompany = (m: Membership): CustomerCompany => ({
   people: m.contact_count,
   role: m.role,
   source: m.source,
+  tags: m.tags,
 });
 const SOURCE: Record<CustomerCompany["source"], string> = {
   api: "Added through the API",
@@ -236,6 +241,7 @@ export function CustomerCompanies({
                   </div>
                 </dl>
               )}
+              <PersonTags key={c.id + ":" + c.tags.map((t) => t.id).join(",")} target={{ companyId: c.id }} name={c.name} tags={c.tags} />
               <div className="pg-company-foot">
                 <small title={SOURCE[c.source]}>{SOURCE[c.source]}</small>
                 {editing !== c.id && (

@@ -148,6 +148,8 @@ export const ERASURE: Step[] = [
   del("contact_attribute_values", "contact_id=ANY($2)"),
   // P1b: the companies they were in (the companies stay: they aren't the person).
   del("contact_companies", "contact_id=ANY($2)"),
+  // P1c: and their tags (the tags themselves stay).
+  del("contact_tags", "contact_id=ANY($2)"),
   del("contact_emails", "contact_id=ANY($2)"),
   del("contact_phones", "contact_id=ANY($2)"),
   del("customer_unread_totals", "identity_id=ANY($3) OR contact_id=ANY($2)"),
@@ -216,7 +218,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   ),
   ...Object.fromEntries(
     // P1b: companies are businesses, not people; a person's link to one goes with them (above).
-    ["companies", "company_attribute_values"].map((t) => [t, "a company and its own data: a business, never a person"]),
+    ["companies", "company_attribute_values", "company_tags"].map((t) => [t, "a company and its own data: a business, never a person"]),
   ),
   ...Object.fromEntries(
     [
