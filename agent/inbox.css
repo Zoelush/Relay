@@ -2356,3 +2356,27 @@ button.pg-wf-letter { border:0; cursor:pointer; }
 .pg-app-suspended { display: block; margin: 6px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--pg-danger-bg); color: var(--pg-danger-text); font-size: 12.5px; font-weight: 500; }
 .pg-app-rejected { color: var(--pg-danger-text); }
 .pg-app-submit { align-self: flex-start; }
+
+/* Phase 01 P1b: the customer's companies in the details sidebar. */
+.pg-company-list { list-style:none; margin:0 0 8px; padding:0; display:grid; gap:8px; }
+.pg-company { display:grid; gap:8px; padding:10px 12px; border:1px solid var(--pg-border); border-radius:12px; background:var(--pg-surface); box-shadow:var(--elev, none); }
+.pg-company-head { display:flex; align-items:center; gap:10px; min-width:0; }
+.pg-company-mark { flex:none; display:grid; place-items:center; width:30px; height:30px; border-radius:8px; background:var(--pg-hover); color:var(--pg-text-2); font-weight:700; font-size:13px; }
+.pg-company-title { display:grid; min-width:0; }
+.pg-company-title strong { overflow-wrap:anywhere; }
+.pg-company-title small { color:var(--pg-muted); }
+.pg-company dl { gap:3px 10px; }
+.pg-company-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.pg-company-foot small { color:var(--pg-muted); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pg-company-actions { display:inline-flex; gap:10px; flex:none; }
+.pg-company-actions .pg-link-button { font-size:12px; }
+.pg-company-role-form, .pg-company-add { display:grid; gap:4px; }
+.pg-company-role-form label, .pg-company-add label { color:var(--pg-text-3); font-size:12px; }
+.pg-company-role-form input, .pg-company-add input { padding:5px 8px; border:1px solid var(--pg-input-border); border-radius:6px; background:var(--pg-surface); color:var(--pg-text); }
+.pg-company-role-form button[type="submit"] { padding:4px 12px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); cursor:pointer; }
+.pg-company-choices { list-style:none; margin:4px 0; padding:0; display:grid; gap:4px; }
+.pg-company-choices button { display:grid; width:100%; text-align:left; gap:1px; padding:6px 8px; border:1px solid var(--pg-border); border-radius:8px; background:var(--pg-surface); color:var(--pg-text); cursor:pointer; }
+.pg-company-choices button:hover:not(:disabled) { background:var(--pg-hover); }
+.pg-company-choices small { color:var(--pg-muted); }
+.pg-company-new { color:var(--pg-accent) !important; font-weight:600; }
+.pg-muted-text { color:var(--pg-muted); }

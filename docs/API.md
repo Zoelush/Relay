@@ -1097,7 +1097,7 @@ Subscribe a public https address to topics. The response carries its signing `se
 | Field | Type | Required | About |
 |---|---|---|---|
 | `url` | string | yes | Where deliveries are POSTed (https). at least 8 characters; up to 2000 characters |
-| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | yes |  |
+| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `company.created`, `company.updated`, `company.deleted`, `company.contact_attached`, `company.contact_detached`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | yes |  |
 | `alert_email` | string or null (email) | no | Told if it's turned off after failing for 24 hours. up to 320 characters |
 
 **Returns:** `201`, Webhook.
@@ -1133,7 +1133,7 @@ Change its address, topics or alert email, or turn it off or back on (back on fo
 | Field | Type | Required | About |
 |---|---|---|---|
 | `url` | string | no | at least 8 characters; up to 2000 characters |
-| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | no |  |
+| `topics` | array of string: `conversation.created`, `conversation.customer_replied`, `conversation.teammate_replied`, `conversation.assigned`, `conversation.closed`, `conversation.rated`, `conversation.tagged`, `ticket.created`, `ticket.state_changed`, `contact.created`, `contact.updated`, `contact.merged`, `company.created`, `company.updated`, `company.deleted`, `company.contact_attached`, `company.contact_detached`, `event.received`, `ai_agent.resolved`, `ai_agent.escalated`, `sla.breached`, `article.published` | no |  |
 | `alert_email` | string or null (email) | no | up to 320 characters |
 | `active` | boolean | no |  |
 
@@ -1227,6 +1227,166 @@ Send the same event and body again, as a new delivery.
 
 **Returns:** `202`, WebhookDelivery.
 
+## Companies
+
+### List companies
+
+`GET /companies`
+
+Companies, by name.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `company_id` | query | string | no | Only the company with your id for it. up to 200 characters |
+| `per_page` | query | integer | no | How many to return, 1 to 100. 1 to 100; default 20 |
+| `starting_after` | query | string | no | The cursor from the previous page's `pages.next`. up to 400 characters |
+
+**Returns:** `200`, object.
+
+### Create or update a company
+
+`POST /companies`
+
+A company, by your `company_id` for it: created (with a name) if there's none, or updated if there is, so retries and syncs are safe. Custom attributes are typed by their definitions; a name not yet defined is defined by its first value.
+
+**Scope:** `contacts.personal_data`.
+
+**Body:**
+
+| Field | Type | Required | About |
+|---|---|---|---|
+| `company_id` | string | yes | Your id for the company. up to 200 characters |
+| `name` | string | no | Its name (needed to create one). up to 255 characters |
+| `plan` | string or null | no | up to 255 characters |
+| `seats` | integer or null | no | How many seats it pays for. |
+| `monthly_spend` | number or null | no | What it spends a month, to the cent. |
+| `website` | string or null | no | up to 2000 characters |
+| `custom_attributes` | CustomAttributes | no | Your own facts about them: up to 50, each a string (up to 255), a number, a boolean or null. |
+
+**Returns:** `200`, Company.
+
+### Retrieve a company
+
+`GET /companies/{id}`
+
+One company.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The company's id. up to 100 characters |
+
+**Returns:** `200`, Company.
+
+### Update a company
+
+`PATCH /companies/{id}`
+
+Change what's given (`null` clears a field or a custom attribute); the rest is left as it is.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The company's id. up to 100 characters |
+
+**Body:**
+
+| Field | Type | Required | About |
+|---|---|---|---|
+| `company_id` | string | no | Your id for the company. up to 200 characters |
+| `name` | string | no | Its name (needed to create one). up to 255 characters |
+| `plan` | string or null | no | up to 255 characters |
+| `seats` | integer or null | no | How many seats it pays for. |
+| `monthly_spend` | number or null | no | What it spends a month, to the cent. |
+| `website` | string or null | no | up to 2000 characters |
+| `custom_attributes` | CustomAttributes | no | Your own facts about them: up to 50, each a string (up to 255), a number, a boolean or null. |
+
+**Returns:** `200`, Company.
+
+### Delete a company
+
+`DELETE /companies/{id}`
+
+The company goes, with its custom data; its people stay, no longer in it. Recorded in the audit log.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The company's id. up to 100 characters |
+
+**Returns:** `200`, object.
+
+### List a company's contacts
+
+`GET /companies/{id}/contacts`
+
+The people in the company, by id.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The company's id. up to 100 characters |
+| `per_page` | query | integer | no | How many to return, 1 to 100. 1 to 100; default 20 |
+| `starting_after` | query | string | no | The cursor from the previous page's `pages.next`. up to 400 characters |
+
+**Returns:** `200`, object.
+
+### List a contact's companies
+
+`GET /contacts/{id}/companies`
+
+The companies they're in, with their role in each.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The contact's id. up to 100 characters |
+
+**Returns:** `200`, object.
+
+### Add a contact to a company
+
+`POST /contacts/{id}/companies`
+
+They join the company (or, if they're in it, their role changes when one is given).
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The contact's id. up to 100 characters |
+
+**Body:**
+
+| Field | Type | Required | About |
+|---|---|---|---|
+| `company_id` | string | yes | The company's id (Relay's, not yours). up to 100 characters |
+| `role` | string | no | What they are there (`Admin`, `Billing contact`). up to 100 characters |
+
+**Returns:** `200`, Membership.
+
+### Take a contact out of a company
+
+`DELETE /contacts/{id}/companies/{company_id}`
+
+They're no longer in it; the company stays.
+
+**Scope:** `contacts.personal_data`.
+
+| Parameter | In | Type | Required | About |
+|---|---|---|---|---|
+| `id` | path | string | yes | The contact's id. up to 100 characters |
+| `company_id` | path | string | yes | The company's id. up to 100 characters |
+
+**Returns:** `200`, object.
+
 ## Search fields
 
 ### Conversations
@@ -1279,13 +1439,18 @@ Also `custom_attributes.<name>` (text, or a number when the value is one). Sorte
 | `contact.created` | A new visitor, lead or user. | contact |
 | `contact.updated` | Their name, role, your id for them, or custom attributes. | contact |
 | `contact.merged` | The contact that remains, with `data.merged_contact_id`. | contact |
+| `company.created` | By the API, a teammate, or a verified user's messenger (when allowed). | company |
+| `company.updated` | Its name, your id for it, plan, seats, monthly spend, website or custom attributes. | company |
+| `company.deleted` | `data.item` holds only its id, `company_id` and name: it's gone. | company |
+| `company.contact_attached` | With `data.contact_id` and `data.role`. | company |
+| `company.contact_detached` | With `data.contact_id`. Not sent for each person when the company itself is deleted. | company |
 | `event.received` | From your server or the messenger. | event |
 | `ai_agent.resolved` | A confirmed or assumed resolution. | conversation |
 | `ai_agent.escalated` | Zoe passed the conversation to the team, with `data.part`. | conversation |
 | `sla.breached` | With `data.metric` (first response, next response, time to close or resolve). | conversation |
 | `article.published` | A new or updated article went live. | article |
 
-Company topics and `contact.tagged` come with companies and tags on people (phase 01).
+`contact.tagged` comes with tags on people (phase 01 P1c).
 
 ## Canvas components
 
@@ -1616,3 +1781,39 @@ Your own facts about them: up to 50, each a string (up to 255), a number, a bool
 | `payload` | object | no | The body sent (on a single delivery). |
 | `attempt_log` | array of object | no | Each attempt (on a single delivery). |
 | `created_at` | string (date-time) | no |  |
+
+### Company
+
+| Field | Type | Always present | About |
+|---|---|---|---|
+| `type` | string: `company` | yes |  |
+| `id` | string | yes |  |
+| `company_id` | string | yes | Your id for it. |
+| `name` | string | yes |  |
+| `plan` | string or null | no |  |
+| `seats` | integer or null | no |  |
+| `monthly_spend` | number or null | no |  |
+| `website` | string or null | no |  |
+| `custom_attributes` | CustomAttributes | no | Your own facts about them: up to 50, each a string (up to 255), a number, a boolean or null. |
+| `contact_count` | integer | no | How many people are in it. |
+| `created_at` | string (date-time) | no |  |
+| `updated_at` | string (date-time) | no |  |
+
+### Membership
+
+| Field | Type | Always present | About |
+|---|---|---|---|
+| `type` | string: `company` | yes |  |
+| `id` | string | yes |  |
+| `company_id` | string | yes | Your id for it. |
+| `name` | string | yes |  |
+| `plan` | string or null | no |  |
+| `seats` | integer or null | no |  |
+| `monthly_spend` | number or null | no |  |
+| `website` | string or null | no |  |
+| `custom_attributes` | CustomAttributes | no | Your own facts about them: up to 50, each a string (up to 255), a number, a boolean or null. |
+| `contact_count` | integer | no | How many people are in it. |
+| `created_at` | string (date-time) | no |  |
+| `updated_at` | string (date-time) | no |  |
+| `role` | string | yes | The contact's role there (may be empty). |
+| `source` | string: `api`, `inbox`, `messenger`, `merge` | no | Who added them to it. |

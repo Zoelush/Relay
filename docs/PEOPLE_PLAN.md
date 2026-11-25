@@ -21,14 +21,28 @@ event-name registry, subscription types and flat segments.
    messenger; what they send on other channels is kept but filed away — no inbox, no notification,
    no Zoe, no SLA. Audited and reversible, and unblocking loses nothing.
 
+## Decisions for P1b (asked, 25 November 2026)
+
+5. **Companies and tags on people are two steps:** P1b companies, P1c tags on contacts and companies.
+6. **The messenger sets companies only through the signed identity token** (a `companies` claim in
+   the JWT), never from legacy HMAC proofs or unsigned fields, and only while the workspace has
+   turned it on.
+7. **The portal's company visibility works in P1b.** A customer sees the requests of people who
+   share a company with them; a membership the messenger set counts only while the workspace allows
+   the messenger to set companies.
+8. **A company can be deleted,** taking its memberships and values with it; the deletion is in the
+   audit log. A company isn't personal data.
+
 ## The steps
 
-- **P1a (done) — typed values for contacts** (`docs/PEOPLE_STEP1.md`): a value table apart from the
+- **P1a (merged, #122) — typed values for contacts** (`docs/PEOPLE_STEP1.md`): a value table apart from the
   definitions, indexed per type; `profile` migrated into it; one writer for every source (API,
   workflows, merges); segments, the sidebar and the API reading it.
-- **P1b — companies and tags on people:** companies with their plan, seats, monthly spend and typed
-  attributes; contacts in many companies, with a role on each; tags on contacts and companies, in
-  the same namespace as conversations'.
+- **P1b (done) — companies** (`docs/PEOPLE_STEP2.md`): companies with their plan, seats, monthly spend and
+  typed attributes; contacts in many companies, with a role on each; the API, the inbox sidebar,
+  the messenger's signed claim, merges, webhooks and the portal's company visibility.
+- **P1c — tags on people:** tags on contacts and companies, in the same namespace as
+  conversations', with `contact.tagged`.
 - **P2 — segments and the acceptance run:** nested and/or groups, tags, company filters on people
   (any one company matching), segments over companies; then 50,000 contacts, 5,000 companies, 20
   attributes and 2 million events, with the plan and timing of the brief's segment under 500 ms.

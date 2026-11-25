@@ -49,7 +49,13 @@ Phase 01 is being finished (`docs/PEOPLE_PLAN.md`). A contact's custom data is t
 `server/contact-attributes.ts` (`setContactAttributes`, `replaceContactAttributes`,
 `mergeContactAttributes`) for every source — never write `contacts.profile`, which that writer keeps
 in step for one release (a test fails on another writer). Read values with `contactAttributesJson`;
-segments, the sidebar and the API already do.
+segments, the sidebar and the API already do. Companies (P1b, `docs/PEOPLE_STEP2.md`, migration
+0108) are written only by `server/companies.ts` (companies and `contact_companies`) and their custom
+data only by `setCompanyAttributes` in `server/contact-attributes.ts`; a test fails on another
+writer. Each membership records its source; anything that trusts a membership (the portal's company
+visibility) must use `TRUSTED_MEMBERSHIP`, which ignores the messenger's while
+`people_settings.messenger_sets_companies` is off. The messenger may set companies only from the
+signed JWT's `companies` claim, never from HMAC proofs or unsigned fields.
 
 ## Build plan
 

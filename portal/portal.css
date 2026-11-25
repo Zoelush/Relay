@@ -45,3 +45,6 @@ form button { align-self: flex-end; background: var(--accent); color: #fff; bord
 form button:disabled { opacity: 0.5; cursor: default; }
 [dir="rtl"] .message.mine { align-self: flex-start; }
 [dir="rtl"] .message { align-self: flex-end; }
+
+/* Phase 01 P1b: a colleague's request, shared through the company, is read-only here. */
+.shared-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, currentColor 6%, transparent); font-size: 14px; }

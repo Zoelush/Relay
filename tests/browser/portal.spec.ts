@@ -180,3 +180,45 @@ test("another customer, signed in with a link from the site, cannot see or open 
     frame.getByRole("button", { name: "Your tickets and requests" }),
   ).toHaveCount(0);
 });
+
+/**
+ * Phase 01 P1b (docs/PEOPLE_STEP2.md): with "everyone at their company", a customer sees a
+ * colleague's request, marked with whose it is, and reads it without a reply box; back to "only
+ * their own", it's gone and its address shows nothing.
+ */
+test("company visibility: a colleague's request is shown, read-only; with individual visibility it isn't", async ({ browser }) => {
+  const jo = await (await browser.newContext()).newPage();
+  await signedInMessenger(jo, "jo3", "Jo's shared printer problem");
+  const shared = await conversationId("Jo's shared printer problem");
+  const sam = await (await browser.newContext()).newPage();
+  await sam.goto(relay.hostOrigin + "/demo/portal-link?user=sam3");
+  await expect(sam.getByRole("heading", { name: "Your requests" })).toBeVisible();
+  await expect(sam.getByText("Jo's shared printer problem")).toHaveCount(0);
+
+  // Both at Wayne Enterprises (as the API would put them), and the portal set to the company.
+  const { upsertCompany, attachCompany } = await import("../../server/companies");
+  await tenant(relay.db.connect, "demo", async (db) => {
+    const { id } = await upsertCompany(db, "demo", { company_id: "wayne", name: "Wayne Enterprises" });
+    for (const user of ["jo3", "sam3"]) {
+      const contact = (await db.query<{ id: string }>("SELECT id FROM contacts WHERE workspace_id='demo' AND external_id=$1", [user])).rows[0].id;
+      await attachCompany(db, "demo", contact, id, null, "api");
+    }
+    await db.query("INSERT INTO portal_settings(workspace_id,visibility) VALUES('demo','company') ON CONFLICT(workspace_id) DO UPDATE SET visibility='company'");
+  });
+  await sam.reload();
+  const list = sam.getByRole("list", { name: "Your requests" });
+  const item = list.getByRole("link", { name: /Jo's shared printer problem/ });
+  await expect(item).toContainText("From ");
+  await item.click();
+  await expect(sam.getByTestId("shared-note")).toContainText("Shared with your company.");
+  await expect(sam.getByRole("list", { name: "Messages" })).toContainText("Jo's shared printer problem");
+  await expect(sam.getByRole("textbox", { name: "Write a reply" })).toHaveCount(0);
+
+  // Only their own again: gone from the list, and its address shows nothing.
+  await sql("UPDATE portal_settings SET visibility='individual' WHERE workspace_id='demo'");
+  await sam.goto(`${new URL(sam.url()).origin}/portal/demo/default`);
+  await expect(sam.getByRole("heading", { name: "Your requests" })).toBeVisible();
+  await expect(sam.getByText("Jo's shared printer problem")).toHaveCount(0);
+  await sam.goto(`${new URL(sam.url()).origin}/portal/demo/default?request=${encodeURIComponent(shared)}`);
+  await expect(sam.getByRole("alert")).toHaveText("Conversation unavailable.");
+});

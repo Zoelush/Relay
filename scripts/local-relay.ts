@@ -36,6 +36,7 @@ import { tenant, digest, type Sql } from "../server/db";
 import { normalizeDoc, plainText, type RichDoc } from "../lib/rich-doc";
 import { handleApi, type ApiEnvironment } from "../server/api";
 import { setContactAttributes } from "../server/contact-attributes";
+import { attachCompany, upsertCompany } from "../server/companies";
 import { notifyUninstalled } from "../server/canvas";
 import { RealtimeClient, fanOutSignal } from "../server/realtime";
 import { messengerAsset, portalAsset } from "../server/assets";
@@ -1148,6 +1149,13 @@ export async function startLocalRelay(
         const { contactId } = await getIdentity(q, "demo", "user", p.id, { name: p.name, email: p.email });
         // P1a: their custom data through the one writer, as typed values.
         await setContactAttributes(q, "demo", contactId, p.profile, { define: true });
+        // P1b: Ada runs Analytical Engines Ltd; Grace is at the Navy Computing Lab.
+        const company =
+          p.id === "ada-demo"
+            ? { company_id: "aeng", name: "Analytical Engines Ltd", plan: "Pro", seats: 12, monthly_spend: 480, custom_attributes: { region: "EMEA" } }
+            : { company_id: "ncl", name: "Navy Computing Lab", plan: "Free", seats: 1, monthly_spend: 0, custom_attributes: { region: "AMER" } };
+        const { id: companyId } = await upsertCompany(q, "demo", company);
+        await attachCompany(q, "demo", contactId, companyId, p.id === "ada-demo" ? "Founder" : "Engineer", "api");
         await q.query("UPDATE contacts SET signed_up_at=$2,last_seen_at=$3 WHERE workspace_id='demo' AND id=$1", [
           contactId,
           new Date(Date.now() - p.signedUp * day).toISOString(),

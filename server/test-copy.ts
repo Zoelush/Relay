@@ -87,6 +87,8 @@ export const COPIED: { table: string; why?: string; uploads?: true }[] = [
   { table: "redaction_rules" },
   { table: "link_policies" },
   { table: "audit_settings" },
+  // P1b: whether the messenger may set a verified user's companies.
+  { table: "people_settings" },
   // T2b: the images the configuration above refers to, brought by `copyUploads` rather than by
   // the column copy — bytes have to be copied too, and each workspace keys its own.
   { table: "brand_assets", uploads: true, why: "the messenger's images and Zoe's avatars, as the copied settings name them" },
@@ -105,7 +107,7 @@ const PAIR = "the production workspace's record of the pair, kept and read only 
 export const NOT_COPIED: Record<string, string> = {
   ...Object.fromEntries(
     [
-      "contacts", "contact_changes", "contact_attribute_values", "contact_emails", "contact_phones", "contact_events", "contact_merges",
+      "contacts", "contact_changes", "contact_attribute_values", "companies", "company_attribute_values", "contact_companies", "contact_emails", "contact_phones", "contact_events", "contact_merges",
       "contact_subscriptions", "contact_subscription_changes", "identities", "identity_addresses",
       "identity_contact_mappings", "conversations", "conversation_parts", "conversation_part_images",
       "conversation_part_delivery_events", "conversation_participants", "conversation_reads", "conversation_tags",

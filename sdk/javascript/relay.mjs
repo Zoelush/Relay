@@ -519,4 +519,69 @@ export class Relay {
   replayWebhookDelivery(id, deliveryId, options = {}) {
     return this.request("POST", `/webhooks/${e(id)}/deliveries/${e(deliveryId)}/replay`, { ...options });
   }
+
+  /** List companies. Companies, by name. */
+  listCompanies(options = {}) {
+    return this.request("GET", "/companies", { ...options });
+  }
+
+  /** Every page of listCompanies, item by item. */
+  async *listCompaniesAll(options = {}) {
+    let after;
+    do {
+      const page = await this.listCompanies({ ...options, query: { ...options.query, ...(after ? { starting_after: after } : {}) } });
+      yield* page.data;
+      after = page.pages.next;
+    } while (after);
+  }
+
+  /** Create or update a company. A company, by your `company_id` for it: created (with a name) if there's none, or updated if there is, so retries and syncs are safe. Custom attributes are typed by their definitions; a name not yet defined is defined by its first value. */
+  createCompany(body, options = {}) {
+    return this.request("POST", "/companies", { ...options, body });
+  }
+
+  /** Retrieve a company. One company. */
+  getCompany(id, options = {}) {
+    return this.request("GET", `/companies/${e(id)}`, { ...options });
+  }
+
+  /** Update a company. Change what's given (`null` clears a field or a custom attribute); the rest is left as it is. */
+  updateCompany(id, body, options = {}) {
+    return this.request("PATCH", `/companies/${e(id)}`, { ...options, body });
+  }
+
+  /** Delete a company. The company goes, with its custom data; its people stay, no longer in it. Recorded in the audit log. */
+  deleteCompany(id, options = {}) {
+    return this.request("DELETE", `/companies/${e(id)}`, { ...options });
+  }
+
+  /** List a company's contacts. The people in the company, by id. */
+  listCompanyContacts(id, options = {}) {
+    return this.request("GET", `/companies/${e(id)}/contacts`, { ...options });
+  }
+
+  /** Every page of listCompanyContacts, item by item. */
+  async *listCompanyContactsAll(id, options = {}) {
+    let after;
+    do {
+      const page = await this.listCompanyContacts(id, { ...options, query: { ...options.query, ...(after ? { starting_after: after } : {}) } });
+      yield* page.data;
+      after = page.pages.next;
+    } while (after);
+  }
+
+  /** List a contact's companies. The companies they're in, with their role in each. */
+  listContactCompanies(id, options = {}) {
+    return this.request("GET", `/contacts/${e(id)}/companies`, { ...options });
+  }
+
+  /** Add a contact to a company. They join the company (or, if they're in it, their role changes when one is given). */
+  attachContactToCompany(id, body, options = {}) {
+    return this.request("POST", `/contacts/${e(id)}/companies`, { ...options, body });
+  }
+
+  /** Take a contact out of a company. They're no longer in it; the company stays. */
+  detachContactFromCompany(id, companyId, options = {}) {
+    return this.request("DELETE", `/contacts/${e(id)}/companies/${e(companyId)}`, { ...options });
+  }
 }

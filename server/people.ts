@@ -4,6 +4,7 @@ import { capabilities } from "./policy";
 import { wrapIdentityKey } from "./identity";
 import { refreshIdentityUnread } from "./unread";
 import { recordAudit } from "./audit";
+import { mergeCompanies, unmergeCompanies } from "./companies";
 
 export async function seedFoundation(
   db: Sql,
@@ -302,6 +303,8 @@ export async function mergeVisitorIdentity(
   );
   // P1a: the values move through the one writer; the survivor's own win, false/0/empty included.
   await mergeContactAttributes(db, workspace, loser, survivor);
+  // P1b: and the loser's companies it isn't in, recorded so a reversal takes exactly those away.
+  const companiesAdded = await mergeCompanies(db, workspace, loser, survivor);
   const after = (await db.query<{ profile: Record<string, unknown> }>("SELECT profile FROM contacts WHERE workspace_id=$1 AND id=$2", [workspace, survivor])).rows[0].profile;
   const changes = {
     identityId,
@@ -309,6 +312,7 @@ export async function mergeVisitorIdentity(
     loserBefore: a,
     survivorBefore: b,
     survivorProfileAfter: after,
+    companiesAdded,
   };
   await db.query(
     "UPDATE identity_contact_mappings SET contact_id=$3,version=version+1 WHERE workspace_id=$1 AND identity_id=$2",
@@ -394,6 +398,7 @@ export async function reverseContactMerge(
         loserAfter: { version: number };
         survivorAfter: { profile: Record<string, unknown>; version: number };
         survivorBefore: { profile: Record<string, unknown>; version: number };
+        companiesAdded?: string[];
       };
       reversed_at: string | null;
     }>(
@@ -445,6 +450,8 @@ export async function reverseContactMerge(
   );
   // P1a: the survivor's values put back exactly as they were before the merge.
   await replaceContactAttributes(db, workspace, audit.survivor_id, log.survivorBefore.profile ?? {});
+  // P1b: and the companies the merge gave them taken away again.
+  await unmergeCompanies(db, workspace, audit.survivor_id, log.companiesAdded);
   await db.query("UPDATE contacts SET version=version+1 WHERE workspace_id=$1 AND id=$2", [workspace, audit.survivor_id]);
   await db.query(
     "UPDATE contact_merges SET reversed_at=now(),changes=changes||jsonb_build_object('reversal',jsonb_build_object('mappingBefore',$3::jsonb,'survivorBefore',$4::jsonb,'restoredProfile',$5::jsonb)) WHERE workspace_id=$1 AND id=$2",

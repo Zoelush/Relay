@@ -32,7 +32,7 @@ export const PERMISSION_INFO: Record<string, PermissionInfo> = {
   "contacts.personal_data": {
     group: "Customers",
     label: "See customers' personal details",
-    description: "Names, email addresses, phone numbers and profiles: in conversations, in People and through the API.",
+    description: "Names, email addresses, phone numbers, profiles and companies: in conversations, in People and through the API.",
     restricted: false,
   },
   "macros.use": { group: "Macros", label: "Use macros", description: "Apply saved replies and their actions to a conversation.", restricted: true },

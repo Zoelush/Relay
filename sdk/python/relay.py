@@ -472,3 +472,59 @@ class Relay:
     def replay_webhook_delivery(self, id, delivery_id, *, idempotency_key=None):
         """Replay a delivery. Send the same event and body again, as a new delivery."""
         return self.request("POST", f"/webhooks/{_e(id)}/deliveries/{_e(delivery_id)}/replay", query=None, idempotency_key=idempotency_key)
+
+    def list_companies(self, *, company_id=None, per_page=None, starting_after=None, idempotency_key=None):
+        """List companies. Companies, by name."""
+        return self.request("GET", "/companies", query={"company_id": company_id, "per_page": per_page, "starting_after": starting_after}, idempotency_key=idempotency_key)
+
+    def iter_list_companies(self, *, company_id=None, per_page=None):
+        """Every page of list_companies, item by item."""
+        after = None
+        while True:
+            page = self.list_companies(company_id=company_id, per_page=per_page, starting_after=after)
+            yield from page["data"]
+            after = page["pages"]["next"]
+            if not after:
+                return
+
+    def create_company(self, body, *, idempotency_key=None):
+        """Create or update a company. A company, by your `company_id` for it: created (with a name) if there's none, or updated if there is, so retries and syncs are safe. Custom attributes are typed by their definitions; a name not yet defined is defined by its first value."""
+        return self.request("POST", "/companies", query=None, body=body, idempotency_key=idempotency_key)
+
+    def get_company(self, id, *, idempotency_key=None):
+        """Retrieve a company. One company."""
+        return self.request("GET", f"/companies/{_e(id)}", query=None, idempotency_key=idempotency_key)
+
+    def update_company(self, id, body, *, idempotency_key=None):
+        """Update a company. Change what's given (`null` clears a field or a custom attribute); the rest is left as it is."""
+        return self.request("PATCH", f"/companies/{_e(id)}", query=None, body=body, idempotency_key=idempotency_key)
+
+    def delete_company(self, id, *, idempotency_key=None):
+        """Delete a company. The company goes, with its custom data; its people stay, no longer in it. Recorded in the audit log."""
+        return self.request("DELETE", f"/companies/{_e(id)}", query=None, idempotency_key=idempotency_key)
+
+    def list_company_contacts(self, id, *, per_page=None, starting_after=None, idempotency_key=None):
+        """List a company's contacts. The people in the company, by id."""
+        return self.request("GET", f"/companies/{_e(id)}/contacts", query={"per_page": per_page, "starting_after": starting_after}, idempotency_key=idempotency_key)
+
+    def iter_list_company_contacts(self, id, *, per_page=None):
+        """Every page of list_company_contacts, item by item."""
+        after = None
+        while True:
+            page = self.list_company_contacts(id, per_page=per_page, starting_after=after)
+            yield from page["data"]
+            after = page["pages"]["next"]
+            if not after:
+                return
+
+    def list_contact_companies(self, id, *, idempotency_key=None):
+        """List a contact's companies. The companies they're in, with their role in each."""
+        return self.request("GET", f"/contacts/{_e(id)}/companies", query=None, idempotency_key=idempotency_key)
+
+    def attach_contact_to_company(self, id, body, *, idempotency_key=None):
+        """Add a contact to a company. They join the company (or, if they're in it, their role changes when one is given)."""
+        return self.request("POST", f"/contacts/{_e(id)}/companies", query=None, body=body, idempotency_key=idempotency_key)
+
+    def detach_contact_from_company(self, id, company_id, *, idempotency_key=None):
+        """Take a contact out of a company. They're no longer in it; the company stays."""
+        return self.request("DELETE", f"/contacts/{_e(id)}/companies/{_e(company_id)}", query=None, idempotency_key=idempotency_key)

@@ -13,6 +13,8 @@ type Request = {
   status: string;
   updatedAt: string;
   ticket: { number: number; typeName: string; label: string } | null;
+  /** P1b: a colleague's request, shared through their company — whose it is. */
+  sharedBy: string | null;
 };
 type Part = {
   id: string;
@@ -32,6 +34,7 @@ type Detail = {
   title: string;
   status: string;
   ticket: Request["ticket"];
+  sharedBy: string | null;
   parts: Part[];
 };
 
@@ -259,6 +262,9 @@ function Portal() {
                   >
                     <span className="title">{r.title || t.messages}</span>
                     <span className="meta">
+                      {r.sharedBy && (
+                        <>{t.portalFrom.replace("{name}", r.sharedBy)} · </>
+                      )}
                       {r.ticket ? ticketLine(r.ticket) : state(r.status)} ·{" "}
                       {t.portalUpdated} {when(r.updatedAt)}
                     </span>
@@ -315,24 +321,30 @@ function Portal() {
                     ) : null,
                   )}
                 </ol>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void send();
-                  }}
-                >
-                  <label htmlFor="portal-reply">{t.portalReply}</label>
-                  <textarea
-                    id="portal-reply"
-                    rows={4}
-                    maxLength={5000}
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                  />
-                  <button type="submit" disabled={busy || !reply.trim()}>
-                    {t.portalSend}
-                  </button>
-                </form>
+                {detail.sharedBy ? (
+                  <p className="shared-note" data-testid="shared-note">
+                    {t.portalSharedNote.replace("{name}", detail.sharedBy)}
+                  </p>
+                ) : (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void send();
+                    }}
+                  >
+                    <label htmlFor="portal-reply">{t.portalReply}</label>
+                    <textarea
+                      id="portal-reply"
+                      rows={4}
+                      maxLength={5000}
+                      value={reply}
+                      onChange={(e) => setReply(e.target.value)}
+                    />
+                    <button type="submit" disabled={busy || !reply.trim()}>
+                      {t.portalSend}
+                    </button>
+                  </form>
+                )}
               </>
             )}
           </article>

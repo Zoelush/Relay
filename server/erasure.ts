@@ -146,6 +146,8 @@ export const ERASURE: Step[] = [
   del("contact_changes", "contact_id=ANY($2)"),
   // P1a: their custom data, as typed values.
   del("contact_attribute_values", "contact_id=ANY($2)"),
+  // P1b: the companies they were in (the companies stay: they aren't the person).
+  del("contact_companies", "contact_id=ANY($2)"),
   del("contact_emails", "contact_id=ANY($2)"),
   del("contact_phones", "contact_id=ANY($2)"),
   del("customer_unread_totals", "identity_id=ANY($3) OR contact_id=ANY($2)"),
@@ -208,7 +210,13 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
       // T2a: the pair's baselines, and what has been promoted into this workspace (an object's
       // name and the teammate who promoted it, never anything about a customer).
       "test_baselines", "promotions",
+      // P1b: whether the messenger may set companies.
+      "people_settings",
     ].map((t) => [t, CONFIG]),
+  ),
+  ...Object.fromEntries(
+    // P1b: companies are businesses, not people; a person's link to one goes with them (above).
+    ["companies", "company_attribute_values"].map((t) => [t, "a company and its own data: a business, never a person"]),
   ),
   ...Object.fromEntries(
     [

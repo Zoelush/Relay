@@ -536,7 +536,8 @@ test("portal: verified sign-in only, own requests only, nothing internal, same-o
     const company = (await agent({ op: "visibility", visibility: "company" }))
       .body;
     assert.equal(company.visibility, "company");
-    assert.match(company.notice, /once companies exist/);
+    // P1b: company visibility works now; its notice says what counts (tests/companies.test.ts proves it).
+    assert.match(company.notice, /share a company with them/);
     assert.equal(
       (await call("/v1/portal/context", { host: "help.shop.test" })).body.brand
         .name,
